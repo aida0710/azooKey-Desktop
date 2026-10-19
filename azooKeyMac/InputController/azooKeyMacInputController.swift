@@ -663,11 +663,6 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             cursorLocation: rect.origin
         )
 
-        if Config.LiveConversion().value {
-            self.predictionWindow.orderFront(nil)
-            return
-        }
-
         if self.candidatesWindow.isVisible {
             self.positionPredictionWindowRightOfCandidateWindow()
         }
@@ -684,13 +679,26 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             return
         }
 
-        let frame = WindowPositioning.frameRightOfAnchor(
+        var frame = WindowPositioning.frameRightOfAnchor(
             currentFrame: WindowPositioning.Rect(self.predictionWindow.frame),
             anchorFrame: WindowPositioning.Rect(anchorFrame),
             screenRect: WindowPositioning.Rect(screen.visibleFrame),
             gap: Double(gap)
-        )
-        self.predictionWindow.setFrame(frame.cgRect, display: true)
+        ).cgRect
+        // The compact tree also appears during live conversion. At a screen
+        // edge the usual horizontal clamp can put predictions on top of it.
+        if Config.TreeCandidates().value, frame.intersects(anchorFrame) {
+            let below = anchorFrame.minY - frame.height - gap
+            let above = anchorFrame.maxY + gap
+            if below >= screen.visibleFrame.minY {
+                frame.origin.y = below
+            } else if above + frame.height <= screen.visibleFrame.maxY {
+                frame.origin.y = above
+            } else if anchorFrame.minX - frame.width - gap >= screen.visibleFrame.minX {
+                frame.origin.x = anchorFrame.minX - frame.width - gap
+            }
+        }
+        self.predictionWindow.setFrame(frame, display: true)
     }
 
     private func showCachedPredictionWindow() {
@@ -713,6 +721,9 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             selectionIndex: nil,
             cursorLocation: rect.origin
         )
+        if self.candidatesWindow.isVisible {
+            self.positionPredictionWindowRightOfCandidateWindow()
+        }
         self.predictionWindow.orderFront(nil)
     }
 

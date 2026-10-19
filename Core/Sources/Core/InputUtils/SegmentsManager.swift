@@ -714,6 +714,14 @@ public final class SegmentsManager {
         case .none, .previewing, .replaceSuggestion, .attachDiacritic, .unicodeInput:
             return .hidden
         case .composing:
+            if Config.TreeCandidates().value, let candidates, !candidates.isEmpty,
+               let firstCandidate = self.rawCandidates?.mainResults.first {
+                // Use the selection list's indices even while composing. Its
+                // prefix-clause candidates can precede the displayed full text.
+                let index = candidates.firstIndex(of: firstCandidate)
+                    ?? candidates.firstIndex(where: { $0.text == firstCandidate.text }) ?? 0
+                return .composing(candidates, selectionIndex: index)
+            }
             if !self.liveConversionEnabled, let firstCandidate = self.rawCandidates?.mainResults.first {
                 return .composing([firstCandidate], selectionIndex: 0)
             } else {

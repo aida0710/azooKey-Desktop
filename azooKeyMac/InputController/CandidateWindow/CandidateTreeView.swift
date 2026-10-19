@@ -22,13 +22,17 @@ final class CandidateTreeView: NSView {
     private var terminalFrames: [Int: NSRect] = [:]
     private var numberLabels: [Int: String] = [:]
     private var rebuilding = false
-    private(set) var preferredSize = NSSize(width: 480, height: 180)
+    private var displayedColumns: [[Int]] = []
+    private var layoutShowsNumbers = false
+    private(set) var preferredSize = NSSize(width: 80, height: 46)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         scrollView.documentView = canvas
         scrollView.hasHorizontalScroller = true
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
+        scrollView.scrollerStyle = .overlay
+        scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.autoresizingMask = [.width, .height]
         scrollView.frame = bounds
@@ -98,51 +102,56 @@ final class CandidateTreeView: NSView {
     private func rebuild() {
         rebuilding = true
         defer { rebuilding = false }
-        canvas.subviews.forEach { $0.removeFromSuperview() }
-        nodeButtons.removeAll()
-        terminalButtons.removeAll()
         nodeFrames.removeAll()
         terminalFrames.removeAll()
         var rows: [Int: CGFloat] = [:]
-        var terminalRows: [Int: CGFloat] = [:]
-        var nextRow: CGFloat = 0
-        func position(_ id: Int) {
-            let first = nextRow
-            for index in tree.nodes[id].terminalCandidateIndices {
-                terminalRows[index] = nextRow
-                nextRow += 1
-            }
-            for child in tree.nodes[id].children { position(child) }
-            rows[id] = (first + max(first, nextRow - 1)) / 2
-        }
-        tree.roots.forEach { position($0) }
+        displayedColumns = tree.compactColumns(candidateIndex: selection.selectedCandidateIndex)
+        layoutShowsNumbers = !numberLabels.isEmpty
         var widths: [Int: CGFloat] = [:]
-        for node in tree.nodes {
-            let textWidth = (node.token.text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 18)]).width
-            widths[node.depth] = max(widths[node.depth] ?? 80, min(220, textWidth + 26))
+        for (depth, column) in displayedColumns.enumerated() {
+            for (row, id) in column.enumerated() {
+                rows[id] = CGFloat(row)
+                let textWidth = (tree.nodes[id].token.text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13)]).width
+                widths[depth] = max(widths[depth] ?? 24, min(160, textWidth + 12))
+            }
         }
         var xPositions: [Int: CGFloat] = [:]
-        var x: CGFloat = 16
+        var x: CGFloat = 12
         for depth in widths.keys.sorted() {
             xPositions[depth] = x
-            x += (widths[depth] ?? 80) + 68
+            x += (widths[depth] ?? 24) + (layoutShowsNumbers ? 22 : 12)
         }
-        let contentSize = NSSize(width: max(240, x), height: max(80, nextRow * 64 + 32))
+        let rowCount = displayedColumns.map(\.count).max() ?? 0
+        let contentSize = NSSize(width: max(60, x), height: max(32, CGFloat(rowCount) * 30 + 6))
         canvas.frame = NSRect(origin: .zero, size: contentSize)
-        preferredSize = NSSize(width: min(760, contentSize.width), height: min(420, contentSize.height))
+        preferredSize = NSSize(width: min(760, contentSize.width), height: contentSize.height)
         canvas.edges = []
-        for node in tree.nodes {
-            let frame = NSRect(x: xPositions[node.depth] ?? 16, y: (rows[node.id] ?? 0) * 64 + 16,
-                               width: widths[node.depth] ?? 80, height: 48)
+        for id in displayedColumns.flatMap({ $0 }) {
+            let node = tree.nodes[id]
+            let frame = NSRect(x: xPositions[node.depth] ?? 12, y: (rows[id] ?? 0) * 30 + 6,
+                               width: widths[node.depth] ?? 24, height: 24)
             nodeFrames[node.id] = frame
             for index in node.terminalCandidateIndices {
-                terminalFrames[index] = NSRect(x: frame.maxX + 7, y: (terminalRows[index] ?? 0) * 64 + 26, width: 28, height: 28)
+                terminalFrames[index] = NSRect(x: frame.maxX + 1, y: frame.minY + 2, width: 20, height: 20)
             }
         }
-        for node in tree.nodes {
-            guard let parent = node.parentID, let from = nodeFrames[parent], let to = nodeFrames[node.id] else { continue }
-            canvas.edges.append(.init(nodeID: node.id, from: NSPoint(x: from.maxX, y: from.midY), to: NSPoint(x: to.minX, y: to.midY)))
+        for id in displayedColumns.flatMap({ $0 }) {
+            let node = tree.nodes[id]
+            guard let to = nodeFrames[id] else { continue }
+            let from = node.parentID.flatMap { nodeFrames[$0] }
+            canvas.edges.append(.init(nodeID: id, from: NSPoint(x: from?.maxX ?? 4, y: from?.midY ?? 18),
+                                      to: NSPoint(x: to.minX, y: to.midY)))
         }
+    }
+
+    private var numberedTerminals: Set<Int> {
+        Set(displayedColumns.flatMap { $0 }.compactMap { id -> Int? in
+            let terminals = tree.nodes[id].terminalCandidateIndices.filter { numberLabels[$0] != nil }
+            if let index = selection.selectedCandidateIndex, terminals.contains(index) {
+                return index
+            }
+            return terminals.first
+        })
     }
 
     private func updateVisibleControls() {
@@ -152,11 +161,12 @@ final class CandidateTreeView: NSView {
         let viewport = canvas.visibleRect.isEmpty ? NSRect(origin: .zero, size: preferredSize) : canvas.visibleRect
         // Keep one row around the viewport ready while scrolling, without allocating the whole tree.
         let visible = viewport.insetBy(dx: -16, dy: -64)
+        let visibleTerminals = numberedTerminals
         for (id, button) in nodeButtons where nodeFrames[id]?.intersects(visible) != true {
             button.removeFromSuperview()
             nodeButtons.removeValue(forKey: id)
         }
-        for (index, button) in terminalButtons where terminalFrames[index]?.intersects(visible) != true {
+        for (index, button) in terminalButtons where terminalFrames[index]?.intersects(visible) != true || !visibleTerminals.contains(index) {
             button.removeFromSuperview()
             terminalButtons.removeValue(forKey: index)
         }
@@ -167,11 +177,13 @@ final class CandidateTreeView: NSView {
             button.reading = node.token.reading
             button.toolTip = node.token.reading.isEmpty ? node.token.text : "\(node.token.text)（\(node.token.reading)）"
             button.setAccessibilityLabel(button.toolTip)
-            button.clicked = { [weak self] doubleClick in self?.selectNode(node.id, submit: doubleClick) }
+            // The chosen word moves to the top row. Commit on the first click
+            // so a second click cannot hit a different word at the old position.
+            button.clicked = { [weak self] _ in self?.selectNode(node.id, submit: true) }
             canvas.addSubview(button)
             nodeButtons[id] = button
         }
-        for (index, frame) in terminalFrames where frame.intersects(visible) && terminalButtons[index] == nil {
+        for (index, frame) in terminalFrames where frame.intersects(visible) && terminalButtons[index] == nil && visibleTerminals.contains(index) {
             let terminal = TreeButton(frame: frame)
             terminal.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
             terminal.toolTip = "候補 \(index + 1) を確定"
@@ -180,13 +192,19 @@ final class CandidateTreeView: NSView {
             canvas.addSubview(terminal)
             terminalButtons[index] = terminal
         }
-        let path = Set(selection.selectedCandidateIndex.flatMap { tree.paths[$0] } ?? [])
+        let path = Set(displayedColumns.compactMap(\.first))
         for (id, button) in nodeButtons {
+            if let frame = nodeFrames[id] { button.frame = frame }
+            let token = tree.nodes[id].token
+            button.title = token.text
+            button.toolTip = token.reading.isEmpty ? token.text : "\(token.text)（\(token.reading)）"
+            button.setAccessibilityLabel(button.toolTip)
             button.highlightedPath = path.contains(id)
             button.focusedNode = selection.focusedNodeID == id
             button.needsDisplay = true
         }
         for (index, button) in terminalButtons {
+            if let frame = terminalFrames[index] { button.frame = frame }
             let title = numberLabels[index] ?? "↵"
             if button.title != title { button.title = title }
             button.highlightedPath = selection.selectedCandidateIndex == index
@@ -195,12 +213,13 @@ final class CandidateTreeView: NSView {
     }
 
     private func refreshSelection() {
-        canvas.selectedPath = Set(selection.selectedCandidateIndex.flatMap { tree.paths[$0] } ?? [])
+        if displayedColumns != tree.compactColumns(candidateIndex: selection.selectedCandidateIndex) || layoutShowsNumbers != !numberLabels.isEmpty { rebuild() }
+        canvas.selectedPath = Set(displayedColumns.compactMap(\.first))
         canvas.needsDisplay = true
         if let id = selection.focusedNodeID, let frame = nodeFrames[id] {
             var reveal = frame
             if let index = selection.selectedCandidateIndex,
-               tree.nodes[id].terminalCandidateIndices.contains(index), let terminal = terminalFrames[index] {
+               numberLabels[index] != nil, tree.nodes[id].terminalCandidateIndices.contains(index), let terminal = terminalFrames[index] {
                 reveal = reveal.union(terminal)
             }
             canvas.scrollToVisible(reveal.insetBy(dx: -16, dy: -16))
@@ -218,14 +237,16 @@ private final class TreeCanvas: NSView {
     override func draw(_ dirtyRect: NSRect) {
         for edge in edges {
             let selected = selectedPath.contains(edge.nodeID)
-            (selected ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
+            (selected ? NSColor(red: 0.25, green: 0.45, blue: 0.8, alpha: 1) : NSColor.gray.withAlphaComponent(0.5)).setStroke()
             let path = NSBezierPath()
-            path.lineWidth = selected ? 2.5 : 1
+            path.lineWidth = selected ? 2 : 0.75
             path.move(to: edge.from)
             let middle = (edge.from.x + edge.to.x) / 2
             path.curve(to: edge.to, controlPoint1: NSPoint(x: middle, y: edge.from.y), controlPoint2: NSPoint(x: middle, y: edge.to.y))
             path.stroke()
         }
+        NSColor.secondaryLabelColor.setFill()
+        NSBezierPath(ovalIn: NSRect(x: 1, y: 15, width: 6, height: 6)).fill()
     }
 }
 
@@ -240,7 +261,7 @@ private final class TreeButton: NSButton {
     override init(frame: NSRect) {
         super.init(frame: frame)
         isBordered = false
-        font = .systemFont(ofSize: 18)
+        font = .systemFont(ofSize: 13)
         target = self
         action = #selector(activate)
     }
@@ -248,21 +269,24 @@ private final class TreeButton: NSButton {
     @objc private func activate() { clicked?(false) }
     override func mouseDown(with event: NSEvent) { clicked?(event.clickCount > 1) }
     override func draw(_ dirtyRect: NSRect) {
-        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 8, yRadius: 8)
-        (highlightedPath ? NSColor.controlAccentColor.withAlphaComponent(0.16) : NSColor.controlBackgroundColor).setFill()
+        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 4, yRadius: 4)
+        (highlightedPath ? NSColor(red: 0.25, green: 0.45, blue: 0.8, alpha: 1) : NSColor.controlBackgroundColor.withAlphaComponent(0.5)).setFill()
         shape.fill()
-        (focusedNode ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
-        shape.lineWidth = focusedNode ? 2 : 0.5
-        shape.stroke()
+        if focusedNode {
+            NSColor.white.withAlphaComponent(0.9).setStroke()
+            let underline = NSBezierPath()
+            underline.lineWidth = 1.5
+            underline.move(to: NSPoint(x: 6, y: bounds.height - 4))
+            underline.line(to: NSPoint(x: bounds.width - 6, y: bounds.height - 4))
+            underline.stroke()
+        }
         let style = NSMutableParagraphStyle()
         style.alignment = .center
         style.lineBreakMode = .byTruncatingTail
-        (title as NSString).draw(in: NSRect(x: 6, y: reading.isEmpty ? (bounds.height - 23) / 2 : 19,
-                                          width: bounds.width - 12, height: 25),
-                                withAttributes: [.font: font ?? NSFont.systemFont(ofSize: 18), .foregroundColor: NSColor.labelColor, .paragraphStyle: style])
-        if !reading.isEmpty {
-            (reading as NSString).draw(in: NSRect(x: 6, y: 5, width: bounds.width - 12, height: 14),
-                                      withAttributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style])
-        }
+        let textFont = font ?? NSFont.systemFont(ofSize: 13)
+        let height = textFont.ascender - textFont.descender + 2
+        (title as NSString).draw(in: NSRect(x: 4, y: (bounds.height - height) / 2, width: bounds.width - 8, height: height),
+                                withAttributes: [.font: textFont, .foregroundColor: highlightedPath ? NSColor.white : NSColor.labelColor,
+                                                 .paragraphStyle: style])
     }
 }

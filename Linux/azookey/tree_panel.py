@@ -1,4 +1,5 @@
 import gi
+import cairo
 gi.require_version("Gtk", "3.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo
@@ -12,11 +13,19 @@ class TreePanel(Gtk.Window):
         self.set_accept_focus(False)
         self.set_focus_on_map(False)
         self.set_decorated(False)
+        self.set_app_paintable(True)
+        visual = self.get_screen().get_rgba_visual()
+        if visual:
+            self.set_visual(visual)
+        self.get_style_context().add_class("azookey-tree")
+        css = Gtk.CssProvider()
+        css.load_from_data(b".azookey-tree, .azookey-tree scrolledwindow, .azookey-tree viewport { background: transparent; border: none; box-shadow: none; }")
+        Gtk.StyleContext.add_provider_for_screen(self.get_screen(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.select = select
         self.snapshot = {}
         self.rectangles = []
         self.scroll = Gtk.ScrolledWindow()
-        self.scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        self.scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
         self.add(self.scroll)
         self.canvas = Gtk.DrawingArea()
         self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
@@ -40,30 +49,30 @@ class TreePanel(Gtk.Window):
             self.hide()
             return
         by_id = {node["id"]: node for node in nodes}
-        rows, terminal_rows = {}, {}
-        next_row = 0
-
-        def visit(node):
-            nonlocal next_row
-            first = next_row
-            for index in node["terminals"]:
-                terminal_rows[index] = next_row
-                next_row += 1
-            for child in node["children"]:
-                visit(by_id[child])
-            rows[node["id"]] = (first + max(first, next_row - 1)) / 2
-
-        for node in nodes:
-            if node.get("parent") is None:
-                visit(node)
+        columns = snapshot.get("columns", [])
+        if not columns:
+            self.hide()
+            return
         self.rectangles = []
-        for node in nodes:
-            self.rectangles.append(("node", node["id"], 16 + node["depth"] * 210, 16 + rows[node["id"]] * 64, 150, 48, node["text"], node["reading"]))
-            for index in node["terminals"]:
-                number = index - snapshot.get("pageStart", 0) + 1
-                self.rectangles.append(("select", index, 174 + node["depth"] * 210, 26 + terminal_rows[index] * 64, 30, 28, str(number) if 1 <= number <= 9 else "↵", ""))
-        width = max(240, (max(node["depth"] for node in nodes) + 1) * 210 + 16)
-        height = max(80, next_row * 64 + 32)
+        x = 12
+        for column in columns:
+            column_width = 24
+            for node_id in column:
+                layout = self.canvas.create_pango_layout(by_id[node_id]["text"])
+                layout.set_font_description(Pango.FontDescription("Sans 10"))
+                column_width = max(column_width, min(160, layout.get_pixel_size()[0] + 12))
+            for row, node_id in enumerate(column):
+                node = by_id[node_id]
+                self.rectangles.append(("node", node_id, x, 6 + row * 30, column_width, 24, node["text"], node["reading"]))
+                terminals = node["terminals"]
+                index = snapshot.get("selection") if snapshot.get("selection") in terminals else next(iter(terminals), None)
+                if snapshot.get("showCandidateIndex") and index is not None:
+                    number = index - snapshot.get("pageStart", 0) + 1
+                    if 1 <= number <= 9:
+                        self.rectangles.append(("select", index, x + column_width + 1, 8 + row * 30, 20, 20, str(number), ""))
+            x += column_width + (22 if snapshot.get("showCandidateIndex") else 12)
+        width = max(60, x)
+        height = max(32, max(map(len, columns)) * 30 + 6)
         self.canvas.set_size_request(width, height)
         monitor = self.get_display().get_monitor_at_point(self.location[0], self.location[1])
         area = monitor.get_workarea() if monitor else self.get_screen().get_monitor_workarea(0)
@@ -75,17 +84,16 @@ class TreePanel(Gtk.Window):
         self.position()
         self.canvas.queue_draw()
         focus = by_id.get(snapshot.get("focusedNode"))
-        key = (snapshot.get("generation"), snapshot.get("focusedNode"))
+        key = (snapshot.get("generation"), snapshot.get("selection"), snapshot.get("focusedNode"))
         if focus and key != self.focus_key:
             self.focus_key = key
             self.cancel_scroll()
             def reveal():
                 self.scroll_idle = None
-                for adjustment, start, end in (
-                    (self.scroll.get_hadjustment(), focus["depth"] * 210, focus["depth"] * 210 + 204),
-                    (self.scroll.get_vadjustment(), rows[focus["id"]] * 64, rows[focus["id"]] * 64 + 72),
-                ):
-                    adjustment.clamp_page(start, end)
+                for kind, index, x, _, width, *_ in self.rectangles:
+                    if kind == "node" and index == focus["id"]:
+                        self.scroll.get_hadjustment().clamp_page(max(0, x - 8), x + width + 22)
+                        break
                 return GLib.SOURCE_REMOVE
             self.scroll_idle = GLib.idle_add(reveal)
 
@@ -100,44 +108,59 @@ class TreePanel(Gtk.Window):
         self.move(x, max(area.y, min(y, area.y + area.height - popup_height)))
 
     def draw(self, widget, context):
-        context.set_source_rgb(0.97, 0.97, 0.98)
+        context.set_operator(cairo.OPERATOR_SOURCE)
+        context.set_source_rgba(0, 0, 0, 0)
         context.paint()
+        context.set_operator(cairo.OPERATOR_OVER)
         frames = {item[1]: item[2:6] for item in self.rectangles if item[0] == "node"}
         selected = set(self.snapshot.get("selectedPath", []))
         for node in self.snapshot.get("nodes", []):
-            if node.get("parent") not in frames:
+            if node["id"] not in frames:
                 continue
-            x1, y1, width, height = frames[node["parent"]]
+            x1, y1, width, height = frames.get(node.get("parent"), (4, 18, 0, 0))
             x2, y2, _, h2 = frames[node["id"]]
             start, end = (x1 + width, y1 + height / 2), (x2, y2 + h2 / 2)
-            context.set_source_rgb(*( (0.18, 0.38, 0.85) if node["id"] in selected else (0.7, 0.72, 0.78)))
-            context.set_line_width(2 if node["id"] in selected else 1)
+            context.set_source_rgba(*((0.25, 0.45, 0.8, 1) if node["id"] in selected else (0.5, 0.5, 0.55, 0.55)))
+            context.set_line_width(2 if node["id"] in selected else 0.75)
             middle = (start[0] + end[0]) / 2
             context.move_to(*start)
             context.curve_to(middle, start[1], middle, end[1], *end)
             context.stroke()
+        context.set_source_rgb(0.5, 0.5, 0.55)
+        context.arc(4, 18, 3, 0, 6.2832)
+        context.fill()
+        foreground = self.get_style_context().get_color(Gtk.StateFlags.NORMAL)
+        found, base = self.get_style_context().lookup_color("theme_base_color")
+        background = (base.red, base.green, base.blue) if found else (0.97, 0.97, 0.98)
         for kind, index, x, y, width, height, text, reading in self.rectangles:
             active = index in selected if kind == "node" else index == self.snapshot.get("selection")
-            context.set_source_rgb(*((0.84, 0.9, 1) if active else (1, 1, 1)))
-            context.rectangle(x, y, width, height)
-            context.fill_preserve()
-            context.set_source_rgb(0.22, 0.4, 0.8) if active else context.set_source_rgb(0.8, 0.8, 0.83)
-            context.set_line_width(2 if kind == "node" and index == self.snapshot.get("focusedNode") else 1)
-            context.stroke()
-            self.text(context, text, x + 5, y + 7, width - 10, 13)
-            if reading:
-                self.text(context, reading, x + 5, y + 29, width - 10, 8)
+            context.set_source_rgba(*((0.25, 0.45, 0.8, 1) if active else (*background, 0.5)))
+            radius = 4
+            context.new_sub_path()
+            for cx, cy, start in ((x + width - radius, y + radius, -1.5708), (x + width - radius, y + height - radius, 0),
+                                  (x + radius, y + height - radius, 1.5708), (x + radius, y + radius, 3.1416)):
+                context.arc(cx, cy, radius, start, start + 1.5708)
+            context.close_path()
+            context.fill()
+            if kind == "node" and index == self.snapshot.get("focusedNode"):
+                context.set_source_rgba(1, 1, 1, 0.9)
+                context.set_line_width(1.5)
+                context.move_to(x + 6, y + height - 4)
+                context.line_to(x + width - 6, y + height - 4)
+                context.stroke()
+            color = (1, 1, 1) if active else (foreground.red, foreground.green, foreground.blue)
+            self.text(context, text, x + 4, y + 4, width - 8, 10 if kind == "node" else 9, color)
         return False
 
     @staticmethod
-    def text(context, text, x, y, width, size):
+    def text(context, text, x, y, width, size, color):
         layout = PangoCairo.create_layout(context)
         layout.set_font_description(Pango.FontDescription(f"Sans {size}"))
         layout.set_width(int(width * Pango.SCALE))
         layout.set_ellipsize(Pango.EllipsizeMode.END)
         layout.set_alignment(Pango.Alignment.CENTER)
         layout.set_text(text, -1)
-        context.set_source_rgb(0.1, 0.12, 0.18)
+        context.set_source_rgb(*color)
         context.move_to(x, y)
         PangoCairo.show_layout(context, layout)
 
@@ -146,6 +169,6 @@ class TreePanel(Gtk.Window):
             return False
         for kind, index, x, y, width, height, *_ in reversed(self.rectangles):
             if x <= event.x <= x + width and y <= event.y <= y + height:
-                self.select(kind, index, kind == "select" or event.type == Gdk.EventType._2BUTTON_PRESS)
+                self.select(kind, index, True)
                 return True
         return False

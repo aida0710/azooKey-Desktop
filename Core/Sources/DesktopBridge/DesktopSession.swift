@@ -26,6 +26,7 @@ struct DesktopSnapshot: Encodable {
     var candidates: [CandidateItem] = []
     var selection: Int?
     var nodes: [Node] = []
+    var columns: [[Int]] = []
     var selectedPath: [Int] = []
     var focusedNode: Int?
     var generation = 0
@@ -36,6 +37,7 @@ struct DesktopSnapshot: Encodable {
     var reading = ""
     var prediction: String?
     var pageStart = 0
+    var showCandidateIndex = false
     var zenzaiLoaded = false
     var personalizationConfigured = false
     var language = "japanese"
@@ -398,12 +400,14 @@ final class DesktopSession: SegmentManagerDelegate {
         result.generation = generation
         result.nodes = tree.nodes.map { .init(id: $0.id, text: $0.token.text, reading: $0.token.reading,
                                              parent: $0.parentID, children: $0.children, terminals: $0.terminalCandidateIndices, depth: $0.depth) }
-        result.selectedPath = result.selection.flatMap { tree.paths[$0] } ?? []
+        result.columns = tree.compactColumns(candidateIndex: result.selection)
+        result.selectedPath = result.columns.compactMap(\.first)
         result.focusedNode = treeSelection.focusedNodeID
         if let index = result.selection {
             pageStart = (index / 9) * 9
         } else { pageStart = 0 }
         result.pageStart = pageStart
+        result.showCandidateIndex = state == .selecting || state == .replaceSuggestion
         return result
     }
 }

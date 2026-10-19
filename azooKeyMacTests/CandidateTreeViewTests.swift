@@ -16,6 +16,23 @@ final class CandidateTreeViewTests: XCTestCase {
         .init(text: "日本画", tokens: [.init(text: "日本"), .init(text: "画")], candidateIndex: 1)
     ]
 
+    func testReferenceLayoutKeepsChosenSentenceOnOneCompactRow() {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 600, height: 160))
+        let alternatives = (0..<100).map {
+            CandidateTree.Entry(text: "日本語候補\($0)", tokens: [.init(text: "日本語"), .init(text: "候補\($0)")], candidateIndex: $0)
+        }
+        view.update(entries: alternatives, selectionIndex: 0)
+        let visible = buttons(in: view)
+        XCTAssertLessThanOrEqual(view.preferredSize.height, 150, "Alternatives must not expand the entire candidate trie")
+        XCTAssertLessThan(view.preferredSize.width, 300, "Short words should not occupy fixed wide columns")
+        XCTAssertLessThanOrEqual(visible.count, 4, "Show the path and two alternatives at each word")
+        let first = visible.first { $0.title == "日本語" }
+        let second = visible.first { $0.title == "候補0" }
+        XCTAssertNotNil(first)
+        XCTAssertNotNil(second, "The entire chosen sentence must be visible without vertical scrolling")
+        XCTAssertEqual(first?.frame.minY, second?.frame.minY, "The chosen sentence is a straight top row")
+    }
+
     func testRedrawDoesNotNotifyAndNavigationNotifiesOnce() {
         let view = CandidateTreeView()
         var selections: [Int] = []
@@ -70,7 +87,7 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertEqual(submitted, [0], "The retained button still commits its original converter index")
     }
 
-    func testLargeTreeCreatesOnlyVisibleControlsAndScrollClickKeepsCandidateIndex() {
+    func testLargeTreeKeepsAlternativesCompactAndSelectionKeepsCandidateIndex() {
         let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 480, height: 180))
         let many = (0..<500).map { CandidateTree.Entry(text: "候補\($0)", tokens: [], candidateIndex: $0) }
         var submitted: [Int] = []
@@ -78,9 +95,7 @@ final class CandidateTreeViewTests: XCTestCase {
         view.update(entries: many, selectionIndex: 0, numbers: [499: "9"])
         XCTAssertLessThan(buttons(in: view).count, 40, "Offscreen candidates must not allocate hundreds of AppKit controls")
 
-        let scroll = view.subviews.compactMap { $0 as? NSScrollView }.first!
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: 499 * 64))
-        scroll.reflectScrolledClipView(scroll.contentView)
+        view.update(entries: many, selectionIndex: 499, numbers: [499: "9"])
         XCTAssertLessThan(buttons(in: view).count, 40)
         XCTAssertTrue(buttons(in: view).contains { $0.title == "候補499" })
         XCTAssertEqual(submitted, [])
@@ -89,6 +104,57 @@ final class CandidateTreeViewTests: XCTestCase {
 
         view.update(entries: many, selectionIndex: 0)
         XCTAssertTrue(buttons(in: view).contains { $0.title == "候補0" }, "Keyboard selection must reveal previously offscreen nodes")
+    }
+
+    func testNewCandidatesRefreshReusedNodeTitles() {
+        let view = CandidateTreeView()
+        view.update(entries: entries, selectionIndex: 0)
+        view.update(entries: [.init(text: "更新", tokens: [], candidateIndex: 0)], selectionIndex: 0)
+        XCTAssertEqual(buttons(in: view).map(\.title), ["更新"])
+    }
+
+    func testDuplicateCandidateNumbersDoNotOverlap() {
+        let view = CandidateTreeView()
+        view.update(entries: [
+            .init(text: "同じ", tokens: [], candidateIndex: 0),
+            .init(text: "同じ", tokens: [], candidateIndex: 1)
+        ], selectionIndex: 1, numbers: [0: "1", 1: "2"])
+        XCTAssertEqual(Set(buttons(in: view).map(\.title)), ["同じ", "2"])
+    }
+
+    func testAlternativeClickCommitsItsRealCandidateBeforeItMoves() {
+        let view = CandidateTreeView()
+        var committed: [Int] = []
+        view.onCandidateSubmitted = { committed.append($0) }
+        view.update(entries: entries, selectionIndex: 0)
+        buttons(in: view).first { $0.title == "画" }?.performClick(nil)
+        XCTAssertEqual(committed, [1])
+    }
+
+    func testReferenceRenderingHasTransparentOuterBackground() throws {
+        let view = CandidateTreeView()
+        let tokens = ["このように", "確率的に", "候補", "がある", "中を", "AI", "に", "よ"]
+        var fixture = [CandidateTree.Entry(text: tokens.joined(), tokens: tokens.map { .init(text: $0) }, candidateIndex: 0)]
+        for (depth, words) in [0: ["この世", "来"], 4: ["仲を", "なかを"], 5: ["ＡＩ"], 6: ["二", "ニ"], 7: ["良", "世"]] {
+            for word in words {
+                var path = tokens
+                path[depth] = word
+                fixture.append(.init(text: path.joined(), tokens: path.map { .init(text: $0) }, candidateIndex: fixture.count))
+            }
+        }
+        view.update(entries: fixture, selectionIndex: 0)
+        view.setFrameSize(view.preferredSize)
+        view.layoutSubtreeIfNeeded()
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            view.appearance = NSAppearance(named: appearance)
+            let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            XCTAssertEqual(bitmap.colorAt(x: bitmap.pixelsWide - 1, y: bitmap.pixelsHigh - 1)?.alphaComponent, 0)
+            if let directory = ProcessInfo.processInfo.environment["AZOOKEY_TREE_SNAPSHOT_DIR"] {
+                let url = URL(fileURLWithPath: directory).appendingPathComponent("macos-compact-\(name).png")
+                try bitmap.representation(using: .png, properties: [:])?.write(to: url)
+            }
+        }
     }
 
     func testKeyboardNavigationRevealsOffscreenChildAndTerminal() {

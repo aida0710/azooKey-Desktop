@@ -86,6 +86,22 @@ public struct CandidateTree: Sendable, Equatable {
         }
         return candidates.first
     }
+
+    /// Keep the chosen sentence on the top row, with two real alternatives
+    /// beneath each word. Hidden siblings remain reachable through navigation.
+    /// This is a view projection; it never constructs new candidate combinations.
+    public func compactColumns(candidateIndex: Int?) -> [[Int]] {
+        let index = candidateIndex.flatMap { paths[$0] != nil ? $0 : nil } ?? roots.first.flatMap {
+            nodes[$0].candidateIndices.first
+        }
+        guard let index, let path = paths[index] else {
+            return []
+        }
+        return path.map { id in
+            let siblings = nodes[id].parentID.map { nodes[$0].children } ?? roots
+            return [id] + siblings.filter { $0 != id }.prefix(2)
+        }
+    }
 }
 
 /// Selection is separate from the tree so UI refreshes never emit user actions.

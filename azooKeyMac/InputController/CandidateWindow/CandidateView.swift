@@ -22,6 +22,7 @@ class CandidatesViewController: BaseCandidateViewController {
     var showCandidateIndex = false
     private let treeView = CandidateTreeView()
     private var treeEntries: [CandidateTree.Entry] = []
+    private var lastCursorLocation: CGPoint?
     private var usesTree: Bool { Config.TreeCandidates().value }
 
     override func loadView() {
@@ -54,6 +55,7 @@ class CandidatesViewController: BaseCandidateViewController {
             }
         }
         treeView.update(entries: treeEntries, selectionIndex: selectionIndex, numbers: numbers)
+        if usesTree, let cursor = lastCursorLocation { resizeWindowToFitContent(cursorLocation: cursor) }
     }
 
     func handleTreeNavigation(_ direction: CandidateTreeSelection.Direction) -> Bool {
@@ -84,9 +86,12 @@ class CandidatesViewController: BaseCandidateViewController {
     }
 
     override func updateCandidatePresentations(_ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint) {
+        lastCursorLocation = cursorLocation
         self.showedRows = selectionIndex == nil ? 0...8 : self.showedRows
         treeView.isHidden = !usesTree
         tableView.enclosingScrollView?.isHidden = usesTree
+        view.subviews.compactMap { $0 as? NSVisualEffectView }.forEach { $0.isHidden = usesTree }
+        configureWindowForRoundedCorners()
         treeEntries = candidates.enumerated().map { index, presentation in
             .init(text: presentation.candidate.text,
                   tokens: presentation.candidate.data.map { .init(text: $0.word, reading: $0.ruby) },
@@ -98,6 +103,14 @@ class CandidatesViewController: BaseCandidateViewController {
             selectionIndex: selectionIndex,
             cursorLocation: cursorLocation
         )
+    }
+
+    override func configureWindowForRoundedCorners() {
+        super.configureWindowForRoundedCorners()
+        if usesTree {
+            view.window?.hasShadow = false
+            view.window?.contentView?.layer?.cornerRadius = 0
+        }
     }
 
     override internal func updateSelectionCallback(_ row: Int, notifySelectionChange: Bool) {

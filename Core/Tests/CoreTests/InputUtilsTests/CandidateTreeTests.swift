@@ -5,6 +5,20 @@ private func treeToken(_ text: String, _ reading: String = "") -> CandidateTree.
     .init(text: text, reading: reading)
 }
 
+@Test func candidateTreeCompactColumnsKeepRealSelectedPathAndBoundAlternatives() {
+    let tree = CandidateTree(entries: (0..<500).map {
+        .init(text: "日本語候補\($0)", tokens: [treeToken("日本語"), treeToken("候補\($0)")], candidateIndex: $0)
+    })
+    for index in [0, 250, 499] {
+        let columns = tree.compactColumns(candidateIndex: index)
+        #expect(columns.compactMap(\.first) == tree.paths[index])
+        #expect(columns.map(\.count) == [1, 3])
+        #expect(columns.flatMap { $0 }.allSatisfy { tree.preferredCandidate(at: $0, preserving: index) != nil })
+    }
+    #expect(tree.compactColumns(candidateIndex: nil).compactMap(\.first) == tree.paths[0])
+    #expect(CandidateTree(entries: []).compactColumns(candidateIndex: nil).isEmpty)
+}
+
 @Test func candidateTreeSharesOnlyCommonPrefix() {
     let tree = CandidateTree(entries: [
         .init(text: "日本語入力", tokens: [treeToken("日本語"), treeToken("入力")], candidateIndex: 0),
