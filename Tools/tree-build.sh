@@ -49,9 +49,13 @@ info = substitute(info)
 info.update(CFBundleIdentifier='dev.ensan.inputmethod.azooKeyMac', CFBundleExecutable='azooKeyMac',
             CFBundleName='azooKey Tree', CFBundleDisplayName='azooKey Tree', CFBundlePackageType='APPL',
             CFBundleIconFile='AppIcon.icns', CFBundleDevelopmentRegion='en',
+            AzooKeyStandaloneStorage=True,
             CFBundleShortVersionString=version, CFBundleVersion=version, LSMinimumSystemVersion='14.0')
 with (app / 'Contents/Info.plist').open('wb') as target: plistlib.dump(info, target)
 with (root / 'azooKeyMac/azooKeyMac.entitlements').open('rb') as source: entitlements = substitute(plistlib.load(source))
+# Ad-hoc signing cannot authorize the upstream team's shared container.
+# Keep the app sandbox and use its own data container instead.
+entitlements.pop('com.apple.security.application-groups', None)
 with (app.parent / 'entitlements.plist').open('wb') as target: plistlib.dump(entitlements, target)
 binary = str(app / 'Contents/MacOS/azooKeyMac')
 lines = subprocess.check_output(['otool', '-l', binary], text=True).splitlines()

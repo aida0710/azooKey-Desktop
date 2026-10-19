@@ -4,8 +4,20 @@ public enum AppGroup {
     public static let azooKeyMacIdentifier = "group.dev.ensan.inputmethod.azooKeyMac"
 
     #if os(macOS)
-    public static func containerURL(fileManager: FileManager = .default) -> URL? {
-        fileManager.containerURL(forSecurityApplicationGroupIdentifier: Self.azooKeyMacIdentifier)
+    /// Ad-hoc packages use their own sandbox; shared groups require an authorized signing team.
+    public static var usesSharedContainer: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "AzooKeyStandaloneStorage") as? Bool != true
+    }
+
+    public static func preferences(shared: Bool = usesSharedContainer) -> UserDefaults {
+        shared ? UserDefaults(suiteName: azooKeyMacIdentifier) ?? .standard : .standard
+    }
+
+    public static func containerURL(fileManager: FileManager = .default, shared: Bool = usesSharedContainer) -> URL? {
+        guard shared else {
+            return fileManager.homeDirectoryForCurrentUser
+        }
+        return fileManager.containerURL(forSecurityApplicationGroupIdentifier: Self.azooKeyMacIdentifier)
             ?? Self.containerURL(homeDirectoryURL: fileManager.homeDirectoryForCurrentUser)
     }
 
@@ -17,8 +29,8 @@ public enum AppGroup {
             .appendingPathComponent(Self.azooKeyMacIdentifier, isDirectory: true)
     }
 
-    public static func applicationSupportDirectoryURL(fileManager: FileManager = .default) -> URL {
-        if let containerURL = Self.containerURL(fileManager: fileManager) {
+    public static func applicationSupportDirectoryURL(fileManager: FileManager = .default, shared: Bool = usesSharedContainer) -> URL {
+        if let containerURL = Self.containerURL(fileManager: fileManager, shared: shared) {
             return containerURL
                 .appendingPathComponent("Library", isDirectory: true)
                 .appendingPathComponent("Application Support", isDirectory: true)

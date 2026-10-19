@@ -4,7 +4,7 @@ import Foundation
 public enum Config {
     nonisolated(unsafe) public static let userDefaults: UserDefaults = {
         #if os(macOS)
-        UserDefaults(suiteName: AppGroup.azooKeyMacIdentifier) ?? .standard
+        AppGroup.preferences()
         #else
         .standard
         #endif

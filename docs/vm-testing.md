@@ -20,6 +20,8 @@ bash Tools/vm-test.sh ubuntu create
 bash Tools/vm-test.sh ubuntu start
 bash Tools/vm-test.sh ubuntu install build/dist/azookey-tree_0.1.0_arm64.deb
 bash Tools/vm-test.sh ubuntu test
+# 任意: 画面からロック解除する場合、利用者がVM専用パスワードを設定する。
+bash Tools/vm-test.sh ubuntu shell sh -c 'sudo passwd "$(id -un)"'
 bash Tools/vm-test.sh ubuntu stop
 bash Tools/build-vm-viewer.sh ubuntu
 
@@ -37,7 +39,9 @@ VMはリポジトリの隣の `azookey-vm` に保存します。`AZOOKEY_VM_HOME
 
 ビューアはLima同様、仮想ディスクを明示的にcached / fsyncモードで開きます。ディスク・EFI・macOSのハードウェア識別子はLimaと共有します。LimaのmacOSゲスト対応は実験的です。初回のGUIログイン、OSセットアップ・ライセンス確認は利用者が行います。生成されたVMパスワードをログやテスト成果物へ収集しないでください。
 
-Ubuntuはテスト専用ユーザーへ自動ログインします。macOS版の `test` コマンドはバンドル署名と版番号の検査までです。GUIで日本語入力が成功したことを示すものではありません。
+Ubuntuはテスト専用ユーザーへ自動ログインしますが、Limaの初期ユーザーには使えるログインパスワードがありません。画面からロック解除したい場合は上記の `passwd` を利用者が実行してください。未設定のままGNOMEが自動ロックした場合も、所有者の許可のもとでゲストへSSH接続し、`loginctl show-user "$(id -un)" -p Display --value` で確認したGUIセッションに `sudo loginctl unlock-session <セッション番号>` を実行すれば、文書を残したまま解除できます。パスワードをログへ出すことや、ロック機能の自動無効化は行いません。
+
+macOS版の `test` コマンドはバンドル署名と版番号の検査までです。GUIで日本語入力が成功したことを示すものではありません。
 
 ## GUIの受け入れ項目
 
@@ -51,5 +55,7 @@ Ubuntuはテスト専用ユーザーへ自動ログインします。macOS版の
 6. macOSはTextEditとブラウザ、UbuntuはGTK・Qt・Chromiumの入力欄とX11を確認。
 
 UbuntuのQt/Chromium用のローカル入力欄は `Tools/tests/qt-editor.py` です。VMのホームなど再起動で消えない場所へコピーし、VM内のPyQt6とQtWebEngineで実行します。外部サイトにはアクセスしません。
+
+Safariなど通常のブラウザでは `Tools/tests/ime-editor.html` をVMにコピーして開きます。入力中／確定済みの状態とフォーカス、入力結果をページ内に表示します。通信・保存は行いません。候補の番号クリック後に `a` を入力して確定し、全文に「あ」が続くこと、`Composing: false` と `Focused: true` を確認してください。
 
 テストスクリプトはホストのATOK削除・入力ソース切替・ログアウトを行いません。VMで確認してからホスト導入へ進みます。
