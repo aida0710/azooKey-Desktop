@@ -1,6 +1,7 @@
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk, Gdk, Pango, PangoCairo
+gi.require_version("PangoCairo", "1.0")
+from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo
 
 
 class TreePanel(Gtk.Window):
@@ -23,6 +24,14 @@ class TreePanel(Gtk.Window):
         self.canvas.connect("button-press-event", self.click)
         self.scroll.add(self.canvas)
         self.location = (0, 0, 0, 0)
+        self.focus_key = None
+        self.scroll_idle = None
+        self.connect("destroy", self.cancel_scroll)
+
+    def cancel_scroll(self, *_args):
+        if self.scroll_idle:
+            GLib.source_remove(self.scroll_idle)
+            self.scroll_idle = None
 
     def update(self, snapshot):
         self.snapshot = snapshot
@@ -51,16 +60,34 @@ class TreePanel(Gtk.Window):
         for node in nodes:
             self.rectangles.append(("node", node["id"], 16 + node["depth"] * 210, 16 + rows[node["id"]] * 64, 150, 48, node["text"], node["reading"]))
             for index in node["terminals"]:
-                self.rectangles.append(("select", index, 174 + node["depth"] * 210, 26 + terminal_rows[index] * 64, 30, 28, "↵", ""))
+                number = index - snapshot.get("pageStart", 0) + 1
+                self.rectangles.append(("select", index, 174 + node["depth"] * 210, 26 + terminal_rows[index] * 64, 30, 28, str(number) if 1 <= number <= 9 else "↵", ""))
         width = max(240, (max(node["depth"] for node in nodes) + 1) * 210 + 16)
         height = max(80, next_row * 64 + 32)
         self.canvas.set_size_request(width, height)
-        self.scroll.set_min_content_width(min(760, width))
-        self.scroll.set_min_content_height(min(420, height))
-        self.resize(min(760, width), min(420, height))
+        monitor = self.get_display().get_monitor_at_point(self.location[0], self.location[1])
+        area = monitor.get_workarea() if monitor else self.get_screen().get_monitor_workarea(0)
+        popup_width, popup_height = min(760, width, area.width), min(420, height, area.height)
+        self.scroll.set_min_content_width(popup_width)
+        self.scroll.set_min_content_height(popup_height)
+        self.resize(popup_width, popup_height)
         self.show_all()
         self.position()
         self.canvas.queue_draw()
+        focus = by_id.get(snapshot.get("focusedNode"))
+        key = (snapshot.get("generation"), snapshot.get("focusedNode"))
+        if focus and key != self.focus_key:
+            self.focus_key = key
+            self.cancel_scroll()
+            def reveal():
+                self.scroll_idle = None
+                for adjustment, start, end in (
+                    (self.scroll.get_hadjustment(), focus["depth"] * 210, focus["depth"] * 210 + 204),
+                    (self.scroll.get_vadjustment(), rows[focus["id"]] * 64, rows[focus["id"]] * 64 + 72),
+                ):
+                    adjustment.clamp_page(start, end)
+                return GLib.SOURCE_REMOVE
+            self.scroll_idle = GLib.idle_add(reveal)
 
     def position(self):
         x, y, _, height = self.location

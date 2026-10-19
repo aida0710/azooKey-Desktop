@@ -6,8 +6,9 @@ import PackageDescription
 #if os(macOS)
 let kanaKanjiConverterTraits: Set<Package.Dependency.Trait> = ["Zenzai"]
 #else
-// for testing in Ubuntu environment.
-let kanaKanjiConverterTraits: Set<Package.Dependency.Trait> = []
+let kanaKanjiConverterTraits: Set<Package.Dependency.Trait> = [
+    .trait(name: "ZenzaiCPU", condition: .when(traits: ["ZenzaiCPU"]))
+]
 #endif
 
 let products: [Product] = [
@@ -54,6 +55,7 @@ let package = Package(
     name: "Core",
     platforms: [.macOS(.v13)],
     products: products,
+    traits: [.trait(name: "ZenzaiCPU")],
     dependencies: [
         .package(url: "https://github.com/azooKey/AzooKeyKanaKanjiConverter", revision: "04ce2ec3afe2bd6f92fcae1dc15a2357d332c27a", traits: kanaKanjiConverterTraits),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),

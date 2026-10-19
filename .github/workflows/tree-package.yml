@@ -1,0 +1,49 @@
+name: Build tree distribution candidates
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Independent fork version (MAJOR.MINOR.PATCH)
+        required: true
+        default: '0.1.0'
+permissions:
+  contents: read
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - run: GIT_LFS_SKIP_SMUDGE=1 git submodule update --init
+      - run: python3 Tools/fetch-models.py
+      - run: bash Tools/test-docker.sh --zenzai
+      - name: Build Debian package
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: bash Tools/package-linux-docker.sh "$RELEASE_VERSION"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.runner }}
+          path: build/dist/*.deb*
+          if-no-files-found: error
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - run: GIT_LFS_SKIP_SMUDGE=1 git submodule update --init
+      - run: python3 Tools/fetch-models.py
+      - run: bash Tools/test-macos-app.sh test --jobs 4
+      - name: Build ad-hoc signed test package
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: bash Tools/tree-build.sh "$RELEASE_VERSION"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: build/dist/*.zip*
+          if-no-files-found: error

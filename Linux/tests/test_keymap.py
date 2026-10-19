@@ -21,6 +21,15 @@ class KeymapTests(unittest.TestCase):
         self.assertEqual(translate(0xFFC7, 0)["keyCode"], 109)
         self.assertEqual(translate(ord("9"), 0)["keyCode"], 25)
 
+    def test_encoded_fullwidth_unicode_is_text_not_a_function_key(self):
+        self.assertEqual(translate(0x0100FF21, 0)["characters"], "Ａ")
+        self.assertEqual(translate(0x0100FF76, 0)["characters"], "ｶ")
+        self.assertIsNone(translate(0x0100D800, 0)["characters"])
+
+    def test_legacy_kana_keysym_uses_platform_unicode_translation(self):
+        self.assertEqual(translate(0x04B6, 0, 0x30AB)["characters"], "カ")
+        self.assertIsNone(translate(0xFF0D, 0, 13)["characters"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,7 +10,12 @@ from azookey.engine import Engine
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--ibus", action="store_true")
+    parser.add_argument("--setup", action="store_true")
     arguments = parser.parse_args()
+    if arguments.setup:
+        from azookey.settings import run
+        run()
+        return
     IBus.init()
     bus = IBus.Bus()
     bus.connect("disconnected", lambda _bus: Gtk.main_quit())

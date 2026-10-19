@@ -7,19 +7,29 @@ permissions:
   contents: read
 jobs:
   ubuntu:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - run: bash Tools/test-docker.sh
+      - name: Fetch pinned model pointers without LFS installation
+        env:
+          GIT_LFS_SKIP_SMUDGE: '1'
+        run: git submodule update --init
+      - run: python3 Tools/fetch-models.py
+      - run: bash Tools/test-docker.sh --zenzai
   macos:
-    runs-on: macos-15
+    runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: '6.2'
       - run: bash Tools/tests/test-sync-upstream.sh
       - run: bash Tools/test-tree-model.sh
       - run: swift test --package-path Core
+      - run: bash Tools/test-macos-app.sh test --jobs 4

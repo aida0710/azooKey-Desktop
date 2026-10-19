@@ -1,0 +1,8 @@
+{
+  "uuid": "azookey-tree@aida0710",
+  "name": "azooKey Tree Candidates",
+  "description": "Tree-shaped Japanese conversion candidates for azooKey Tree on GNOME Wayland and X11",
+  "shell-version": ["46"],
+  "url": "https://github.com/aida0710/azooKey-Desktop",
+  "version": 1
+}

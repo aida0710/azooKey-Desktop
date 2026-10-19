@@ -8,14 +8,19 @@ SPECIAL = {
 DIGITS = dict(zip("1234567890", [18, 19, 20, 21, 23, 22, 26, 28, 25, 29]))
 
 
-def translate(keyval, state):
+def translate(keyval, state, unicode_scalar=None):
     if state & (1 << 30):  # Key release is never another insertion.
         return None
     modifiers = (1 if state & 1 else 0) | (2 if state & 4 else 0)
     modifiers |= 4 if state & 8 else 0
     modifiers |= 8 if state & ((1 << 26) | (1 << 6)) else 0
-    scalar = keyval & 0xFFFFFF if keyval & 0xFF000000 == 0x01000000 else keyval
-    text = chr(scalar) if 0x20 <= scalar < 0xFF00 or 0x10000 <= scalar <= 0x10FFFF else None
+    encoded_unicode = keyval & 0xFF000000 == 0x01000000
+    scalar = keyval & 0xFFFFFF if encoded_unicode else keyval
+    printable = 0x20 <= scalar <= 0x10FFFF if encoded_unicode else 0x20 <= scalar <= 0xFF
+    text = chr(scalar) if printable else None
+    if unicode_scalar is not None:
+        text = chr(unicode_scalar) if 0x20 <= unicode_scalar <= 0x10FFFF else None
+        scalar = unicode_scalar
     if scalar in range(0xD800, 0xE000):
         text = None
     return {

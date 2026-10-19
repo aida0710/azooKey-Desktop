@@ -30,6 +30,8 @@ public final class SegmentsManager {
     }
 
     public weak var delegate: (any SegmentManagerDelegate)?
+    /// Per-input-context privacy hint; does not change the user's saved preference.
+    public var learningEnabled = true
     private let kanaKanjiConverter: KanaKanjiConverter
     private let conversionSessionID: KanaKanjiConverter.ConversionSessionID
 
@@ -117,7 +119,11 @@ public final class SegmentsManager {
         }
 
         let base = self.resourcesDirectoryURL.appendingPathComponent("lm", isDirectory: false).path
+        #if os(Linux)
+        let personal = containerURL.appendingPathComponent("personalization/current").resolvingSymlinksInPath().path + "/lm"
+        #else
         let personal = containerURL.appendingPathComponent("Library/Application Support/p13n_v1").path + "/lm"
+        #endif
         // check personal lm existence
         guard [
             FileManager.default.fileExists(atPath: personal + "_c_abc.marisa"),
@@ -216,7 +222,7 @@ public final class SegmentsManager {
             keyboardLanguage: .ja_JP,
             englishCandidateInRoman2KanaInput: false,
             fullWidthRomanCandidate: true,
-            learningType: Config.Learning().value.learningType,
+            learningType: learningEnabled ? Config.Learning().value.learningType : Config.Learning.Value.nothing.learningType,
             memoryDirectoryURL: self.azooKeyMemoryDir,
             sharedContainerURL: CompiledUserDictionaryStore.directoryURL(memoryDirectoryURL: self.azooKeyMemoryDir),
             textReplacer: Self.textReplacer,
@@ -264,6 +270,12 @@ public final class SegmentsManager {
             )
         }
     }
+
+    public func reloadPersonalization() {
+        self.zenzaiPersonalizationMode = self.getZenzaiPersonalizationMode()
+    }
+
+    public var hasPersonalizationConfiguration: Bool { self.zenzaiPersonalizationMode != nil }
 
     @MainActor
     public func resetLearningData() {
@@ -606,7 +618,7 @@ public final class SegmentsManager {
     /// - note: 画面更新との整合性を保つため、この関数の実行前に左文脈を取得し、これを引数として与える
     @MainActor public func prefixCandidateCommited(_ candidate: Candidate, leftSideContext: String) {
         self.withConverter { $0.setCompletedData(candidate) }
-        self.withConverter { $0.updateLearningData(candidate) }
+        if learningEnabled { self.withConverter { $0.updateLearningData(candidate) } }
         self.composingText.prefixComplete(composingCount: candidate.composingCount)
 
         if !self.composingText.isEmpty {

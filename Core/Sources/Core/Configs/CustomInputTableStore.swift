@@ -62,6 +62,10 @@ public enum CustomInputTableStore {
         FileManager.default.fileExists(atPath: fileURL.path)
     }
 
+    public static func clear() throws {
+        if exists() { try FileManager.default.removeItem(at: fileURL) }
+    }
+
     private static func ensureDirectoryExists() throws {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
     }

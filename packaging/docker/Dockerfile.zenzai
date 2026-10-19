@@ -1,0 +1,19 @@
+FROM swift:6.2-noble AS llama
+RUN apt-get update && apt-get install -y --no-install-recommends cmake ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+# Same llama.cpp revision as the upstream b4846 macOS binary, built for Linux.
+RUN git init /tmp/llama && cd /tmp/llama \
+    && git remote add origin https://github.com/azooKey/llama.cpp.git \
+    && git fetch --depth=1 origin 10131b23ee0dbd9d03dfc618cec9fe3402919277 \
+    && git checkout --detach FETCH_HEAD \
+    && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/opt/azookey -DGGML_NATIVE=OFF -DGGML_METAL=OFF \
+        -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+        -DLLAMA_BUILD_SERVER=OFF -DBUILD_SHARED_LIBS=ON \
+    && cmake --build build --parallel 4 && cmake --install build \
+    && rm -rf /tmp/llama
+FROM azookey-tree-tests:local
+COPY --from=llama /opt/azookey /opt/azookey
+ENV AZOOKEY_CPU_TRAIT=1
+ENV LD_LIBRARY_PATH=/opt/azookey/lib
+COPY . /workspace
