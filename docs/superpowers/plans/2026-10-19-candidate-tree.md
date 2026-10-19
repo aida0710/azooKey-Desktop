@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 動画を参考にした木構造の変換候補表示をmacOS版に追加し、上流同期とHomebrew配布を整える。
+**Goal:** 木構造の候補表示、Ubuntuデスクトップ版、Docker/macOS VMでのテスト、定期的な上流同期、Homebrew配布を実装する。
 
 **Architecture:** 既存候補を接頭語の木へ投影する純粋なCoreモデルと、AppKitの描画・操作層を分離する。確定は元の候補インデックスを使って既存処理へ委譲する。独自のビルド・同期スクリプトは上流ファイルから分離する。
 
-**Tech Stack:** Swift、AppKit、Xcode、既存のSwiftPM依存、GitHub Actions、Homebrew Cask。
+**Tech Stack:** Swift、AppKit、Xcode、Linux入力方式アダプタ、Docker、Lima、既存のSwiftPM依存、GitHub Actions、Homebrew Cask。
 
 **Spec:** ../specs/2026-10-19-candidate-tree-design.md
 
@@ -59,6 +59,8 @@
 
 ### Task 4: 実機確認・公開・導入
 
+追加されたTask 5・6を含めて検証後に公開する。入力方式の導入テストは専用macOS VMを先に使う。
+
 **Files:** aida0710/homebrew-tap/Casks/azookey-tree.rb、README.md、およびプロジェクト側の保守文書。
 
 - [ ] Coreのテスト全体とReleaseビルド、対象のXcodeテストを実行する。
@@ -66,3 +68,21 @@
 - [ ] 最終差分をレビューし、検証済みのコミットをフォークへpushする。
 - [ ] 検証済み成果物だけをリリースし、実ハッシュのcaskをtapへ登録する。
 - [ ] 導入状態と入力テストを確認し、ログアウトなどユーザー操作が残る場合は明確に報告する。
+
+### Task 5: Ubuntuデスクトップ版
+
+**Interfaces:** 既存の変換エンジンと木のモデルを再利用し、OS固有のイベント・preedit・確定・周辺テキスト・設定画面をLinux側へ接続する。
+
+- [ ] 機能対応表を作成し、Apple固有機能の代替方針を記載する。
+- [ ] 日本語入力、変換・文節編集、各文字種、学習・辞書、設定・カスタム配列、予測・AIをLinux入力方式に接続する。
+- [ ] 木の表示・キー移動・クリック・確定と従来候補への切替を実装する。
+- [ ] UbuntuのX11/WaylandでGTK/Qt/Chromium系アプリへの入力を検証する。
+
+### Task 6: 再現可能な隔離テストと定期更新
+
+**Files:** Tools/test-docker.sh、Tools/vm-test.sh、packaging/docker/、packaging/vm/、Tools/tests/test-sync-upstream.sh、.github/workflows/tree-ci.yml。
+
+- [ ] Docker内でCore・Linux側テストを実行する。ホストへパッケージをインストールしない。
+- [ ] 専用macOS VM/Ubuntu VMの作成・起動・テスト転送・結果回収をスクリプト化する。
+- [ ] 上流同期をローカルGit fixtureで検証する（差分なし・通常更新・競合・再実行・元の作業内容保持）。
+- [ ] 週次scheduleと手動起動から同じ同期スクリプトを実行し、PRのCIも明示的に起動する。

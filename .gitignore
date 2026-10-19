@@ -7,6 +7,9 @@ xcuserdata/
 *.xccheckout
 *.xcscmblueprint
 build/
+.build/
+__pycache__/
+*.pyc
 Package.resolved
 DerivedData/
 *.moved-aside

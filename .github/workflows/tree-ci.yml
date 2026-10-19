@@ -1,0 +1,25 @@
+name: Tree and platform tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ubuntu:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash Tools/test-docker.sh
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.2'
+      - run: bash Tools/tests/test-sync-upstream.sh
+      - run: bash Tools/test-tree-model.sh
+      - run: swift test --package-path Core

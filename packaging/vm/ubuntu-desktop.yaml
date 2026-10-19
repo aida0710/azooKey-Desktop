@@ -1,0 +1,28 @@
+minimumLimaVersion: 2.1.0
+base:
+  - template:_images/ubuntu-24.04
+vmType: vz
+cpus: 4
+memory: 8GiB
+disk: 48GiB
+mounts: []
+containerd:
+  system: false
+  user: false
+video:
+  display: default
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y ubuntu-desktop-minimal language-pack-ja fonts-noto-cjk ibus \
+        python3-gi python3-cairo gir1.2-ibus-1.0 gir1.2-gtk-3.0 \
+        git curl ca-certificates build-essential libssl-dev zlib1g-dev
+      systemctl set-default graphical.target
+      systemctl start gdm3
+message: |
+  Dedicated Ubuntu desktop test guest. No host directories are mounted.
+  Open the Lima display and sign in before interactive IBus tests.
