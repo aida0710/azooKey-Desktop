@@ -20,6 +20,11 @@ extension BoolConfigItem {
 }
 
 extension Config {
+    public struct TreeCandidates: BoolConfigItem {
+        public init() {}
+        static let `default` = true
+        public static let key = "dev.ensan.inputmethod.azooKeyMac.preference.treeCandidates"
+    }
     /// デバッグウィンドウにd/Dで遷移する設定
     public struct DebugWindow: BoolConfigItem {
         public init() {}

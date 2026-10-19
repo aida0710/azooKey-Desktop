@@ -1,4 +1,19 @@
-# azooKey on macOS
+# azooKey Tree — macOS / Ubuntu
+
+このフォークは [azooKey/azooKey-Desktop](https://github.com/azooKey/azooKey-Desktop) に木構造の変換候補とUbuntu用IBusフロントエンドを追加します。元の変換候補を単語の共通接頭辞でまとめ、矢印キーで枝を移動し、番号ボタンで確定します。設定で従来のリストへ戻せます。
+
+**開発・VM検証中です。フォークのリリースとHomebrew caskはまだ公開していません。** 下記の上流インストール方法で入るアプリには、このフォークの追加機能は含まれません。
+
+- [対応範囲・検証状況](docs/platform-support.md)
+- [Ubuntuでの導入・設定](docs/ubuntu.md)
+- [Docker・macOS/Ubuntu VMのテスト手順](docs/vm-testing.md)
+- [上流の定期同期・独自リリース・Homebrew](docs/tree-maintenance.md)
+
+独自版は `tree-v0.1.0` のように版番号を付けます。上流は週次の同期PRで取り込み、競合時に自動上書きしません。Apple専用のFoundation Models・システム辞書・Tuner本体の画面収集機能はUbuntu移植の対象外です。Tunerが生成した個人化モデルの読み込みには対応します。
+
+---
+
+## 上流の案内
 
 [azooKey](https://github.com/ensan-hcl/azooKey)のmacOS版です。高精度なニューラルかな漢字変換エンジン「Zenzai」を導入した、オープンソースの日本語入力システムです。
 

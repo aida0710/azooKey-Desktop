@@ -8,6 +8,12 @@ if tag?.isEmpty == true {
 if commit?.isEmpty == true {
     commit = nil
 }
+// Source-only container contexts deliberately omit .git/config (which may hold
+// checkout credentials). The launcher passes the actual source revision.
+if commit == nil, let revision = ProcessInfo.processInfo.environment["AZOOKEY_BUILD_COMMIT"],
+   revision.range(of: "^[a-f0-9]{40,64}$", options: .regularExpression) != nil {
+    commit = revision
+}
 
 let outputPath = CommandLine.arguments[1]
 let contents = """

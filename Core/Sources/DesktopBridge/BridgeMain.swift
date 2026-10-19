@@ -1,0 +1,140 @@
+import Core
+import Foundation
+import KanaKanjiConverterModuleWithDefaultDictionary
+#if canImport(Glibc)
+import Glibc
+#else
+import Darwin
+#endif
+
+struct BridgeRequest: Decodable {
+    var operation: String
+    var event: KeyEventCore?
+    var index: Int?
+    var node: Int?
+    var generation: Int?
+    var submit: Bool?
+    var leftContext: String?
+    var rightContext: String?
+    var settings: DesktopSettings?
+    var suggestions: [String]?
+    var reading: String?
+    var apiKey: String?
+    var prompt: String?
+    var target: String?
+    var privateInput: Bool?
+    var context: String?
+    var doubleTap: Bool?
+}
+
+@main
+struct BridgeMain {
+    @MainActor
+    // The protocol router keeps every supported operation in one exhaustive switch.
+    // swiftlint:disable:next cyclomatic_complexity
+    static func main() async throws {
+        // Keep converter debug output (which can contain typed text) out of both
+        // the protocol and logs. The private pipe is the only output channel.
+        let responseFD = dup(STDOUT_FILENO)
+        guard responseFD >= 0 else {
+            return
+        }
+        let output = FileHandle(fileDescriptor: responseFD, closeOnDealloc: true)
+        let nullFD = open("/dev/null", O_WRONLY)
+        guard nullFD >= 0 else {
+            return
+        }
+        dup2(nullFD, STDOUT_FILENO)
+        dup2(nullFD, STDERR_FILENO)
+        close(nullFD)
+        let environment = ProcessInfo.processInfo.environment
+        let dataPath = environment["AZOOKEY_DATA_DIR"] ??
+            (environment["XDG_DATA_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share").path) + "/azookey-tree"
+        let resources = environment["AZOOKEY_RESOURCES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let zenzai = resources.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("ggml-model-Q5_K_M.gguf").path) } ?? false
+        let converter = KanaKanjiConverter.withDefaultDictionary()
+        var sessions: [String: DesktopSession] = [:]
+        defer { for session in sessions.values { session.close() } }
+        while let line = readLine() {
+            var response: DesktopSnapshot
+            do {
+                let request = try JSONDecoder().decode(BridgeRequest.self, from: Data(line.utf8))
+                // Persist already permitted learning before another context or
+                // preference can turn the shared converter's learning off.
+                if request.privateInput == true || request.operation == "configure" {
+                    converter.commitUpdateLearningData()
+                }
+                let context = request.context ?? "default"
+                let session: DesktopSession
+                if let existing = sessions[context] {
+                    session = existing
+                } else {
+                    session = try DesktopSession(dataDirectory: URL(fileURLWithPath: dataPath), resourcesDirectory: resources,
+                                                 useZenzai: zenzai, converter: converter)
+                    sessions[context] = session
+                }
+                session.privateInput = request.privateInput ?? false
+                session.leftContext = String((request.leftContext ?? "").suffix(100))
+                session.rightContext = String((request.rightContext ?? "").prefix(100))
+                switch request.operation {
+                case "key":
+                    guard let event = request.event else { throw ProtocolError.invalidRequest }
+                    response = session.key(event, doubleTap: request.doubleTap ?? false)
+                case "select":
+                    guard let index = request.index, let generation = request.generation else { throw ProtocolError.invalidRequest }
+                    response = session.select(candidateIndex: index, submit: request.submit ?? false, expectedGeneration: generation)
+                case "node":
+                    guard let node = request.node, let generation = request.generation else { throw ProtocolError.invalidRequest }
+                    response = session.selectNode(node, submit: request.submit ?? false, expectedGeneration: generation)
+                case "reset": response = session.reset(commit: request.submit ?? false)
+                case "snapshot": response = session.snapshot()
+                case "settings":
+                    response = DesktopSnapshot()
+                    response.settings = DesktopSettings()
+                case "configure":
+                    guard let settings = request.settings else { throw ProtocolError.invalidRequest }
+                    try settings.apply()
+                    for item in sessions.values { try item.reloadSettings() }
+                    response = session.snapshot()
+                case "close":
+                    session.close()
+                    sessions.removeValue(forKey: context)
+                    response = DesktopSnapshot()
+                case "download-typo-weights":
+                    try await session.downloadTypoWeights()
+                    response = DesktopSnapshot()
+                case "reset-learning":
+                    try session.resetLearning()
+                    response = session.snapshot()
+                case "suggestions":
+                    guard let texts = request.suggestions, let generation = request.generation, let reading = request.reading else { throw ProtocolError.invalidRequest }
+                    response = session.applySuggestions(texts, reading: reading, expectedGeneration: generation)
+                case "ai":
+                    guard !session.privateInput, let apiKey = request.apiKey, let target = request.target else { throw ProtocolError.invalidRequest }
+                    let model = Config.OpenAiModelName().value
+                    let modelName = model.isEmpty ? Config.OpenAiModelName.default : model
+                    response = DesktopSnapshot()
+                    response.suggestions = try await OpenAIClient.sendRequest(
+                        .init(prompt: request.prompt ?? "", target: target, modelName: modelName), apiKey: apiKey,
+                        apiEndpoint: Config.OpenAiApiEndpoint().value)
+                case "transform":
+                    guard !session.privateInput, let apiKey = request.apiKey, let prompt = request.prompt else { throw ProtocolError.invalidRequest }
+                    let model = Config.OpenAiModelName().value
+                    response = DesktopSnapshot()
+                    response.suggestions = [try await OpenAIClient.sendTextTransformRequest(
+                        prompt: prompt, modelName: model.isEmpty ? Config.OpenAiModelName.default : model,
+                        apiKey: apiKey, apiEndpoint: Config.OpenAiApiEndpoint().value)]
+                default: throw ProtocolError.invalidRequest
+                }
+            } catch {
+                response = DesktopSnapshot()
+                response.consumed = false
+                response.error = "invalid_request"
+            }
+            var data = try JSONEncoder().encode(response)
+            data.append(0x0a)
+            try output.write(contentsOf: data)
+        }
+    }
+    enum ProtocolError: Error { case invalidRequest }
+}

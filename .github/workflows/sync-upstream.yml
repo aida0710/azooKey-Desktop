@@ -1,0 +1,24 @@
+name: Sync upstream
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 21 * * 0' # Monday 06:23 JST
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: github.repository == 'aida0710/azooKey-Desktop'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Merge upstream and open a PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash Tools/sync-upstream.sh --publish --dispatch-tests

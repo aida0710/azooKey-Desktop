@@ -168,7 +168,11 @@ class BaseCandidateViewController: NSViewController {
         window.contentView?.wantsLayer = true
         window.contentView?.layer?.masksToBounds = true
 
-        window.styleMask = [.borderless, .resizable]
+        if window is CandidateTreePanel {
+            window.styleMask = [.borderless, .nonactivatingPanel]
+        } else {
+            window.styleMask = [.borderless, .resizable]
+        }
         window.isMovable = true
         window.hasShadow = true
         window.titlebarAppearsTransparent = true

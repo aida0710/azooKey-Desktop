@@ -40,8 +40,16 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     private var pinnedPromptsCache: [PromptHistoryItem] = []
 
     private static func makeCandidateWindow(contentViewController: NSViewController) -> NSWindow {
-        let window = NSWindow(contentViewController: contentViewController)
-        window.styleMask = [.borderless]
+        let window: NSWindow
+        if contentViewController is CandidatesViewController {
+            let panel = CandidateTreePanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+            panel.contentViewController = contentViewController
+            panel.hidesOnDeactivate = false
+            window = panel
+        } else {
+            window = NSWindow(contentViewController: contentViewController)
+            window.styleMask = [.borderless]
+        }
         window.level = .popUpMenu
 
         // Chromium 系アプリの deadlock 回避のため、初期化時に client への
@@ -352,6 +360,20 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 return self.handleClientAction(.showPromptInputWindow, clientActionCallback: .fallthrough, client: client)
             } else {
                 self.segmentsManager.appendDebugMessage("No selected text, using normal suggest behavior")
+            }
+        }
+
+        if inputState == .selecting, event.keyEventCore.modifierFlags.isEmpty,
+           case .navigation(let direction) = userAction {
+            let treeDirection: CandidateTreeSelection.Direction
+            switch direction {
+            case .left: treeDirection = .left
+            case .right: treeDirection = .right
+            case .up: treeDirection = .up
+            case .down: treeDirection = .down
+            }
+            if candidatesViewController.handleTreeNavigation(treeDirection) {
+                return true
             }
         }
 
@@ -798,22 +820,23 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
 extension azooKeyMacInputController: CandidatesViewControllerDelegate {
     func candidateSubmitted() {
-        Task { @MainActor in
-            self.submitSelectedCandidate()
-            self.inputState = self.segmentsManager.isEmpty ? .none : .previewing
-            self.refreshMarkedText()
-            self.refreshCandidateWindow()
-            self.refreshPredictionWindow()
-        }
+        self.submitSelectedCandidate()
+        self.inputState = self.segmentsManager.isEmpty ? .none : .previewing
+        self.refreshMarkedText()
+        self.refreshCandidateWindow()
+        self.refreshPredictionWindow()
+    }
+
+    func candidateSubmitted(_ row: Int) {
+        self.segmentsManager.requestSelectingRow(row)
+        self.candidateSubmitted()
     }
 
     func candidateSelectionChanged(_ row: Int) {
-        Task { @MainActor in
-            self.segmentsManager.requestSelectingRow(row)
-            self.inputState = .selecting
-            self.refreshMarkedText()
-            self.refreshCandidateWindow()
-        }
+        self.segmentsManager.requestSelectingRow(row)
+        self.inputState = .selecting
+        self.refreshMarkedText()
+        self.refreshCandidateWindow()
     }
 }
 

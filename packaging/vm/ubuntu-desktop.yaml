@@ -1,0 +1,35 @@
+minimumLimaVersion: 2.1.0
+base:
+  - template:_images/ubuntu-24.04
+vmType: vz
+cpus: 4
+memory: 8GiB
+disk: 48GiB
+mounts: []
+containerd:
+  system: false
+  user: false
+video:
+  display: default
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      # Keep the cloud image's networkd connection. The full desktop meta-package
+      # replaces networking during provisioning and can interrupt the SSH installer.
+      apt-get install -y --no-install-recommends gnome-shell gnome-session gdm3 \
+        gnome-terminal gnome-text-editor gnome-shell-extension-prefs at-spi2-core xserver-xorg xwayland xvfb dbus-x11 language-pack-ja fonts-noto-cjk ibus im-config \
+        python3-gi python3-gi-cairo python3-cairo gir1.2-ibus-1.0 gir1.2-gtk-3.0 gir1.2-secret-1 \
+        python3-pyqt6 python3-pyqt6.qtwebengine \
+        git curl ca-certificates libssl3t64 libcurl4t64 libgomp1 libatomic1 libicu74
+      TEST_USER="$(getent passwd | awk -F: '$3 >= 500 && $3 < 65534 && $6 ~ /^\/home\// {print $1; exit}')"
+      test -n "$TEST_USER"
+      sed -i "/^\[daemon\]/a AutomaticLoginEnable=true\nAutomaticLogin=$TEST_USER" /etc/gdm3/custom.conf
+      systemctl set-default graphical.target
+      systemctl start gdm3
+message: |
+  Dedicated Ubuntu desktop test guest. No host directories are mounted.
+  Open the Lima display and sign in before interactive IBus tests.

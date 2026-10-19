@@ -1,0 +1,7 @@
+.git
+**/.build
+build
+.superpowers
+.DS_Store
+**/xcuserdata
+**/__pycache__

@@ -2,18 +2,97 @@ import Cocoa
 import Core
 import KanaKanjiConverterModule
 
+@MainActor
 protocol CandidatesViewControllerDelegate: AnyObject {
     func candidateSubmitted()
+    func candidateSubmitted(_ row: Int)
     func candidateSelectionChanged(_ row: Int)
+}
+
+extension CandidatesViewControllerDelegate {
+    func candidateSubmitted(_ row: Int) {
+        candidateSelectionChanged(row)
+        candidateSubmitted()
+    }
 }
 
 class CandidatesViewController: BaseCandidateViewController {
     weak var delegate: (any CandidatesViewControllerDelegate)?
     private var showedRows: ClosedRange = 0...8
     var showCandidateIndex = false
+    private let treeView = CandidateTreeView()
+    private var treeEntries: [CandidateTree.Entry] = []
+    private var usesTree: Bool { Config.TreeCandidates().value }
+
+    override func loadView() {
+        super.loadView()
+        treeView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(treeView)
+        NSLayoutConstraint.activate([
+            treeView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            treeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            treeView.topAnchor.constraint(equalTo: view.topAnchor),
+            treeView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        treeView.onSelectionChanged = { [weak self] row in
+            self?.updateSelection(to: row)
+        }
+        treeView.onCandidateSubmitted = { [weak self] row in
+            guard let self, self.candidates.indices.contains(row) else {
+                return
+            }
+            self.updateSelection(to: row, notifySelectionChange: false)
+            self.delegate?.candidateSubmitted(row)
+        }
+    }
+
+    private func refreshTree(selectionIndex: Int?) {
+        var numbers: [Int: String] = [:]
+        if showCandidateIndex {
+            for index in showedRows where candidates.indices.contains(index) {
+                numbers[index] = String(index - showedRows.lowerBound + 1)
+            }
+        }
+        treeView.update(entries: treeEntries, selectionIndex: selectionIndex, numbers: numbers)
+    }
+
+    func handleTreeNavigation(_ direction: CandidateTreeSelection.Direction) -> Bool {
+        guard usesTree, !candidates.isEmpty else {
+            return false
+        }
+        treeView.navigate(direction)
+        // At the end of a path, Right must not fall through to upstream's commit.
+        return true
+    }
+
+    override func resizeWindowToFitContent(cursorLocation: CGPoint) {
+        guard usesTree else {
+            super.resizeWindowToFitContent(cursorLocation: cursorLocation)
+            return
+        }
+        guard let window = view.window,
+              let screen = ScreenLookup.screen(containing: cursorLocation, fallbackWindow: window) else {
+            return
+        }
+        let size = treeView.preferredSize
+        let frame = WindowPositioning.frameNearCursor(
+            currentFrame: .init(window.frame), screenRect: .init(screen.visibleFrame),
+            cursorLocation: .init(cursorLocation),
+            desiredSize: .init(width: min(size.width, screen.visibleFrame.width), height: min(size.height, screen.visibleFrame.height))
+        ).cgRect
+        window.setFrame(frame, display: true, animate: false)
+    }
 
     override func updateCandidatePresentations(_ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint) {
         self.showedRows = selectionIndex == nil ? 0...8 : self.showedRows
+        treeView.isHidden = !usesTree
+        tableView.enclosingScrollView?.isHidden = usesTree
+        treeEntries = candidates.enumerated().map { index, presentation in
+            .init(text: presentation.candidate.text,
+                  tokens: presentation.candidate.data.map { .init(text: $0.word, reading: $0.ruby) },
+                  candidateIndex: index)
+        }
+        treeView.update(entries: treeEntries, selectionIndex: selectionIndex)
         super.updateCandidatePresentations(
             candidates,
             selectionIndex: selectionIndex,
@@ -22,16 +101,16 @@ class CandidatesViewController: BaseCandidateViewController {
     }
 
     override internal func updateSelectionCallback(_ row: Int, notifySelectionChange: Bool) {
-        if notifySelectionChange {
-            delegate?.candidateSelectionChanged(row)
-        }
-
         if !self.showedRows.contains(row) {
             if row < self.showedRows.lowerBound {
                 self.showedRows = row...(row + 8)
             } else {
                 self.showedRows = (row - 8)...row
             }
+        }
+        refreshTree(selectionIndex: candidates.indices.contains(row) ? row : nil)
+        if notifySelectionChange {
+            delegate?.candidateSelectionChanged(row)
         }
     }
 
@@ -90,6 +169,8 @@ class CandidatesViewController: BaseCandidateViewController {
     func hide() {
         self.currentSelectedRow = -1
         self.showedRows = 0...8
+        treeEntries = []
+        treeView.update(entries: [], selectionIndex: nil)
     }
 
     override var numberOfVisibleRows: Int {
