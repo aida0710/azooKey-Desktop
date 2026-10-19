@@ -21,7 +21,7 @@ provision:
       # Keep the cloud image's networkd connection. The full desktop meta-package
       # replaces networking during provisioning and can interrupt the SSH installer.
       apt-get install -y --no-install-recommends gnome-shell gnome-session gdm3 \
-        gnome-terminal gnome-text-editor gnome-shell-extension-prefs at-spi2-core xwayland xvfb dbus-x11 language-pack-ja fonts-noto-cjk ibus im-config \
+        gnome-terminal gnome-text-editor gnome-shell-extension-prefs at-spi2-core xserver-xorg xwayland xvfb dbus-x11 language-pack-ja fonts-noto-cjk ibus im-config \
         python3-gi python3-gi-cairo python3-cairo gir1.2-ibus-1.0 gir1.2-gtk-3.0 gir1.2-secret-1 \
         python3-pyqt6 python3-pyqt6.qtwebengine \
         git curl ca-certificates libssl3t64 libcurl4t64 libgomp1 libatomic1 libicu74

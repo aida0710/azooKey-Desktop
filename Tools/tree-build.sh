@@ -20,8 +20,23 @@ cp "$ROOT"/azooKeyMac/*.tiff "$APP/Contents/Resources/"
 cp "$ROOT"/build/models/* "$APP/Contents/Resources/"
 python3 "$ROOT/Tools/collect-licenses.py" "$ROOT/build/macos-app/.build/checkouts" "$APP/Contents/Resources/Licenses"
 python3 - "$ROOT" "$APP" "$VERSION" <<'PY'
-import pathlib, plistlib, subprocess, sys
+import json, pathlib, plistlib, shutil, subprocess, sys
 root, app, version = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+resources = app / 'Contents/Resources'
+for localization in (root / 'azooKeyMac').glob('*.lproj'):
+    destination = resources / localization.name
+    shutil.copytree(localization, destination)
+    strings = destination / 'InfoPlist.strings'
+    if strings.exists():
+        strings.write_text(strings.read_text().replace('CFBundleName = "azooKey";', 'CFBundleName = "azooKey Tree";'))
+# Reuse the upstream catalog's exact PNGs without requiring an Xcode archive.
+icons = root / 'azooKeyMac/Assets.xcassets/AppIcon.appiconset'
+iconset = app.parent / 'AppIcon.iconset'
+iconset.mkdir()
+for item in json.loads((icons / 'Contents.json').read_text())['images']:
+    suffix = '@2x' if item['scale'] == '2x' else ''
+    shutil.copyfile(icons / item['filename'], iconset / f"icon_{item['size']}{suffix}.png")
+subprocess.run(['iconutil', '-c', 'icns', str(iconset), '-o', str(resources / 'AppIcon.icns')], check=True)
 with (root / 'azooKeyMac/Info.plist').open('rb') as source:
     info = plistlib.load(source)
 def substitute(value):
@@ -33,6 +48,7 @@ def substitute(value):
 info = substitute(info)
 info.update(CFBundleIdentifier='dev.ensan.inputmethod.azooKeyMac', CFBundleExecutable='azooKeyMac',
             CFBundleName='azooKey Tree', CFBundleDisplayName='azooKey Tree', CFBundlePackageType='APPL',
+            CFBundleIconFile='AppIcon.icns', CFBundleDevelopmentRegion='en',
             CFBundleShortVersionString=version, CFBundleVersion=version, LSMinimumSystemVersion='14.0')
 with (app / 'Contents/Info.plist').open('wb') as target: plistlib.dump(info, target)
 with (root / 'azooKeyMac/azooKeyMac.entitlements').open('rb') as source: entitlements = substitute(plistlib.load(source))

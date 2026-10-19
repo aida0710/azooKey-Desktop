@@ -30,6 +30,7 @@ jobs:
         with:
           fetch-depth: 0
       - run: bash Tools/tests/test-sync-upstream.sh
+      - run: bash Tools/tests/test-docker-preflight.sh
       - run: bash Tools/test-tree-model.sh
       - run: swift test --package-path Core
       - run: bash Tools/test-macos-app.sh test --jobs 4

@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 [[ "$(uname -s)" == Linux ]] || { echo 'Run this script inside Ubuntu or Docker.' >&2; exit 2; }
 bash Tools/tests/test-sync-upstream.sh
+bash Tools/tests/test-docker-preflight.sh
 bash Tools/test-tree-model.sh
 SWIFT_OPTIONS=()
 if [[ "${AZOOKEY_CPU_TRAIT:-0}" == 1 ]]; then

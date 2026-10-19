@@ -1,5 +1,5 @@
-import Foundation
 import Core
+import Foundation
 import KanaKanjiConverterModuleWithDefaultDictionary
 
 struct DesktopSettings: Codable {

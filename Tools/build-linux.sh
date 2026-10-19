@@ -61,7 +61,7 @@ Package: azookey-tree
 Version: $VERSION
 Architecture: $ARCH
 Maintainer: azooKey Tree contributors <noreply@github.com>
-Depends: ibus (>= 1.5), python3, python3-gi, python3-gi-cairo, python3-cairo, gir1.2-ibus-1.0, gir1.2-gtk-3.0, gir1.2-secret-1, libssl3t64, libcurl4t64, libgomp1, libatomic1, libicu74, zlib1g, libstdc++6
+Depends: ibus (>= 1.5), ibus-gtk, ibus-gtk3, ibus-gtk4, python3, python3-gi, python3-gi-cairo, python3-cairo, gir1.2-ibus-1.0, gir1.2-gtk-3.0, gir1.2-secret-1, libssl3t64, libcurl4t64, libgomp1, libatomic1, libicu74, zlib1g, libstdc++6
 Recommends: fonts-noto-cjk, gnome-shell (>= 46), gnome-shell (<< 47)
 Section: utils
 Priority: optional

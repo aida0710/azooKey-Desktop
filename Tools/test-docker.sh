@@ -4,6 +4,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOCKER="${DOCKER_BIN:-docker}"
 CPU=false
 if [[ "${1:-}" == --zenzai ]]; then CPU=true; shift; fi
+if $CPU; then
+    # CPU inference tests must never silently fall back to dictionary-only mode.
+    python3 "$ROOT/Tools/fetch-models.py" --verify-only
+fi
 if ! command -v "$DOCKER" >/dev/null && [[ -x /Applications/Docker.app/Contents/Resources/bin/docker ]]; then
     DOCKER=/Applications/Docker.app/Contents/Resources/bin/docker
 fi
@@ -15,10 +19,7 @@ EXTRA=()
 if $CPU; then
     "$DOCKER" build --file "$ROOT/packaging/docker/Dockerfile.zenzai" --tag azookey-tree-zenzai-tests:local "$ROOT"
     IMAGE=azookey-tree-zenzai-tests:local
-    if [[ -f "$ROOT/build/models/ggml-model-Q5_K_M.gguf" ]]; then
-        python3 "$ROOT/Tools/fetch-models.py" --verify-only
-        EXTRA+=(--mount "type=bind,source=$ROOT/build/models,target=/opt/azookey/models,readonly" --env AZOOKEY_RESOURCES=/opt/azookey/models)
-    fi
+    EXTRA+=(--mount "type=bind,source=$ROOT/build/models,target=/opt/azookey/models,readonly" --env AZOOKEY_RESOURCES=/opt/azookey/models)
 fi
 # Source is copied into the image: tests cannot modify files on the host.
 "$DOCKER" run --rm --init --cpus=4 --memory=8g \

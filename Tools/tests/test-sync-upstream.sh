@@ -29,6 +29,27 @@ grep -q 'Prepared merge' "$SANDBOX/merge.log"
 [[ "$(git -C "$SANDBOX/origin.git" for-each-ref --format='%(refname)' refs/heads | wc -l | tr -d ' ')" == 1 ]]
 run_sync > "$SANDBOX/repeat.log"
 grep -q 'Prepared merge' "$SANDBOX/repeat.log"
+# A fork's gh default repository may be its parent. Publishing must pass the
+# exact origin to gh, and every subsequent operation must target that fork.
+mkdir "$SANDBOX/bin"
+cat > "$SANDBOX/bin/gh" <<'SH'
+#!/bin/bash
+set -euo pipefail
+case "$1:$2" in
+    repo:view)
+        [[ "$3" == "$EXPECTED_ORIGIN" ]] || { echo 'gh repo view must explicitly target origin' >&2; exit 73; }
+        echo test/fork ;;
+    pr:list|pr:create|workflow:run)
+        [[ " $* " == *' --repo test/fork '* ]] || exit 74 ;;
+    *) exit 75 ;;
+esac
+SH
+chmod +x "$SANDBOX/bin/gh"
+export EXPECTED_ORIGIN="$SANDBOX/origin.git"
+PATH="$SANDBOX/bin:$PATH" run_sync --publish --dispatch-tests > "$SANDBOX/publish.log"
+[[ "$(git -C "$SANDBOX/origin.git" rev-parse main)" == "$BEFORE" ]]
+[[ "$(git -C "$SANDBOX/origin.git" for-each-ref --format='%(refname)' refs/heads | wc -l | tr -d ' ')" == 2 ]]
+PATH="$SANDBOX/bin:$PATH" run_sync --publish --dispatch-tests > "$SANDBOX/publish-repeat.log"
 # A fork-only commit survives; a conflicting upstream change is rejected.
 git -C "$SANDBOX/work" add shared.txt
 git -C "$SANDBOX/work" commit -qm 'fork work'
@@ -42,4 +63,4 @@ set -e
 [[ "$RESULT" == 3 ]]
 grep -q 'Merge conflict' "$SANDBOX/conflict.log"
 [[ "$(cat "$SANDBOX/work/shared.txt")" == 'uncommitted user work' ]]
-echo 'PASS: no-op, merge, repeated run, dirty checkout preserved, no unintended push, conflict rejected'
+echo 'PASS: no-op, merge, repeated run, dirty checkout preserved, fork-only publication, conflict rejected'

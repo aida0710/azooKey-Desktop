@@ -1,5 +1,5 @@
-import Foundation
 import Core
+import Foundation
 import KanaKanjiConverterModuleWithDefaultDictionary
 
 struct DesktopSnapshot: Encodable {
@@ -84,7 +84,9 @@ final class DesktopSession: SegmentManagerDelegate {
     }
 
     private var inputStyle: InputStyle {
-        if language == .english { return .direct }
+        if language == .english {
+            return .direct
+        }
         switch Config.InputStyle().value {
         case .default: return .mapped(id: .defaultRomanToKana)
         case .defaultAZIK: return .mapped(id: .defaultAZIK)
@@ -141,7 +143,9 @@ final class DesktopSession: SegmentManagerDelegate {
     }
 
     func applySuggestions(_ texts: [String], reading: String, expectedGeneration: Int) -> DesktopSnapshot {
-        guard expectedGeneration == generation, segments.convertTarget == reading else { return snapshot() }
+        guard expectedGeneration == generation, segments.convertTarget == reading else {
+            return snapshot()
+        }
         suggestions = texts.filter { !$0.isEmpty }.prefix(30).map {
             Candidate(text: $0, value: 0, composingCount: .surfaceCount(reading.count), lastMid: 0, data: [])
         }
@@ -159,7 +163,9 @@ final class DesktopSession: SegmentManagerDelegate {
 
     func select(candidateIndex: Int, submit: Bool, expectedGeneration: Int? = nil) -> DesktopSnapshot {
         guard expectedGeneration == nil || expectedGeneration == generation,
-              currentCandidates.indices.contains(candidateIndex) else { return snapshot() }
+              currentCandidates.indices.contains(candidateIndex) else {
+            return snapshot()
+        }
         generation += 1
         if state == .replaceSuggestion {
             suggestionIndex = candidateIndex
@@ -179,12 +185,16 @@ final class DesktopSession: SegmentManagerDelegate {
 
     func selectNode(_ nodeID: Int, submit: Bool, expectedGeneration: Int) -> DesktopSnapshot {
         guard expectedGeneration == generation,
-              let index = treeSelection.select(nodeID: nodeID, in: tree) else { return snapshot() }
+              let index = treeSelection.select(nodeID: nodeID, in: tree) else {
+            return snapshot()
+        }
         return select(candidateIndex: index, submit: submit, expectedGeneration: expectedGeneration)
     }
 
     private var currentCandidates: [Candidate] {
-        if state == .replaceSuggestion { return suggestions }
+        if state == .replaceSuggestion {
+            return suggestions
+        }
         switch segments.getCurrentCandidateWindow(inputState: state) {
         case .selecting(let candidates, _), .composing(let candidates, _): return candidates
         case .hidden: return []
@@ -193,13 +203,17 @@ final class DesktopSession: SegmentManagerDelegate {
 
     private func commitSelected(into commits: inout [String]) {
         if state == .replaceSuggestion {
-            guard suggestions.indices.contains(suggestionIndex) else { return }
+            guard suggestions.indices.contains(suggestionIndex) else {
+                return
+            }
             commit(suggestions[suggestionIndex], into: &commits)
             suggestions = []
             segments.resetSuggestionSelection()
             return
         }
-        guard let candidate = segments.selectedCandidate else { return }
+        guard let candidate = segments.selectedCandidate else {
+            return
+        }
         commit(candidate, into: &commits)
     }
 
@@ -209,6 +223,8 @@ final class DesktopSession: SegmentManagerDelegate {
         leftContext += candidate.text
     }
 
+    // Keep the upstream ClientAction mapping exhaustive, as in InputState.event.
+    // swiftlint:disable:next cyclomatic_complexity
     func key(_ event: KeyEventCore, doubleTap: Bool = false) -> DesktopSnapshot {
         generation += 1
         if doubleTap, event.keyCode == 102, !segments.isEmpty {

@@ -1,6 +1,6 @@
+@testable import DesktopBridge
 import Foundation
 import Testing
-@testable import DesktopBridge
 
 @MainActor
 @Test func desktopSessionConvertsAndCommitsRealCandidate() throws {

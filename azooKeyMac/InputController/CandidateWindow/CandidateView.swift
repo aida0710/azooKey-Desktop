@@ -38,7 +38,9 @@ class CandidatesViewController: BaseCandidateViewController {
             self?.updateSelection(to: row)
         }
         treeView.onCandidateSubmitted = { [weak self] row in
-            guard let self, self.candidates.indices.contains(row) else { return }
+            guard let self, self.candidates.indices.contains(row) else {
+                return
+            }
             self.updateSelection(to: row, notifySelectionChange: false)
             self.delegate?.candidateSubmitted(row)
         }
@@ -55,7 +57,9 @@ class CandidatesViewController: BaseCandidateViewController {
     }
 
     func handleTreeNavigation(_ direction: CandidateTreeSelection.Direction) -> Bool {
-        guard usesTree, !candidates.isEmpty else { return false }
+        guard usesTree, !candidates.isEmpty else {
+            return false
+        }
         treeView.navigate(direction)
         // At the end of a path, Right must not fall through to upstream's commit.
         return true
@@ -67,7 +71,9 @@ class CandidatesViewController: BaseCandidateViewController {
             return
         }
         guard let window = view.window,
-              let screen = ScreenLookup.screen(containing: cursorLocation, fallbackWindow: window) else { return }
+              let screen = ScreenLookup.screen(containing: cursorLocation, fallbackWindow: window) else {
+            return
+        }
         let size = treeView.preferredSize
         let frame = WindowPositioning.frameNearCursor(
             currentFrame: .init(window.frame), screenRect: .init(screen.visibleFrame),

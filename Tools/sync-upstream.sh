@@ -60,8 +60,8 @@ if ! $PUBLISH; then
     exit 0
 fi
 command -v gh >/dev/null
-# gh resolves the target repository from this clone's origin. No upstream writes.
-FORK="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+# gh can default to a fork's parent. Resolve the explicit origin URL instead.
+FORK="$(gh repo view "$ORIGIN" --json nameWithOwner --jq .nameWithOwner)"
 git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin "HEAD:refs/heads/$BRANCH"
 EXISTING="$(gh pr list --repo "$FORK" --state open --head "$BRANCH" --base "$BASE" --json number --jq '.[0].number // empty')"
 cat > "$WORK/body.md" <<EOF

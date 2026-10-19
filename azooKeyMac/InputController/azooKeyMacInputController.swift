@@ -372,7 +372,9 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             case .up: treeDirection = .up
             case .down: treeDirection = .down
             }
-            if candidatesViewController.handleTreeNavigation(treeDirection) { return true }
+            if candidatesViewController.handleTreeNavigation(treeDirection) {
+                return true
+            }
         }
 
         let (clientAction, clientActionCallback) = inputState.event(

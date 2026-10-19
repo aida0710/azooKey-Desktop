@@ -49,14 +49,18 @@ final class CandidateTreeView: NSView {
     @discardableResult
     func navigate(_ direction: CandidateTreeSelection.Direction) -> Bool {
         let oldIndex = selection.selectedCandidateIndex
-        guard let index = selection.move(direction, in: tree) else { return false }
+        guard let index = selection.move(direction, in: tree) else {
+            return false
+        }
         refreshSelection()
         if oldIndex != index { onSelectionChanged?(index) }
         return true
     }
 
     func submit(candidateIndex: Int) {
-        guard tree.paths[candidateIndex] != nil else { return }
+        guard tree.paths[candidateIndex] != nil else {
+            return
+        }
         selection.synchronize(tree: tree, candidateIndex: candidateIndex)
         refreshSelection()
         // Submission carries its index so a click can't commit an old selection.
@@ -65,10 +69,15 @@ final class CandidateTreeView: NSView {
 
     private func selectNode(_ nodeID: Int, submit: Bool) {
         let oldIndex = selection.selectedCandidateIndex
-        guard let index = selection.select(nodeID: nodeID, in: tree) else { return }
+        guard let index = selection.select(nodeID: nodeID, in: tree) else {
+            return
+        }
         refreshSelection()
-        if submit { onCandidateSubmitted?(index) }
-        else if oldIndex != index { onSelectionChanged?(index) }
+        if submit {
+            onCandidateSubmitted?(index)
+        } else if oldIndex != index {
+            onSelectionChanged?(index)
+        }
     }
 
     private func rebuild(numbers: [Int: String]) {

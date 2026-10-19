@@ -1,5 +1,5 @@
-import Foundation
 import Core
+import Foundation
 import KanaKanjiConverterModuleWithDefaultDictionary
 #if canImport(Glibc)
 import Glibc
@@ -30,14 +30,20 @@ struct BridgeRequest: Decodable {
 @main
 struct BridgeMain {
     @MainActor
+    // The protocol router keeps every supported operation in one exhaustive switch.
+    // swiftlint:disable:next cyclomatic_complexity
     static func main() async throws {
         // Keep converter debug output (which can contain typed text) out of both
         // the protocol and logs. The private pipe is the only output channel.
         let responseFD = dup(STDOUT_FILENO)
-        guard responseFD >= 0 else { return }
+        guard responseFD >= 0 else {
+            return
+        }
         let output = FileHandle(fileDescriptor: responseFD, closeOnDealloc: true)
         let nullFD = open("/dev/null", O_WRONLY)
-        guard nullFD >= 0 else { return }
+        guard nullFD >= 0 else {
+            return
+        }
         dup2(nullFD, STDOUT_FILENO)
         dup2(nullFD, STDERR_FILENO)
         close(nullFD)
@@ -60,8 +66,9 @@ struct BridgeMain {
                 }
                 let context = request.context ?? "default"
                 let session: DesktopSession
-                if let existing = sessions[context] { session = existing }
-                else {
+                if let existing = sessions[context] {
+                    session = existing
+                } else {
                     session = try DesktopSession(dataDirectory: URL(fileURLWithPath: dataPath), resourcesDirectory: resources,
                                                  useZenzai: zenzai, converter: converter)
                     sessions[context] = session
