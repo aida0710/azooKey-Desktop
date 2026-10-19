@@ -15,10 +15,13 @@ let products: [Product] = [
     .library(
         name: "Core",
         targets: ["Core"]
-    )
+    ),
+    .executable(name: "azookey-desktop-bridge", targets: ["DesktopBridge"])
 ]
 
 let targets: [Target] = [
+    .executableTarget(name: "DesktopBridge", dependencies: ["Core"], swiftSettings: [.interoperabilityMode(.Cxx)]),
+    .testTarget(name: "DesktopBridgeTests", dependencies: ["DesktopBridge"], swiftSettings: [.interoperabilityMode(.Cxx)]),
     .executableTarget(
         name: "git-info-generator"
     ),
