@@ -15,6 +15,8 @@ bash Tools/sync-upstream.sh --publish --dispatch-tests
 
 通常のmerge履歴を使い、force-pushや自動マージは行いません。GITHUB_TOKENで作成したPRは通常のpull_requestイベントでCIが起動しないため、workflow_dispatchも呼びます。フォーク側のActionsが有効で、ワークフローにPR作成権限が必要です。scheduleは既定ブランチに取り込まれてから動作します。
 
+2026-10-20にmainへ取り込み、[手動実行](https://github.com/aida0710/azooKey-Desktop/actions/runs/39290705964)が成功しています。この実行時点では上流の最新コミットを含んでいたため、新しいPRは作成していません。更新がある場合だけ同期PRを作成します。リポジトリのActions設定ではPR作成・レビュー承認を許可していますが、このスクリプトはレビュー承認・自動マージを実行しません。既定のワークフロートークン権限はreadのままです。
+
 ## 検証と配布
 
 ```sh

@@ -2,7 +2,7 @@
 
 対象はApple SiliconのmacOS 14以降、Ubuntu 24.04のarm64/amd64です。UbuntuのWaylandツリーはGNOME 46拡張で表示します。X11はGTKポップアップです。他のWaylandコンポジターではIBusの通常候補リストを利用します。
 
-「実装済み」と「実アプリで確認済み」を区別します。全機能の受け入れ検証と配布は進行中です。
+「実装済み」と「実アプリで確認済み」を区別します。試験版0.1.0の検証結果は次のとおりです。すべての入力操作・アプリの互換性やATOKと同等の品質を確認したものではありません。
 
 | 機能 | 実装 | 検証状況 |
 | --- | --- | --- |
@@ -20,5 +20,7 @@
 | macOS VM | Apple Virtualization + LimaのmacOSゲスト | macOS 26.5.2で作成・起動・パッケージ配置・署名検査・TextEditとSafariでの実IME入力を確認 |
 
 ホストのATOKは削除・切り替えしていません。macOS版のアプリ単体テストや署名検査は、入力方式としてのGUIテストを代替しません。
+
+[配布用CI](https://github.com/aida0710/azooKey-Desktop/actions/runs/39290701112)もmacOS（Metal/CPU）、Ubuntu amd64/arm64ですべて通過しました。
 
 実行手順は [VMテスト](vm-testing.md)、Linuxの設定と制約は [Ubuntu](ubuntu.md) を参照してください。
