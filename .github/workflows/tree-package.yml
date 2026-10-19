@@ -42,6 +42,12 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: bash Tools/tree-build.sh "$RELEASE_VERSION"
+      - name: Test CPU-only macOS variant
+        run: AZOOKEY_INFERENCE_BACKEND=cpu bash Tools/test-macos-app.sh test --jobs 4
+      - name: Build CPU-only package for macOS VMs
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: bash Tools/tree-build.sh "$RELEASE_VERSION" cpu
       - uses: actions/upload-artifact@v4
         with:
           name: macos-arm64

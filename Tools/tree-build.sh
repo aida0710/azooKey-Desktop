@@ -2,10 +2,16 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="${1:-0.1.0}"
+BACKEND="${2:-metal}"
+case "$BACKEND" in
+    metal) SUFFIX='' ;;
+    cpu) SUFFIX='-cpu' ;;
+    *) echo 'Usage: tree-build.sh MAJOR.MINOR.PATCH [metal|cpu]' >&2; exit 2 ;;
+esac
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Version must be MAJOR.MINOR.PATCH' >&2; exit 2; }
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || { echo 'This package currently requires an Apple Silicon Mac.' >&2; exit 2; }
 python3 "$ROOT/Tools/fetch-models.py" --verify-only
-bash "$ROOT/Tools/test-macos-app.sh" build -c release -j 4
+AZOOKEY_INFERENCE_BACKEND="$BACKEND" bash "$ROOT/Tools/test-macos-app.sh" build -c release -j 4
 PRODUCTS="$(swift build --package-path "$ROOT/build/macos-app" -c release --show-bin-path)"
 STAGE="$(mktemp -d "$ROOT/build/tree-package.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
@@ -19,7 +25,7 @@ done
 cp "$ROOT"/azooKeyMac/*.tiff "$APP/Contents/Resources/"
 cp "$ROOT"/build/models/* "$APP/Contents/Resources/"
 python3 "$ROOT/Tools/collect-licenses.py" "$ROOT/build/macos-app/.build/checkouts" "$APP/Contents/Resources/Licenses"
-python3 - "$ROOT" "$APP" "$VERSION" <<'PY'
+python3 - "$ROOT" "$APP" "$VERSION" "$BACKEND" <<'PY'
 import json, pathlib, plistlib, shutil, subprocess, sys
 root, app, version = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
 resources = app / 'Contents/Resources'
@@ -50,6 +56,7 @@ info.update(CFBundleIdentifier='dev.ensan.inputmethod.azooKeyMac', CFBundleExecu
             CFBundleName='azooKey Tree', CFBundleDisplayName='azooKey Tree', CFBundlePackageType='APPL',
             CFBundleIconFile='AppIcon.icns', CFBundleDevelopmentRegion='en',
             AzooKeyStandaloneStorage=True,
+            AzooKeyInferenceBackend=sys.argv[4],
             CFBundleShortVersionString=version, CFBundleVersion=version, LSMinimumSystemVersion='14.0')
 with (app / 'Contents/Info.plist').open('wb') as target: plistlib.dump(info, target)
 with (root / 'azooKeyMac/azooKeyMac.entitlements').open('rb') as source: entitlements = substitute(plistlib.load(source))
@@ -70,7 +77,7 @@ codesign --force --sign - "$APP/Contents/Frameworks/llama.framework"
 codesign --force --sign - --entitlements "$STAGE/entitlements.plist" "$APP"
 codesign --verify --deep --strict "$APP"
 mkdir -p "$ROOT/build/dist"
-DESTINATION="$ROOT/build/dist/azookey-tree-$VERSION-arm64.zip"
+DESTINATION="$ROOT/build/dist/azookey-tree-$VERSION-arm64$SUFFIX.zip"
 ditto -c -k --keepParent "$APP" "$DESTINATION"
-shasum -a 256 "$DESTINATION" > "$DESTINATION.sha256"
+(cd "$(dirname "$DESTINATION")" && shasum -a 256 "$(basename "$DESTINATION")") > "$DESTINATION.sha256"
 echo "Built ad-hoc signed, unnotarized package: $DESTINATION"

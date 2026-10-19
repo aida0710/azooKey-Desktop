@@ -27,7 +27,9 @@ bash Tools/build-vm-viewer.sh ubuntu
 
 bash Tools/vm-test.sh macos create
 bash Tools/vm-test.sh macos start
-bash Tools/vm-test.sh macos install build/dist/azookey-tree-0.1.0-arm64.zip
+# VMではCPU専用版を使用する。
+bash Tools/tree-build.sh 0.1.0 cpu
+bash Tools/vm-test.sh macos install build/dist/azookey-tree-0.1.0-arm64-cpu.zip
 bash Tools/vm-test.sh macos test
 bash Tools/vm-test.sh macos stop
 bash Tools/build-vm-viewer.sh macos
@@ -42,6 +44,14 @@ VMはリポジトリの隣の `azookey-vm` に保存します。`AZOOKEY_VM_HOME
 Ubuntuはテスト専用ユーザーへ自動ログインしますが、Limaの初期ユーザーには使えるログインパスワードがありません。画面からロック解除したい場合は上記の `passwd` を利用者が実行してください。未設定のままGNOMEが自動ロックした場合も、所有者の許可のもとでゲストへSSH接続し、`loginctl show-user "$(id -un)" -p Display --value` で確認したGUIセッションに `sudo loginctl unlock-session <セッション番号>` を実行すれば、文書を残したまま解除できます。パスワードをログへ出すことや、ロック機能の自動無効化は行いません。
 
 macOS版の `test` コマンドはバンドル署名と版番号の検査までです。GUIで日本語入力が成功したことを示すものではありません。
+
+### macOS VMの変換速度
+
+通常のMac向けビルドは上流のMetal対応を維持します。VM向けの `cpu` ビルドは同じモデルをCPU専用で実行し、別名のzipへ出力します。両者は同じ入力方式IDを使うため、同時には導入しません。CPU版のアプリテストは `AZOOKEY_INFERENCE_BACKEND=cpu bash Tools/test-macos-app.sh` で実行できます。
+
+macOS 26.5.2・4 vCPU・8 GiBの検証VMでは、Metal対応版とCPU専用版を比較し、初回の変換器処理の最大値が約2.2秒から約69ms、新しい文章の各キー処理の中央値が約110msから約29msになりました。ローカルの診断ビルドによる短い測定で、GUI描画・入力待ち時間は含みません。同文の再入力はキャッシュが効くため、新しい文章でも測定してください。ホストの負荷やVM環境で変わり、実機MacでCPU版が速いことを示す結果ではありません。
+
+候補UIは番号だけの変更で木を作り直さず、画面外のボタンを必要になるまで生成しません。208ノードの文章で候補ウィンドウの更新処理は約287msから約31msに短縮しました。これはアプリ内の処理時間で、画面転送やディスプレイへの描画完了までの遅延は含みません。
 
 ## GUIの受け入れ項目
 

@@ -4,8 +4,13 @@
 import PackageDescription
 
 #if os(macOS)
-let kanaKanjiConverterTraits: Set<Package.Dependency.Trait> = ["Zenzai"]
+let coreTraits: Set<Trait> = [.default(enabledTraits: ["Zenzai"]), "Zenzai", "ZenzaiCPU"]
+let kanaKanjiConverterTraits: Set<Package.Dependency.Trait> = [
+    .trait(name: "Zenzai", condition: .when(traits: ["Zenzai"])),
+    .trait(name: "ZenzaiCPU", condition: .when(traits: ["ZenzaiCPU"]))
+]
 #else
+let coreTraits: Set<Trait> = ["ZenzaiCPU"]
 let kanaKanjiConverterTraits: Set<Package.Dependency.Trait> = [
     .trait(name: "ZenzaiCPU", condition: .when(traits: ["ZenzaiCPU"]))
 ]
@@ -55,7 +60,7 @@ let package = Package(
     name: "Core",
     platforms: [.macOS(.v13)],
     products: products,
-    traits: [.trait(name: "ZenzaiCPU")],
+    traits: coreTraits,
     dependencies: [
         .package(url: "https://github.com/azooKey/AzooKeyKanaKanjiConverter", revision: "04ce2ec3afe2bd6f92fcae1dc15a2357d332c27a", traits: kanaKanjiConverterTraits),
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),

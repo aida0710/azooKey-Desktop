@@ -18,6 +18,10 @@ final class CandidateTreeView: NSView {
     private let canvas = TreeCanvas()
     private var nodeButtons: [Int: TreeButton] = [:]
     private var terminalButtons: [Int: TreeButton] = [:]
+    private var nodeFrames: [Int: NSRect] = [:]
+    private var terminalFrames: [Int: NSRect] = [:]
+    private var numberLabels: [Int: String] = [:]
+    private var rebuilding = false
     private(set) var preferredSize = NSSize(width: 480, height: 180)
 
     override init(frame: NSRect) {
@@ -28,6 +32,9 @@ final class CandidateTreeView: NSView {
         scrollView.drawsBackground = false
         scrollView.autoresizingMask = [.width, .height]
         scrollView.frame = bounds
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(viewportChanged),
+                                               name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         addSubview(scrollView)
         setAccessibilityLabel("木構造の変換候補")
     }
@@ -35,13 +42,21 @@ final class CandidateTreeView: NSView {
     convenience init() { self.init(frame: .zero) }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    override func layout() {
+        super.layout()
+        updateVisibleControls()
+    }
+
+    @objc private func viewportChanged() { updateVisibleControls() }
+
     func update(entries: [CandidateTree.Entry], selectionIndex: Int?, numbers: [Int: String] = [:]) {
         let updatedTree = CandidateTree(entries: entries)
         let changed = updatedTree != tree
         tree = updatedTree
+        numberLabels = numbers
         selection.synchronize(tree: tree, candidateIndex: selectionIndex)
-        if changed || terminalButtons.contains(where: { $0.value.title != (numbers[$0.key] ?? "↵") }) {
-            rebuild(numbers: numbers)
+        if changed {
+            rebuild()
         }
         refreshSelection()
     }
@@ -80,10 +95,14 @@ final class CandidateTreeView: NSView {
         }
     }
 
-    private func rebuild(numbers: [Int: String]) {
+    private func rebuild() {
+        rebuilding = true
+        defer { rebuilding = false }
         canvas.subviews.forEach { $0.removeFromSuperview() }
         nodeButtons.removeAll()
         terminalButtons.removeAll()
+        nodeFrames.removeAll()
+        terminalFrames.removeAll()
         var rows: [Int: CGFloat] = [:]
         var terminalRows: [Int: CGFloat] = [:]
         var nextRow: CGFloat = 0
@@ -115,6 +134,34 @@ final class CandidateTreeView: NSView {
         for node in tree.nodes {
             let frame = NSRect(x: xPositions[node.depth] ?? 16, y: (rows[node.id] ?? 0) * 64 + 16,
                                width: widths[node.depth] ?? 80, height: 48)
+            nodeFrames[node.id] = frame
+            for index in node.terminalCandidateIndices {
+                terminalFrames[index] = NSRect(x: frame.maxX + 7, y: (terminalRows[index] ?? 0) * 64 + 26, width: 28, height: 28)
+            }
+        }
+        for node in tree.nodes {
+            guard let parent = node.parentID, let from = nodeFrames[parent], let to = nodeFrames[node.id] else { continue }
+            canvas.edges.append(.init(nodeID: node.id, from: NSPoint(x: from.maxX, y: from.midY), to: NSPoint(x: to.minX, y: to.midY)))
+        }
+    }
+
+    private func updateVisibleControls() {
+        guard !rebuilding else {
+            return
+        }
+        let viewport = canvas.visibleRect.isEmpty ? NSRect(origin: .zero, size: preferredSize) : canvas.visibleRect
+        // Keep one row around the viewport ready while scrolling, without allocating the whole tree.
+        let visible = viewport.insetBy(dx: -16, dy: -64)
+        for (id, button) in nodeButtons where nodeFrames[id]?.intersects(visible) != true {
+            button.removeFromSuperview()
+            nodeButtons.removeValue(forKey: id)
+        }
+        for (index, button) in terminalButtons where terminalFrames[index]?.intersects(visible) != true {
+            button.removeFromSuperview()
+            terminalButtons.removeValue(forKey: index)
+        }
+        for (id, frame) in nodeFrames where frame.intersects(visible) && nodeButtons[id] == nil {
+            let node = tree.nodes[id]
             let button = TreeButton(frame: frame)
             button.title = node.token.text
             button.reading = node.token.reading
@@ -122,25 +169,17 @@ final class CandidateTreeView: NSView {
             button.setAccessibilityLabel(button.toolTip)
             button.clicked = { [weak self] doubleClick in self?.selectNode(node.id, submit: doubleClick) }
             canvas.addSubview(button)
-            nodeButtons[node.id] = button
-            for index in node.terminalCandidateIndices {
-                let terminal = TreeButton(frame: NSRect(x: frame.maxX + 7, y: (terminalRows[index] ?? 0) * 64 + 26, width: 28, height: 28))
-                terminal.title = numbers[index] ?? "↵"
-                terminal.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
-                terminal.toolTip = "候補 \(index + 1) を確定"
-                terminal.setAccessibilityLabel(terminal.toolTip)
-                terminal.clicked = { [weak self] _ in self?.submit(candidateIndex: index) }
-                canvas.addSubview(terminal)
-                terminalButtons[index] = terminal
-            }
+            nodeButtons[id] = button
         }
-        for node in tree.nodes {
-            guard let parent = node.parentID, let from = nodeButtons[parent], let to = nodeButtons[node.id] else { continue }
-            canvas.edges.append(.init(nodeID: node.id, from: NSPoint(x: from.frame.maxX, y: from.frame.midY), to: NSPoint(x: to.frame.minX, y: to.frame.midY)))
+        for (index, frame) in terminalFrames where frame.intersects(visible) && terminalButtons[index] == nil {
+            let terminal = TreeButton(frame: frame)
+            terminal.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+            terminal.toolTip = "候補 \(index + 1) を確定"
+            terminal.setAccessibilityLabel(terminal.toolTip)
+            terminal.clicked = { [weak self] _ in self?.submit(candidateIndex: index) }
+            canvas.addSubview(terminal)
+            terminalButtons[index] = terminal
         }
-    }
-
-    private func refreshSelection() {
         let path = Set(selection.selectedCandidateIndex.flatMap { tree.paths[$0] } ?? [])
         for (id, button) in nodeButtons {
             button.highlightedPath = path.contains(id)
@@ -148,14 +187,25 @@ final class CandidateTreeView: NSView {
             button.needsDisplay = true
         }
         for (index, button) in terminalButtons {
+            let title = numberLabels[index] ?? "↵"
+            if button.title != title { button.title = title }
             button.highlightedPath = selection.selectedCandidateIndex == index
             button.needsDisplay = true
         }
-        canvas.selectedPath = path
+    }
+
+    private func refreshSelection() {
+        canvas.selectedPath = Set(selection.selectedCandidateIndex.flatMap { tree.paths[$0] } ?? [])
         canvas.needsDisplay = true
-        if let id = selection.focusedNodeID, let button = nodeButtons[id] {
-            canvas.scrollToVisible(button.frame.insetBy(dx: -16, dy: -16))
+        if let id = selection.focusedNodeID, let frame = nodeFrames[id] {
+            var reveal = frame
+            if let index = selection.selectedCandidateIndex,
+               tree.nodes[id].terminalCandidateIndices.contains(index), let terminal = terminalFrames[index] {
+                reveal = reveal.union(terminal)
+            }
+            canvas.scrollToVisible(reveal.insetBy(dx: -16, dy: -16))
         }
+        updateVisibleControls()
     }
 }
 

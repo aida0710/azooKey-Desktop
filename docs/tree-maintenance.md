@@ -24,6 +24,7 @@ bash Tools/test-docker.sh
 bash Tools/test-docker.sh --zenzai
 python3 Tools/fetch-models.py
 bash Tools/tree-build.sh 0.1.0
+bash Tools/tree-build.sh 0.1.0 cpu # macOS VM向け。別名のarm64-cpu.zip
 bash Tools/package-linux-docker.sh 0.1.0
 ```
 
