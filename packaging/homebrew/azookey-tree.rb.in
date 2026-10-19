@@ -8,7 +8,7 @@ cask "azookey-tree" do
   homepage "https://github.com/aida0710/azooKey-Desktop"
 
   depends_on arch: :arm64
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
   conflicts_with cask: "azookey"
 
   input_method "azooKeyMac.app"

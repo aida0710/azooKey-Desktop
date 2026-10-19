@@ -15,8 +15,8 @@
 | 予測入力・入力訂正モデル | 上流Core＋モデル取得UI | Coreテスト。上流同様、実験的機能 |
 | OpenAI互換API・選択文の変換・履歴・固定・ショートカット | Linux用画面とキーリング連携 | ローカルAPI模擬サーバー、履歴・古い候補の拒否・失敗時の入力保持をテスト。外部API未使用 |
 | Foundation Models・macOSシステム辞書 | macOSの上流実装 | Ubuntuは指定により対象外 |
-| GTK / Qt / Chromium入力欄 | IBus | Ubuntu GNOME Wayland VMで3種類、X11でGTKの変換・候補クリック・追加入力を確認 |
-| Docker | Ubuntu + Swift + CPU Zenzai + D-Bus + Xvfb | arm64でパッケージと自動テストを実行済み。macOS保存先修正を含む5e25598でamd64/arm64のCIも通過 |
+| GTK / Qt / Chromium入力欄 | IBus | Ubuntu GNOME Wayland VMで3種類、X11でもGTK・Qt・Chromiumの変換・候補クリック・追加入力を確認 |
+| Docker | Ubuntu + Swift + CPU Zenzai + D-Bus + Xvfb | arm64でパッケージと自動テストを実行済み。性能修正を含む9824603でamd64/arm64のCIも通過 |
 | macOS VM | Apple Virtualization + LimaのmacOSゲスト | macOS 26.5.2で作成・起動・パッケージ配置・署名検査・TextEditとSafariでの実IME入力を確認 |
 
 ホストのATOKは削除・切り替えしていません。macOS版のアプリ単体テストや署名検査は、入力方式としてのGUIテストを代替しません。
