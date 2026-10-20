@@ -532,7 +532,7 @@ class ReadingCoordinatorTests(unittest.TestCase):
         self.converter.dead = True
         self.key("a")
         self.key("", 49)
-        self.drain_until(lambda: any(notice.code == "stale_candidate_authority" for notice in self.notices))
+        self.drain_until(lambda: any(notice.code == "candidate_worker_changed" for notice in self.notices))
 
     def wait_for_restoration(self):
         gate = self.converter.gate("configure-learning")
@@ -553,7 +553,7 @@ class ReadingCoordinatorTests(unittest.TestCase):
         self.key("b")
         self.key("", 49)
         self.assertEqual(self.panels, [])
-        self.assertEqual(sum(operation == "candidates" for _, operation, _ in self.converter.calls), 1)
+        self.assertFalse(any(operation == "candidates" for _, operation, _ in self.converter.calls))
         gate.proceed.set()
         self.drain_until(lambda: self.panels)
         self.assertEqual(self.panels[-1].batch["authority"]["focusEpoch"], self.inputs[-1].reference["focusEpoch"])

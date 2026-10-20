@@ -6,6 +6,8 @@ import queue
 import threading
 import uuid
 
+from azookey.bridge import BridgeProcessChanged
+
 
 # Detect a broken test handshake; never used to hide a product ordering race.
 WAIT_SECONDS = 5
@@ -106,8 +108,10 @@ class CandidateBridgeFixture:
             self.dead = False
             self._reset()
 
-    def request(self, operation, **payload):
+    def request(self, operation, *, expected_restarts=None, **payload):
         self.ensure_running()
+        if expected_restarts is not None and self.restarts != expected_restarts:
+            raise BridgeProcessChanged("fixture restarted before write")
         with self.condition:
             self.threads.add(threading.get_ident())
             self.calls.append((self.generation, operation, deepcopy(payload)))

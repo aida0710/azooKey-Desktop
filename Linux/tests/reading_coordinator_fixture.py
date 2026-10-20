@@ -111,8 +111,11 @@ class ReadingBridgeFixture:
                                         revision=state["revision"], settings=self.settings, generation=self.generation)
             request.update(state["surroundings"])
             state["request"] = request
+            state["candidateWorkerGeneration"] = payload["candidateWorkerGeneration"]
             return self._header("candidates", reference=reference, candidateRequest=request)
         if operation == "adopt-candidates":
+            if payload["batch"]["workerGeneration"] != state["candidateWorkerGeneration"]:
+                return self._header("error", error="wrong_candidate_worker_generation")
             if payload["batch"]["authority"] != state["request"]["authority"]:
                 return self._header("error", error="stale_candidate_request")
             state["batch"] = payload["batch"]
