@@ -25,7 +25,9 @@ const DEFINITION_TIMEOUT_MILLISECONDS = 5000; // A dictionary result may fail wi
 const NODE_BORDER_WIDTH = 2; // Reserve both borders outside the measured label heights.
 // Bound each scrollable section so the source document remains visible around the card.
 const CARD_LAYOUT = {minimumWidth: 360, maximumWidth: 560, lineCharacters: 26,
-    compositionFraction: 0.26, detailsFraction: 0.14, treeFraction: 0.35, listFraction: 0.45};
+    compositionFraction: 0.26, detailsFraction: 0.14,
+    // An explicitly opened entry needs several readable meaning/example lines.
+    expandedDetailsFraction: 0.45, treeFraction: 0.35, listFraction: 0.45};
 
 export default class AzooKeyTreeExtension extends Extension {
     enable() {
@@ -423,8 +425,9 @@ export default class AzooKeyTreeExtension extends Extension {
         const navigationMinimum = this._navigation.update(data,
             {fontSize, width: popupWidth, listHeight: 1, palette});
         this._refreshDetails();
+        const detailFraction = this._details.expanded ? CARD_LAYOUT.expandedDetailsFraction : CARD_LAYOUT.detailsFraction;
         const detailHeight = this._details.layout({identity: actionIdentity, treeExpanded: this._treeExpanded,
-            fontSize, width: popupWidth, maximumHeight: bounds.height * CARD_LAYOUT.detailsFraction,
+            fontSize, width: popupWidth, maximumHeight: bounds.height * detailFraction,
             availableHeight: Math.max(0, bounds.height - compositionHeight - navigationMinimum - 2)});
         const available = Math.max(1, bounds.height - compositionHeight - detailHeight - navigationMinimum - 2);
         const treeHeight = this._treeExpanded ? Math.min(treeContentHeight, available * CARD_LAYOUT.treeFraction) : 0;

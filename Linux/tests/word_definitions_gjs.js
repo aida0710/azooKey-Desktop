@@ -2,6 +2,7 @@
 import {Actor, ScrollableActor, ScrollViewActor, drainActions, loadShellClass} from './gnome_actor_fixture.js';
 import {attachCandidateAction} from '../gnome-extension/candidateAccessibility.js';
 import {messages} from '../gnome-extension/candidateMessages.js';
+import {candidatePlacement} from '../gnome-extension/candidatePlacement.js';
 
 function equal(actual, expected) {
     if (JSON.stringify(actual) !== JSON.stringify(expected))
@@ -19,7 +20,7 @@ class MeasuredBox extends ScrollableActor {
         return [height, height];
     }
 }
-const imports = {Gio, St: {Button: Actor, BoxLayout: MeasuredBox, Label: Actor, ScrollView: ScrollViewActor,
+const imports = {Gio, candidatePlacement, St: {Button: Actor, BoxLayout: MeasuredBox, Label: Actor, ScrollView: ScrollViewActor,
     PolicyType: {NEVER: 0, AUTOMATIC: 1}}, Pango: {WrapMode: {WORD_CHAR: 0}, EllipsizeMode: {NONE: 0, END: 1}},
     Clutter: {ActorAlign: {START: 0, CENTER: 1}}, attachCandidateAction, messages,
     GLib: {Variant: class { constructor(signature, values) { this.signature = signature; this.values = values; } }},
@@ -164,3 +165,69 @@ extension._lookupWordDefinitions('node', 0);
 equal(pending.length, 4);
 equal(displayed.at(-1), null);
 print('GNOME composing: the branch tree remains compact and starts no dictionary query PASS');
+
+
+const Composition = loadShellClass({fileName: 'candidateComposition.js', imports, className: 'CandidateComposition'});
+const Navigation = loadShellClass({fileName: 'candidateNavigation.js', imports, className: 'CandidateNavigation'});
+const palette = {background: '#fff', text: '#000', selection: '#ddd', selectionText: '#000',
+    surface: '#fff', border: '#ccc', secondaryText: '#555'};
+const budgetSnapshot = {contextId: 'budget', generation: 1, selection: 0, inputState: 'selecting',
+    reading: 'ホショウ', showCandidateIndex: true, candidates: [{index: 0, text: '保証'}],
+    candidatePage: {start: 0, position: 1, totalCount: 9, previousIndex: null, nextIndex: null,
+        items: Array.from({length: 9}, (_, index) => ({index, text: '保証'}))}};
+for (const workAreaHeight of [800, 320]) {
+    for (const treeExpanded of [false, true]) {
+        const card = new ExtensionClass();
+        const commits = [];
+        card._presentationMode = 'menu';
+        card._treeExpanded = treeExpanded;
+        card._popup = new Actor();
+        card._treeScroll = new Actor();
+        card._composition = new Composition(selection => commits.push(selection.values));
+        card._navigation = new Navigation({select() {}, changed() {}, preview() {}});
+        card._details = new Detail({changed() {}, toggleTree() {}});
+        card._details.setWordDefinitions(longResponse);
+        // Model a full long entry rather than the fixture actor's short natural height.
+        card._details._scrollContent.get_preferred_height = () => [1000, 1000];
+        card._refreshDetails = () => {};
+        const navigationHeights = [];
+        const updateNavigation = card._navigation.update.bind(card._navigation);
+        card._navigation.update = (snapshot, options) => {
+            const height = updateNavigation(snapshot, options);
+            navigationHeights.push(height);
+            return height;
+        };
+        const options = {bounds: {x: 0, y: 0, width: 640, height: workAreaHeight}, fontSize: 24,
+            treeContentWidth: 400, treeContentHeight: 600, nodes: new Map(),
+            actionIdentity: 'budget', location: [100, 50, 0, 20], palette};
+        card._layoutCard(budgetSnapshot, options);
+        const confirm = card._composition._confirm;
+        const compositionHeight = card._composition.actor.height;
+        const compactListHeight = card._navigation._scroll.height;
+        const minimumNavigationHeight = navigationHeights[0];
+        card._details.expanded = true;
+        card._layoutCard(budgetSnapshot, options);
+        assert(card._composition._confirm === confirm && confirm.is_mapped() && confirm.reactive,
+            'Opening the entry must preserve the current explicit confirm action');
+        equal(card._composition.actor.height, compositionHeight);
+        assert(card._navigation.actor.height >= minimumNavigationHeight,
+            'Expanded details must preserve the page controls and navigation minimum');
+        assert(card._navigation._scroll.height < compactListHeight,
+            'The sentence list must yield its excess rows to the explicitly opened entry');
+        const contentHeight = compositionHeight + card._navigation.actor.height +
+            card._details.actor.height + card._treeScroll.height;
+        assert(contentHeight <= workAreaHeight && card._popup.height <= workAreaHeight,
+            'Expanded details and remaining list/tree must fit the work area');
+        if (workAreaHeight === 800) {
+            const lineHeight = card._details._definitionPreview.get_preferred_height(560)[1];
+            assert(card._details._scroll.height >= lineHeight * 4,
+                'A long full entry must show several example lines on a normal desktop');
+        }
+        equal(commits, []);
+        confirm.get_accessible().do_action();
+        confirm.get_accessible().do_action();
+        drainActions();
+        equal(commits, [['select', 0, true, 1, 'budget']]);
+    }
+}
+print('GNOME expanded entry: examples gain readable space at 800px, 320px stays bounded, and composition/page controls/confirm-once survive PASS');
