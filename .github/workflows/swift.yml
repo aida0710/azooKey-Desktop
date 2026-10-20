@@ -3,8 +3,32 @@ on:
   push:
   pull_request:
 
+# Keep PR merge-commit checks separate from later push events.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  select-checks:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run-checks: ${{ steps.decision.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: node --test Tools/tests/ci-should-run-checks.test.cjs
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        id: decision
+        with:
+          script: |
+            const { shouldRunChecks } = require('./Tools/ci/should-run-checks.cjs');
+            return await shouldRunChecks({ github, context, warning: core.warning, info: core.info });
+
   macos-build:
+    needs: select-checks
+    if: needs.select-checks.outputs.run-checks == 'true'
     name: Build and Test on macOS
     runs-on: macos-15
     steps:
@@ -23,6 +47,8 @@ jobs:
         run: swift test --package-path Core
 
   ubuntu-build:
+    needs: select-checks
+    if: needs.select-checks.outputs.run-checks == 'true'
     name: Build and Test on Ubuntu
     runs-on: ubuntu-22.04
     steps:
@@ -39,6 +65,8 @@ jobs:
         run: swift test --package-path Core
 
   xcodebuild-test:
+    needs: select-checks
+    if: needs.select-checks.outputs.run-checks == 'true'
     name: Xcodebuild test on macOS
     runs-on: macos-15
     steps:
@@ -67,6 +95,8 @@ jobs:
           CODE_SIGN_IDENTITY=""
 
   swiftlint:
+    needs: select-checks
+    if: needs.select-checks.outputs.run-checks == 'true'
     name: SwiftLint
     runs-on: macos-15
     steps:
