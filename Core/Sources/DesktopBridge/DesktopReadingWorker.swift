@@ -18,7 +18,7 @@ struct DesktopReadingWorker {
             guard let event = request.event else { throw BridgeMain.ProtocolError.invalidRequest }
             response = try session.key(event, doubleTap: request.doubleTap ?? false)
         case "reset":
-            response = session.reset(commit: request.submit ?? false)
+            response = try session.reset(commit: request.submit ?? false)
         case "snapshot":
             response = session.snapshot()
         default:
