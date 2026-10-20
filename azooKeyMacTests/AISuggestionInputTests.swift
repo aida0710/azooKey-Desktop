@@ -240,6 +240,27 @@ final class AISuggestionInputTests: XCTestCase {
         XCTAssertEqual(client.inserted, ["にほんご"])
     }
 
+    func testEmptyReplacementRequestLeavesEnterToTheApplication() {
+        XCTAssertNil(controller.requestReplaceSuggestion())
+        XCTAssertEqual(controller.inputState, .none)
+        XCTAssertFalse(send(.enter))
+        XCTAssertTrue(client.inserted.isEmpty)
+        type("nihongo")
+        XCTAssertEqual(controller.segmentsManager.convertTarget, "にほんご")
+    }
+
+    func testPredictionFromEmptyInputKeepsItsInsertedReadingWhileWaiting() async {
+        XCTAssertTrue(send(.suggest))
+        await sender.waitForRequests(1)
+        XCTAssertEqual(controller.inputState, .composing)
+        XCTAssertEqual(controller.segmentsManager.convertTarget, "つづき")
+        XCTAssertEqual(client.marked, "つづき")
+        send(.enter)
+        XCTAssertEqual(client.inserted, ["つづき"])
+        XCTAssertTrue(controller.segmentsManager.isEmpty)
+        sender.finish(0, with: .success([]))
+    }
+
     func testSuggestionAndStatusPanelsCannotTakeKeyboardFocus() {
         XCTAssertFalse(controller.replaceSuggestionWindow.canBecomeKey)
         XCTAssertFalse(controller.replaceSuggestionWindow.canBecomeMain)
