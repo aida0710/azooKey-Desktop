@@ -79,4 +79,6 @@ GTK用の`Tools/tests/gtk-editor.py`とQt/QtWebEngine用の`Tools/tests/qt-edito
 
 `--events /home/azookey/ux-gui/trial-events.jsonl` を追加すると、GTKの挿入・削除、Qtのnative input-methodイベント、状態の時系列を記録します。既存のログへ試行を混ぜないため、新しいファイル名を使ってください。AI結果の元欄への適用・別欄への誤適用・Resetの検証は、[ローカルmockを使う手順](linux-ai-gui-validation.md)を参照してください。
 
+パスワード・PIN・private・読み取り専用の欄は、[入力保護属性の専用fixture](protected-input-fixtures.md)で検証します。既存の2欄とは別画面で、各ツールキットの実属性、Tab移動、入力イベントを記録します。
+
 候補クリック後の追加入力、欄を切り替えたときの誤確定、重複確定を、画面とJSONの両方で確認してください。ここで得たJSONだけでは、候補の見やすさや読み上げの合格とは判定できません。録画やログに残す入力は固定の検証文に限ります。

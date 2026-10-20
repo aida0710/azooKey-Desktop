@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>azooKey protected input — Chromium</title>
+<style>
+  body { font: 20px system-ui; max-width: 900px; margin: 24px auto; padding: 0 24px; }
+  h1 { font-size: 24px; }
+  label, input { display: block; }
+  input { box-sizing: border-box; width: 100%; font: inherit; margin: 4px 0 16px; padding: 8px; }
+  output { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px monospace; }
+</style>
+<h1>Protected input fixture</h1>
+<p>Synthetic text only. Tab / Shift+Tab moves between fields.
+   Observations stay in this page's memory.</p>
+<label for="normal">Normal input</label>
+<input id="normal" type="text" autofocus autocomplete="off">
+<label for="password">Password input</label>
+<input id="password" type="password" autocomplete="off">
+<label for="pin">Numeric password input</label>
+<input id="pin" type="password" inputmode="numeric" autocomplete="off">
+<label for="read-only">Read-only input</label>
+<input id="read-only" type="text" readonly value="READ_ONLY_BEFORE TARGET_TEXT READ_ONLY_AFTER">
+<p>HTML has no separate PRIVATE input hint. The numeric keyboard hint does not
+   establish an IBus PIN purpose; observe the application's actual notifications.</p>
+<details><summary>Observed state</summary><output id="state" aria-live="off"></output></details>
+<script src="protected-editor-observer.js"></script>
+</html>
