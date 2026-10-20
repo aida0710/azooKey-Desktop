@@ -1,3 +1,16 @@
 "ai.suggestion.loading" = "AI 候補を取得中… 入力は続けられます";
 "ai.suggestion.empty" = "AI 候補がありません。入力はそのまま続けられます";
 "ai.suggestion.failed" = "AI 変換に失敗しました。入力はそのまま続けられます";
+"reconversion.undo_menu" = "直前の確定を取り消す（Control+Shift+Backspace）";
+"reconversion.selection_menu" = "選択した語を再変換（Control+Shift+R）";
+"reconversion.reading_input" = "読みを入力: %@　Enter で再変換 / Escape で中止";
+"reconversion.private_input" = "この入力欄では確定取消・再変換を利用できません";
+"reconversion.replacement_unavailable" = "この入力先では範囲の置換を確認できません";
+"reconversion.invalid_context" = "入力先の範囲を確認できません。もう一度選択してください";
+"reconversion.no_recent_commit" = "取り消せる直前の確定がありません";
+"reconversion.changed_context" = "文字またはカーソル位置が変わりました。もう一度選択してください";
+"reconversion.no_selection" = "再変換する語を選択してください";
+"reconversion.reading_required" = "この語の読みを入力してください";
+"reconversion.stale_request" = "入力先が変わりました。もう一度やり直してください";
+"reconversion.composition_active" = "入力中の文字を確定してから再変換してください";
+"reconversion.whole_selection_required" = "再変換では選択した語全体を対象にしてください";

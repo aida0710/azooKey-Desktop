@@ -21,6 +21,7 @@ public final class ReconversionSession {
         public let offset: Int
         public let count: Int
         public let text: String
+        public let reading: String
     }
 
     public struct RestoredComposition {
@@ -36,6 +37,7 @@ public final class ReconversionSession {
     private struct Pending {
         let replacement: Replacement
         let checkpoint: CompositionCheckpoint
+        let sourceContext: ReconversionContext
         let removedContext: ReconversionContext
     }
     private var recentCommit: Commit?
@@ -69,7 +71,7 @@ public final class ReconversionSession {
             throw Failure.changedContext
         }
         return prepare(text: commit.text, offset: -commit.text.unicodeScalars.count,
-                       checkpoint: commit.checkpoint, removedContext: removedContext)
+                       checkpoint: commit.checkpoint, sourceContext: context, removedContext: removedContext)
     }
 
     public func prepareSelection(in context: ReconversionContext, reading: String?) throws -> Replacement {
@@ -78,8 +80,14 @@ public final class ReconversionSession {
         guard !context.selected.isEmpty else { throw Failure.noSelection }
         guard let reading, !reading.isEmpty,
               reading.count <= ReconversionContext.selectionLimit else { throw Failure.readingRequired }
-        return prepare(text: context.selected, offset: context.selectionStart - context.cursor,
-                       checkpoint: .reading(reading), removedContext: context.replacingSelection(with: ""))
+        return prepare(text: context.selected, offset: context.cursorUTF16 > context.anchorUTF16 ? -context.selected.unicodeScalars.count : 0,
+                       checkpoint: .reading(reading), sourceContext: context, removedContext: context.replacingSelection(with: ""))
+    }
+
+    public func validateReplacement(_ token: String, in context: ReconversionContext) throws {
+        try validate(context)
+        guard let pending, pending.replacement.token == token else { throw Failure.staleRequest }
+        guard pending.sourceContext.matchesDocument(context) else { throw Failure.changedContext }
     }
 
     public func confirm(_ token: String, in context: ReconversionContext) throws -> RestoredComposition {
@@ -92,10 +100,11 @@ public final class ReconversionSession {
     }
 
     private func prepare(text: String, offset: Int, checkpoint: CompositionCheckpoint,
-                         removedContext: ReconversionContext) -> Replacement {
+                         sourceContext: ReconversionContext, removedContext: ReconversionContext) -> Replacement {
         let replacement = Replacement(token: UUID().uuidString, offset: offset,
-                                      count: text.unicodeScalars.count, text: text)
-        pending = .init(replacement: replacement, checkpoint: checkpoint, removedContext: removedContext)
+                                      count: text.unicodeScalars.count, text: text, reading: checkpoint.reading)
+        pending = .init(replacement: replacement, checkpoint: checkpoint,
+                        sourceContext: sourceContext, removedContext: removedContext)
         return replacement
     }
 

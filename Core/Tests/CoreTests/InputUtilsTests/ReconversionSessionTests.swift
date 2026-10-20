@@ -4,10 +4,10 @@ import Testing
 private func document(before: String = "前", selected: String = "", after: String = "後",
                       start: Int? = nil, reversed: Bool = false, editable: Bool = true,
                       sensitive: Bool = false) -> ReconversionContext {
-    let start = start ?? before.unicodeScalars.count
-    let end = start + selected.unicodeScalars.count
+    let start = start ?? before.utf16.count
+    let end = start + selected.utf16.count
     return .init(before: before, selected: selected, after: after,
-                 cursor: reversed ? start : end, anchor: reversed ? end : start,
+                 cursorUTF16: reversed ? start : end, anchorUTF16: reversed ? end : start,
                  canReplace: editable, isSensitive: sensitive)
 }
 
@@ -45,7 +45,7 @@ func selectionReplacementUsesTheSameRangeInEitherDirection(reversed: Bool) throw
     let contexts = [
         document(selected: "橋", editable: false),
         document(selected: "橋", sensitive: true),
-        ReconversionContext(before: "", selected: "橋", after: "", cursor: 9, anchor: 0,
+        ReconversionContext(before: "", selected: "橋", after: "", cursorUTF16: 9, anchorUTF16: 0,
                             canReplace: true, isSensitive: false)
     ]
     for context in contexts {
@@ -58,6 +58,19 @@ func selectionReplacementUsesTheSameRangeInEitherDirection(reversed: Bool) throw
 @Test func missingReadingLeavesTheSelectedWordUntouched() {
     #expect(throws: ReconversionSession.Failure.readingRequired) {
         try ReconversionSession().prepareSelection(in: document(selected: "相田"), reading: nil)
+    }
+}
+
+@Test func preparedReplacementRechecksTheDocumentBeforeTheHostChangesIt() throws {
+    let session = ReconversionSession()
+    let selected = document(selected: "日本語")
+    let replacement = try session.prepareSelection(in: selected, reading: "にほんご")
+    try session.validateReplacement(replacement.token, in: selected)
+    #expect(throws: ReconversionSession.Failure.changedContext) {
+        try session.validateReplacement(replacement.token, in: document(selected: "日本後"))
+    }
+    #expect(throws: ReconversionSession.Failure.staleRequest) {
+        try session.validateReplacement("different-token", in: selected)
     }
 }
 

@@ -182,7 +182,9 @@ final class DesktopSession: SegmentManagerDelegate {
     }
 
     private func recordCommit(_ commits: [String], checkpoint: CompositionCheckpoint?) {
-        guard !commits.isEmpty else { return }
+        guard !commits.isEmpty else {
+            return
+        }
         reconversionOriginalText = nil
         guard !privateInput, commits.count == 1, segments.isEmpty else {
             reconversionSession.clear()
@@ -472,15 +474,7 @@ final class DesktopSession: SegmentManagerDelegate {
         result.canUndoCommit = reconversionSession.hasRecentCommit && segments.isEmpty && !privateInput
         result.reconversionError = reconversionFailure?.rawValue
         result.readingCursor = unicodeScalarOffset(in: result.reading, utf16Offset: segments.readingCursorUTF16Offset)
-        result.inputState = switch state {
-        case .none: "none"
-        case .composing: "composing"
-        case .previewing: "previewing"
-        case .selecting: "selecting"
-        case .replaceSuggestion: "replaceSuggestion"
-        case .unicodeInput: "unicodeInput"
-        case .attachDiacritic: "attachDiacritic"
-        }
+        result.inputState = state.bridgeName
         if state == .composing {
             result.prediction = SegmentsManager.preferredPredictionCandidates(
                 typoCorrectionCandidates: segments.requestTypoCorrectionPredictionCandidates(),
@@ -528,5 +522,19 @@ final class DesktopSession: SegmentManagerDelegate {
         result.pageStart = pageStart
         result.showCandidateIndex = state == .selecting || state == .replaceSuggestion
         return result
+    }
+}
+
+private extension InputState {
+    var bridgeName: String {
+        switch self {
+        case .none: "none"
+        case .composing: "composing"
+        case .previewing: "previewing"
+        case .selecting: "selecting"
+        case .replaceSuggestion: "replaceSuggestion"
+        case .unicodeInput: "unicodeInput"
+        case .attachDiacritic: "attachDiacritic"
+        }
     }
 }

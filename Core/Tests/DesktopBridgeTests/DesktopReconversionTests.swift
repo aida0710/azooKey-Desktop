@@ -6,8 +6,8 @@ import Testing
 extension DesktopSegmentEditingTests {
     private func reconversionDocument(before: String = "前", selected: String = "", sensitive: Bool = false) -> ReconversionContext {
         .init(before: before, selected: selected, after: "後",
-              cursor: before.unicodeScalars.count + selected.unicodeScalars.count,
-              anchor: before.unicodeScalars.count, canReplace: true, isSensitive: sensitive)
+              cursorUTF16: before.utf16.count + selected.utf16.count,
+              anchorUTF16: before.utf16.count, canReplace: true, isSensitive: sensitive)
     }
 
     private func typeReconversionText(_ text: String, into session: DesktopSession) {
