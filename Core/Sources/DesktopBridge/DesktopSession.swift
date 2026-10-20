@@ -43,6 +43,7 @@ struct DesktopSnapshot: Encodable {
     var prediction: String?
     var pageStart = 0
     var showCandidateIndex = false
+    var candidateTextSize = Config.CandidateTextSize().value
     var zenzaiLoaded = false
     var personalizationConfigured = false
     var language = "japanese"

@@ -68,6 +68,10 @@ class CandidatesViewController: BaseCandidateViewController {
         return true
     }
 
+    func scrollTreeDetails(forward: Bool) -> Bool {
+        usesTree && !candidates.isEmpty && treeView.scrollDetails(forward: forward)
+    }
+
     override func resizeWindowToFitContent(cursorLocation: CGPoint) {
         guard usesTree else {
             super.resizeWindowToFitContent(cursorLocation: cursorLocation)
@@ -172,7 +176,7 @@ class CandidatesViewController: BaseCandidateViewController {
 
         if numberRange.location != NSNotFound {
             attributedString.addAttributes([
-                .font: NSFont.monospacedSystemFont(ofSize: 8, weight: .regular),
+                .font: NSFont.monospacedSystemFont(ofSize: max(14, Config.CandidateTextSize().value.pointSize - 4), weight: .regular),
                 .foregroundColor: currentSelectedRow == row ? NSColor.white : NSColor.gray,
                 .baselineOffset: 2
             ], range: numberRange)

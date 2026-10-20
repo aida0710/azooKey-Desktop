@@ -13,6 +13,7 @@ XML = """<node><interface name="org.azookey.Tree">
     <arg type="b" direction="in"/><arg type="i" direction="in"/><arg type="s" direction="in"/></method>
   <signal name="Update"><arg type="s"/></signal>
   <signal name="Hide"/>
+  <signal name="ScrollDetails"><arg type="b"/></signal>
 </interface></node>"""
 
 
@@ -79,6 +80,12 @@ class ShellSurface:
     def hide(self, engine):
         if self.connection and self.renderer and self.engine and self.engine() is engine:
             self.connection.emit_signal(self.renderer, PATH, NAME, "Hide", None)
+
+    def scroll_details(self, engine, forward):
+        if not (self.connection and self.renderer and self.engine and self.engine() is engine):
+            return False
+        self.connection.emit_signal(self.renderer, PATH, NAME, "ScrollDetails", GLib.Variant("(b)", (forward,)))
+        return True
 
 
 _surface = None
