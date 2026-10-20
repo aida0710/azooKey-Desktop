@@ -56,6 +56,8 @@ class UserDictionaryEditor(Gtk.Window):
         self._on_saved = on_saved
         self._exchange_service = exchange_service if exchange_service is not None else UserDictionaryExchangeService()
         self._file_dialogs = file_dialogs if file_dialogs is not None else UserDictionaryFileDialogs(self, message=_message)
+        self._file_dialog_operation = None
+        self._file_dialog_source = None
         self._selected_id = None
         self._loading_form = False
         self._updating_rows = False
@@ -221,8 +223,12 @@ class UserDictionaryEditor(Gtk.Window):
                 self._loading_form = False
         self._refresh_feedback()
 
+    @property
+    def _can_edit(self):
+        return self.model.can_close and self._file_dialog_operation is None
+
     def _refresh_feedback(self):
-        editable = self.model.can_close
+        editable = self._can_edit
         self.tree.set_sensitive(editable)
         self.search_entry.set_sensitive(editable)
         self.reset_sort_button.set_sensitive(editable)
@@ -232,7 +238,7 @@ class UserDictionaryEditor(Gtk.Window):
         self.remove_button.set_sensitive(editable and self._selected_id is not None)
         self.form.set_sensitive(editable and self._selected_id is not None)
         self.save_button.set_sensitive(editable and not self.model.needs_recovery)
-        self.cancel_button.set_sensitive(editable)
+        self.cancel_button.set_sensitive(self.model.can_close)
         count = _message("filtered_count", visible=len(self.filtered_rows), total=len(self.rows))
         if self._selected_id and self.tree.get_selection().get_selected()[1] is None:
             count += "\n" + _message("editing_hidden")
@@ -275,7 +281,7 @@ class UserDictionaryEditor(Gtk.Window):
         self.status_label.set_text(status)
 
     def _edit(self, field, value):
-        if self._loading_form or self._selected_id is None or not self.model.can_close:
+        if self._loading_form or self._selected_id is None or not self._can_edit:
             return
         self.model.update(self._selected_id, **{field: value})
         self._updating_rows = True
@@ -299,14 +305,14 @@ class UserDictionaryEditor(Gtk.Window):
         self._edit("hint", buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True))
 
     def _add(self, _button):
-        if not self.model.can_close:
+        if not self._can_edit:
             return
         self.search_entry.set_text("")
         self._refresh_rows(self.model.add())
         self.fields["word"].grab_focus()
 
     def _remove(self, _button):
-        if not self.model.can_close or self._selected_id is None:
+        if not self._can_edit or self._selected_id is None:
             return
         self.model.remove(self._selected_id)
         self._refresh_rows()
@@ -323,21 +329,43 @@ class UserDictionaryEditor(Gtk.Window):
 
     def _destroyed(self, _window):
         self.closed = True
+        if self._file_dialog_source is not None:
+            GLib.source_remove(self._file_dialog_source)
+            self._file_dialog_source = None
+        self._file_dialog_operation = None
 
     def _file_clicked(self, _button, operation):
-        if self.closed or not self.model.can_close or (operation == "import" and self.model.needs_recovery):
+        if self.closed or not self._can_edit or (operation == "import" and self.model.needs_recovery):
             return
+        self._file_dialog_operation = operation
+        # AT actions dispatch synchronously. Return before entering a modal loop,
+        # which can dispatch the same AT connection again when a key arrives.
+        self._file_dialog_source = GLib.idle_add(self._choose_file, operation)
+        self._refresh_feedback()
+
+    def _choose_file(self, operation):
+        self._file_dialog_source = None
+        if self.closed:
+            return GLib.SOURCE_REMOVE
         failure_code = "importFailed" if operation == "import" else "exportFailed"
+        selection = None
         try:
             selection = (
                 self._file_dialogs.choose_import() if operation == "import" else self._file_dialogs.choose_export()
             )
         except Exception:
-            self.model.exchange_failure = failure_code
-            self._refresh_feedback()
-            return
-        if selection is None:
-            return
+            if not self.closed:
+                self.model.exchange_failure = failure_code
+        finally:
+            self._file_dialog_operation = None
+        if self.closed:
+            return GLib.SOURCE_REMOVE
+        if selection is not None:
+            self._start_file_operation(operation, selection, failure_code=failure_code)
+        self._refresh_feedback()
+        return GLib.SOURCE_REMOVE
+
+    def _start_file_operation(self, operation, selection, *, failure_code):
         request = self.model.begin_file_operation(operation)
         if request is None:
             return
@@ -390,7 +418,7 @@ class UserDictionaryEditor(Gtk.Window):
         return GLib.SOURCE_REMOVE
 
     def _save_clicked(self, _button):
-        if self.closed:
+        if self.closed or not self._can_edit:
             return
         request = self.model.begin_save()
         if request is None:
