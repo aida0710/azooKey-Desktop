@@ -88,8 +88,12 @@ class CandidateAccessibilityTests(unittest.TestCase):
 
     def test_same_word_with_a_different_complete_candidate_invalidates_old_actions(self):
         self.panel.update({**self.snapshot, "candidates": [{"index": 0, "text": "日本に行く"}]})
+        self.panel.disclosure_actions["tree"].clicked()
         button = self.panel.actions[("node", 0)]
         self.panel.update({**self.snapshot, "generation": 2, "candidates": [{"index": 0, "text": "日本に帰る"}]})
+        self.assertFalse(self.panel.tree_expanded)
+        self.panel.disclosure_actions["tree"].clicked()
+        self.assertIsNot(self.panel.actions[("node", 0)], button)
         button.clicked()
         self.assertEqual(self.submitted, [])
 
