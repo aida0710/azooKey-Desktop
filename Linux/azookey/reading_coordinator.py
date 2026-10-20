@@ -353,7 +353,9 @@ class ReadingCoordinator:
             applied = self.publish_input(protocol.ReadingInput(state.name, operation.token,
                                                               deepcopy(response["reference"]), snapshot=deepcopy(snapshot),
                                                               candidate_view=deepcopy(candidate_view)))
-        except (OSError, RuntimeError, ValueError):
+        except Exception:
+            # UI callbacks may fail after emitting a commit. Never return the
+            # original key for native replay when its application is uncertain.
             self._fail_all("reading_input_application_failed", operation, "application-unknown")
             return
         finally:
@@ -552,7 +554,7 @@ class ReadingCoordinator:
                 state.name, deepcopy(state.reference), deepcopy(state.batch),
                 candidate_view=deepcopy(state.candidate_view)))
             state.batch_visible = applied is not False
-        except (OSError, RuntimeError, ValueError):
+        except Exception:
             # Core still owns its adopted selection source. Retain it even when
             # the panel fails; a later explicit key can select/commit it safely.
             state.batch_visible = False
@@ -677,20 +679,24 @@ class ReadingCoordinator:
         if operation.finish is not None:
             try:
                 operation.finish(operation.token, consumed)
-            except (OSError, RuntimeError, ValueError):
+            except Exception:
+                # The callback may already have replied before raising. Its
+                # ownership stays completed; neither retry nor stall the queue.
                 self._notice_for(operation, "reading_original_reply_failed", "reply")
 
     def _callback(self, callback, response):
         if callback is not None:
             try:
                 callback(deepcopy(response))
-            except (OSError, RuntimeError, ValueError):
+            except Exception:
                 self._notice(protocol.ReadingNotice("reading_callback_failed"))
 
     def _notice(self, notice):
         try:
             self.notify(notice)
-        except (OSError, RuntimeError, ValueError):
+        except Exception:
+            # Error reporting is another external callback, never a prerequisite
+            # for finishing an original input or draining a lifecycle operation.
             LOGGER.error("Reading notification failed")
 
     def close(self):
