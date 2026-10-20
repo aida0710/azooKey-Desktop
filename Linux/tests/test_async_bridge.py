@@ -2,6 +2,7 @@ import pathlib
 import queue
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -133,6 +134,47 @@ class AsyncBridgeTests(unittest.TestCase):
         worker.worker.join(timeout=2)
         self.assertFalse(worker.worker.is_alive())
         self.assertIsNotNone(self.bridges[0].process.poll())
+
+    def test_slow_settings_backup_keeps_dispatcher_available_and_preserves_request_order(self):
+        worker = self.make_worker(0)
+        started = threading.Event()
+        release = threading.Event()
+        effects = []
+
+        def persist():
+            started.set()
+            if not release.wait(timeout=2):
+                raise AssertionError("test did not release settings backup")
+            effects.append("saved")
+
+        worker.submit(Request("configure", {}, lambda _reply: effects.append("configured"), persist=persist))
+        try:
+            self.assertTrue(started.wait(timeout=2))
+            worker.submit(Request("key", {}, lambda _reply: effects.append("key")))
+            self.callbacks.put((lambda _reply: effects.append("heartbeat"), None))
+            self.await_replies(1)
+            self.assertEqual(effects, ["heartbeat"])
+        finally:
+            release.set()
+        self.await_replies(2)
+        self.assertEqual(effects, ["heartbeat", "saved", "configured", "key"])
+
+    def test_failed_backup_does_not_fail_successful_settings_or_restart_converter(self):
+        worker = self.make_worker(0)
+        replies = []
+
+        def fail_backup():
+            raise OSError("synthetic disk full")
+
+        worker.submit(Request("configure", {}, replies.append, persist=fail_backup))
+        worker.submit(Request("key", {}, replies.append))
+        self.await_replies(2)
+        self.assertFalse(any(reply.failed for reply in replies))
+        self.assertEqual([reply.generation for reply in replies], [0, 0])
+        persisted = []
+        worker.submit(Request("configure", {"error": "invalid_request"}, replies.append, persist=lambda: persisted.append(True)))
+        self.await_replies(1)
+        self.assertEqual(persisted, [])
 
 
 if __name__ == "__main__":
