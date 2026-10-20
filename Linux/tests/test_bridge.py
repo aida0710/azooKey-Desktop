@@ -181,7 +181,8 @@ class BridgeIntegrationTests(unittest.TestCase):
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 received.append(body)
-                content = json.dumps({"predictions": ["候補A", "候補B"]}, ensure_ascii=False)
+                texts = {"result": "変換した本文"} if self.path.endswith("/transform") else {"predictions": ["候補A", "候補B"]}
+                content = json.dumps(texts, ensure_ascii=False)
                 response = json.dumps({"choices": [{"message": {"content": content}}]}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -193,11 +194,25 @@ class BridgeIntegrationTests(unittest.TestCase):
         worker.start()
         original = self.bridge.request("settings")["settings"]
         try:
-            endpoint = f"http://127.0.0.1:{server.server_port}/v1/chat/completions"
-            self.bridge.request("configure", settings={**original, "aiEndpoint": endpoint, "aiModel": "fixture-model"})
-            response = self.bridge.request("ai", apiKey="local-test-placeholder", target="えもじ", prompt="fixture context")
-            self.assertEqual(response["suggestions"], ["候補A", "候補B"])
-            self.assertEqual(received[0]["model"], "fixture-model")
+            endpoint = f"http://127.0.0.1:{server.server_port}"
+            # A changed stored destination must not override the reviewed one.
+            self.bridge.request("configure", settings={**original, "aiEndpoint": "http://127.0.0.1:1/unused", "aiModel": "changed-model"})
+            for operation in ("ai", "transform"):
+                for include_context in (False, True):
+                    with self.subTest(operation=operation, include_context=include_context):
+                        response = self.bridge.request(
+                            operation, apiKey="local-test-placeholder", target="TARGET_TEXT", prompt="敬語に直す",
+                            leftContext="PRIVATE_BEFORE", rightContext="PRIVATE_AFTER", includeContext=include_context,
+                            aiModel="fixture-model", aiEndpoint=f"{endpoint}/{operation}",
+                        )
+                        expected = ["変換した本文"] if operation == "transform" else ["候補A", "候補B"]
+                        self.assertEqual(response["suggestions"], expected)
+                        body = received[-1]
+                        self.assertEqual(body["model"], "fixture-model")
+                        serialized = json.dumps(body)
+                        self.assertIn("TARGET_TEXT", serialized)
+                        self.assertEqual("PRIVATE_BEFORE" in serialized, include_context)
+                        self.assertEqual("PRIVATE_AFTER" in serialized, include_context)
         finally:
             self.bridge.request("configure", settings=original)
             server.shutdown()
