@@ -11,13 +11,27 @@ export function translateCursorLocation(location, windowPosition) {
         location[2], location[3]];
 }
 
+export function resolveCursorAnchor({engineLocation, shellLocation, relative, windowPosition}) {
+    if (relative) {
+        const location = translateCursorLocation(shellLocation, windowPosition);
+        if (location) return {location, source: 'wayland-relative', permitsWordAlignment: false};
+    }
+    if (validCursorLocation(engineLocation))
+        return {location: engineLocation, source: 'engine', permitsWordAlignment: true};
+    // A relative rectangle has no screen position without its window origin.
+    if (!relative && validCursorLocation(shellLocation))
+        return {location: shellLocation, source: 'shell', permitsWordAlignment: false};
+    return {location: [0, 0, 0, 0], source: 'unavailable', permitsWordAlignment: false};
+}
+
 export function candidatePlacement({cursor, bounds, contentWidth, contentHeight,
     detailHeight, aligned, preferredSide = 'below'}) {
     // Keep details legible for a one-character candidate while bounding long rows.
     const minimumWidth = 320;
     const maximumCompactWidth = 760;
-    const width = Math.min(bounds.width, Math.max(minimumWidth,
-        aligned ? contentWidth : Math.min(maximumCompactWidth, contentWidth)));
+    const requiredWidth = Math.max(minimumWidth, contentWidth);
+    const width = Math.min(bounds.width,
+        aligned ? requiredWidth : Math.min(maximumCompactWidth, requiredWidth));
     const treeHeight = Math.max(1, Math.min(contentHeight, bounds.height - detailHeight));
     const height = Math.min(bounds.height, treeHeight + detailHeight);
     const desiredX = cursor[0] - (aligned ? 12 : 0);
@@ -29,6 +43,7 @@ export function candidatePlacement({cursor, bounds, contentWidth, contentHeight,
         x: Math.max(bounds.x, Math.min(desiredX, bounds.x + bounds.width - width)),
         y: Math.max(bounds.y, Math.min(desiredY, bounds.y + bounds.height - height)),
         width, height, treeHeight, side,
-        permitsAlignment: desiredX >= bounds.x && desiredX + width <= bounds.x + bounds.width,
+        // Scrolling a clipped row breaks its alignment with the document.
+        permitsAlignment: desiredX >= bounds.x && desiredX + requiredWidth <= bounds.x + bounds.width,
     };
 }
