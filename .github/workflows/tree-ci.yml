@@ -5,8 +5,30 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# A push must not cancel the PR's merge-commit validation.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
+  select-checks:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run-checks: ${{ steps.decision.outputs.result }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: node --test Tools/tests/ci-should-run-checks.test.cjs
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        id: decision
+        with:
+          script: |
+            const { shouldRunChecks } = require('./Tools/ci/should-run-checks.cjs');
+            return await shouldRunChecks({ github, context, warning: core.warning, info: core.info });
   ubuntu:
+    needs: select-checks
+    if: needs.select-checks.outputs.run-checks == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -23,6 +45,8 @@ jobs:
       - run: python3 Tools/fetch-models.py
       - run: bash Tools/test-docker.sh --zenzai
   macos:
+    needs: select-checks
+    if: needs.select-checks.outputs.run-checks == 'true'
     runs-on: macos-26
     timeout-minutes: 30
     steps:
@@ -35,3 +59,6 @@ jobs:
       - run: swift test --package-path Core
       - run: bash Tools/test-macos-app.sh test --jobs 4
       - run: AZOOKEY_INFERENCE_BACKEND=cpu bash Tools/test-macos-app.sh test --jobs 4
+      - name: Diagnose a macOS test-process crash
+        if: failure()
+        run: bash Tools/diagnose-macos-test.sh
