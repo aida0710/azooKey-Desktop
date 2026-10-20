@@ -12,7 +12,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from focused_text_gtk import TextFields, wait_until
 import gi
 gi.require_version("IBus", "1.0")
-from gi.repository import Gdk, Gio, GLib, IBus
+from gi.repository import Gdk, Gio, GLib, Gtk, IBus
 
 
 # Synchronous SetEngine acknowledgement prevents the first test key from
@@ -117,7 +117,7 @@ class AITargetIntegration:
             raise
         return self.status
 
-    def preview(self, *, reset_transfers=False):
+    def open_prompt(self, *, reset_transfers=False):
         for field in self.fields.fields:
             field.set_text("前 原文 後")
         self.focus(0)
@@ -129,6 +129,9 @@ class AITargetIntegration:
             self.key(Gdk.KEY_F7)
             self.wait_status(lambda status: status["dialog_active"])
         self.focus(2)
+
+    def preview(self, *, reset_transfers=False):
+        self.open_prompt(reset_transfers=reset_transfers)
         self.key(Gdk.KEY_F11)
         self.wait_status(lambda status: status["generated"] and status["can_apply"])
         self.key(Gdk.KEY_F10)
@@ -159,6 +162,25 @@ class AITargetIntegration:
         assert status["generated"] and status["can_copy"] and len(self.commits) == before
         self.key(Gdk.KEY_F9)
 
+    def preserve_pending_result_after_focus_change(self):
+        clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        clipboard.set_text("既存のコピー", -1)
+        self.open_prompt()
+        before = len(self.commits)
+        self.key(Gdk.KEY_F5)
+        self.key(Gdk.KEY_F11)
+        self.wait_status(lambda status: status["ai_reply_held"])
+        self.focus(1, 1)
+        self.wait_status(lambda status: status["ai_reply_held"] and status["ai_input_epoch_changed"])
+        self.key(Gdk.KEY_F6)
+        status = self.wait_status(lambda observed: observed["generated"] and not observed["can_apply"])
+        assert status["can_copy"] and not status["dialog_active"]
+        assert len(self.commits) == before
+        assert all(field.get_text() == "前 原文 後" for field in self.fields.fields)
+        assert self.fields.window.is_active() and self.fields.fields[1].has_focus()
+        assert clipboard.wait_for_text() == "既存のコピー"
+        self.key(Gdk.KEY_F9)
+
     def run(self):
         self.preview(reset_transfers=True)
         self.focus(0)
@@ -171,10 +193,13 @@ class AITargetIntegration:
         # the actual editable AT-SPI object is a different field.
         self.reject_case(0, 1)
         self.reject_reset_before_surrounding()
+        self.preserve_pending_result_after_focus_change()
         print(json.dumps({"status": "PASS", "original_commits": 1, "other_context_commits": 0,
                           "shared_context_other_field_commits": 0, "rejected_preview_preserved": True,
                           "reset_before_delayed_surrounding_commits": 0,
                           "dialog_opening_and_dismissal_resets_verified": True,
+                          "pending_reply_preserved_for_copy_after_focus_change": True,
+                          "pending_reply_commits": 0, "pending_reply_did_not_present_or_copy": True,
                           "external_ai_requests": 0, "focus_ids": [context.get_object_path() for context in self.contexts]}))
 
     def close(self):
