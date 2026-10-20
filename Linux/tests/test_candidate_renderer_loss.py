@@ -19,6 +19,7 @@ class CandidateEngineFixture:
     def __init__(self):
         from azookey.engine import Engine
         self.render = MethodType(Engine.render, self)
+        self.render_candidates = MethodType(Engine.render_candidates, self)
         self.preview_pending = MethodType(Engine.preview_pending, self)
         self.do_focus_out = MethodType(Engine.do_focus_out, self)
         self.context_id = "renderer-loss-field"
@@ -115,22 +116,64 @@ class CandidateRendererLossTests(unittest.TestCase):
         self.engine.commit_text.assert_not_called()
 
     def test_renderer_loss_without_pending_input_shows_the_acknowledged_candidates(self):
+        preedit_updates = list(self.engine.preedit_updates)
+        property_updates = self.engine.update_property.call_count
+        anchor_updates = self.engine.anchor.update.call_count
         self.surface.lost()
         self.assertEqual(self.engine.preedit, "あ")
+        self.assertEqual(self.engine.preedit_updates, preedit_updates)
+        self.assertEqual(self.engine.update_property.call_count, property_updates)
+        self.assertEqual(self.engine.anchor.update.call_count, anchor_updates)
         self.engine.panel.update.assert_called_once_with({**self.snapshot, "commits": [], "request": None})
         self.surface.connection.emit_signal.assert_not_called()
+        self.engine.commit_text.assert_not_called()
 
     def test_pending_settings_do_not_delay_fallback_candidate_display(self):
         settings_replies = []
         self.engine.input.submit("settings", completion=settings_replies.append)
+        preedit_updates = list(self.engine.preedit_updates)
         self.surface.lost()
         self.engine.panel.update.assert_called_once_with({**self.snapshot, "commits": [], "request": None})
         self.assertEqual(self.engine.preedit, "あ")
+        self.assertEqual(self.engine.preedit_updates, preedit_updates)
         settings_snapshot = {"settings": {"tree": True}}
         self.engine.complete_request(0, settings_snapshot)
         self.assertEqual(settings_replies, [settings_snapshot])
         self.assertFalse(self.engine.input.pending)
         self.engine.panel.update.assert_called_once()
+
+    def test_redrawing_each_renderer_does_not_reapply_input_or_ai_effects(self):
+        acknowledged = self.engine.snapshot
+        preedit_updates = list(self.engine.preedit_updates)
+        property_updates = self.engine.update_property.call_count
+        anchor_updates = self.engine.anchor.update.call_count
+        candidate_snapshot = {
+            **self.snapshot, "commits": ["再送しない"], "preedit": "書き換えない",
+            "cursor": 0, "request": "replace",
+        }
+        for renderer, display_name in (
+            (":1.42", "WaylandDisplay"), (None, "WaylandDisplay"), (None, "X11Display"),
+        ):
+            with self.subTest(renderer=renderer, display=display_name):
+                self.surface.renderer = renderer
+                self.surface.connection.emit_signal.reset_mock()
+                self.engine.panel.reset_mock()
+                self.engine.update_lookup_table.reset_mock()
+                display = type(display_name, (), {})()
+                with mock.patch("azookey.engine.Gdk.Display.get_default", return_value=display):
+                    self.engine.render_candidates(candidate_snapshot)
+                if renderer:
+                    self.assertEqual(self.surface.connection.emit_signal.call_args.args[3], "Update")
+                elif display_name == "WaylandDisplay":
+                    self.engine.update_lookup_table.assert_called_once_with(self.engine.table, True)
+                else:
+                    self.engine.panel.update.assert_called_once_with(candidate_snapshot)
+                self.assertIs(self.engine.snapshot, acknowledged)
+                self.assertEqual(self.engine.preedit_updates, preedit_updates)
+                self.assertEqual(self.engine.update_property.call_count, property_updates)
+                self.assertEqual(self.engine.anchor.update.call_count, anchor_updates)
+                self.engine.commit_text.assert_not_called()
+                self.engine.ai_review.show.assert_not_called()
 
     def test_late_normal_reply_restores_fallback_with_the_new_candidates(self):
         self.submit_pending_character()
