@@ -27,6 +27,9 @@ struct BridgeRequest: Decodable {
     var doubleTap: Bool?
     var items: [Config.UserDictionaryEntry]?
     var stagedSettingsPath: String?
+    var importPath: String?
+    var importFormat: UserDictionaryExchange.Format?
+    var importEncoding: UserDictionaryExchange.TextEncoding?
 }
 
 @main
