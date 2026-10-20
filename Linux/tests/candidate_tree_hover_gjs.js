@@ -1,5 +1,6 @@
 import {attachCandidateAction} from '../gnome-extension/candidateAccessibility.js';
 import {messages} from '../gnome-extension/candidateMessages.js';
+import {serializeCandidateIdentity} from '../gnome-extension/candidateIdentity.js';
 import {Actor, ScrollableActor, ScrollViewActor, drainActions, loadShellClass} from './gnome_actor_fixture.js';
 
 function equal(actual, expected) {
@@ -35,7 +36,7 @@ const imports = {
     Main: {layoutManager: {monitors: [bounds], primaryIndex: 0}},
     global: {workspace_manager: {get_active_workspace: () => ({get_work_area_for_monitor: () => bounds})}},
     Extension: class {},
-    attachCandidateAction, messages,
+    attachCandidateAction, messages, serializeCandidateIdentity,
     candidatePlacement: () => ({x: 100, y: 100, width: 400, height: 300, treeHeight: 80,
         side: 'below', permitsAlignment: true}),
 };
@@ -258,12 +259,63 @@ equal(extension._composition._sentence.ellipsize, 0);
 equal(extension._navigation._rows.get_children()[1]._candidateLabel.text, longText);
 equal(extension._navigation._rows.get_children()[1]._candidateLabel.wrap, true);
 equal(extension._navigation._rows.get_children()[1]._selectionMark.text, '✓');
+
 const selectedBeforeHover = extension._composition._confirm;
 hover(extension._navigation._rows.get_children()[0], true);
 equal(extension._composition._confirm === selectedBeforeHover, true);
 equal(extension._composition._sentence.text, longText);
 equal(submitted, []);
 print('GNOME readable sentence/list: complete Unicode text is wrapped, selected row is marked and hover never retargets confirm PASS');
+
+function reverseObjectMembers(value) {
+    if (Array.isArray(value)) return value.map(reverseObjectMembers);
+    if (value === null || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.entries(value).reverse()
+        .map(([key, item]) => [key, reverseObjectMembers(item)]));
+}
+
+// Model independent Swift JSON encodings of the same candidates. Arrays keep
+// their order, but every nested dictionary changes its member order.
+extension._hideCandidates();
+extension._render(snapshot({generation: 80}));
+extension._navigation.expanded = false;
+extension._details.expanded = true;
+extension._treeExpanded = true;
+extension._render(snapshot({generation: 80}));
+extension._details._scroll.get_vadjustment().value = 29;
+extension._treeScroll.get_vadjustment().value = 83;
+extension._navigation._scroll.get_vadjustment().value = 37;
+submitted.length = 0;
+extension._composition._confirm.get_accessible().do_action();
+extension._render(reverseObjectMembers(snapshot({generation: 81, selection: 2})));
+drainActions();
+equal(submitted, []);
+equal(extension._details.expanded, true);
+equal(extension._navigation.expanded, false);
+equal(extension._treeExpanded, true);
+equal(extension._details._scroll.get_vadjustment().value, 29);
+equal(extension._treeScroll.get_vadjustment().value, 83);
+equal(extension._navigation._scroll.get_vadjustment().value, 37);
+print('GNOME dictionary order: selection preserves details/list/tree preferences and viewport, but retires the old confirm PASS');
+
+extension._navigation.expanded = true;
+extension._render(snapshot({generation: 82, selection: 2}));
+const orderedRow = extension._navigation._rows.get_children()[0];
+hover(orderedRow, true);
+equal(extension._details.label.text, partial);
+orderedRow.get_accessible().do_action();
+extension._render(reverseObjectMembers(snapshot({generation: 83, selection: 3})));
+drainActions();
+equal(submitted, []);
+equal(extension._navigation.hoveredItem.index, 0);
+equal(extension._details.label.text, partial);
+const reorderedRow = extension._navigation._rows.get_children()[0];
+equal(reorderedRow === orderedRow, false);
+hover(orderedRow, false);
+equal(extension._details.label.text, partial);
+hover(reorderedRow, false);
+equal(extension._details.label.text.includes(full), true);
+print('GNOME dictionary order: stationary candidate preview survives rebuilding; stale AT/leave remain inert PASS');
 
 submitted.length = 0;
 extension._hideCandidates();

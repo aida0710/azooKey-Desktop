@@ -13,6 +13,7 @@ import {candidatePlacement} from './candidatePlacement.js';
 import {ShellCursor} from './shellCursor.js';
 import {LayoutDiagnostics} from './layoutDiagnostics.js';
 import {CandidateNavigation} from './candidateNavigation.js';
+import {serializeCandidateIdentity} from './candidateIdentity.js';
 import {CandidateTheme} from './candidateTheme.js';
 import {attachCandidateAction, CandidateAnnouncements} from './candidateAccessibility.js';
 import {addScoreBadge, SCORE_LINE_HEIGHT} from './candidateScore.js';
@@ -158,7 +159,7 @@ export default class AzooKeyTreeExtension extends Extension {
         const presentationMode = ['selecting', 'previewing', 'replaceSuggestion'].includes(data.inputState) ? 'menu' : 'live';
         // Live badges identify the preview; only showCandidateIndex advertises physical number keys.
         const showNodeNumbers = data.inputState === 'composing' || data.showCandidateIndex === true;
-        const candidateIdentity = JSON.stringify([data.contextId, data.reading, data.candidates,
+        const candidateIdentity = serializeCandidateIdentity([data.contextId, data.reading, data.candidates,
             nodes.map(({relativeScore, scorePresentation, preview, previewDescription, ...node}) => node)]);
         if (candidateIdentity !== this._candidateIdentity || presentationMode !== this._presentationMode) {
             this._navigation.reset();

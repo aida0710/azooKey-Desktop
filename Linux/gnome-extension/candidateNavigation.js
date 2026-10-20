@@ -4,6 +4,7 @@ import St from 'gi://St';
 import {messages} from './candidateMessages.js';
 import {createWrappingLabel} from './candidateText.js';
 import {attachCandidateAction} from './candidateAccessibility.js';
+import {serializeCandidateIdentity} from './candidateIdentity.js';
 
 // Reduce row whitespace while keeping a 44px target for single-line candidates.
 const ROW_VERTICAL_INSET = 5;
@@ -32,7 +33,9 @@ export class CandidateNavigation {
         this._rows = new St.BoxLayout({vertical: true});
         this._scroll.set_child(this._rows);
         this.actor.add_child(this._scroll);
-        this._scroll.get_vadjustment().connect('notify::page-size', () => this._revealSelection());
+        const adjustment = this._scroll.get_vadjustment();
+        for (const property of ['page-size', 'upper'])
+            adjustment.connect(`notify::${property}`, () => this._revealSelection());
     }
 
     _replaceHeaderButtons() {
@@ -97,7 +100,7 @@ export class CandidateNavigation {
             button._selection = button.reactive ? action(index, false) : null;
             button.visible = this.expanded;
         }
-        const pageIdentity = JSON.stringify([page.items, snapshot.contextId, snapshot.showCandidateIndex, fontSize]);
+        const pageIdentity = serializeCandidateIdentity([page.items, snapshot.contextId, snapshot.showCandidateIndex, fontSize]);
         const identity = JSON.stringify([pageIdentity, actionIdentity]);
         if (identity !== this._identity) {
             // Retire queued AT actions while keeping the same candidate under a stationary pointer.
@@ -172,7 +175,12 @@ export class CandidateNavigation {
         if (!this.expanded || !this._revealPending) return;
         const selected = this._rows.get_children().find(button => button.checked);
         const adjustment = this._scroll.get_vadjustment();
-        if (!selected || !(selected.height > 0) || !(adjustment.page_size > 0)) return;
+        // Clutter can report a natural height and y=0 before layout. Keep the
+        // pending selection until its real allocation arrives.
+        if (!selected?.has_allocation() || !(selected.height > 0) || !(adjustment.page_size > 0)) return;
+        // StViewport updates its adjustment after allocating the children.
+        // Do not finish against the previous page's shorter scroll range.
+        if (selected.y + selected.height > adjustment.upper) return;
         let offset = adjustment.value;
         if (selected.y < offset || selected.height > adjustment.page_size) offset = selected.y;
         else if (selected.y + selected.height > offset + adjustment.page_size)
