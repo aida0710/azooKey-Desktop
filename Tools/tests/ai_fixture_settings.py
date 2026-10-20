@@ -7,7 +7,8 @@ import os
 import pathlib
 import sys
 
-from ai_fixture_preferences import read_backup, restore, verify
+from ai_fixture_preferences import verify
+from ai_fixture_restore import original_settings, restore_settings
 from ai_mock_server import MODEL, control_address
 
 
@@ -30,7 +31,20 @@ def main():
     for key in ("AZOOKEY_BRIDGE", "AZOOKEY_DATA_DIR", "AZOOKEY_RESOURCES"):
         environment.pop(key, None)
     environment["LD_LIBRARY_PATH"] = str(INSTALLED_ROOT / "libexec")
-    bridge = Bridge(str(INSTALLED_ROOT / "libexec/azookey-desktop-bridge"), environment=environment)
+    def bridge_factory():
+        return Bridge(str(INSTALLED_ROOT / "libexec/azookey-desktop-bridge"), environment=environment)
+
+    if arguments.action == "restore":
+        settings_path = SettingsStore().path
+        original_settings(arguments.directory, settings_path=settings_path)
+        from ai_fixture_runtime import InstalledRuntime
+        runtime = InstalledRuntime(INSTALLED_ROOT)
+        outcome = restore_settings(
+            arguments.directory, settings_path=settings_path, bridge_factory=bridge_factory, runtime=runtime,
+        )
+        print(json.dumps(outcome))
+        return
+    bridge = bridge_factory()
     try:
         if arguments.action == "apply":
             if arguments.server_state is None:
@@ -63,20 +77,6 @@ def main():
             }
             store.update(changes, defaults=loaded.values)
             print(json.dumps({"applied": changes, "originalSHA256": checksum}))
-        else:
-            read_backup(arguments.directory)
-            expected = (arguments.directory / "original-effective-settings.sha256").read_text().strip()
-            if hashlib.sha256(original_path.read_bytes()).hexdigest() != expected:
-                raise SystemExit("The saved effective settings changed; no preference was restored")
-            original = json.loads(original_path.read_text(encoding="utf-8"))
-            configured = bridge.request("configure", settings=original)
-            if "error" in configured or bridge.request("settings")["settings"] != original:
-                raise SystemExit("Core did not acknowledge the original settings; preserve the backup and investigate")
-            # Restore UserDefaults values first, then the original JSON bytes.
-            outcome = restore(arguments.directory)
-            print(json.dumps(outcome))
-            if not outcome["matches"]:
-                raise SystemExit(1)
     finally:
         bridge.close()
 

@@ -100,7 +100,9 @@ GTK は `insert-text`、Qt は `input-method` の `commit`、Chromium は `input
 
 ## 元の設定へ戻して照合する
 
-全 AI ダイアログを閉じ、未応答要求を解放または期限切れまで観測してから復旧します。mock を停止する前に、退避した設定を配布物の Core に適用し、三つの JSON を元の bytes と存在状態へ戻します。失敗した場合は保全先を残し、次の試行を開始しません。
+全 AI ダイアログと設定画面を閉じ、未応答要求を解放または期限切れまで観測してから復旧します。本文・焦点・イベントの最終観測を保存し、復旧中は他のキー操作を止めます。`restore` は専用 VM の入力方式を一時的に US 英数へ切り替え、配布物の engine / bridge だけを停止します。停止は [pidfd](https://docs.python.org/3/library/os.html#os.pidfd_open) で同じプロセスを参照し、終了通知を待ちます。開いた設定画面や別 source の engine があれば拒否します。
+
+次に、退避した設定を配布物の Core に適用し、三つの JSON を元の bytes と存在状態へ戻します。復元前には、現在の `XDG_CONFIG_HOME` に対応する保存先と manifest の保存先も照合します。異なる場合は、IME の停止や Core への送信を始めません。元ファイルが部分 JSON でも完全な JSON に置き換えたままにはしません。
 
 ```bash
 systemctl --user stop azookey-ux-ai-context-monitor
@@ -114,6 +116,10 @@ python3 "$fixture_tools/ai_fixture_preferences.py" verify \
 ```
 
 `ai_fixture_key.py` が削除するのは、その UUID・label・object path に一致する task 作成項目だけです。session collection がログアウトで消えていれば、項目なしを記録して終えます。他の項目を削除しません。元の設定へ戻った engine で通常入力を確認し、JSON の再照合結果も保存します。
+
+`restore` は新しい配布物 engine を起動し、文書を持たない専用 IBus context で英数 `A`、かな `あ` の二つの応答を順に待ちます。初回の設定読取 callback が後から追加する `configure` も、二つ目の応答より先に完了します。起動時に更新される `settings.last-good.json` は、その完了後に元の bytes・不在へ戻します。`settings.json` は再書込せず、余分な設定再読込を起こしません。もう一度入力順序の通過、Core の有効値、三つのファイルを照合してから `startupAcknowledged: true` と `matches: true` を返します。
+
+失敗時は `preferences-original/restoration.jsonl` の最後の段階を確認し、保全先を残してください。`files-restored-engine-stopped` は復旧完了ではありません。応答期限切れや再起動失敗を合格にせず、原因を解消して同じ保全先から復旧を再実行します。成功後の新しい入力 context 作成や設定変更により、製品が通常どおり最終正常設定を書き直すことは別の操作です。復旧確認とその後の操作を同じ時刻の証拠として扱いません。
 
 共有する証拠は、配布物と fixture の識別、合成要求の JSONL、キーボード操作、アプリ内の挿入イベント、本文・焦点の観測、必要な画面、復元時の hash 照合です。既存設定 JSON やキーリングの内容は共有しません。未実施・観測できなかった条件はそのまま残し、[UX 検証台帳](ux-validation.md)の担当者へ渡します。
 

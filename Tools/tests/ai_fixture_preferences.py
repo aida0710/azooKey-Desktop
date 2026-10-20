@@ -64,10 +64,14 @@ def read_backup(directory):
     return manifest, contents
 
 
-def restore(directory):
+def restore(directory, *, names=FILES):
+    if not set(names) <= set(FILES):
+        raise ValueError("Only fixture preferences may be restored")
     manifest, contents = read_backup(directory)
     source = pathlib.Path(manifest["sourceDirectory"])
     for name, original in manifest["files"].items():
+        if name not in names:
+            continue
         destination = source / name
         if not original["existed"]:
             destination.unlink(missing_ok=True)

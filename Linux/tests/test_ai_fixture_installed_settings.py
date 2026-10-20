@@ -8,8 +8,11 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "Tools/tests"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from ai_fixture_preferences import backup, verify
+from ai_fixture_restore import restore_settings
 from ai_mock_server import LocalAIServer
+from Linux.tests.ai_restore_engine_fixture import SettingsRuntime
 
 
 @unittest.skipUnless(os.environ.get("AZOOKEY_TEST_INSTALLED_SETTINGS") == "1",
@@ -71,11 +74,13 @@ class InstalledAIFixtureSettingsTests(unittest.TestCase):
             finally:
                 bridge.close()
             (saved / "prompts.json").write_bytes(saved_prompt_bytes)
-            restored = subprocess.run(
-                [sys.executable, str(command), "restore", "--directory", str(saved)],
-                env=environment, capture_output=True, text=True, check=True,
-            )
-            self.assertTrue(json.loads(restored.stdout)["matches"])
+            def bridge_factory():
+                return Bridge("/opt/azookey-tree/libexec/azookey-desktop-bridge", environment=environment)
+            runtime = SettingsRuntime(source / "settings.json", bridge_factory=bridge_factory, active_settings=active)
+            restored = restore_settings(saved, settings_path=source / "settings.json",
+                                        bridge_factory=bridge_factory, runtime=runtime)
+            self.assertTrue(restored["matches"])
+            self.assertEqual(runtime.active_settings, original)
             self.assertEqual((source / "settings.json").read_bytes(), original_bytes)
             self.assertTrue(verify(saved)["matches"])
             bridge = Bridge("/opt/azookey-tree/libexec/azookey-desktop-bridge", environment=environment)
