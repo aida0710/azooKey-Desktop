@@ -12,12 +12,13 @@ final class CandidateNavigationViewTests: XCTestCase {
         }
     }
 
-    func testCrossingAPageBoundaryKeepsNumberKeysOnTheDisplayedPage() {
+    func testCrossingAPageBoundaryKeepsNumberKeysOnTheDisplayedPage() throws {
         let preference = Config.TreeCandidates()
         let previous = preference.value
         defer { preference.value = previous }
         preference.value = true
         let controller = CandidatesViewController()
+        controller.showCandidateIndex = true
         _ = controller.view
         let candidates = (0..<20).map {
             CandidatePresentation(candidate: Candidate(text: "候補\($0)", value: 0,
@@ -28,11 +29,18 @@ final class CandidateNavigationViewTests: XCTestCase {
         XCTAssertEqual(controller.currentSelectedRow, 9)
         XCTAssertEqual(controller.getNumberCandidate(num: 1), 9)
         XCTAssertEqual(controller.getNumberCandidate(num: 2), 10)
+        try XCTUnwrap(buttons(in: controller.view).first {
+            $0.title == Localization.text("candidate.openList")
+        }).performClick(nil)
+        XCTAssertTrue(buttons(in: controller.view).contains { $0.title == "1. 候補9" })
+        XCTAssertTrue(buttons(in: controller.view).contains { $0.title == "2. 候補10" })
         for _ in 0..<9 { controller.selectNextCandidate() }
         XCTAssertEqual(controller.currentSelectedRow, 18)
         XCTAssertEqual(controller.getNumberCandidate(num: 2), 19)
         XCTAssertNil(controller.getNumberCandidate(num: 3))
         XCTAssertNil(controller.getNumberCandidate(num: 9))
+        XCTAssertTrue(buttons(in: controller.view).contains { $0.title == "2. 候補19" })
+        XCTAssertFalse(buttons(in: controller.view).contains { $0.title.hasPrefix("3. ") })
         controller.hide()
         XCTAssertEqual(controller.getNumberCandidate(num: 1), 0)
     }
