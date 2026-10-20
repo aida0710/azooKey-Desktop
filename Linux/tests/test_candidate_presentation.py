@@ -46,7 +46,7 @@ class CandidatePresentationTests(unittest.TestCase):
             "私",
         ]
         return {
-            "contextId": "document", "generation": 1, "selection": 0, "focusedNode": 0,
+            "contextId": "document", "generation": 1, "selection": 0, "focusedNode": 0, "inputState": "composing",
             "preedit": sentences[0], "reading": "わたしはにほんごをべんきょうしています",
             "showCandidateIndex": True, "columns": [[0, 1, 2]], "selectedPath": [0],
             "nodes": [{"id": index, "text": sentence, "reading": "ワタシ", "parent": None,
@@ -65,7 +65,8 @@ class CandidatePresentationTests(unittest.TestCase):
         self.actions.append((operation, index, submit))
         if not submit:
             self.snapshot = {**self.snapshot, "selection": index, "focusedNode": index,
-                             "selectedPath": [index], "generation": self.snapshot["generation"] + 1}
+                             "selectedPath": [index], "generation": self.snapshot["generation"] + 1,
+                             "inputState": "selecting"}
             self.snapshot["candidatePage"] = {**self.snapshot["candidatePage"], "position": index + 1}
             self.panel.update(self.snapshot)
 
@@ -81,6 +82,49 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertEqual(long_label.get_ellipsize(), Pango.EllipsizeMode.NONE)
         self.assertGreater(long_label.get_layout().get_line_count(), 1)
         self.assertIs(self.document.get_focus(), self.entry)
+        self.assertEqual(self.actions, [])
+
+    def test_unselected_composition_previews_the_candidate_without_claiming_enter_will_commit_it(self):
+        self.panel.update({**self.snapshot, "preedit": self.snapshot["reading"]})
+        self.assertEqual(self.panel.composition_title.get_text(), "候補のプレビュー")
+        self.assertEqual(self.panel.composition.get_accessible().get_name(), "候補のプレビュー")
+        self.assertEqual(self.panel.composition.displayed_text, self.snapshot["candidates"][0]["text"])
+        self.assertEqual(self.panel.navigation.confirm.get_label(), "この候補を確定")
+        self.assertNotIn("↵", self.panel.navigation.confirm.get_accessible().get_name())
+        self.panel.navigation.confirm.clicked()
+        self.assertEqual(self.actions, [("select", 0, True)])
+        self.assertIs(self.document.get_focus(), self.entry)
+
+    def test_enter_label_matches_selection_state_and_retires_previous_state_confirmation(self):
+        for state in ("selecting", "previewing", "replaceSuggestion"):
+            with self.subTest(state=state):
+                self.panel.update({**self.snapshot, "inputState": "composing"})
+                old_confirm = self.panel.navigation.confirm
+                self.panel.update({**self.snapshot, "inputState": state})
+                self.assertEqual(self.panel.composition_title.get_text(), "確定する文章")
+                self.assertEqual(self.panel.composition.get_accessible().get_name(), "確定する文章")
+                self.assertEqual(self.panel.navigation.confirm.get_label(), "確定  ↵")
+                old_confirm.clicked()
+                self.assertEqual(self.actions, [])
+        self.panel.update({**self.snapshot, "inputState": "composing"})
+        self.assertEqual(self.panel.navigation.confirm.get_label(), "この候補を確定")
+        self.assertEqual(self.actions, [])
+
+    def test_compact_rows_keep_readable_text_and_a_large_activation_area(self):
+        from gi.repository import GLib
+        from Linux.tests.test_candidate_theme import CandidateThemeTests
+
+        for size, expected_font_size in (("standard", 18), ("large", 24)):
+            with self.subTest(size=size):
+                self.panel.update({**self.snapshot, "candidateTextSize": size})
+                CandidateThemeTests.wait_for_paint(self.panel, GLib)
+                self.assertEqual(self.panel.font_size, expected_font_size)
+                for button in (*self.panel.navigation.row_buttons, self.panel.navigation.confirm):
+                    self.assertGreaterEqual(button.get_allocation().height, 44)
+                area = self.panel.get_display().get_monitor(0).get_workarea()
+                width, height = self.panel.get_size()
+                self.assertLessEqual(width, area.width)
+                self.assertLessEqual(height, area.height)
         self.assertEqual(self.actions, [])
 
     def test_selection_updates_commit_preview_and_remaining_reading_before_confirming_once(self):
@@ -192,6 +236,40 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertIsNone(self.panel.hovered_action)
         self.assertFalse(self.panel.tree_expanded)
         self.assertEqual(self.actions, [])
+
+    def test_same_candidates_keep_a_closed_list_during_selection_and_generation_updates(self):
+        self.panel.navigation.toggle.clicked()
+        self.panel.update({**self.snapshot, "generation": 2, "selection": 1, "inputState": "selecting"})
+        self.assertFalse(self.panel.navigation.expanded)
+        self.assertFalse(self.panel.navigation.scroll.get_visible())
+        self.assertEqual(self.actions, [])
+
+    def test_a_different_document_reading_or_candidate_set_starts_with_the_list_open_and_supplements_closed(self):
+        for change in ("context", "reading", "candidate"):
+            with self.subTest(change=change):
+                self.panel.dismiss()
+                self.panel.update(self.snapshot)
+                self.panel.disclosure_actions["tree"].clicked()
+                self.panel.disclosure_actions["details"].clicked()
+                old_word = self.panel.actions[("node", 0)]
+                self.panel.navigation.toggle.clicked()
+                changed = copy.deepcopy(self.snapshot)
+                if change == "context":
+                    changed["contextId"] = "another-document"
+                elif change == "reading":
+                    changed["reading"] += "つづき"
+                else:
+                    changed["candidates"][0]["text"] = "同じ文書の更新された候補"
+                    changed["candidatePage"]["items"][0]["text"] = changed["candidates"][0]["text"]
+                self.panel.update(changed)
+                self.flush()
+                self.assertTrue(self.panel.navigation.expanded)
+                self.assertTrue(self.panel.navigation.scroll.get_visible())
+                self.assertEqual(len(self.panel.navigation.row_buttons), 3)
+                self.assertFalse(self.panel.tree_expanded)
+                self.assertFalse(self.panel.details_expanded)
+                old_word.clicked()
+                self.assertEqual(self.actions, [])
 
     def test_page_and_scroll_survive_pending_without_restoring_old_hover(self):
         snapshot = copy.deepcopy(self.snapshot)
