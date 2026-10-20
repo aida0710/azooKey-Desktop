@@ -211,6 +211,63 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertTrue(saved.backup_warning)
         self.assertEqual(json.loads(self.path.read_text()), self.values)
 
+    def test_backend_save_receives_private_synced_staging_and_publishes_only_once_under_lock(self):
+        self.write(self.values)
+        opened = self.store.load(self.values)
+        updated = {**self.values, "live": True}
+        installed_inode = []
+
+        def apply_staged(staged):
+            self.assertEqual(staged.parent, self.path.parent)
+            self.assertEqual(stat.S_IMODE(staged.stat().st_mode), 0o600)
+            self.assertEqual(json.loads(staged.read_text()), updated)
+            with self.assertRaisesRegex(ValueError, "別の画面"):
+                SettingsStore(self.path).save(self.values)
+            installed_inode.append(staged.stat().st_ino)
+            os.replace(staged, self.path)
+
+        saved = self.store.save_with_backend(updated, apply_staged=apply_staged, expected_stamp=opened.stamp)
+        self.assertEqual(saved.values, updated)
+        self.assertEqual(self.path.stat().st_ino, installed_inode[0])
+        self.assertEqual(json.loads(self.store.backup.read_text()), updated)
+        self.assertEqual(list(self.path.parent.glob(".settings-*")), [])
+
+    def test_backend_error_is_returned_unchanged_and_staging_is_removed(self):
+        self.write(self.values)
+        opened = self.store.load(self.values)
+        failure = RuntimeError("synthetic backend rollback succeeded")
+
+        def reject_staged(_staged):
+            raise failure
+
+        with self.assertRaises(RuntimeError) as raised:
+            self.store.save_with_backend(self.values, apply_staged=reject_staged, expected_stamp=opened.stamp)
+        self.assertIs(raised.exception, failure)
+        self.assertEqual(self.store.load(self.values).stamp, opened.stamp)
+        self.assertEqual(json.loads(self.path.read_text()), self.values)
+        self.assertFalse(self.store.backup.exists())
+        self.assertEqual(list(self.path.parent.glob(".settings-*")), [])
+        with patch.object(pathlib.Path, "unlink", side_effect=PermissionError), self.assertRaises(RuntimeError) as raised:
+            self.store.save_with_backend(self.values, apply_staged=reject_staged, expected_stamp=opened.stamp)
+        self.assertIs(raised.exception, failure)
+
+    def test_backend_is_not_called_for_conflicts_invalid_settings_or_broken_current_file(self):
+        called = []
+        callback = lambda _path: called.append(True)
+        self.write(self.values)
+        opened = self.store.load(self.values)
+        with self.assertRaises(ValueError):
+            self.store.save_with_backend({"live": 1}, apply_staged=callback, expected_stamp=opened.stamp)
+        self.write({**self.values, "live": True})
+        with self.assertRaises(ValueError):
+            self.store.save_with_backend(self.values, apply_staged=callback, expected_stamp=opened.stamp)
+        self.path.write_text("{")
+        broken = self.store.load(self.values)
+        with self.assertRaises(SettingsRecoveryRequired):
+            self.store.save_with_backend(self.values, apply_staged=callback, expected_stamp=broken.stamp)
+        self.assertEqual(called, [])
+        self.assertEqual(self.path.read_text(), "{")
+
 
 if __name__ == "__main__":
     unittest.main()

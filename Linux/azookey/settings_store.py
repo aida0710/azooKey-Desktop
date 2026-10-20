@@ -7,10 +7,11 @@ import fcntl
 import json
 import os
 import pathlib
+import sys
 import tempfile
 import uuid
 
-from .localization import message
+from .i18n import text
 from .settings_schema import PRESERVED_SETTINGS, validate_settings
 
 
@@ -63,7 +64,7 @@ def _unique_keys(pairs):
     document = {}
     for key, value in pairs:
         if key in document:
-            raise ValueError(message("settings.invalid_value", field=key[:100]))
+            raise ValueError(text("settings.invalid_value", field=key[:100]))
         document[key] = value
     return document
 
@@ -72,23 +73,34 @@ def _read(path, defaults):
     try:
         document = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_keys)
     except json.JSONDecodeError as error:
-        raise ValueError(message("settings.invalid_json", line=error.lineno, column=error.colno)) from error
+        raise ValueError(text("settings.invalid_json", line=error.lineno, column=error.colno)) from error
     except (OSError, UnicodeError) as error:
-        raise ValueError(message("settings.read_failed")) from error
+        raise ValueError(text("settings.read_failed")) from error
     return validate_settings(document, defaults=defaults)
 
 
-def _write_atomic(path, values):
+@contextmanager
+def _staged_settings(path, values):
     descriptor, temporary = tempfile.mkstemp(prefix=".settings-", dir=path.parent)
+    staged = pathlib.Path(temporary)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             json.dump(values, stream, ensure_ascii=False, allow_nan=False)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        yield staged
     finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+        original_error = sys.exception()
+        try:
+            staged.unlink(missing_ok=True)
+        except OSError:
+            if original_error is None:
+                raise
+
+
+def _write_atomic(path, values):
+    with _staged_settings(path, values) as staged:
+        os.replace(staged, path)
 
 
 class SettingsStore:
@@ -117,7 +129,7 @@ class SettingsStore:
 
     def reject(self, loaded):
         self.cached_stamp = loaded.stamp
-        self.cached = SettingsLoad({}, loaded.stamp, SettingsProblem(message("settings.engine_rejected"), loaded.stamp))
+        self.cached = SettingsLoad({}, loaded.stamp, SettingsProblem(text("settings.engine_rejected"), loaded.stamp))
 
     def remember(self, values):
         """Store only values that Core has accepted; failure never blocks input."""
@@ -146,7 +158,7 @@ class SettingsStore:
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as error:
-                raise ValueError(message("settings.busy")) from error
+                raise ValueError(text("settings.busy")) from error
             yield
         finally:
             os.close(descriptor)
@@ -162,20 +174,38 @@ class SettingsStore:
             values = validate_settings(changes, defaults=current)
             return self._save_locked(values)
 
+    def save_with_backend(self, values, *, apply_staged, expected_stamp):
+        """Publish through a backend transaction while holding the writer lock.
+
+        apply_staged must atomically install and verify the exact staged JSON,
+        or restore the prior file before raising. It owns the Core transaction;
+        this store does not publish the document a second time.
+        """
+        with self._writer():
+            validated = validate_settings(values)
+            self._check_write(validated, expected_stamp=expected_stamp)
+            with _staged_settings(self.path, validated) as staged:
+                apply_staged(staged)
+            return self._record_saved(validated)
+
     def _read_before_save(self, defaults):
         if _stamp(self.path) is None:
             return copy.deepcopy(defaults)
         try:
             return _read(self.path, defaults)
         except ValueError as error:
-            raise SettingsRecoveryRequired(message("settings.recovery_required")) from error
+            raise SettingsRecoveryRequired(text("settings.recovery_required")) from error
 
-    def _save_locked(self, values, *, expected_stamp=UNSPECIFIED_STAMP, recover=False):
+    def _check_write(self, values, *, expected_stamp=UNSPECIFIED_STAMP, recover=False):
         current_stamp = _stamp(self.path)
         if expected_stamp is not UNSPECIFIED_STAMP and current_stamp != expected_stamp:
-            raise ValueError(message("settings.changed"))
+            raise ValueError(text("settings.changed"))
         if not recover:
             self._read_before_save(values)
+        return current_stamp
+
+    def _save_locked(self, values, *, expected_stamp=UNSPECIFIED_STAMP, recover=False):
+        current_stamp = self._check_write(values, expected_stamp=expected_stamp, recover=recover)
         preserved = None
         if recover and current_stamp is not None:
             suffix = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
@@ -187,6 +217,9 @@ class SettingsStore:
             if preserved is not None and not self.path.exists():
                 os.replace(preserved, self.path)
             raise
+        return self._record_saved(values, preserved=preserved)
+
+    def _record_saved(self, values, *, preserved=None):
         warning = not self.remember(values)
         self.cached_stamp = object()
         return SettingsSave(copy.deepcopy(values), _stamp(self.path), preserved, warning)
