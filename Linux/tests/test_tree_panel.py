@@ -28,7 +28,8 @@ class TreePanelTests(unittest.TestCase):
             snapshot = {
                 "nodes": [
                     {"id": 0, "text": "このように", "reading": "", "parent": None, "terminals": []},
-                    {"id": 1, "text": "確率的に", "reading": "", "parent": 0, "terminals": [0]},
+                    {"id": 1, "text": "確率的に", "reading": "", "parent": 0, "terminals": [0],
+                     "preview": {"candidateIndex": 0}},
                     {"id": 2, "text": "このようにかくりつてきに", "reading": "", "parent": None, "terminals": [1]},
                 ],
                 "columns": [[0, 2], [1]], "selectedPath": [0, 1], "showRelativeScores": True,
@@ -41,8 +42,9 @@ class TreePanelTests(unittest.TestCase):
             self.assertLessEqual(words[2][4], 75, "Long alternatives must not cover the next word")
             panel.update({**snapshot, "showCandidateIndex": True})
             word = next(r for r in panel.rectangles if r[:2] == ("node", 1))
-            number = next(r for r in panel.rectangles if r[:2] == ("select", 0))
-            self.assertGreaterEqual(number[3], word[3] + word[5] + 12)
+            self.assertEqual(panel.candidate_numbers[1], 1)
+            self.assertFalse(any(rectangle[0] == "select" for rectangle in panel.rectangles))
+            self.assertGreaterEqual(word[5], 44)
             panel.location = (2, 100, 1, 20)
             panel.update(snapshot)
             self.assertFalse(panel.aligned, "Screen-edge clamping must not pretend to retain document coordinates")
@@ -79,7 +81,7 @@ class TreePanelTests(unittest.TestCase):
 
                 panel = TreePanel(choose)
                 panel.update(snapshot)
-                panel.disclosure_actions["tree"].clicked()
+                self.assertTrue(panel.scroll.get_visible())
                 context = GLib.MainContext.default()
                 while context.pending():
                     context.iteration(False)
@@ -87,7 +89,7 @@ class TreePanelTests(unittest.TestCase):
                 self.assertLessEqual(len(words), len(snapshot["columns"]) * 3)
                 self.assertEqual({words[column[0]][3] for column in snapshot["columns"]}, {6})
                 width, height = panel.canvas.get_size_request()
-                self.assertLessEqual(height, 200)
+                self.assertLessEqual(height, 260)
                 surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
                 panel.draw(panel.canvas, cairo.Context(surface))
                 surface.flush()
