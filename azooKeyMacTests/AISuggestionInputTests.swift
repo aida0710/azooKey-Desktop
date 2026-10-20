@@ -82,7 +82,6 @@ final class AISuggestionInputTests: XCTestCase {
     private var controller: InputMethodTestController!
     private var client: FakeTextInput!
     private var sender: DeferredAIClient!
-    private var serverFixture: InputMethodTestServer?
     private var directory: URL!
     private var restoreSettings: (() -> Void)!
 
@@ -112,11 +111,9 @@ final class AISuggestionInputTests: XCTestCase {
         )
         client = FakeTextInput()
         sender = DeferredAIClient()
-        serverFixture = try InputMethodTestServer(
-            directoryURL: directory, controllerClass: InputMethodTestController.self
-        )
+        let serverFixture = try InputMethodTestServer.shared
         controller = try XCTUnwrap(InputMethodTestController(
-            server: try XCTUnwrap(serverFixture?.server), client: client, segmentsManager: manager
+            server: serverFixture.server, client: client, segmentsManager: manager
         ))
         XCTAssertTrue(controller.client() === client)
         let deferredSender = sender!
@@ -126,7 +123,6 @@ final class AISuggestionInputTests: XCTestCase {
     override func tearDown() {
         controller?.cancelReplaceSuggestion()
         controller = nil
-        serverFixture = nil
         restoreSettings?()
         if let directory {
             try? FileManager.default.removeItem(at: directory)

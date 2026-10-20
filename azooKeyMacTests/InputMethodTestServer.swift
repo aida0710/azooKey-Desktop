@@ -3,17 +3,27 @@ import CoreFoundation
 import InputMethodKit
 import XCTest
 
-/// Holds the bundle metadata that the production IMKServer initializer reads.
+/// Keeps the input-method connection and its bundle alive for the test process.
 @MainActor
 struct InputMethodTestServer {
+    private static let processFixture = Result { try InputMethodTestServer() }
+
+    static var shared: InputMethodTestServer {
+        get throws { try processFixture.get() }
+    }
+
     private let registeredBundle: CFBundle
     let bundle: Bundle
     let server: IMKServer
 
-    init(directoryURL: URL, controllerClass: AnyClass) throws {
+    private init() throws {
+        _ = NSApplication.shared
         let identifier = "dev.azookey.tests.input-method.\(UUID().uuidString)"
         let connectionName = "\(identifier).connection"
-        let controllerName = NSStringFromClass(controllerClass)
+        let controllerName = NSStringFromClass(InputMethodTestController.self)
+        // Per-test document and learning directories are removed in tearDown.
+        // This connection's metadata must outlive all of those test sessions.
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(identifier)
         let bundleURL = directoryURL.appendingPathComponent("InputMethodTests.bundle")
         let contentsURL = bundleURL.appendingPathComponent("Contents")
         try FileManager.default.createDirectory(at: contentsURL, withIntermediateDirectories: true)
