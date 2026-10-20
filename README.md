@@ -83,6 +83,7 @@ GitHub Sponsorsをご利用ください。
   * ユーザ辞書機能
   * 個人最適化システム「[Tuner](https://github.com/azooKey/Tuner)」との連携機能
 * LLMによる「いい感じ変換」機能
+  * [AI に渡す本文と送信先](docs/ai-send-scope.md)
 * ライブ変換
 * AZIKのネイティブサポート
 

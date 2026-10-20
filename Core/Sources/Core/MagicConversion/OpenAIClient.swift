@@ -270,7 +270,7 @@ public enum OpenAIError: LocalizedError, @unchecked Sendable {
 // OpenAI APIクライアント
 public enum OpenAIClient {
     // APIリクエストを送信する静的メソッド
-    public static func sendRequest(_ request: OpenAIRequest, apiKey: String, apiEndpoint: String, logger: ((String) -> Void)? = nil) async throws -> [String] {
+    public static func sendRequest(_ request: OpenAIRequest, apiKey: String, apiEndpoint: String, logger: ((String) -> Void)? = nil, session: URLSession = .shared) async throws -> [String] {
         guard let url = URL(string: apiEndpoint) else {
             throw OpenAIError.invalidURL
         }
@@ -284,7 +284,7 @@ public enum OpenAIClient {
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         // 非同期でリクエストを送信
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
+        let (data, response) = try await session.data(for: urlRequest)
 
         // レスポンスの検証
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -349,7 +349,7 @@ public enum OpenAIClient {
     }
 
     // Simple text transformation method for AI Transform feature
-    public static func sendTextTransformRequest(prompt: String, modelName: String, apiKey: String, apiEndpoint: String) async throws -> String {
+    public static func sendTextTransformRequest(prompt: String, modelName: String, apiKey: String, apiEndpoint: String, session: URLSession = .shared) async throws -> String {
         guard let url = URL(string: apiEndpoint) else {
             throw OpenAIError.invalidURL
         }
@@ -388,7 +388,7 @@ public enum OpenAIClient {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         // Send async request
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
 
         // Validate response
         guard let httpResponse = response as? HTTPURLResponse else {

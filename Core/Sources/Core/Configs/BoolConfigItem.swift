@@ -70,7 +70,7 @@ extension Config {
     /// AI変換時にコンテキストを含めるかどうか
     public struct IncludeContextInAITransform: BoolConfigItem {
         public init() {}
-        static let `default` = true
+        static let `default` = false
         public static let key: String = "dev.ensan.inputmethod.azooKeyMac.preference.includeContextInAITransform"
     }
 }

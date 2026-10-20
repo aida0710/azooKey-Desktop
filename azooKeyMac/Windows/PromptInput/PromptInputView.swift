@@ -4,9 +4,9 @@ import SwiftUI
 
 struct PromptInputView: View {
     @State private var promptText: String = ""
-    @State private var previewText: String = ""
-    @State private var isLoading: Bool = false
+    @State private var preview = AITransformationPreview()
     @State private var showPreview: Bool = false
+    @State private var previewError: String?
     @State private var promptHistory: [PromptHistoryItem] = []
     @State private var hoveredHistoryIndex: Int?
     @State private var isNavigatingHistory: Bool = false
@@ -15,21 +15,21 @@ struct PromptInputView: View {
     @FocusState private var isTextFieldFocused: Bool
 
     let initialPrompt: String?
+    let requestConfiguration: AIRequestConfiguration
+    let targetText: String
+    private var previewText: String { preview.applicableText ?? "" }
+    private var isLoading: Bool { preview.isLoading }
     private var modelDisplayName: String {
-        let backend = Config.AIBackendPreference().value
-        switch backend {
-        case .off:
-            return "Off"
+        switch requestConfiguration.backend {
         case .foundationModels:
             return "Foundation Models"
         case .openAI:
-            let modelName = Config.OpenAiModelName().value
-            return modelName.isEmpty ? "OpenAI API" : modelName
+            return requestConfiguration.modelName
         }
     }
 
     let onSubmit: (String?) -> Void
-    let onPreview: (String, Bool, @escaping (String) -> Void) -> Void  // Added includeContext parameter
+    let onPreview: (String, Bool, @escaping (Result<String, TransformationPreviewError>) -> Void) -> Void
     let onApply: (String) -> Void
     let onCancel: () -> Void
     let onPreviewModeChanged: (Bool) -> Void
@@ -86,12 +86,24 @@ struct PromptInputView: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
 
+            AIRequestScopeView(configuration: requestConfiguration, targetText: targetText)
+                .padding(.horizontal, 12)
+            if let previewError {
+                Text(previewError)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 12)
+            }
+
             // Input field with custom key handling
             CustomTextField(
                 text: $promptText,
                 placeholder: "example: formalize",
                 isFocused: $isTextFieldFocused,
                 onSubmit: {
+                    guard !isLoading else {
+                        return
+                    }
                     if hoveredHistoryIndex != nil {
                         // If history item is selected, use it and generate preview automatically
                         promptText = getVisibleHistory()[hoveredHistoryIndex!].prompt
@@ -103,8 +115,7 @@ struct PromptInputView: View {
                         }
                     } else if showPreview {
                         // Apply when Enter is pressed in preview mode
-                        onApply(previewText)
-                        onSubmit(promptText)
+                        applyPreview()
                     } else {
                         // Preview when Enter is pressed in input mode
                         requestPreview()
@@ -127,15 +138,10 @@ struct PromptInputView: View {
                 NotificationCenter.default.post(name: .textFieldFocusChanged, object: isFocused)
             }
             .onChange(of: promptText) { _ in
+                invalidatePreview()
                 // Only clear history selection if not navigating through history
                 if !isNavigatingHistory {
                     hoveredHistoryIndex = nil
-                    if showPreview {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showPreview = false
-                            onPreviewModeChanged(false)
-                        }
-                    }
                 }
                 // Reset navigation flag after text change
                 isNavigatingHistory = false
@@ -292,9 +298,7 @@ struct PromptInputView: View {
             HStack(spacing: 10) {
                 if showPreview {
                     Button("Edit") {
-                        showPreview = false
-                        // Notify parent window about preview mode change
-                        onPreviewModeChanged(false)
+                        invalidatePreview()
                         DispatchQueue.main.async {
                             isTextFieldFocused = true
                         }
@@ -304,28 +308,27 @@ struct PromptInputView: View {
                     Spacer()
 
                     Button("Apply") {
-                        // Execute apply first
-                        onApply(previewText)
-
-                        // Close window and submit
-                        onSubmit(promptText)
+                        applyPreview()
                     }
                     .buttonStyle(ModernPrimaryButtonStyle())
+                    .disabled(preview.applicableText == nil)
                 } else {
                     // Include context checkbox
                     Toggle(isOn: $includeContext) {
-                        Text("Include context")
+                        Text(Localization.text("ai.scope.include-context"))
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
                     .toggleStyle(CheckboxToggleStyle())
+                    .disabled(isLoading)
                     .onChange(of: includeContext) { newValue in
                         Config.IncludeContextInAITransform().value = newValue
+                        invalidatePreview()
                     }
 
                     Spacer()
 
-                    Button(isLoading ? "Generating..." : "Preview") {
+                    Button(Localization.text(isLoading ? "ai.scope.generating" : "ai.scope.preview")) {
                         requestPreview()
                     }
                     .buttonStyle(ModernPrimaryButtonStyle())
@@ -344,8 +347,8 @@ struct PromptInputView: View {
             // Reset all state variables when the view appears
             let trimmedInitialPrompt = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
             promptText = trimmedInitialPrompt ?? ""
-            previewText = ""
-            isLoading = false
+            preview.invalidate()
+            previewError = nil
             showPreview = false
             hoveredHistoryIndex = nil
             isNavigatingHistory = false
@@ -361,14 +364,8 @@ struct PromptInputView: View {
                 hoveredHistoryIndex = nil
                 isTextFieldFocused = true
             }
-
-            if let trimmedInitialPrompt, !trimmedInitialPrompt.isEmpty {
-                // Trigger preview as if Enter was pressed once.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    requestPreview()
-                }
-            }
         }
+        .onDisappear { preview.invalidate() }
         .onReceive(NotificationCenter.default.publisher(for: .navigateHistoryUp)) { _ in
             navigateHistory(direction: .up)
         }
@@ -397,7 +394,7 @@ struct PromptInputView: View {
 
     private func requestPreview() {
         let trimmedPrompt = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPrompt.isEmpty else {
+        guard !trimmedPrompt.isEmpty, !isLoading else {
             return
         }
 
@@ -407,39 +404,59 @@ struct PromptInputView: View {
         // Reset hover when requesting preview
         hoveredHistoryIndex = nil
 
-        isLoading = true
-        onPreview(trimmedPrompt, includeContext) { result in
-            DispatchQueue.main.async {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    self.previewText = result
-                    self.isLoading = false
-                    self.showPreview = true
-                    // Notify parent window about preview mode change
-                    self.onPreviewModeChanged(true)
-                }
-            }
-        }
+        performPreview(trimmedPrompt)
     }
 
     private func reloadPreview() {
         let trimmedPrompt = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPrompt.isEmpty else {
+        guard !trimmedPrompt.isEmpty, !isLoading else {
             return
         }
 
         // Don't save to history again since this is a reload
         hoveredHistoryIndex = nil
 
-        isLoading = true
-        onPreview(trimmedPrompt, includeContext) { result in
+        performPreview(trimmedPrompt)
+    }
+
+    private func performPreview(_ prompt: String) {
+        previewError = nil
+        let request = preview.begin()
+        onPreview(prompt, includeContext) { outcome in
             DispatchQueue.main.async {
                 withAnimation(.easeInOut(duration: 0.3)) {
-                    self.previewText = result
-                    self.isLoading = false
-                    // Keep showPreview = true and don't notify parent about mode change
+                    switch outcome {
+                    case .success(let text):
+                        guard self.preview.complete(text, for: request) else {
+                            return
+                        }
+                        self.showPreview = self.preview.applicableText != nil
+                    case .failure(let error):
+                        guard self.preview.complete(nil, for: request) else {
+                            return
+                        }
+                        self.previewError = error.message
+                        self.showPreview = false
+                    }
+                    self.onPreviewModeChanged(self.showPreview)
                 }
             }
         }
+    }
+
+    private func applyPreview() {
+        guard let text = preview.applicableText else {
+            return
+        }
+        onApply(text)
+        onSubmit(promptText)
+    }
+
+    private func invalidatePreview() {
+        preview.invalidate()
+        previewError = nil
+        showPreview = false
+        onPreviewModeChanged(false)
     }
 
     private func loadPromptHistory() {
@@ -604,11 +621,15 @@ struct PromptInputView: View {
 #Preview {
     PromptInputView(
         initialPrompt: nil,
+        requestConfiguration: AIRequestConfiguration(
+            backend: .openAI, modelName: "preview", apiKey: "", apiEndpoint: "https://example.invalid"
+        ),
+        targetText: "確認する本文",
         onSubmit: { _ in
         },
         onPreview: { prompt, _, callback in
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                callback("Transformed: \(prompt)")
+                callback(.success("Transformed: \(prompt)"))
             }
         },
         onApply: { _ in
