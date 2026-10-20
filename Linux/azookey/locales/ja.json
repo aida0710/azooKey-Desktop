@@ -25,5 +25,8 @@
   "settings.restore_explanation": "辞書、学習データ、個人化モデル、APIキーは削除しません。AI設定と学習方法も保持します。",
   "settings.restored": "設定を復旧しました。元ファイル: {backup}",
   "settings.saved": "保存しました。次の入力から反映します。",
+  "settings.dictionary_edit": "ユーザー辞書を編集…（{count}件）",
+  "settings.dictionary_separate_save": "辞書は専用の画面で編集し、その画面の「保存」で反映します。",
+  "settings.dictionary_saved": "辞書を保存しました。次の変換から使用します。",
   "settings.backup_warning": "設定は保存しましたが、正常版の控えを保存できませんでした。設定フォルダーの権限を確認してください。"
 }

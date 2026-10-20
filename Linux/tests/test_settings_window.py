@@ -35,6 +35,9 @@ class SettingsWindowTests(unittest.TestCase):
             self.values["userDictionary"] = {"items": [{
                 "id": "6c5fce13-fb0f-4b59-9281-f7347ae8f91c", "reading": "てすと", "word": "試験", "hint": "回復用",
             }]}
+            # Initial migration reads the already persisted dictionary. Later
+            # edits use the explicit dictionary transaction instead of configure.
+            SettingsStore().save(self.values)
             self.assertFalse(bridge.request("configure", settings=self.values).get("error"))
             self.values = bridge.request("settings")["settings"]
         finally:
@@ -150,6 +153,86 @@ class SettingsWindowTests(unittest.TestCase):
             bridge.assert_not_called()
         self.assertIn("変わりました", window.message.get_text())
         self.assertEqual(json.loads(self.path.read_text()), latest)
+
+    def test_dictionary_cancel_and_general_save_preserve_saved_entries_and_ids(self):
+        window = self.window()
+        original = self.path.read_bytes()
+        window.dictionary_button.clicked()
+        editor = window.dictionary_editor
+        self.assertTrue(editor.get_modal())
+        self.assertTrue(window.close_requested(window, None))
+        editor.add_button.clicked()
+        self.assertEqual(len(editor.model.entries), 2)
+        editor.cancel_button.clicked()
+        self.assertTrue(editor.closed)
+        self.assertEqual(self.path.read_bytes(), original)
+        window.widgets["live"].set_active(True)
+        window.save(None)
+        self.assertEqual(json.loads(self.path.read_text())["userDictionary"], self.values["userDictionary"])
+
+    def test_dictionary_save_updates_parent_stamp_and_survives_later_settings_save_and_restart(self):
+        from azookey.bridge import Bridge
+        window = self.window()
+        window.dictionary_button.clicked()
+        editor = window.dictionary_editor
+        editor.fields["word"].set_text("安全保存確認語")
+        self.finish_dictionary_save(editor)
+        self.assertTrue(editor.closed)
+        entry = json.loads(self.path.read_text())["userDictionary"]["items"][0]
+        self.assertEqual(entry["word"], "安全保存確認語")
+        self.assertEqual(entry["id"].lower(), self.values["userDictionary"]["items"][0]["id"].lower())
+        window.widgets["live"].set_active(True)
+        window.save(None)
+        self.assertEqual(json.loads(self.path.read_text())["userDictionary"]["items"][0], entry)
+        connection = Bridge()
+        try:
+            self.assertEqual(connection.request("settings")["settings"]["userDictionary"]["items"][0]["word"], entry["word"])
+        finally:
+            connection.close()
+
+    def test_invalid_dictionary_stays_in_editor_and_never_changes_saved_settings(self):
+        window = self.window()
+        original = self.path.read_bytes()
+        window.dictionary_button.clicked()
+        editor = window.dictionary_editor
+        editor.fields["reading"].set_text("てすと🦊")
+        self.finish_dictionary_save(editor)
+        self.assertFalse(editor.closed)
+        self.assertTrue(editor.model.issues)
+        self.assertEqual(self.path.read_bytes(), original)
+        editor.cancel_button.clicked()
+
+    @staticmethod
+    def finish_dictionary_save(editor):
+        from gi.repository import GLib
+        loop = GLib.MainLoop()
+        expired = []
+
+        def finished(*_arguments):
+            if editor.closed or not editor.model.is_saving:
+                loop.quit()
+
+        def deadline():
+            expired.append(True)
+            loop.quit()
+            return GLib.SOURCE_REMOVE
+
+        # This bounds a failed worker; successful saves wake on GTK signals.
+        worker_deadline_seconds = 10
+        timer = GLib.timeout_add_seconds(worker_deadline_seconds, deadline)
+        status_handler = editor.status_label.connect("notify::label", finished)
+        destroy_handler = editor.connect("destroy", finished)
+        try:
+            editor.save_button.clicked()
+            if not editor.closed and editor.model.is_saving:
+                loop.run()
+            if expired:
+                raise AssertionError("dictionary worker did not report a result")
+        finally:
+            if not expired:
+                GLib.source_remove(timer)
+            editor.status_label.disconnect(status_handler)
+            editor.disconnect(destroy_handler)
 
 
 if __name__ == "__main__":

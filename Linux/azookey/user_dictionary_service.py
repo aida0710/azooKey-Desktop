@@ -43,7 +43,7 @@ class UserDictionaryService:
     opened is the SettingsLoad captured when the editor opens. The required
     expected_stamp prevents its other settings from overwriting later changes.
     SettingsStore.save_with_backend owns validation, the writer lock, staging,
-    readback, and cache updates. Core owns the atomic commit and rollback.
+    and cache updates. Core owns atomic installation, readback and rollback.
     """
 
     def __init__(self, store, opened, *, bridge_factory=Bridge):
