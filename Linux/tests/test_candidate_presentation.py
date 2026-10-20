@@ -272,6 +272,9 @@ class CandidatePresentationTests(unittest.TestCase):
                 self.assertEqual(self.actions, [])
 
     def test_page_and_scroll_survive_pending_without_restoring_old_hover(self):
+        from gi.repository import GLib
+        from Linux.tests.test_candidate_theme import CandidateThemeTests
+
         snapshot = copy.deepcopy(self.snapshot)
         snapshot["candidatePage"]["start"] = 9
         snapshot["candidatePage"]["position"] = 10
@@ -282,6 +285,7 @@ class CandidatePresentationTests(unittest.TestCase):
         ]
         snapshot["selection"] = 9
         self.panel.update(snapshot)
+        CandidateThemeTests.wait_for_paint(self.panel, GLib)
         self.flush()
         navigation = self.panel.navigation
         adjustment = navigation.scroll.get_vadjustment()
@@ -291,6 +295,7 @@ class CandidatePresentationTests(unittest.TestCase):
         self.flush()
         self.panel.suspend()
         self.panel.update(snapshot)
+        CandidateThemeTests.wait_for_paint(self.panel, GLib)
         self.flush()
         self.assertEqual(navigation.page["start"], 9)
         self.assertEqual(adjustment.get_value(), 60)
