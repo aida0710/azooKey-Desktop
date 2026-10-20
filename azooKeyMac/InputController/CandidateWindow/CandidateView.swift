@@ -265,7 +265,7 @@ class PredictionCandidatesViewController: BaseCandidateViewController {
         let candidateAttributed = NSAttributedString(
             string: candidateText,
             attributes: [
-                .font: NSFont.systemFont(ofSize: 18),
+                .font: NSFont.systemFont(ofSize: Config.CandidateTextSize().value.pointSize),
                 .foregroundColor: candidateColor
             ]
         )
