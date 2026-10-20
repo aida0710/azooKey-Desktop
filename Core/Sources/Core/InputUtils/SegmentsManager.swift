@@ -704,8 +704,18 @@ public final class SegmentsManager {
 
     /// - note: 画面更新との整合性を保つため、この関数の実行前に左文脈を取得し、これを引数として与える
     @MainActor public func prefixCandidateCommited(_ candidate: Candidate, leftSideContext: String) {
-        self.withConverter { $0.setCompletedData(candidate) }
-        if learningEnabled { self.withConverter { $0.updateLearningData(candidate) } }
+        let learningType = Config.Learning().value.learningType
+        let shouldUpdateLearning = learningEnabled && learningType == .inputAndOutput
+        if shouldUpdateLearning {
+            ConverterLearningConfiguration.apply(
+                learningType: learningType, converter: self.kanaKanjiConverter,
+                memoryDirectoryURL: self.azooKeyMemoryDir
+            )
+        }
+        self.withConverter { converter in
+            converter.setCompletedData(candidate)
+            if shouldUpdateLearning { converter.updateLearningData(candidate) }
+        }
         self.composingText.prefixComplete(composingCount: candidate.composingCount)
         // 読みの途中から全文を確定した場合も、残った入力に対する有効な位置へ戻す。
         _ = self.composingText.moveCursorFromCursorPosition(count: self.composingText.convertTarget.count - self.composingText.convertTargetCursorPosition)
