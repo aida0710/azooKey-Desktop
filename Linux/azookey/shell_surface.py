@@ -76,7 +76,9 @@ class ShellSurface:
             Gio.bus_unwatch_name(self.watch)
         self.watch = 0
         engine = self.engine() if self.engine else None
-        if engine:
+        # The visible preedit may already contain keys absent from this snapshot.
+        # Their reply will restore the fallback renderer without losing input.
+        if engine and not engine.input.has_pending_preview:
             engine.render(engine.snapshot)
 
     def show(self, engine, snapshot, location):

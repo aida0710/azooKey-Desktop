@@ -435,6 +435,8 @@ class Engine(IBus.Engine):
             self.table.set_cursor_pos(snapshot.get("selection") or 0)
         is_wayland = "Wayland" in type(Gdk.Display.get_default()).__name__
         shell_tree = self.focused and self.settings.get("tree", True) and surface().show(self, snapshot, self.panel.location)
+        if not shell_tree:
+            surface().hide(self)
         if shell_tree:
             self.lookup_announcements.reset()
             self.panel.dismiss()
