@@ -64,6 +64,25 @@ final class UserDictionaryWindowGuardTests: XCTestCase {
         XCTAssertEqual(model.entries.first?.word, "保存済み")
     }
 
+    func testNativeCloseWaitsForTheImportPreviewToBeDismissed() async throws {
+        let model = UserDictionaryEditorModel(entries: []) { _ in .saved }
+        let document = try UserDictionaryExchange.parse(UserDictionaryExchange.export([]), format: .json)
+        let preview = try UserDictionaryImportPreview.make(document: document, existing: [])
+        await model.prepareImport { _ in preview }
+        let coordinator = makeCoordinator(model: model)
+        let window = makeWindow(coordinator: coordinator)
+        defer { coordinator.detach() }
+
+        window.performClose(nil)
+
+        XCTAssertTrue(window.isVisible)
+        XCTAssertNotNil(model.importPreview)
+        model.cancelImport()
+        window.performClose(nil)
+        XCTAssertFalse(window.isVisible)
+        XCTAssertTrue(model.entries.isEmpty)
+    }
+
     func testPreviousDelegateCanRefuseCloseAndReceivesCloseAfterDraftCancellation() {
         let model = UserDictionaryEditorModel(entries: []) { _ in .saved }
         model.beginAdding()
@@ -115,7 +134,7 @@ final class UserDictionaryWindowGuardTests: XCTestCase {
         model: UserDictionaryEditorModel
     ) -> UserDictionaryWindowGuard.Coordinator {
         UserDictionaryWindowGuard(
-            canClose: { !model.isSaving },
+            canClose: { model.canClose },
             onClose: { model.cancelChanges() }
         ).makeCoordinator()
     }

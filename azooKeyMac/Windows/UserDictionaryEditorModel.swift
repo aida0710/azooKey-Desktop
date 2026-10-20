@@ -8,11 +8,13 @@ enum UserDictionaryEditorOutcome: Sendable {
     case saveFailed(messageKey: String)
 }
 
+enum UserDictionaryFileOperation: Equatable, Sendable {
+    case importing
+    case exporting
+}
+
 @MainActor
 final class UserDictionaryEditorModel: ObservableObject {
-    // Preserve the existing limit until the separate dictionary migration work measures larger lists.
-    static let entryLimit = 50
-
     @Published private(set) var entries: [Config.UserDictionaryEntry]
     @Published private(set) var draft: Config.UserDictionaryEntry?
     @Published private(set) var issues: [UserDictionaryValidation.Issue] = []
@@ -21,6 +23,11 @@ final class UserDictionaryEditorModel: ObservableObject {
     @Published private(set) var hasUnsavedChanges = false
     @Published private(set) var didSave = false
     @Published private(set) var needsRecovery = false
+    @Published private(set) var fileOperation: UserDictionaryFileOperation?
+    @Published private(set) var importPreview: UserDictionaryImportPreview.Preview?
+    @Published private(set) var didExport = false
+    @Published var searchText = ""
+    @Published var sortOrder = [KeyPathComparator(\Config.UserDictionaryEntry.reading)]
 
     private var savedEntries: [Config.UserDictionaryEntry]
     private let saveOperation: @MainActor ([Config.UserDictionaryEntry]) async -> UserDictionaryEditorOutcome
@@ -34,7 +41,23 @@ final class UserDictionaryEditorModel: ObservableObject {
         self.saveOperation = save
     }
 
-    var canAdd: Bool { !isSaving && !needsRecovery && draft == nil && entries.count < Self.entryLimit }
+    var isBusy: Bool { isSaving || fileOperation != nil }
+    var canClose: Bool { !isBusy && importPreview == nil }
+    var canEditEntries: Bool { canClose && !needsRecovery && draft == nil }
+    var canAdd: Bool { canEditEntries }
+    var canApplyImport: Bool {
+        !isBusy && !needsRecovery && (importPreview?.counts.additions ?? 0) > 0
+    }
+
+    var visibleEntries: [Config.UserDictionaryEntry] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matching = query.isEmpty ? entries : entries.filter {
+            $0.word.localizedStandardContains(query)
+                || $0.reading.localizedStandardContains(query)
+                || $0.nonNullHint.localizedStandardContains(query)
+        }
+        return matching.sorted(using: sortOrder)
+    }
 
     var draftWord: String {
         get { draft?.word ?? "" }
@@ -60,7 +83,7 @@ final class UserDictionaryEditorModel: ObservableObject {
     }
 
     func beginEditing(_ id: UUID) {
-        guard !isSaving, !needsRecovery, draft == nil else {
+        guard canEditEntries else {
             return
         }
         draft = entries.first { $0.id == id }
@@ -68,7 +91,7 @@ final class UserDictionaryEditorModel: ObservableObject {
     }
 
     func cancelEditing() {
-        guard !isSaving else {
+        guard !isBusy else {
             return
         }
         draft = nil
@@ -76,7 +99,7 @@ final class UserDictionaryEditorModel: ObservableObject {
     }
 
     func remove(_ id: UUID) {
-        guard !isSaving, !needsRecovery, draft == nil else {
+        guard canEditEntries, entries.contains(where: { $0.id == id }) else {
             return
         }
         entries.removeAll { $0.id == id }
@@ -85,17 +108,18 @@ final class UserDictionaryEditorModel: ObservableObject {
     }
 
     func cancelChanges() {
-        guard !isSaving else {
+        guard !isBusy else {
             return
         }
         entries = savedEntries
         draft = nil
+        importPreview = nil
         hasUnsavedChanges = false
         clearFeedback()
     }
 
     func refreshIfUnchanged(_ current: [Config.UserDictionaryEntry]) {
-        guard !isSaving, !hasUnsavedChanges, !needsRecovery, draft == nil else {
+        guard canEditEntries, !hasUnsavedChanges else {
             return
         }
         entries = current
@@ -103,7 +127,7 @@ final class UserDictionaryEditorModel: ObservableObject {
     }
 
     func save() async {
-        guard !isSaving, !needsRecovery else {
+        guard !isBusy, !needsRecovery, importPreview == nil else {
             return
         }
         let proposedEntries = entriesIncludingDraft()
@@ -126,8 +150,67 @@ final class UserDictionaryEditorModel: ObservableObject {
         }
     }
 
+    func prepareImport(
+        using operation: @MainActor ([Config.UserDictionaryEntry]) async throws -> UserDictionaryImportPreview.Preview?
+    ) async {
+        guard canEditEntries else {
+            return
+        }
+        fileOperation = .importing
+        clearFeedback()
+        defer { fileOperation = nil }
+        do {
+            importPreview = try await operation(entries)
+        } catch is CancellationError {
+            // A canceled file chooser leaves both the saved entries and draft unchanged.
+        } catch {
+            failureMessageKey = UserDictionaryExchangeFeedback.failureKey(error, operation: .importing)
+        }
+    }
+
+    func cancelImport() {
+        guard !isBusy, importPreview != nil else {
+            return
+        }
+        importPreview = nil
+        clearFeedback()
+    }
+
+    func applyImport() {
+        guard canApplyImport, let preview = importPreview else {
+            return
+        }
+        do {
+            entries = try UserDictionaryImportPreview.applying(preview, to: entries)
+            importPreview = nil
+            hasUnsavedChanges = true
+            clearFeedback()
+        } catch {
+            importPreview = nil
+            failureMessageKey = UserDictionaryExchangeFeedback.failureKey(error, operation: .importing)
+        }
+    }
+
+    func export(
+        using operation: @MainActor ([Config.UserDictionaryEntry]) async throws -> Bool
+    ) async {
+        guard canEditEntries else {
+            return
+        }
+        fileOperation = .exporting
+        clearFeedback()
+        defer { fileOperation = nil }
+        do {
+            didExport = try await operation(entries)
+        } catch is CancellationError {
+            // Canceling export does not mark the draft as saved.
+        } catch {
+            failureMessageKey = UserDictionaryExchangeFeedback.failureKey(error, operation: .exporting)
+        }
+    }
+
     private func updateDraft(_ change: (inout Config.UserDictionaryEntry) -> Void) {
-        guard !isSaving, !needsRecovery, var entry = draft else {
+        guard !isBusy, !needsRecovery, var entry = draft else {
             return
         }
         change(&entry)
@@ -152,5 +235,6 @@ final class UserDictionaryEditorModel: ObservableObject {
         issues = []
         failureMessageKey = needsRecovery ? "rollbackFailed" : nil
         didSave = false
+        didExport = false
     }
 }
