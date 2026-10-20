@@ -58,6 +58,10 @@ struct BridgeMain {
         dup2(nullFD, STDERR_FILENO)
         close(nullFD)
         let environment = ProcessInfo.processInfo.environment
+        if environment["AZOOKEY_BRIDGE_ROLE"] == "reading" {
+            try DesktopReadingWorker.run(output: output)
+            return
+        }
         let dataPath = environment["AZOOKEY_DATA_DIR"] ??
             (environment["XDG_DATA_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share").path) + "/azookey-tree"
         let memoryDirectoryURL = URL(fileURLWithPath: dataPath, isDirectory: true)
@@ -167,7 +171,7 @@ struct BridgeMain {
         }
     }
 
-    private static func write(_ response: DesktopSnapshot, to output: FileHandle) throws {
+    static func write(_ response: DesktopSnapshot, to output: FileHandle) throws {
         var encoded = try JSONEncoder().encode(response)
         encoded.append(0x0a)
         try output.write(contentsOf: encoded)
