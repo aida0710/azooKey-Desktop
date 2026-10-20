@@ -41,7 +41,7 @@ final class CandidatePresentationStateTests: XCTestCase {
         view.onSelectionChanged = { selections.append($0) }
         view.onCandidateSubmitted = { submissions.append($0) }
         view.update(entries: entries, selectionIndex: 7)
-        try XCTUnwrap(descendants(in: view).compactMap { $0 as? CandidateRowButton }.first).performClick(nil)
+        try XCTUnwrap(descendants(in: view).compactMap { $0 as? TreeButton }.first).performClick(nil)
         XCTAssertEqual(selections, [7])
         XCTAssertTrue(submissions.isEmpty)
         XCTAssertEqual(try confirm(in: view).title, Localization.text("candidate.submitCandidate"))

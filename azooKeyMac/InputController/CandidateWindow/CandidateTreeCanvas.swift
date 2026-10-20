@@ -43,7 +43,43 @@ final class TreeButton: NSButton {
     var highlightedPath = false
     var focusedNode = false
     var documentAligned = false
-    var compactBadge = false
+    var candidateNumber: String?
+    // Keep the label and its lower-left number inside one pointer target.
+    private let titleTopInset: CGFloat = 3
+    private let numberInset: CGFloat = 4
+    private let numberBottomInset: CGFloat = 3
+    private let numberTextInset: CGFloat = 3
+    private static let minimumHeight: CGFloat = 44
+    private static let minimumNumberFontSize: CGFloat = 11
+    private static let numberFontReduction: CGFloat = 8
+    private static let textAndNumberInsets: CGFloat = 11
+    private static let unnumberedInsets: CGFloat = 14
+    private var numberFont: NSFont {
+        Self.numberFont(fontSize: font?.pointSize ?? 18)
+    }
+    private static func numberFont(fontSize: CGFloat) -> NSFont {
+        .monospacedSystemFont(ofSize: max(minimumNumberFontSize, fontSize - numberFontReduction), weight: .medium)
+    }
+    static func preferredHeight(fontSize: CGFloat, hasNumber: Bool) -> CGFloat {
+        let titleFont = NSFont.systemFont(ofSize: fontSize)
+        let numberFont = numberFont(fontSize: fontSize)
+        let numberedHeight = titleFont.ascender - titleFont.descender + numberFont.ascender - numberFont.descender + textAndNumberInsets
+        return max(minimumHeight, ceil(hasNumber ? numberedHeight : fontSize + unnumberedInsets))
+    }
+    var candidateTextFrame: NSRect {
+        let inset: CGFloat = documentAligned ? 2 : 4
+        let textFont = font ?? NSFont.systemFont(ofSize: 18)
+        let height = textFont.ascender - textFont.descender + 2
+        let y = candidateNumber == nil ? (bounds.height - height) / 2 : bounds.height - height - titleTopInset
+        return NSRect(x: inset, y: y, width: bounds.width - inset * 2, height: height)
+    }
+    var numberBadgeFrame: NSRect? {
+        guard let candidateNumber else {
+            return nil
+        }
+        let size = (candidateNumber as NSString).size(withAttributes: [.font: numberFont])
+        return NSRect(x: numberInset, y: numberBottomInset, width: size.width + numberTextInset * 2, height: size.height)
+    }
     override var acceptsFirstResponder: Bool { false }
     override func isAccessibilitySelected() -> Bool { highlightedPath }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -88,11 +124,18 @@ final class TreeButton: NSButton {
         let style = NSMutableParagraphStyle()
         style.alignment = documentAligned ? .left : .center
         style.lineBreakMode = .byTruncatingTail
-        let inset: CGFloat = compactBadge ? 1 : (documentAligned ? 2 : 4)
         let textFont = font ?? NSFont.systemFont(ofSize: 18)
-        let height = textFont.ascender - textFont.descender + 2
-        (title as NSString).draw(in: NSRect(x: inset, y: (bounds.height - height) / 2, width: bounds.width - inset * 2, height: height),
+        (title as NSString).draw(in: candidateTextFrame,
                                 withAttributes: [.font: textFont, .foregroundColor: highlightedPath ? palette.selectionText : palette.text,
                                                  .paragraphStyle: style])
+        if let candidateNumber, let badge = numberBadgeFrame {
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: numberFont,
+                .foregroundColor: highlightedPath ? palette.selectionText : palette.text
+            ]
+            (highlightedPath ? palette.selectionText : palette.border).setStroke()
+            NSBezierPath(roundedRect: badge, xRadius: 3, yRadius: 3).stroke()
+            (candidateNumber as NSString).draw(at: NSPoint(x: badge.minX + numberTextInset, y: badge.minY), withAttributes: attributes)
+        }
     }
 }
