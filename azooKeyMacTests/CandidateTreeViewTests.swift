@@ -42,6 +42,14 @@ final class CandidateTreeViewTests: XCTestCase {
         return textFields(in: details).map(\.stringValue).joined(separator: "\n")
     }
 
+    private func commitPreview(_ candidate: String) -> String {
+        String(format: Localization.text("candidate.preview.commit"), candidate)
+    }
+
+    private func remainingReading(_ reading: String) -> String {
+        String(format: Localization.text("candidate.preview.remaining"), reading)
+    }
+
     private func updateMenu(_ view: CandidateTreeView, entries: [CandidateTree.Entry], selectionIndex: Int?,
                             numbers: [Int: String] = [:], documentWidths: [CGFloat]? = nil) {
         view.update(entries: entries, selectionIndex: selectionIndex, numbers: numbers,
@@ -69,8 +77,8 @@ final class CandidateTreeViewTests: XCTestCase {
 
     private func assertPartialPreview(in view: NSView, file: StaticString = #filePath, line: UInt = #line) {
         let preview = detailText(in: view)
-        XCTAssertTrue(preview.contains("確定予定: 日本語\n"), file: file, line: line)
-        XCTAssertTrue(preview.contains("にゅうりょく"), file: file, line: line)
+        XCTAssertTrue(preview.contains(commitPreview("日本語") + "\n"), file: file, line: line)
+        XCTAssertTrue(preview.contains(remainingReading("にゅうりょく")), file: file, line: line)
         XCTAssertFalse(preview.contains("全文の注釈"), file: file, line: line)
         XCTAssertFalse(preview.contains("別候補の注釈"), file: file, line: line)
     }
@@ -135,8 +143,8 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertTrue(textFields(in: view).contains { $0.stringValue.contains("全文の注釈") })
         number.mouseEntered(with: entered)
         let details = textFields(in: view).map(\.stringValue).joined(separator: "\n")
-        XCTAssertTrue(details.contains("確定予定: 日本語\n"))
-        XCTAssertTrue(details.contains("にゅうりょく"))
+        XCTAssertTrue(details.contains(commitPreview("日本語") + "\n"))
+        XCTAssertTrue(details.contains(remainingReading("にゅうりょく")))
         XCTAssertFalse(details.contains("全文の注釈"))
         XCTAssertTrue(number.accessibilityHelp()?.contains("にゅうりょく") == true)
         word.mouseEntered(with: entered)
@@ -217,13 +225,13 @@ final class CandidateTreeViewTests: XCTestCase {
             oldControl.mouseExited(with: try hoverEvent(.mouseExited))
             oldControl.performClick(nil)
         }
-        XCTAssertTrue(detailText(in: view).contains("確定予定: 現在の候補"))
-        XCTAssertFalse(detailText(in: view).contains("確定予定: 別の候補"))
+        XCTAssertTrue(detailText(in: view).contains(commitPreview("現在の候補")))
+        XCTAssertFalse(detailText(in: view).contains(commitPreview("別の候補")))
         XCTAssertFalse(detailText(in: view).contains("日本語"))
         XCTAssertEqual(submitted, [])
         updateMenu(view, entries: [], selectionIndex: nil)
         oldNumber.mouseEntered(with: try hoverEvent(.mouseEntered))
-        XCTAssertFalse(detailText(in: view).contains("確定予定:"))
+        XCTAssertEqual(detailText(in: view), "")
     }
 
     func testRemovingANumberDuringSelectionUpdateReturnsToCurrentDetails() throws {
@@ -264,18 +272,22 @@ final class CandidateTreeViewTests: XCTestCase {
         let list = try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateNavigationView }.first)
         let row = try XCTUnwrap(buttons(in: list).first { $0.title == "1. 候補0" })
         row.mouseEntered(with: try hoverEvent(.mouseEntered))
-        XCTAssertTrue(detailText(in: view).contains("確定予定: 候補0"))
+        XCTAssertTrue(detailText(in: view).contains(commitPreview("候補0")))
         updateMenu(view, entries: entries, selectionIndex: 10, numbers: [9: "1", 10: "2", 11: "3"])
         XCTAssertNil(row.superview)
         row.mouseEntered(with: try hoverEvent(.mouseEntered))
         row.mouseExited(with: try hoverEvent(.mouseExited))
         row.performClick(nil)
-        XCTAssertTrue(detailText(in: view).contains("確定予定: 候補10"))
-        XCTAssertFalse(detailText(in: view).contains("確定予定: 候補0"))
+        XCTAssertTrue(detailText(in: view).contains(commitPreview("候補10")))
+        XCTAssertFalse(detailText(in: view).contains(commitPreview("候補0")))
         XCTAssertEqual(submitted, [])
     }
 
     func testScoresExplainRelativeMeaningAndRefreshOnCandidateChange() throws {
+        let preference = Config.ShowRelativeScores()
+        let previous = preference.value
+        defer { preference.value = previous }
+        preference.value = true
         let view = CandidateTreeView()
         let scored: [CandidateTree.Entry] = [
             .init(text: "選択", tokens: [.init(text: "選択", reading: "センタク")], candidateIndex: 0, score: log(69)),
@@ -284,11 +296,12 @@ final class CandidateTreeViewTests: XCTestCase {
         updateMenu(view, entries: scored, selectionIndex: 0)
         openTree(in: view)
         let selection = try XCTUnwrap(buttons(in: view).first { $0.title == "選択" })
-        XCTAssertTrue(selection.toolTip?.contains("相対スコア 69") == true)
+        let scoreLabel = String(format: Localization.text("candidate.score.value"), 69)
+        XCTAssertTrue(selection.toolTip?.contains(scoreLabel) == true)
         XCTAssertEqual(selection.accessibilityLabel(), "選択（センタク）")
-        XCTAssertTrue(selection.accessibilityHelp()?.contains("確率ではありません") == true)
+        XCTAssertTrue(selection.accessibilityHelp()?.contains(Localization.text("candidate.score.explanation")) == true)
         updateMenu(view, entries: entries, selectionIndex: 0)
-        XCTAssertFalse(buttons(in: view).contains { $0.toolTip?.contains("相対スコア 69") == true })
+        XCTAssertFalse(buttons(in: view).contains { $0.toolTip?.contains(scoreLabel) == true })
     }
 
     func testHidingScoresPreservesTheFocusedCandidateAndExplicitCommit() throws {
@@ -651,17 +664,34 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertFalse(buttons(in: view).contains { $0.title == "文節19" })
         for _ in 0..<19 { XCTAssertTrue(view.navigate(.right)) }
         XCTAssertTrue(buttons(in: view).contains { $0.title == "文節19" })
-        let terminal = candidateButtons(in: view).compactMap { $0 as? TreeButton }.first { $0.candidateNumber == "7" }
+        // Every word on this candidate's path has the same number. Pick the
+        // terminal word itself, not a preloaded neighbour outside the viewport.
+        let terminal = candidateButtons(in: view).compactMap { $0 as? TreeButton }.first {
+            $0.title == "文節19" && $0.candidateNumber == "7"
+        }
         let scroll = view.subviews.compactMap { $0 as? NSScrollView }.first!
         XCTAssertNotNil(terminal)
+        XCTAssertEqual(terminal?.focusedNode, true)
+        let geometry = "view=\(view.frame), preferred=\(view.preferredSize), scroll=\(scroll.frame), " +
+            "visible=\(scroll.documentVisibleRect), terminal=\(String(describing: terminal?.frame))"
+        print("candidate-terminal-layout: \(geometry)")
         XCTAssertTrue(terminal.map { scroll.documentVisibleRect.contains($0.frame) } ?? false,
-                      "The word containing the terminal number must be fully visible")
+                      "The terminal word must be fully visible: \(geometry)")
         terminal?.performClick(nil)
         XCTAssertEqual(submitted, [])
         confirm(in: view)
         XCTAssertEqual(submitted, [42])
-        for _ in 0..<19 { XCTAssertTrue(view.navigate(.left)) }
+        let focusedWords = {
+            self.candidateButtons(in: view).compactMap { $0 as? TreeButton }
+                .filter(\.focusedNode).map(\.title)
+        }
+        for step in 0..<19 {
+            let before = focusedWords()
+            XCTAssertTrue(view.navigate(.left),
+                          "Left step \(step + 1) of 19; before=\(before), after=\(focusedWords())")
+        }
         XCTAssertTrue(buttons(in: view).contains { $0.title == "文節0" })
+        XCTAssertEqual(focusedWords(), ["文節0"])
     }
 
     func testSelectingACompleteRowUpdatesTheCommitTextButHoverDoesNot() throws {
@@ -673,7 +703,7 @@ final class CandidateTreeViewTests: XCTestCase {
         updateMenu(view, entries: partialEntries, selectionIndex: 0, numbers: [0: "1", 1: "2", 2: "3"])
         let composition = try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateCompositionView }.first)
         XCTAssertTrue(textFields(in: composition).contains { $0.stringValue == "日本語" })
-        XCTAssertTrue(textFields(in: composition).contains { $0.stringValue.contains("残る読み: にゅうりょく") })
+        XCTAssertTrue(textFields(in: composition).contains { $0.stringValue.contains(remainingReading("にゅうりょく")) })
         XCTAssertFalse(composition.subviews.contains { $0.isHidden })
         let full = try XCTUnwrap(buttons(in: view).compactMap { $0 as? CandidateRowButton }
             .first { $0.candidateIndex == 1 })
@@ -785,12 +815,12 @@ final class CandidateTreeViewTests: XCTestCase {
         openTree(in: view)
         let oldAlternative = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "画" })
         oldAlternative.mouseEntered(with: try hoverEvent(.mouseEntered))
-        XCTAssertTrue(detailText(in: view).contains("確定予定: 日本画"))
+        XCTAssertTrue(detailText(in: view).contains(commitPreview("日本画")))
         try XCTUnwrap(buttons(in: view).first { $0.title == Localization.text("candidate.closeTree") }).performClick(nil)
         oldAlternative.mouseEntered(with: try hoverEvent(.mouseEntered))
         oldAlternative.mouseExited(with: try hoverEvent(.mouseExited))
         oldAlternative.performClick(nil)
-        XCTAssertTrue(detailText(in: view).contains("確定予定: 日本語"))
+        XCTAssertTrue(detailText(in: view).contains(commitPreview("日本語")))
         XCTAssertEqual(selected, [])
         XCTAssertTrue(candidateButtons(in: view).isEmpty)
     }
@@ -806,7 +836,7 @@ final class CandidateTreeViewTests: XCTestCase {
         let composition = try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateCompositionView }.first)
         let areas = composition.subviews.compactMap { $0 as? CandidateDetailView }
         let commitArea = try XCTUnwrap(areas.first { textFields(in: $0).contains { $0.stringValue == text } })
-        let readingArea = try XCTUnwrap(areas.first { textFields(in: $0).contains { $0.stringValue.contains("残る読み: つづき") } })
+        let readingArea = try XCTUnwrap(areas.first { textFields(in: $0).contains { $0.stringValue.contains(remainingReading("つづき")) } })
         XCTAssertGreaterThan(readingArea.frame.height, 0)
         XCTAssertLessThanOrEqual(readingArea.frame.maxY, commitArea.frame.minY)
         let readingFrame = readingArea.frame
