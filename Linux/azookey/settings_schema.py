@@ -92,7 +92,8 @@ def _dictionary(value):
 def validate_settings(document, *, defaults=None):
     """Merge older partial documents into known values, rejecting unknown data."""
     _mapping(document, KNOWN_KEYS, path="")
-    values = {**copy.deepcopy(defaults or {}), **copy.deepcopy(document)}
+    # Check the bounded schema before copying potentially recursive input.
+    values = {**(defaults or {}), **document}
     _mapping(values, KNOWN_KEYS, path="")
     for key, value in values.items():
         if key in BOOLEAN_KEYS and type(value) is not bool:
@@ -123,7 +124,7 @@ def validate_settings(document, *, defaults=None):
         _dictionary(values["userDictionary"])
     if values.get("inputStyle") == "custom" and not values.get("customTable"):
         raise invalid_setting("customTable")
-    return values
+    return copy.deepcopy(values)
 
 
 def input_defaults(values):
