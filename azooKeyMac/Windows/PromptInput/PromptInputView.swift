@@ -28,9 +28,8 @@ struct PromptInputView: View {
         }
     }
 
-    let onSubmit: (String?) -> Void
     let onPreview: (String, Bool, @escaping (Result<String, TransformationPreviewError>) -> Void) -> Void
-    let onApply: (String) -> Void
+    let onApply: (_ text: String, _ prompt: String) -> Void
     let onCancel: () -> Void
     let onPreviewModeChanged: (Bool) -> Void
 
@@ -439,8 +438,7 @@ struct PromptInputView: View {
         guard let text = preview.applicableText else {
             return
         }
-        onApply(text)
-        onSubmit(promptText)
+        onApply(text, promptText)
     }
 
     private func invalidatePreview() {
@@ -623,14 +621,12 @@ struct PromptInputView: View {
             backend: .openAI, modelName: "preview", apiKey: "", apiEndpoint: "https://example.invalid"
         ),
         targetText: "確認する本文",
-        onSubmit: { _ in
-        },
         onPreview: { prompt, _, callback in
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 callback(.success("Transformed: \(prompt)"))
             }
         },
-        onApply: { _ in
+        onApply: { _, _ in
         },
         onCancel: {
         },
