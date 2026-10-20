@@ -67,9 +67,9 @@ class UserDictionaryExchangeEditorTests(DictionaryEditorTestSupport, unittest.Te
         before = editor.model.entries
         self.file_dialogs.import_selection = None
         self.file_dialogs.export_selection = None
-        editor.import_button.clicked()
-        editor.export_button.clicked()
-        self.flush()
+        for button in (editor.import_button, editor.export_button):
+            button.clicked()
+            self.flush()
         self.assertEqual(editor.model.entries, before)
         self.assertEqual(self.file_service.import_calls, [])
         self.assertEqual(self.file_service.export_calls, [])
@@ -93,7 +93,7 @@ class UserDictionaryExchangeEditorTests(DictionaryEditorTestSupport, unittest.Te
         before = editor.model.entries
         editor.import_button.clicked()
         try:
-            self.assertTrue(entered.wait(CALLBACK_DEADLINE_SECONDS))
+            self.wait_for(entered.is_set)
             heartbeat = []
             self.GLib.idle_add(lambda: heartbeat.append(True) and self.GLib.SOURCE_REMOVE)
             self.flush()
@@ -107,7 +107,7 @@ class UserDictionaryExchangeEditorTests(DictionaryEditorTestSupport, unittest.Te
             self.assertFalse(editor.closed)
         finally:
             release.set()
-        self.wait_for(lambda: editor.model.can_close)
+        self.wait_for(editor.import_button.get_sensitive)
         self.assertEqual(editor.model.entries, before)
         self.assertEqual(len(service.import_calls), 1)
         self.assertNotEqual(service.import_calls[0][0], threading.get_ident())
@@ -120,7 +120,7 @@ class UserDictionaryExchangeEditorTests(DictionaryEditorTestSupport, unittest.Te
         editor.fields["word"].set_text("既存の編集")
         editor.search_entry.set_text("既存")
         editor.import_button.clicked()
-        self.wait_for(lambda: editor.model.can_close)
+        self.wait_for(editor.import_button.get_sensitive)
         self.assertEqual(editor.model.entries[0]["word"], "既存の編集")
         self.assertEqual(editor.model.entries[-1]["id"], OTHER_ID)
         self.assertEqual(editor.search_entry.get_text(), "")
@@ -135,7 +135,7 @@ class UserDictionaryExchangeEditorTests(DictionaryEditorTestSupport, unittest.Te
         editor = self.create_file_editor()
         editor.fields["word"].set_text("書き出す下書き")
         editor.export_button.clicked()
-        self.wait_for(lambda: not editor.model.is_busy)
+        self.wait_for(editor.export_button.get_sensitive)
         self.assertTrue(editor.model.did_export)
         self.assertTrue(editor.model.has_changes)
         self.assertFalse(editor.closed)
@@ -155,13 +155,13 @@ class UserDictionaryExchangeEditorTests(DictionaryEditorTestSupport, unittest.Te
         self.file_service.failure = OSError("PRIVATE_TEST_SENTINEL")
         for button in (editor.import_button, editor.export_button):
             button.clicked()
-            self.wait_for(lambda: not editor.model.is_busy)
+            self.wait_for(button.get_sensitive)
             self.assertNotIn("PRIVATE_TEST_SENTINEL", editor.status_label.get_text())
             self.assertEqual(editor.model.entries, before)
             self.assertTrue(editor.form.get_sensitive())
         self.file_service.failure = DictionaryExchangeError("unknownEncoding")
         editor.import_button.clicked()
-        self.wait_for(lambda: not editor.model.is_busy)
+        self.wait_for(editor.import_button.get_sensitive)
         self.assertIn("文字コードを判定できません", editor.status_label.get_text())
         self.assertEqual(self.file_dialogs.previews, [])
 
@@ -171,7 +171,7 @@ class UserDictionaryExchangeEditorTests(DictionaryEditorTestSupport, unittest.Te
         editor = self.create_file_editor(service=service)
         editor.fields["word"].set_text("現在の下書き")
         editor.import_button.clicked()
-        self.wait_for(lambda: not editor.model.is_busy)
+        self.wait_for(editor.import_button.get_sensitive)
         self.assertEqual(editor.model.entry(ENTRY_ID)["word"], "現在の下書き")
         self.assertIn("確認中に下書きが変わりました", editor.status_label.get_text())
         self.assertEqual(self.file_dialogs.previews, [])
