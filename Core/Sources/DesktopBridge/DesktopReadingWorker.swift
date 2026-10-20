@@ -1,58 +1,136 @@
 import Foundation
 
-/// Owns reading contexts in a process that never creates a converter or learning store.
+/// Formal input ownership for the opt-in reading process; no converter or learning store is created.
 @MainActor
 struct DesktopReadingWorker {
-    private var sessions: [String: DesktopReadingSession] = [:]
+    let readingProcessGeneration = UUID().uuidString
+    private(set) var settingsRevision = 0
+    private var contexts: [String: DesktopReadingContext] = [:]
+    private var focusedContext: String?
+    private var focusEpoch = 0
 
-    mutating func process(_ request: BridgeRequest) throws -> DesktopSnapshot {
-        let context = request.context ?? "default"
-        if request.operation == "close" {
-            sessions.removeValue(forKey: context)
-            return DesktopSnapshot()
+    mutating func process(_ request: DesktopReadingWorkerRequest) throws -> DesktopReadingWorkerResponse {
+        let encoded = try JSONEncoder().encode(request)
+        guard encoded.count <= DesktopWorkerProtocolLimits.jsonBytes else { throw DesktopReadingProtocolFailure.requestLimit }
+        // Direct Swift calls and JSONL enforce the same operation-specific payload shape.
+        _ = try JSONDecoder().decode(DesktopReadingWorkerRequest.self, from: encoded)
+        var next = self
+        let response = try next.apply(request)
+        guard try JSONEncoder().encode(response).count <= DesktopWorkerProtocolLimits.jsonBytes else {
+            throw DesktopReadingProtocolFailure.requestLimit
         }
-        var session = sessions[context] ?? DesktopReadingSession()
-        let response: DesktopSnapshot
+        self = next
+        return response
+    }
+
+    func rejected(_ error: Error) -> DesktopReadingWorkerResponse {
+        var response = response(.error)
+        switch error {
+        case let failure as DesktopReadingProtocolFailure: response.error = failure.rawValue
+        case let failure as DesktopReadingSession.Failure: response.error = failure.rawValue
+        case DesktopReadingCandidates.Failure.staleRequest: response.error = "stale_candidate_request"
+        case DesktopReadingCandidates.Failure.selectionActive: response.error = "candidate_selection_active"
+        case DesktopReadingCandidates.Failure.unavailableCandidate: response.error = "unavailable_candidate"
+        default: response.error = "invalid_reading_request"
+        }
+        return response
+    }
+
+    private mutating func apply(_ request: DesktopReadingWorkerRequest) throws -> DesktopReadingWorkerResponse {
         switch request.operation {
-        case "key":
-            guard let event = request.event else { throw BridgeMain.ProtocolError.invalidRequest }
-            response = try session.key(event, doubleTap: request.doubleTap ?? false)
-        case "reset":
-            response = try session.reset(commit: request.submit ?? false)
+        case "hello":
+            var reply = response(.process)
+            reply.limits = ["jsonBytes": DesktopWorkerProtocolLimits.jsonBytes,
+                            "identifierBytes": DesktopWorkerProtocolLimits.identifierBytes,
+                            "contextBytes": DesktopWorkerProtocolLimits.contextBytes,
+                            "contexts": DesktopWorkerProtocolLimits.contexts]
+            return reply
+        case "open": return try open(request)
+        case "learning-revision": return try updateLearning(request)
+        default: return try applyToContext(request)
+        }
+    }
+
+    private mutating func open(_ request: DesktopReadingWorkerRequest) throws -> DesktopReadingWorkerResponse {
+        try validateProcess(DesktopReadingProtocolValidation.required(request.readingProcessGeneration))
+        let name = try DesktopReadingProtocolValidation.required(request.context)
+        try DesktopReadingProtocolValidation.identifier(name)
+        guard contexts[name] == nil else { throw DesktopReadingProtocolFailure.contextAlreadyOpen }
+        guard contexts.count < DesktopWorkerProtocolLimits.contexts else { throw DesktopReadingProtocolFailure.requestLimit }
+        let reference = try nextReference(context: name)
+        contexts[name] = DesktopReadingContext(reference: reference)
+        return response(.acknowledgement, reference: reference)
+    }
+
+    private mutating func applyToContext(_ request: DesktopReadingWorkerRequest) throws -> DesktopReadingWorkerResponse {
+        let reference = try DesktopReadingProtocolValidation.required(request.reference)
+        var context = try context(for: reference)
+        switch request.operation {
+        case "focus-in":
+            guard focusedContext == nil else { throw DesktopReadingProtocolFailure.focusActive }
+            let surroundings = try DesktopReadingProtocolValidation.required(request.surroundings)
+            try DesktopReadingProtocolValidation.surroundings(surroundings)
+            context.reference = try nextReference(context: reference.context)
+            context.surroundings = surroundings.bounded()
+            focusedContext = reference.context
+            contexts[reference.context] = context
+            return response(.acknowledgement, reference: context.reference)
+        case "close":
+            guard focusedContext != reference.context else { throw DesktopReadingProtocolFailure.contextActive }
+            contexts.removeValue(forKey: reference.context)
+            return response(.acknowledgement, reference: reference)
         case "snapshot":
-            response = session.snapshot()
+            var reply = response(.input, reference: reference)
+            reply.snapshot = context.session.snapshot()
+            return reply
         default:
-            throw BridgeMain.ProtocolError.invalidRequest
-        }
-        sessions[context] = session
-        return response
-    }
-
-    func rejected(_ request: BridgeRequest, error: Error) -> DesktopSnapshot {
-        var response = sessions[request.context ?? "default"]?.snapshot() ?? DesktopSnapshot()
-        response.consumed = false
-        response.error = (error as? DesktopReadingSession.Failure)?.rawValue ?? "invalid_request"
-        return response
-    }
-
-    static func run(output: FileHandle) throws {
-        var worker = Self()
-        while let line = readLine() {
-            let response: DesktopSnapshot
-            do {
-                let request = try JSONDecoder().decode(BridgeRequest.self, from: Data(line.utf8))
-                do {
-                    response = try worker.process(request)
-                } catch {
-                    response = worker.rejected(request, error: error)
-                }
-            } catch {
-                var invalid = DesktopSnapshot()
-                invalid.consumed = false
-                invalid.error = "invalid_request"
-                response = invalid
+            guard focusedContext == reference.context else { throw DesktopReadingProtocolFailure.contextNotFocused }
+            var reply = try context.process(request, settingsRevision: settingsRevision)
+            if request.operation == "focus-out" {
+                context.reference = try nextReference(context: reference.context)
+                // The input still belongs to the old focus; this is only for subsequent operations.
+                reply.nextReference = context.reference
+                focusedContext = nil
             }
-            try BridgeMain.write(response, to: output)
+            contexts[reference.context] = context
+            return reply
         }
+    }
+
+    private func context(for reference: DesktopReadingContextReference) throws -> DesktopReadingContext {
+        try validateProcess(reference.readingProcessGeneration)
+        try DesktopReadingProtocolValidation.identifier(reference.context)
+        guard reference.focusEpoch >= 0 else { throw DesktopReadingProtocolFailure.invalidRequest }
+        guard let context = contexts[reference.context] else { throw DesktopReadingProtocolFailure.unknownContext }
+        guard context.reference == reference else { throw DesktopReadingProtocolFailure.staleFocus }
+        return context
+    }
+
+    private mutating func updateLearning(_ request: DesktopReadingWorkerRequest) throws -> DesktopReadingWorkerResponse {
+        try validateProcess(DesktopReadingProtocolValidation.required(request.readingProcessGeneration))
+        let revision = try DesktopReadingProtocolValidation.required(request.settingsRevision)
+        guard revision >= 0 else { throw DesktopReadingProtocolFailure.invalidRequest }
+        guard revision > settingsRevision else { throw DesktopReadingProtocolFailure.staleSettings }
+        for name in Array(contexts.keys) { try contexts[name]?.session.updateLearningRevision(revision) }
+        settingsRevision = revision
+        return response(.acknowledgement)
+    }
+
+    private func validateProcess(_ generation: String) throws {
+        try DesktopReadingProtocolValidation.identifier(generation)
+        guard generation == readingProcessGeneration else { throw DesktopReadingProtocolFailure.wrongProcess }
+    }
+
+    private mutating func nextReference(context: String) throws -> DesktopReadingContextReference {
+        guard focusEpoch < Int.max else { throw DesktopReadingProtocolFailure.requestLimit }
+        focusEpoch += 1
+        return .init(context: context, readingProcessGeneration: readingProcessGeneration, focusEpoch: focusEpoch)
+    }
+
+    private func response(
+        _ kind: DesktopReadingWorkerResponse.Kind, reference: DesktopReadingContextReference? = nil
+    ) -> DesktopReadingWorkerResponse {
+        .init(kind: kind, readingProcessGeneration: readingProcessGeneration,
+              settingsRevision: settingsRevision, reference: reference)
     }
 }
