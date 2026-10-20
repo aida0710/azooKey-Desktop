@@ -104,10 +104,12 @@ class TreePanel(Gtk.Window):
         base_size = 24 if snapshot.get("candidateTextSize") == "large" else 18
         scale = self.get_settings().get_property("gtk-xft-dpi") / (96 * Pango.SCALE)
         self.font_size = base_size * max(1, scale)
-        aligned = len(widths) == len(columns) and all(w >= self.font_size + 8 for w in widths)
-        self.aligned = aligned
         row_height = int(self.font_size + 14)
-        row_pitch = row_height + (40 if snapshot.get("showCandidateIndex") and aligned else 20)
+        minimum_width = row_height if snapshot.get("showCandidateIndex") else self.font_size + 8
+        aligned = len(widths) == len(columns) and all(w >= minimum_width for w in widths)
+        self.aligned = aligned
+        # The number sits below the score; its height must grow with the font.
+        row_pitch = row_height + (row_height + 20 if snapshot.get("showCandidateIndex") and aligned else 20)
         x = 12
         for depth, column in enumerate(columns):
             # Other candidates may cover the entire sentence. They must never
@@ -122,7 +124,7 @@ class TreePanel(Gtk.Window):
                 if snapshot.get("showCandidateIndex") and index is not None:
                     number = index - snapshot.get("pageStart", 0) + 1
                     if 1 <= number <= 9:
-                        badge = (x + column_width - row_height, 22 + row * row_pitch + row_height, row_height, 24) if aligned else (x + column_width + 1, 6 + row * row_pitch, row_height, row_height)
+                        badge = (x + column_width - row_height, 22 + row * row_pitch + row_height, row_height, row_height) if aligned else (x + column_width + 1, 6 + row * row_pitch, row_height, row_height)
                         self.rectangles.append(("select", index, *badge, str(number), ""))
             x += column_width + (0 if aligned else (row_height + 2 if snapshot.get("showCandidateIndex") else 12))
         width = max(60, x)

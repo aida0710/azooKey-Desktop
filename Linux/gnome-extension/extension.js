@@ -104,12 +104,14 @@ export default class AzooKeyTreeExtension extends Extension {
         const documentWidths = data.wordGeometry?.widths ?? [];
         const fontSize = (data.candidateTextSize === 'large' ? 24 : 18) *
             Math.max(1, this._interfaceSettings.get_double('text-scaling-factor'));
+        const minimumWidth = fontSize + (data.showCandidateIndex ? 14 : 8);
         const aligned = anchor.permitsWordAlignment && documentWidths.length === columns.length &&
-            documentWidths.every(width => Number.isFinite(width) && width >= fontSize + 8);
+            documentWidths.every(width => Number.isFinite(width) && width >= minimumWidth);
         const alignmentReason = aligned ? 'estimated-inline' :
             (data.layoutReason ?? (anchor.permitsWordAlignment
                 ? (documentWidths.length ? 'column-too-narrow' : 'missing-word-geometry') : 'caret-only'));
-        const rowHeight = fontSize + 14, rowPitch = rowHeight + (data.showCandidateIndex && aligned ? 40 : 20);
+        const rowHeight = fontSize + 14;
+        const rowPitch = rowHeight + (data.showCandidateIndex && aligned ? rowHeight + 20 : 20);
         const scoreColor = score => Number.isFinite(score) && score < 75 ? '#d4630f' : '#4073cc';
         let nextX = 12;
         for (const [depth, column] of columns.entries()) {
@@ -233,7 +235,7 @@ export default class AzooKeyTreeExtension extends Extension {
                     button({operation: 'select', index, label: String(number), frame: {
                         x: aligned ? frame.x + frame.width - rowHeight : frame.x + frame.width + 1,
                         y: aligned ? frame.y + frame.height + 16 : frame.y,
-                        width: rowHeight, height: aligned ? 24 : rowHeight,
+                        width: rowHeight, height: rowHeight,
                     }, active: index === data.selection, focused: false, accessibleName: `候補 ${index + 1} を確定`});
                 }
             }
