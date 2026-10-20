@@ -30,6 +30,7 @@
   "candidate.select": "押すと候補を選択",
   "candidate.focusedSelect": "操作対象。押すと候補を選択",
   "candidate.numberSelect": "候補 {number} を選択",
+  "candidate.numberBadge": "候補番号 {number}",
   "learning.title": "履歴学習",
   "learning.mode.inputAndOutput": "学習して利用する",
   "learning.mode.onlyOutput": "新しい学習を停止し、これまでの学習を利用する",
