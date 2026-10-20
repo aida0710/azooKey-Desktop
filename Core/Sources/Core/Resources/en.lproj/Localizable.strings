@@ -81,6 +81,8 @@
 "ai.scope.generating" = "Generating…";
 "ai.error.missing-key" = "No API key is configured. Enter it in settings.";
 "ai.error.target-changed" = "The target text changed, so nothing was sent. Select the text again.";
+"ai.preview.target-changed" = "The original field or selection could not be verified, so the result was not applied. Copy the result and paste it where needed.";
+"ai.preview.copy" = "Copy result";
 "settings.page.input" = "Input";
 "settings.page.conversion" = "Conversion and display";
 "settings.page.dictionary" = "Dictionaries and learning";

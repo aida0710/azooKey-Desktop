@@ -81,6 +81,8 @@
 "ai.scope.generating" = "生成中…";
 "ai.error.missing-key" = "API キーが未設定です。設定画面で入力してください。";
 "ai.error.target-changed" = "対象の本文が変わったため送信しませんでした。本文を選び直してください。";
+"ai.preview.target-changed" = "元の入力欄や選択範囲を確認できないため、適用しませんでした。結果をコピーして貼り付けてください。";
+"ai.preview.copy" = "結果をコピー";
 "settings.page.input" = "入力";
 "settings.page.conversion" = "変換表示";
 "settings.page.dictionary" = "辞書と学習";
