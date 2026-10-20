@@ -47,6 +47,7 @@ struct DesktopReadingContext {
                          settingsRevision: settingsRevision, reference: reference, candidateRequest: candidateRequest)
         case "adopt-candidates":
             response.candidateReference = try adopt(request)
+            response.candidateView = try session.candidateView()
         case "candidate-worker-stopped":
             let generation = try DesktopReadingProtocolValidation.required(request.candidateWorkerGeneration)
             try DesktopReadingProtocolValidation.identifier(generation)
@@ -60,6 +61,9 @@ struct DesktopReadingContext {
             // Apply bounds before the first candidate request, too. The outer worker applies the change atomically.
             _ = try session.compositionSnapshot().encoded()
             surroundings = surroundings.appending(snapshot.commits)
+        }
+        if request.operation == "key" || request.operation == "select" {
+            response.candidateView = try session.candidateView()
         }
         return response
     }

@@ -107,6 +107,7 @@ struct DesktopReadingWorkerResponse: Encodable {
     var snapshot: DesktopSnapshot?
     var candidateRequest: DesktopCandidateRequest?
     var candidateReference: DesktopCandidateBatchReference?
+    var candidateView: DesktopCandidateView?
     var limits: [String: Int]?
     var settingsContract: String?
     var settings: DesktopWorkerSettings?

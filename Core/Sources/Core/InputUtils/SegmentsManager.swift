@@ -67,6 +67,9 @@ public final class SegmentsManager {
     }
     private var rawCandidates: ConversionResult?
 
+    /// The converter's actual first main result, before selection-list deduplication.
+    public var mainCandidate: Candidate? { self.rawCandidates?.mainResults.first }
+
     private var selectionIndex: Int?
     private var conversionRangeEnd: Int? { self.composition.conversionRangeEnd }
     private var isEditingReading = false

@@ -18,13 +18,13 @@ context 参照は `{context, readingProcessGeneration, focusEpoch}` です。con
 | `open` | readingProcessGeneration、context | `acknowledgement` / 新しい非activeの参照 |
 | `focus-in` | reference、surroundings | `acknowledgement` / 新しいactiveの参照 |
 | `focus-out` | reference、submit | `input` / 元欄のsnapshot・旧reference・退役後のnextReference |
-| `key` | reference、event、任意のdoubleTap | `input` / 正式入力操作後のsnapshot |
+| `key` | reference、event、任意のdoubleTap | `input` / 正式入力操作後のsnapshot、採用済み候補があればcandidateView |
 | `reset` | reference、submit | `input` / 確定または取消snapshot |
 | `snapshot` | reference | `input` / 現在状態。確定通知の再送なし |
 | `close` | reference | `acknowledgement` / 非activeの欄を削除 |
 | `prepare-candidates` | reference、candidateWorkerGeneration | `candidates` / candidateRequest |
-| `adopt-candidates` | reference、batch、retainedReference | `acknowledgement` / candidateReference |
-| `select` | reference、selection | `input` / 明示選択後のsnapshot |
+| `adopt-candidates` | reference、batch、retainedReference | `acknowledgement` / candidateReference・candidateView |
+| `select` | reference、selection | `input` / 明示選択後のsnapshot・candidateView |
 | `candidate-worker-stopped` | reference、candidateWorkerGeneration | `acknowledgement` / 対象workerの未確定要求を退役 |
 | `learning-revision` | readingProcessGeneration、settingsRevision | `acknowledgement` / 単調増加した学習revision |
 
@@ -54,13 +54,17 @@ F6〜F10の文字種変換も読み側で完了します。選択中または文
 
 ## 候補の保持、採用、確定
 
+内部の `DesktopReadingSession(candidateRequestMode: .afterEditing)` は、入力・削除・読みカーソル移動で正式入力が変わったとき、非空の読みの応答に候補要求だけを付けます。既定は `.manual` で、通常入口・worker設定・ライブ変換ONの拒否は変えません。この指定は先行計算の準備用であり、到着による自動選択や漢字preeditを有効にするものではありません。読みが空になる操作、変化のないカーソル移動、変換取消では先行要求を作りません。明示選択・Enter・部分確定・学習通知は同じ規則を使います。
+
 1. coordinator が候補 worker の世代を取得し、その世代を `prepare-candidates` に渡します。読み側は正式入力と現在の文脈から要求を作り、対象 worker の世代を保存します。
 2. coordinator が candidateRequest を候補 worker へ渡します。返された batch を candidate worker の `retain` へ送り、成功した ACK を待ちます。
 3. **実際の retain ACK を受けた後だけ**、その reference と batch を `adopt-candidates` に渡します。読み側は両参照の一致、対象worker、要求、入力・焦点・設定世代、文脈、消費範囲を検証します。読み側だけでは remote ACK の発生を証明できないため、実ACKを待つ責任は coordinator にあります。
-4. 採用応答は候補参照だけです。未確定文字・カーソル・入力状態は変わりません。pointer / AT / 遅れて届く操作は、表示した batch 参照と candidateID を `select` に渡します。
+4. 採用応答は候補参照と表示専用の `candidateView` です。未確定文字・カーソル・入力状態を含む正式snapshot全体は変わらず、元入力への返信・確定・学習通知も生みません。pointer / AT / 遅れて届く操作は、表示した batch 参照と candidateID を `select` に渡します。
 5. 明示選択後の Enter は、その候補と検証済みの残る正式入力を使います。確定 snapshot にだけ candidateCompletions が入り、snapshot 取得や次のキーでは再送しません。coordinator はこれを元の candidate worker の `complete` へ渡します。
 
 部分確定後は残る正式入力と、確定済みprefixを加えた左文脈で新しい候補を要求します。取消・編集で候補が不要になった場合、coordinator は保持している旧参照を candidate worker の release へ渡します。候補本文の組合せや Zenzai の修正履歴を再構築しません。選択したprefixと生の読みsuffixを reset等で一括確定する場合、その組合せを架空の候補として学習させません。
+
+`candidateView` は既存のCandidateTree/CandidatePageによる投影で、batch参照・元candidateID付き一覧・木・ページ・明示選択位置を持ちます。採用ACKでは空batchにも空viewを返し、key/selectの元入力応答では採用済みbatchがある場合だけ付けます。reset、focus-out、worker停止、正式入力の変更で退役したviewは再送しません。診断用snapshot要求にも追加しません。mainCandidateIDだけで選択を作らず、番号表示はselecting時だけ、相対スコア表示は適用中のShowRelativeScores設定を使います。各候補・木のpreview・ページに示す消費する読みと残る読みは、正式CandidateConsumptionから再生成し、workerのpresentation.commitScopeを権限として使いません。表示によるJSON増加も既存4MiB上限内で検査し、超過時は採用を部分的に進めません。通常入口やrendererへの接続は別の段階です。
 
 `candidate-worker-stopped` は現在の対象世代だけを退役させます。古い worker の遅れた停止通知で新しい worker を無効化しません。未採用候補と新しい選択の入口は失われますが、選択済みの確定対象は保持し、候補 worker の応答なしで確定できます。学習 ACK が不明のまま worker が終了したときは、入力確定と学習未確認を区別し、別世代へ自動再送しません。
 
