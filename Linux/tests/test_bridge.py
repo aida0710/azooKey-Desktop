@@ -11,6 +11,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from azookey.bridge import Bridge
 from azookey.keymap import translate
 from azookey.personalization import import_model
+from unittest.mock import patch
 
 
 @unittest.skipUnless(os.environ.get("AZOOKEY_BRIDGE"), "build the real Swift bridge first")
@@ -19,10 +20,13 @@ class BridgeIntegrationTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.old = os.environ.get("AZOOKEY_DATA_DIR")
         os.environ["AZOOKEY_DATA_DIR"] = self.directory.name
+        self.config_environment = patch.dict(os.environ, {"XDG_CONFIG_HOME": str(pathlib.Path(self.directory.name) / "config")})
+        self.config_environment.start()
         self.bridge = Bridge()
 
     def tearDown(self):
         self.bridge.close()
+        self.config_environment.stop()
         if self.old is None:
             os.environ.pop("AZOOKEY_DATA_DIR", None)
         else:
