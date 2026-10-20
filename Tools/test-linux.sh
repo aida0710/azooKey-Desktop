@@ -13,7 +13,7 @@ swift test --package-path Core "${SWIFT_OPTIONS[@]}"
 swift build --package-path Core --product azookey-desktop-bridge "${SWIFT_OPTIONS[@]}"
 export AZOOKEY_BRIDGE="$(swift build --package-path Core --show-bin-path)/azookey-desktop-bridge"
 python3 -m unittest discover -s Linux/tests -v
-GDK_BACKEND=x11 xvfb-run -a python3 -m unittest Linux.tests.test_tree_panel Linux.tests.test_candidate_accessibility Linux.tests.test_candidate_details Linux.tests.test_candidate_navigation -v
+GDK_BACKEND=x11 xvfb-run -a python3 -m unittest Linux.tests.test_tree_panel Linux.tests.test_candidate_accessibility Linux.tests.test_candidate_details Linux.tests.test_candidate_navigation Linux.tests.test_candidate_suggestions -v
 dbus-run-session -- xvfb-run -a bash Tools/tests/linux-desktop.sh
 dbus-run-session -- xvfb-run -a env AZOOKEY_IBUS_TEST=Linux/tests/ibus_composition_editing.py bash Tools/tests/linux-desktop.sh
 bash Tools/tests/linux-async.sh

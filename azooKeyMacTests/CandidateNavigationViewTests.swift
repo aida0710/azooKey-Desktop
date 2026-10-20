@@ -1,8 +1,8 @@
 import AppKit
+@testable import azooKeyMac
 import Core
 import KanaKanjiConverterModuleWithDefaultDictionary
 import XCTest
-@testable import azooKeyMac
 
 @MainActor
 final class CandidateNavigationViewTests: XCTestCase {
@@ -87,5 +87,45 @@ final class CandidateNavigationViewTests: XCTestCase {
         toggle.performClick(nil)
         next.performClick(nil)
         XCTAssertTrue(selected.isEmpty)
+    }
+
+    func testNumberShortcutsDisappearWhenTheSameCandidatesBecomeUnnumbered() throws {
+        let entries = [
+            CandidateTree.Entry(text: "第一案", tokens: [], candidateIndex: 0),
+            CandidateTree.Entry(text: "第二案", tokens: [], candidateIndex: 1)
+        ]
+        let page = CandidatePage(entries: entries, selectionIndex: 0)
+        let view = CandidateNavigationView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        var commits: [Int] = []
+        view.onSelection = { index, submit in
+            if submit { commits.append(index) }
+        }
+        view.update(page: page, numbers: [0: "1", 1: "2"], fontSize: 18)
+        try XCTUnwrap(buttons(in: view).first {
+            $0.title == Localization.text("candidate.openList")
+        }).performClick(nil)
+        XCTAssertTrue(buttons(in: view).contains { $0.title == "1. 第一案" })
+        view.update(page: page, numbers: [:], fontSize: 18)
+        XCTAssertFalse(buttons(in: view).contains { $0.title.hasPrefix("1. ") || $0.title.hasPrefix("2. ") })
+        try XCTUnwrap(buttons(in: view).first { $0.title == "第二案" }).performClick(nil)
+        XCTAssertEqual(commits, [1])
+    }
+
+    func testAISuggestionRowsNeverAdvertiseNumberShortcuts() {
+        let controller = ReplaceSuggestionsViewController()
+        _ = controller.view
+        let suggestions = ["第一案", "第二案"]
+        let presentations = suggestions.map {
+            CandidatePresentation(candidate: Candidate(text: $0, value: 0,
+                                                       composingCount: .surfaceCount(0), lastMid: 0, data: []))
+        }
+        controller.updateCandidatePresentations(presentations, selectionIndex: 0, cursorLocation: .zero)
+        for (row, text) in suggestions.enumerated() {
+            let cell = CandidateTableCellView()
+            controller.configureCellView(cell, forRow: row)
+            XCTAssertEqual(cell.candidateTextField.stringValue, text)
+        }
+        controller.selectNextCandidate()
+        XCTAssertEqual(controller.getSelectedCandidate()?.text, "第二案")
     }
 }
