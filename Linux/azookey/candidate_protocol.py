@@ -105,6 +105,8 @@ def candidate_batch(response, request):
         if not isinstance(item.get("composingCount"), dict) or not isinstance(item.get("presentation"), dict):
             raise ValueError("invalid candidate presentation")
         seen.add(candidate_id)
+    if "mainCandidateID" in batch and identifier(batch["mainCandidateID"]) not in seen:
+        raise ValueError("main candidate is not in the batch")
     return deepcopy(batch)
 
 

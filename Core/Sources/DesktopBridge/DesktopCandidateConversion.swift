@@ -29,6 +29,7 @@ final class DesktopCandidateConversion: SegmentManagerDelegate {
     private let converter: KanaKanjiConverter
     private let segments: SegmentsManager
     private(set) var items: [StoredItem] = []
+    private(set) var mainCandidateID: String?
     private(set) var retained = false
 
     init(request: DesktopCandidateRequest, composition: CompositionState,
@@ -50,8 +51,18 @@ final class DesktopCandidateConversion: SegmentManagerDelegate {
                 items = segments.makeCandidatePresentations(candidates).compactMap {
                     try? StoredItem(presentation: $0, composition: composition)
                 }
+                mainCandidateID = Self.mainCandidateID(segments.mainCandidate, in: items)
             }
         }
+    }
+
+    static func mainCandidateID(_ candidate: Candidate?, in items: [StoredItem]) -> String? {
+        guard let candidate else {
+            return nil
+        }
+        // Selection lists may omit a main result with the same text as a prefix.
+        // Another consumption or analysis must never stand in for that original candidate.
+        return items.first(where: { $0.candidate == candidate })?.item.candidateID
     }
 
     nonisolated func getLeftSideContext(maxCount: Int) -> String? {

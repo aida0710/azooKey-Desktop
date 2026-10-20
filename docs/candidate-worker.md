@@ -23,6 +23,10 @@
 
 `DesktopCandidateRequest` はauthority、composition、leftContext、rightContext、privateInputを固定します。batchは同じauthority、workerGeneration、batchID、candidatesを持ち、各itemはcandidateID、text、ComposingCountSnapshot、presentationを持ちます。batchIDとcandidateIDはUUIDです。同文・同スコアでも別IDで、表示順や本文はidentityに使いません。
 
+任意の `mainCandidateID` は、converterの実 `mainResults.first` と全属性が一致する一覧内のIDです。通常一覧はfirstClause側と同じ表記のmain候補を省くことがあるため、表記が同じでも消費範囲や解析が異なれば代用せず、この欄を省略します。一覧や順序は変えません。空一覧でもmainのIDはありません。読み側・Python側は一覧に属さないIDを拒否し、読み側は各候補の正式消費も検査します。
+
+mainであることは全文候補であることを意味しません。文節を短くした要求のmainは部分候補です。全文に使えるかは `CandidateConsumption` の残る正式入力が空かで判定し、本文の一致やpresentationの見かけから推測しません。この追加情報だけで選択・preedit・確定・学習は発生せず、既存の明示選択規則も変えません。
+
 ## 保持と一度だけの完了
 
 新しい候補要求は、未retainの旧batchを退役させます。採用したbatchは読み側が `retain` し、計算用session・実Candidate・元の正式入力を保持します。後の計算は別のsessionを使用し、converter本体と辞書/modelだけ共有します。retainが確認できる前に、読み側がその候補を確定可能な選択へ移してはいけません。
