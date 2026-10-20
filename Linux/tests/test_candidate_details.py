@@ -132,6 +132,47 @@ class CandidateDetailTests(unittest.TestCase):
         self.panel.show_details(0)
         self.assertNotIn("全角英数", self.panel.details.displayed_text)
 
+    def test_hovering_a_number_previews_its_partial_candidate_and_commits_it_once(self):
+        from copy import deepcopy
+        from gi.repository import Gdk
+
+        partial = "確定予定: 日本語\n確定する読み: にほんご\n残る読み: にゅうりょく"
+        full = "確定予定: 日本語入力\n確定する読み: にほんごにゅうりょく\n全文の注釈"
+        snapshot = {
+            "contextId": "editor", "generation": 1, "selection": 1, "focusedNode": 0,
+            "columns": [[0], [1]], "selectedPath": [0, 1], "showCandidateIndex": True,
+            "nodes": [
+                {"id": 0, "text": "日本語", "reading": "ニホンゴ", "terminals": [0],
+                 "previewDescription": full},
+                {"id": 1, "text": "入力", "reading": "ニュウリョク", "terminals": [1],
+                 "previewDescription": full},
+            ],
+            "candidatePage": {"start": 0, "position": 2, "totalCount": 2, "items": [
+                {"index": 0, "text": "日本語", "reading": "ニホンゴ", "detailDescription": partial},
+                {"index": 1, "text": "日本語入力", "reading": "ニホンゴニュウリョク",
+                 "detailDescription": full},
+            ]},
+        }
+        original = deepcopy(snapshot)
+        self.panel.update(snapshot)
+        word = self.panel.actions[("node", 0)]
+        number = self.panel.actions[("select", 0)]
+        entered = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
+        word.emit("enter-notify-event", entered)
+        self.assertIn(full, self.panel.details.displayed_text)
+        number.emit("enter-notify-event", entered)
+        self.assertIn(partial, self.panel.details.displayed_text)
+        self.assertNotIn("全文の注釈", self.panel.details.displayed_text)
+        self.assertIn(partial, number.get_accessible().get_description())
+        word.emit("enter-notify-event", entered)
+        self.assertIn(full, self.panel.details.displayed_text)
+        number.emit("enter-notify-event", entered)
+        self.assertEqual(snapshot, original)
+        self.assertEqual(self.commits, [])
+        self.assertFalse(self.panel.get_accept_focus())
+        number.clicked()
+        self.assertEqual(self.commits, [("select", 0, True)])
+
 
 if __name__ == "__main__":
     unittest.main()
