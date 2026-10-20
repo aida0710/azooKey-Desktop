@@ -37,6 +37,8 @@ struct DesktopSnapshot: Encodable {
     var selectedPath: [Int] = []
     var focusedNode: Int?
     var generation = 0
+    var compositionRevision: Int?
+    var candidateCompletions: [DesktopCandidateCompletion]?
     var request: String?
     var error: String?
     var settings: DesktopSettings?

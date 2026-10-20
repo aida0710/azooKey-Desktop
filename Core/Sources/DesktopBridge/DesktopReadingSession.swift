@@ -14,7 +14,13 @@ struct DesktopReadingSession {
     private var state: InputState = .none
     private var language: InputLanguage = .japanese
     private var generation = 0
+    private var compositionRevision = 0
+    private var candidates = DesktopReadingCandidates()
+    private var candidateContext: DesktopReadingCandidateContext?
+    private var candidateCompletions: [DesktopCandidateCompletion] = []
     private let japaneseInputStyle: InputStyle
+    // Match the surrounding-text bound of the existing DesktopBridge router.
+    private static let clientContextLimit = 100
 
     init(inputStyle: InputStyle = .mapped(id: .defaultRomanToKana)) {
         japaneseInputStyle = inputStyle
@@ -33,23 +39,105 @@ struct DesktopReadingSession {
         }
         // Unsupported actions must leave the entire formal state available for the coordinator.
         var next = self
-        let response = try next.applyKey(event)
+        next.candidateCompletions = []
+        let previous = try candidateContext.map { _ in try CompositionSnapshot.capture(composition).encoded() }
+        var response = try next.applyKey(event)
+        if let previous, try CompositionSnapshot.capture(next.composition).encoded() != previous {
+            next.compositionRevision += 1
+            next.candidates.invalidate()
+            next.candidateContext = next.candidateContext.map { next.currentContext($0) }
+        } else if previous == nil {
+            // No candidate request exists yet; advancing conservatively cannot invalidate a selection.
+            next.compositionRevision += 1
+        }
+        if next.composition.isEmpty {
+            next.candidateContext = nil
+        } else if !response.commits.isEmpty, let context = next.candidateContext {
+            let left = String((context.leftContext + response.commits.joined()).suffix(Self.clientContextLimit))
+            next.candidateContext = next.currentContext(context, leftContext: left)
+        }
+        response.compositionRevision = next.compositionRevision
+        response.candidateCompletions = next.candidateCompletions.isEmpty ? nil : next.candidateCompletions
         self = next
         return response
     }
 
-    mutating func reset(commit: Bool) -> DesktopSnapshot {
-        let commits = commit && !composition.isEmpty ? [composition.convertTarget] : []
-        composition.stopComposition()
-        state = .none
+    mutating func reset(commit: Bool) throws -> DesktopSnapshot {
+        var next = self
+        next.candidateCompletions = []
+        let commits = commit ? [try next.commitDisplayedText()] : []
+        next.composition.stopComposition()
+        next.candidates.invalidate()
+        next.candidateContext = nil
+        next.state = .none
+        next.generation += 1
+        next.compositionRevision += 1
+        var response = next.snapshot(commits: commits)
+        response.candidateCompletions = next.candidateCompletions.isEmpty ? nil : next.candidateCompletions
+        self = next
+        return response
+    }
+
+    mutating func prepareCandidates(context: DesktopReadingCandidateContext) throws -> DesktopCandidateRequest {
+        let current = currentContext(context)
+        if let candidateContext, candidateContext != current {
+            throw DesktopReadingCandidates.Failure.staleRequest
+        }
+        let request = try candidates.prepare(composition: composition, context: current)
+        candidateContext = current
+        return request
+    }
+
+    mutating func adoptCandidates(_ batch: DesktopCandidateBatch) throws -> DesktopCandidateBatchReference {
+        guard let candidateContext else { throw DesktopReadingCandidates.Failure.staleRequest }
+        return try candidates.adopt(batch, composition: composition, context: currentContext(candidateContext))
+    }
+
+    mutating func selectCandidate(_ selection: DesktopCandidateSelection) throws -> DesktopSnapshot {
+        guard let candidateContext else { throw DesktopReadingCandidates.Failure.unavailableCandidate }
+        try candidates.select(selection, composition: composition, context: currentContext(candidateContext))
+        state = .selecting
         generation += 1
-        return snapshot(commits: commits)
+        return snapshot()
+    }
+
+    /// Only immediate keyboard navigation may translate a current list position into an identity.
+    mutating func selectCurrentCandidate(index: Int) throws -> DesktopSnapshot {
+        guard let batch = candidates.batch, batch.candidates.indices.contains(index) else {
+            throw DesktopReadingCandidates.Failure.unavailableCandidate
+        }
+        let selection = DesktopCandidateSelection(
+            batch: .init(authority: batch.authority, workerGeneration: batch.workerGeneration, batchID: batch.batchID),
+            candidateID: batch.candidates[index].candidateID)
+        return try selectCandidate(selection)
+    }
+
+    mutating func candidateWorkerUnavailable() {
+        candidates.workerUnavailable()
+    }
+
+    mutating func updateLearningRevision(_ revision: Int) throws {
+        guard let candidateContext else { throw DesktopReadingCandidates.Failure.changedSettings }
+        try candidates.updateLearningRevision(from: candidateContext.settingsRevision, to: revision)
+        var current = candidateContext
+        current.settingsRevision = revision
+        self.candidateContext = current
+    }
+
+    private func currentContext(
+        _ context: DesktopReadingCandidateContext, leftContext: String? = nil
+    ) -> DesktopReadingCandidateContext {
+        .init(context: context.context, readingProcessGeneration: context.readingProcessGeneration,
+              focusEpoch: context.focusEpoch, compositionRevision: compositionRevision,
+              settingsRevision: context.settingsRevision, leftContext: leftContext ?? context.leftContext,
+              rightContext: context.rightContext, privateInput: context.privateInput)
     }
 
     func snapshot(commits: [String] = []) -> DesktopSnapshot {
         var response = DesktopSnapshot()
         response.commits = commits.filter { !$0.isEmpty }
         response.generation = generation
+        response.compositionRevision = compositionRevision
         response.language = language == .japanese ? "japanese" : "english"
         response.reading = composition.convertTarget
         response.readingCursor = unicodeScalarOffset(in: response.reading, utf16Offset: composition.readingCursorUTF16Offset)
@@ -61,6 +149,15 @@ struct DesktopReadingSession {
         case .composing:
             response.preedit = response.reading
             response.cursor = response.readingCursor
+        case .previewing, .selecting:
+            if let text = candidates.selectedText, let suffix = candidates.selectedSuffix {
+                response.preedit = text + suffix
+                response.cursor = text.unicodeScalars.count
+                response.selection = candidates.selectionIndex
+            } else {
+                response.preedit = response.reading
+                response.cursor = response.readingCursor
+            }
         default:
             break
         }
@@ -100,22 +197,30 @@ struct DesktopReadingSession {
         case .insertWithoutMarkedText(let text):
             commits.append(text)
         case .removeLastMarkedText:
+            candidates.clearSelection()
             composition.deleteBackwardFromCursorPosition()
         case .removeNextMarkedText:
+            candidates.clearSelection()
             composition.deleteForwardFromCursorPosition()
         case .moveCompositionCursor(let movement):
+            candidates.clearSelection()
             composition.moveCursor(movement)
         case .commitMarkedText:
-            commits.append(composition.convertTarget)
-            composition.stopComposition()
+            commits.append(try commitDisplayedText())
+        case .submitSelectedCandidate:
+            guard let candidateContext else { throw Failure.unsupportedAction }
+            let committed = try candidates.takeSelection(composition: composition, context: currentContext(candidateContext))
+            commits.append(committed.text)
+            composition = committed.remaining
+            candidateCompletions.append(committed.completion)
         case .stopComposition:
             composition.stopComposition()
         case .selectInputLanguage(let selectedLanguage):
             language = selectedLanguage
         case .commitMarkedTextAndSelectInputLanguage(let selectedLanguage):
-            commits.append(composition.convertTarget)
-            composition.stopComposition()
+            commits.append(try commitDisplayedText())
             language = selectedLanguage
+            state = .none
         case .submitUnicodeInput(let codePoint):
             if let value = UInt32(codePoint, radix: 16), let scalar = Unicode.Scalar(value) {
                 commits.append(String(scalar))
@@ -131,6 +236,25 @@ struct DesktopReadingSession {
         var response = snapshot(commits: commits)
         response.consumed = consumed
         return response
+    }
+
+    private mutating func commitDisplayedText() throws -> String {
+        guard !composition.isEmpty else {
+            return ""
+        }
+        let text: String
+        if candidates.selectedText != nil {
+            guard let candidateContext else { throw DesktopReadingCandidates.Failure.unavailableCandidate }
+            let selected = try candidates.takeSelection(composition: composition, context: currentContext(candidateContext))
+            text = selected.text + selected.remaining.convertTarget
+            // A selected prefix plus a raw suffix is not a synthetic candidate to learn.
+            if selected.remaining.isEmpty { candidateCompletions.append(selected.completion) }
+        } else {
+            text = composition.convertTarget
+        }
+        composition.stopComposition()
+        candidates.invalidate()
+        return text
     }
 
     private mutating func applyCallback(_ callback: ClientActionCallback) {
