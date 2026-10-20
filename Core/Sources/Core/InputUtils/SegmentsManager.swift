@@ -786,6 +786,7 @@ public final class SegmentsManager {
     }
 
     public func requestSelectingRow(_ index: Int) {
+        self.shouldShowCandidateWindow = true
         if self.isFixingAdditionalCandidateTop, index != 0 {
             self.isFixingAdditionalCandidateTop = false
         }
