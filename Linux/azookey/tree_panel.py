@@ -11,6 +11,7 @@ from .candidate_announcements import CandidateAnnouncements
 from .candidate_detail import CandidateDetail
 from .candidate_navigation import CandidateNavigation
 from .candidate_placement import COLUMN_START_INSET, popup_placement
+from .ibus_coordinates import logical_cursor_rectangle
 from .candidate_theme import CandidateTheme
 from .candidate_score import SCORE_LINE_HEIGHT, draw_score_badge, score_presentation
 from .i18n import text as message
@@ -128,6 +129,15 @@ class TreePanel(Gtk.Window):
         self.connect("size-allocate", lambda *_: self.position() if self.get_visible() else None)
         self.theme = CandidateTheme(self, changed=self.refresh_appearance)
         self.refresh_appearance()
+        screen = self.get_screen()
+        monitors_changed = screen.connect("monitors-changed", self.display_geometry_changed)
+        self.connect("destroy", lambda *_: screen.disconnect(monitors_changed))
+
+    def display_geometry_changed(self, *_args):
+        # X11 updates its global window scale before this monitor notification.
+        # Pending input must remain suspended until the corresponding reply.
+        if self.get_visible():
+            self.update(self.snapshot)
 
     def hidden(self, *_args):
         if not self.suspending:
@@ -233,7 +243,7 @@ class TreePanel(Gtk.Window):
             return
         self.rectangles = []
         geometry = snapshot.get("wordGeometry") or {}
-        widths = geometry.get("widths", [])
+        widths = [width / self.ibus_coordinate_scale for width in geometry.get("widths", [])]
         # Logical pixels are scaled by GTK; do not copy AppKit point measurements.
         base_size = 24 if snapshot.get("candidateTextSize") == "large" else 18
         scale = self.get_settings().get_property("gtk-xft-dpi") / (96 * Pango.SCALE)
@@ -277,7 +287,7 @@ class TreePanel(Gtk.Window):
         area = self.work_area()
         live = mode == "live"
         minimum_popup_width = MINIMUM_LIVE_WIDTH if live and not self.navigation.expanded else MINIMUM_POPUP_WIDTH
-        aligned_x = self.location[0] - COLUMN_START_INSET
+        aligned_x = self.column_anchor_x - COLUMN_START_INSET
         if aligned and (aligned_x < area.x or aligned_x + max(minimum_popup_width, width) > area.x + area.width):
             # Clamping or scrolling would invalidate the document coordinates.
             # Use the ordinary compact popup when the span cannot fit onscreen.
@@ -309,7 +319,7 @@ class TreePanel(Gtk.Window):
         placement = popup_placement(
             cursor=self.current_caret, work_area=(area.x, area.y, area.width, area.height),
             popup_size=(popup_width, requested_height), preferred_side=self.placement_side,
-            column_anchor_x=self.location[0] if self.aligned else None,
+            column_anchor_x=self.column_anchor_x if self.aligned else None,
         )
         if placement is None:
             self.suspend()
@@ -528,10 +538,22 @@ class TreePanel(Gtk.Window):
             self.select(*identity, False)
 
     @property
+    def ibus_coordinate_scale(self):
+        # IBus X11 cursor rectangles use device pixels. GDK work areas and
+        # windows use application pixels, with one scale for the whole X screen.
+        # GNOME's ShellCursor and Wayland-relative rectangles have another owner.
+        return self.get_scale_factor() if "X11" in type(self.get_display()).__name__ else 1
+
+    @property
+    def column_anchor_x(self):
+        return self.location[0] / self.ibus_coordinate_scale
+
+    @property
     def current_caret(self):
         # Word alignment uses the composition start; exclusion uses the actual
         # IBus insertion caret, including after that estimated geometry expires.
-        return self.caret_location or self.location
+        return logical_cursor_rectangle(
+            self.caret_location or self.location, scale_factor=self.ibus_coordinate_scale)
 
     def work_area(self):
         monitor = self.get_display().get_monitor_at_point(*self.current_caret[:2])
@@ -552,7 +574,7 @@ class TreePanel(Gtk.Window):
         placement = popup_placement(
             cursor=self.current_caret, work_area=(area.x, area.y, area.width, area.height),
             popup_size=(width, popup_height), preferred_side=self.placement_side,
-            column_anchor_x=self.location[0] if self.aligned else None,
+            column_anchor_x=self.column_anchor_x if self.aligned else None,
         )
         if placement is None:
             self.suspend()
@@ -574,6 +596,9 @@ class TreePanel(Gtk.Window):
             "cursor": self.current_caret, "workArea": [area.x, area.y, area.width, area.height],
             "popup": [placement.x, placement.y, width, popup_height],
             "side": placement.side,
+            "coordinateSpace": "gtk-logical",
+            "ibusCursor": self.caret_location or self.location,
+            "ibusCoordinateScale": self.ibus_coordinate_scale,
         }
 
     def measure(self, text, *, font_size=None):
