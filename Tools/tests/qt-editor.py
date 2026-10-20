@@ -5,6 +5,7 @@ import json
 import pathlib
 import sys
 import time
+from fixture_events import FixtureEvents
 
 from PyQt6.QtCore import QEvent, QTimer, QT_VERSION_STR
 from PyQt6.QtWebEngineCore import QWebEnginePage
@@ -14,9 +15,11 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QTextEdit, QV
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", type=pathlib.Path)
+parser.add_argument("--events", type=pathlib.Path)
 arguments = parser.parse_args()
 if arguments.output:
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
+event_log = FixtureEvents(arguments.events)
 
 class TestWindow(QMainWindow):
     def changeEvent(self, event):
@@ -58,6 +61,7 @@ def record():
         pending_output = arguments.output.with_suffix(arguments.output.suffix + ".pending")
         pending_output.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         pending_output.replace(arguments.output)
+        event_log.append("state", state=state)
 
 
 class TestEditor(QTextEdit):
@@ -65,6 +69,11 @@ class TestEditor(QTextEdit):
 
     def inputMethodEvent(self, event):
         # Observe the native event, then let QTextEdit apply it unchanged.
+        event_log.append(
+            "input-method", fieldIndex=self.field_index, commit=event.commitString(),
+            preedit=event.preeditString(), replacementStartUTF16=event.replacementStart(),
+            replacementLengthUTF16=event.replacementLength(),
+        )
         self.preedit = event.preeditString()
         super().inputMethodEvent(event)
         record()
@@ -82,6 +91,7 @@ class TestPage(QWebEnginePage):
 
 for index in range(2):
     editor = TestEditor()
+    editor.field_index = index
     editor.setAccessibleName(f"Test input {index + 1}")
     editor.setPlaceholderText("日本語を入力し、候補クリック後に続けて入力")
     editor.setStyleSheet("font-size: 24px")
