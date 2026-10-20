@@ -23,6 +23,8 @@ for resource in "$PRODUCTS"/*.bundle; do
     ditto "$resource" "$APP/Contents/Resources/$(basename "$resource")"
 done
 cp "$ROOT"/azooKeyMac/*.tiff "$APP/Contents/Resources/"
+cp "$ROOT/azooKeyMac/Resources/HomebrewUpdate.command" "$APP/Contents/Resources/"
+chmod 755 "$APP/Contents/Resources/HomebrewUpdate.command"
 cp "$ROOT"/build/models/* "$APP/Contents/Resources/"
 python3 "$ROOT/Tools/collect-licenses.py" "$ROOT/build/macos-app/.build/checkouts" "$APP/Contents/Resources/Licenses"
 python3 - "$ROOT" "$APP" "$VERSION" "$BACKEND" <<'PY'

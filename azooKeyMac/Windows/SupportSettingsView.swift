@@ -20,6 +20,7 @@ struct SupportSettingsView: View {
             } header: {
                 Text(Localization.text("support.guide"))
             }
+            HomebrewUpdateView()
             Section {
                 Text(diagnostics).font(.system(.body, design: .monospaced)).textSelection(.enabled)
                 Text(Localization.text("support.privacy")).font(.caption)
