@@ -2,7 +2,7 @@
 import json
 import weakref
 from gi.repository import Gio, GLib
-from .bridge import Bridge
+from .async_bridge import AsyncBridge
 
 NAME = "org.azookey.Tree"
 PATH = "/org/azookey/Tree"
@@ -32,11 +32,8 @@ class ShellSurface:
 
     def method(self, _connection, sender, _path, _interface, name, parameters, invocation):
         if name == "ResetLearning":
-            try:
-                success = Bridge.reset_shared_learning()
-            except (OSError, RuntimeError, ValueError):
-                success = False
-            invocation.return_value(GLib.Variant("(b)", (success,)))
+            AsyncBridge.reset_shared_learning(
+                lambda success: invocation.return_value(GLib.Variant("(b)", (success,))))
             return
         if self.renderer and sender != self.renderer:
             invocation.return_dbus_error(NAME + ".Busy", "Another renderer is registered")
