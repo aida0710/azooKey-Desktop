@@ -15,7 +15,7 @@ REPORT_MINIMUM_HEIGHT = 190
 
 def engine_status():
     try:
-        reply = Gio.DBus.session.call_sync(
+        reply = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
             "org.azookey.Tree", "/org/azookey/Tree", "org.azookey.Tree", "RendererStatus",
             None, GLib.VariantType.new("(b)"), Gio.DBusCallFlags.NO_AUTO_START,
             STATUS_QUERY_TIMEOUT_MS, None,

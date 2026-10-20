@@ -179,7 +179,7 @@ class SettingsWindow(Gtk.Window):
         dialog.destroy()
         if response == Gtk.ResponseType.OK:
             try:
-                reply = Gio.DBus.session.call_sync("org.azookey.Tree", "/org/azookey/Tree", "org.azookey.Tree",
+                reply = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync("org.azookey.Tree", "/org/azookey/Tree", "org.azookey.Tree",
                                                    "ResetLearning", None, GLib.VariantType.new("(b)"),
                                                    Gio.DBusCallFlags.NONE, 5000, None)
                 success = reply.unpack()[0]
