@@ -133,6 +133,8 @@
   "ai.preview.reload": "再生成（Command+R）",
   "ai.preview.edit": "指示を編集",
   "ai.preview.apply": "本文へ適用",
+  "ai.preview.target-changed": "元の入力欄や選択範囲を確認できないため、適用しませんでした。結果をコピーして貼り付けてください。",
+  "ai.preview.copy": "結果をコピー",
   "ai.preview.ready": "内容を確認して本文へ適用してください。",
   "ai.preview.failed": "生成できませんでした。AI設定を確認してください。",
   "shortcut.recording": "キーを入力…",
