@@ -63,7 +63,7 @@ class CandidateThemeTests(unittest.TestCase):
     def test_desktop_appearance_changes_preserve_candidate_actions_focus_and_details(self):
         import cairo
         from azookey.tree_panel import TreePanel
-        from gi.repository import Gdk, GLib, Gtk
+        from gi.repository import Gdk, GLib, Gtk, Pango
         submitted = []
         document = Gtk.Window()
         entry = Gtk.Entry()
@@ -80,8 +80,14 @@ class CandidateThemeTests(unittest.TestCase):
                 {"id": 2, "text": "画", "reading": "が", "parent": 0, "terminals": [1], "relativeScore": None},
             ],
             "columns": [[0], [1, 2]], "selectedPath": [0, 1], "focusedNode": 1, "selection": 0,
-            "contextId": "synthetic-theme", "generation": 1,
+            "contextId": "synthetic-theme", "generation": 1, "showRelativeScores": True,
         }
+        for node in snapshot["nodes"]:
+            score = node["relativeScore"]
+            node["scorePresentation"] = {
+                "label": str(score) if score is not None else "—",
+                "detailDescription": f"相対スコア {score}" if score is not None else "未評価",
+            }
         panel.update(snapshot)
         original_actions = dict(panel.actions)
         original_details = panel.details.displayed_text
@@ -121,18 +127,30 @@ class CandidateThemeTests(unittest.TestCase):
                                               panel.get_allocated_height())
             # Check the second line on the actual scrolled window. A label's
             # offscreen drawing alone misses an opaque GTK undershoot overlay.
-            pixels = image.get_pixels()
-            foreground = bytes.fromhex(PALETTES[mode]["text"][1:])
-            top = panel.details.get_allocation().y + 35
-            painted_reading = sum(
-                pixels[row * image.get_rowstride() + column * image.get_n_channels():
-                       row * image.get_rowstride() + column * image.get_n_channels() + 3] == foreground
-                for row in range(top, min(top + 20, image.get_height())) for column in range(8, 70)
-            )
-            self.assertGreater(painted_reading, 4, "The reading below the first line must remain visible")
             if output := os.environ.get("AZOOKEY_TREE_SNAPSHOT_DIR"):
                 image.savev(str(Path(output, f"gtk-{mode}.png")), "png", [], [])
                 surface.write_to_png(str(Path(output, f"cairo-{mode}.png")))
+            label = panel.details.label
+            reading_index = len((snapshot["nodes"][1]["text"] + "\n").encode("utf-8"))
+            reading = label.get_layout().index_to_pos(reading_index)
+            offset_x, offset_y = label.get_layout_offsets()
+            left, top = label.translate_coordinates(
+                panel, offset_x + reading.x // Pango.SCALE, offset_y + reading.y // Pango.SCALE)
+            width, height = reading.width // Pango.SCALE, reading.height // Pango.SCALE
+            pixels = image.get_pixels()
+            foreground = bytes.fromhex(PALETTES[mode]["text"][1:])
+            background = bytes.fromhex(PALETTES[mode]["background"][1:])
+            painted_reading = 0
+            for row in range(max(0, top), min(top + height, image.get_height())):
+                for column in range(max(0, left), min(left + width, image.get_width())):
+                    offset = row * image.get_rowstride() + column * image.get_n_channels()
+                    pixel = pixels[offset:offset + 3]
+                    # Antialiased glyph edges need not equal the foreground color.
+                    if sum(abs(value - ink) for value, ink in zip(pixel, foreground)) < sum(
+                        abs(value - paper) for value, paper in zip(pixel, background)
+                    ):
+                        painted_reading += 1
+            self.assertGreater(painted_reading, 4, "The reading below the first line must remain visible")
         self.assertEqual(submitted, [])
         panel.actions[("node", 2)].clicked()
         self.assertEqual(submitted, [("node", 2, True)])
