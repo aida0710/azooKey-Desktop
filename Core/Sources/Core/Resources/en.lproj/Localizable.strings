@@ -13,6 +13,17 @@
 "candidate.closeList" = "Close";
 "candidate.previousPage" = "Previous";
 "candidate.nextPage" = "Next";
+"candidate.composition" = "Text to confirm";
+"candidate.selected" = "Selected";
+"candidate.openTree" = "Adjust segments";
+"candidate.closeTree" = "Hide segments";
+"candidate.openDetails" = "Show details";
+"candidate.closeDetails" = "Hide details";
+"candidate.submit" = "Confirm";
+"candidate.selectHint" = "Select a candidate, then press Enter to confirm";
+"candidate.select" = "Select this candidate";
+"candidate.focusedSelect" = "Current navigation target. Select this candidate";
+"candidate.numberSelect" = "Select candidate %@";
 "candidate.preview.scope" = "Reading to commit: %@";
 "candidate.preview.remaining" = "Reading left to edit: %@";
 "candidate.preview.following" = "Following text: %@";
