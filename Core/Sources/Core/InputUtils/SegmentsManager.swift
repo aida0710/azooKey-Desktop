@@ -55,8 +55,9 @@ public final class SegmentsManager {
     private let containerURL: URL?
     private let context: Context
 
-    private var composingText: ComposingText = ComposingText()
-    private var lastInputStyle: InputStyle = .direct
+    private var composition = CompositionState()
+    private var composingText: ComposingText { self.composition.composingText }
+    private var lastInputStyle: InputStyle { self.composition.lastInputStyle }
 
     private var liveConversionEnabled: Bool {
         Config.LiveConversion().value
@@ -67,7 +68,7 @@ public final class SegmentsManager {
     private var rawCandidates: ConversionResult?
 
     private var selectionIndex: Int?
-    private var conversionRangeEnd: Int?
+    private var conversionRangeEnd: Int? { self.composition.conversionRangeEnd }
     private var isEditingReading = false
     private var lastOperation: Operation = .other
     private var shouldShowCandidateWindow = false
@@ -266,7 +267,7 @@ public final class SegmentsManager {
         self.shouldShowCandidateWindow = false
         self.backspaceAdjustedPredictionCandidate = nil
         self.backspaceTypoCorrectionLock = nil
-        self.lastInputStyle = .direct
+        self.composition.resetInputStyle()
         self.zenzaiPersonalizationMode = self.getZenzaiPersonalizationMode()
     }
 
@@ -298,25 +299,22 @@ public final class SegmentsManager {
             self.withConverter { $0.commitUpdateLearningData() }
         }
         self.rawCandidates = nil
-        self.conversionRangeEnd = nil
         self.isEditingReading = false
         self.lastOperation = .other
-        self.composingText.stopComposition()
+        self.composition.stopComposition()
         self.shouldShowCandidateWindow = false
         self.selectionIndex = nil
         self.resetAdditionalCandidates()
         self.backspaceAdjustedPredictionCandidate = nil
         self.backspaceTypoCorrectionLock = nil
-        self.lastInputStyle = .direct
     }
 
     @MainActor
     /// この入力を打ち切る
     public func stopComposition() {
-        self.composingText.stopComposition()
+        self.composition.stopComposition()
         self.withConverter { $0.stopComposition() }
         self.rawCandidates = nil
-        self.conversionRangeEnd = nil
         self.isEditingReading = false
         self.lastOperation = .other
         self.shouldShowCandidateWindow = false
@@ -324,14 +322,13 @@ public final class SegmentsManager {
         self.resetAdditionalCandidates()
         self.backspaceAdjustedPredictionCandidate = nil
         self.backspaceTypoCorrectionLock = nil
-        self.lastInputStyle = .direct
     }
 
     @MainActor
     /// 日本語入力自体をやめる
     public func stopJapaneseInput() {
         self.rawCandidates = nil
-        self.conversionRangeEnd = nil
+        self.composition.clearConversionRange()
         self.isEditingReading = false
         self.lastOperation = .other
         self.withConverter { $0.commitUpdateLearningData() }
@@ -340,24 +337,20 @@ public final class SegmentsManager {
         self.resetAdditionalCandidates()
         self.backspaceAdjustedPredictionCandidate = nil
         self.backspaceTypoCorrectionLock = nil
-        self.lastInputStyle = .direct
+        self.composition.resetInputStyle()
     }
 
     /// 変換キーを押したタイミングで入力の区切りを示す
     @MainActor
     public func insertCompositionSeparator(inputStyle: InputStyle, skipUpdate: Bool = false) {
         let wasEditingSegment = self.conversionRangeEnd != nil
-        self.conversionRangeEnd = nil
         self.isEditingReading = false
-        _ = self.composingText.moveCursorFromCursorPosition(count: self.composingText.convertTarget.count - self.composingText.convertTargetCursorPosition)
-        guard self.composingText.input.last?.piece != .compositionSeparator else {
+        guard self.composition.insertCompositionSeparator(inputStyle: inputStyle) else {
             if wasEditingSegment && !skipUpdate {
                 self.updateRawCandidate()
             }
             return
         }
-        self.lastInputStyle = inputStyle
-        self.composingText.insertAtCursorPosition([.init(piece: .compositionSeparator, inputStyle: inputStyle)])
         self.lastOperation = .insert
         if !skipUpdate {
             self.updateRawCandidate()
@@ -366,8 +359,7 @@ public final class SegmentsManager {
 
     @MainActor
     public func insertAtCursorPosition(_ string: String, inputStyle: InputStyle) {
-        self.lastInputStyle = inputStyle
-        self.composingText.insertAtCursorPosition(string, inputStyle: inputStyle)
+        self.composition.insertAtCursorPosition(string, inputStyle: inputStyle)
         self.lastOperation = .insert
         // ライブ変換がオフの場合は変換候補ウィンドウを出したい
         self.shouldShowCandidateWindow = !self.liveConversionEnabled
@@ -376,8 +368,7 @@ public final class SegmentsManager {
 
     @MainActor
     public func insertAtCursorPosition(pieces: [InputPiece], inputStyle: InputStyle) {
-        self.lastInputStyle = inputStyle
-        self.composingText.insertAtCursorPosition(pieces.map { .init(piece: $0, inputStyle: inputStyle) })
+        self.composition.insertAtCursorPosition(pieces: pieces, inputStyle: inputStyle)
         self.lastOperation = .insert
         // ライブ変換がオフの場合は変換候補ウィンドウを出したい
         self.shouldShowCandidateWindow = !self.liveConversionEnabled
@@ -389,15 +380,7 @@ public final class SegmentsManager {
         guard !self.composingText.isEmpty else {
             return
         }
-        let currentRangeEnd: Int
-        if let selectedCandidate {
-            var afterComposingText = self.composingText
-            afterComposingText.prefixComplete(composingCount: selectedCandidate.composingCount)
-            currentRangeEnd = self.composingText.convertTarget.count - afterComposingText.convertTarget.count
-        } else {
-            currentRangeEnd = self.conversionRangeEnd ?? self.composingText.convertTarget.count
-        }
-        self.conversionRangeEnd = min(max(1, currentRangeEnd + count), self.composingText.convertTarget.count)
+        self.composition.editSegment(count: count, selectedCount: self.selectedCandidate?.composingCount)
         self.lastOperation = .editSegment
         self.shouldShowCandidateWindow = true
         self.selectionIndex = nil
@@ -406,15 +389,8 @@ public final class SegmentsManager {
 
     @MainActor
     public func moveCompositionCursor(_ movement: CompositionCursorMovement) {
-        let offset = switch movement {
-        case .backward: -1
-        case .forward: 1
-        case .start: -self.composingText.convertTargetCursorPosition
-        case .end: self.composingText.convertTarget.count - self.composingText.convertTargetCursorPosition
-        }
-        _ = self.composingText.moveCursorFromCursorPosition(count: offset)
         let wasEditingSegment = self.conversionRangeEnd != nil
-        self.conversionRangeEnd = nil
+        self.composition.moveCursor(movement)
         self.isEditingReading = true
         self.lastOperation = .moveCursor
         self.requestResettingSelection()
@@ -427,8 +403,7 @@ public final class SegmentsManager {
 
     @MainActor
     public func deleteForwardFromCursorPosition() {
-        self.composingText.deleteForwardFromCursorPosition(count: 1)
-        self.conversionRangeEnd = nil
+        self.composition.deleteForwardFromCursorPosition()
         self.isEditingReading = true
         self.lastOperation = .delete
         self.shouldShowCandidateWindow = !self.liveConversionEnabled
@@ -440,8 +415,7 @@ public final class SegmentsManager {
     @MainActor
     public func deleteBackwardFromCursorPosition(count: Int = 1) {
         let previousComposingText = self.composingText.prefixToCursorPosition()
-        self.conversionRangeEnd = nil
-        self.composingText.deleteBackwardFromCursorPosition(count: count)
+        self.composition.deleteBackwardFromCursorPosition(count: count)
         self.lastOperation = .delete
         // ライブ変換がオフの場合は変換候補ウィンドウを出したい
         self.shouldShowCandidateWindow = !self.liveConversionEnabled
@@ -505,7 +479,7 @@ public final class SegmentsManager {
             return nil
         }
         if self.conversionRangeEnd == nil {
-            if rawCandidates.firstClauseResults.contains(where: { self.composingText.isWholeComposingText(composingCount: $0.composingCount) }) {
+            if rawCandidates.firstClauseResults.contains(where: { self.composition.consumesWholeComposition(composingCount: $0.composingCount) }) {
                 // firstClauseCandidateがmainResultsと同じサイズの場合は、何もしない方が良い
                 return rawCandidates.mainResults
             } else {
@@ -543,33 +517,26 @@ public final class SegmentsManager {
     }
 
     public var readingCursorUTF16Offset: Int {
-        self.composingText.convertTargetBeforeCursor.utf16.count
+        self.composition.readingCursorUTF16Offset
     }
 
     public func compositionCheckpoint() -> CompositionCheckpoint? {
-        guard !self.composingText.isEmpty else {
-            return nil
-        }
-        return .init(composingText: self.composingText, inputStyle: self.lastInputStyle,
-                     conversionRangeEnd: self.conversionRangeEnd,
-                     selectedText: self.selectedCandidate?.text ?? self.rawCandidates?.mainResults.first?.text)
+        self.composition.checkpoint(selectedText: self.selectedCandidate?.text ?? self.rawCandidates?.mainResults.first?.text)
     }
 
     @MainActor
     public func restoreComposition(_ checkpoint: CompositionCheckpoint) {
         self.stopComposition()
-        self.composingText = checkpoint.composingText
-        self.lastInputStyle = checkpoint.inputStyle
-        self.conversionRangeEnd = checkpoint.conversionRangeEnd
+        self.composition = CompositionState(checkpoint: checkpoint)
         self.updateRawCandidate(requestRichCandidates: true)
         self.shouldShowCandidateWindow = true
         self.selectionIndex = self.candidates?.firstIndex { $0.text == checkpoint.selectedText }
-            ?? self.candidates?.firstIndex { self.composingText.isWholeComposingText(composingCount: $0.composingCount) }
+            ?? self.candidates?.firstIndex { self.composition.consumesWholeComposition(composingCount: $0.composingCount) }
             ?? 0
     }
 
     public func consumesWholeComposition(_ candidate: Candidate) -> Bool {
-        self.composingText.isWholeComposingText(composingCount: candidate.composingCount)
+        self.composition.consumesWholeComposition(composingCount: candidate.composingCount)
     }
 
     public var isEmpty: Bool {
@@ -623,7 +590,7 @@ public final class SegmentsManager {
         // 不要
         if composingText.isEmpty {
             self.rawCandidates = nil
-            self.conversionRangeEnd = nil
+            self.composition.clearConversionRange()
             self.isEditingReading = false
             self.withConverter { $0.stopComposition() }
             return
@@ -663,8 +630,7 @@ public final class SegmentsManager {
         let leftSideContext = forcedLeftSideContext ?? self.getCleanLeftSideContext(maxCount: ContextLength.conversion)
         let rightSideContext = forcedRightSideContext ?? self.getCleanRightSideContext(maxCount: ContextLength.conversion)
         // 文節の後半は未確定の読みとして保持し、候補の消費範囲を指定した文節に揃える。
-        let conversionTarget = self.conversionRangeEnd.map { self.composingText.prefix(toReadingPosition: $0) }
-            ?? self.composingText
+        let conversionTarget = self.composition.conversionTarget
         var conversionResults = self.withConverter { converter in
             converter.requestCandidates(
                 conversionTarget,
@@ -688,7 +654,11 @@ public final class SegmentsManager {
                 return candidate
             }
             conversionResults.mainResults = conversionResults.mainResults
-                .filter { conversionTarget.isWholeComposingText(composingCount: $0.composingCount) }
+                .filter { candidate in
+                    var remaining = conversionTarget
+                    remaining.prefixComplete(composingCount: candidate.composingCount)
+                    return remaining.isEmpty
+                }
                 .map(restoreOriginalRange)
             conversionResults.firstClauseResults = conversionResults.firstClauseResults.map(restoreOriginalRange)
             conversionResults.predictionResults = conversionResults.predictionResults.map(restoreOriginalRange)
@@ -716,10 +686,7 @@ public final class SegmentsManager {
             converter.setCompletedData(candidate)
             if shouldUpdateLearning { converter.updateLearningData(candidate) }
         }
-        self.composingText.prefixComplete(composingCount: candidate.composingCount)
-        // 読みの途中から全文を確定した場合も、残った入力に対する有効な位置へ戻す。
-        _ = self.composingText.moveCursorFromCursorPosition(count: self.composingText.convertTarget.count - self.composingText.convertTargetCursorPosition)
-        self.conversionRangeEnd = nil
+        self.composition.prefixComplete(composingCount: candidate.composingCount)
         self.isEditingReading = false
 
         if !self.composingText.isEmpty {
@@ -909,7 +876,7 @@ public final class SegmentsManager {
     public func getModifiedRomanCandidate(inputState: InputState, _ transform: (String) -> String) -> Candidate {
         let (inputString, composingCount): (String, ComposingCount) = switch inputState {
         case .selecting:
-            self.romanInputForSelection()
+            self.composition.romanInputForSelection(composingCount: self.selectedCandidate?.composingCount)
         case .composing, .previewing, .none, .replaceSuggestion, .attachDiacritic, .unicodeInput:
             (self.composingText.input.map(\.piece).inputString(preferIntention: false), .inputCount(self.composingText.input.count))
         }
@@ -928,29 +895,6 @@ public final class SegmentsManager {
             )]
         )
         return candidate
-    }
-
-    private func romanInputForSelection() -> (String, ComposingCount) {
-        let composingCount = self.selectedCandidate?.composingCount
-            ?? .surfaceCount(self.conversionRangeEnd ?? self.composingText.convertTarget.count)
-        if case .inputCount(let count) = composingCount {
-            return (self.composingText.input.prefix(count).map(\.piece).inputString(preferIntention: false), composingCount)
-        }
-        var remaining = self.composingText
-        remaining.prefixComplete(composingCount: composingCount)
-        // 「ん|ご」「っ|て」も、元の入力から同じ後半を残せる境界ならローマ字を保持する。
-        let inputCount = (0...self.composingText.input.count).reversed().first { count in
-            var suffix = self.composingText
-            suffix.prefixComplete(composingCount: .inputCount(count))
-            return suffix.convertTarget == remaining.convertTarget
-        }
-        if let inputCount {
-            return (self.composingText.input.prefix(inputCount).map(\.piece).inputString(preferIntention: false), .inputCount(inputCount))
-        }
-        // 「き|ょ」のように対応する打鍵の境界が無い場合は、指定したかなだけを保持する。
-        let selectedReadingCount = self.composingText.convertTarget.count - remaining.convertTarget.count
-        let selectedInput = self.composingText.prefix(toReadingPosition: selectedReadingCount)
-        return (selectedInput.input.map(\.piece).inputString(preferIntention: false), composingCount)
     }
 
     @MainActor
@@ -1116,10 +1060,11 @@ public final class SegmentsManager {
 
     @MainActor
     func acceptPredictionCandidate(_ candidate: Candidate) {
-        guard self.withConverter({ $0.acceptPredictionCandidate(candidate, composingText: &self.composingText) }) else {
+        var predictedText = self.composingText
+        guard self.withConverter({ $0.acceptPredictionCandidate(candidate, composingText: &predictedText) }) else {
             return
         }
-        self.lastInputStyle = .direct
+        self.composition.replaceAfterPrediction(predictedText)
         self.lastOperation = .insert
         self.shouldShowCandidateWindow = !self.liveConversionEnabled
         self.updateRawCandidate()
@@ -1275,7 +1220,7 @@ public final class SegmentsManager {
             return MarkedText(text: [.init(content: text, focus: .none)], selectionRange: NSRange(location: cursor, length: 0))
         case .previewing:
             if let fullCandidate = self.rawCandidates?.mainResults.first,
-               self.composingText.isWholeComposingText(composingCount: fullCandidate.composingCount) {
+               self.composition.consumesWholeComposition(composingCount: fullCandidate.composingCount) {
                 return MarkedText(text: [.init(content: fullCandidate.text, focus: .none)], selectionRange: .notFound)
             } else {
                 return MarkedText(text: [.init(content: self.composingText.convertTarget, focus: .none)], selectionRange: .notFound)
@@ -1323,18 +1268,4 @@ public final class SegmentsManager {
 public protocol SegmentManagerDelegate: AnyObject {
     func getLeftSideContext(maxCount: Int) -> String?
     func getRightSideContext(maxCount: Int) -> String?
-}
-
-private extension ComposingText {
-    func prefix(toReadingPosition position: Int) -> ComposingText {
-        var prefix = self
-        _ = prefix.moveCursorFromCursorPosition(count: position - prefix.convertTargetCursorPosition)
-        return prefix.prefixToCursorPosition()
-    }
-
-    func isWholeComposingText(composingCount: ComposingCount) -> Bool {
-        var c = self
-        c.prefixComplete(composingCount: composingCount)
-        return c.isEmpty
-    }
 }
