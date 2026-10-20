@@ -474,8 +474,10 @@ class Engine(IBus.Engine):
             self.commit_text(IBus.Text.new_from_string(text))
         preedit = snapshot.get("preedit", "")
         self.anchor.update(preedit, snapshot.get("cursor", 0), committed=bool(snapshot.get("commits")))
+        focus_mode = (IBus.PreeditFocusMode.CLEAR if snapshot.get("inputState") == "unicodeInput"
+                      else IBus.PreeditFocusMode.COMMIT)
         self.update_preedit_text_with_mode(IBus.Text.new_from_string(preedit), snapshot.get("cursor", 0),
-                                          bool(preedit), IBus.PreeditFocusMode.COMMIT)
+                                          bool(preedit), focus_mode)
         snapshot = self.positioned_snapshot(snapshot)
         prediction = snapshot.get("prediction", "")
         selected = snapshot.get("selection")

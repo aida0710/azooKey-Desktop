@@ -1,5 +1,6 @@
 """Preserve pending literal input for IBus focus-out without guessing candidates."""
 from .graphemes import cursor_boundaries
+from .ime_shortcuts import ime_shortcut
 
 
 SHIFT = 1
@@ -27,10 +28,8 @@ def is_native_key(event, snapshot):
     if modifiers & COMMAND:
         return True
     if modifiers & CONTROL:
-        logical = event.get("charactersIgnoringModifiers")
         # These two shortcuts can start an IME operation even with no preedit.
-        return not ((modifiers == CONTROL and logical == "s")
-                    or (modifiers == (CONTROL | SHIFT) and logical == "u"))
+        return ime_shortcut(event) is None
     if modifiers & OPTION:
         return False
     if key in (48, 51, 53, 97, 98, 100, 101, 109, 115, 117, 119, 123, 124, 125, 126, *ENTER_KEYS):
