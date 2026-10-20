@@ -13,6 +13,17 @@
 "candidate.closeList" = "閉じる";
 "candidate.previousPage" = "前へ";
 "candidate.nextPage" = "次へ";
+"candidate.composition" = "確定する文章";
+"candidate.selected" = "選択中";
+"candidate.openTree" = "文節を調整";
+"candidate.closeTree" = "文節を閉じる";
+"candidate.openDetails" = "詳細を表示";
+"candidate.closeDetails" = "詳細を閉じる";
+"candidate.submit" = "確定";
+"candidate.selectHint" = "候補を選び、Enterで確定";
+"candidate.select" = "押すと候補を選択";
+"candidate.focusedSelect" = "操作対象。押すと候補を選択";
+"candidate.numberSelect" = "候補 %@ を選択";
 "candidate.preview.scope" = "確定する読み: %@";
 "candidate.preview.remaining" = "残る読み: %@";
 "candidate.preview.following" = "この語の後続: %@";
