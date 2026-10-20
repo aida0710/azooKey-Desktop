@@ -231,11 +231,13 @@ export class CandidateNavigation {
     applyPalette(palette) {
         this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text};`);
         for (const button of [this._toggle, this._previous, this._next, ...this._rows.get_children()].filter(Boolean)) {
+            const isPlainRow = this._compact && button.get_parent() === this._rows;
             const foreground = button.checked ? palette.selectionText : palette.text;
-            const background = button.checked ? palette.selection : palette.surface;
+            const background = button.checked ? palette.selection : isPlainRow ? 'transparent' : palette.surface;
+            const borderColor = button.checked ? palette.text : isPlainRow ? 'transparent' : palette.border;
             button.set_style(`background-color: ${background}; color: ${foreground};
                 background-gradient-direction: none; box-shadow: none;
-                border: ${ROW_BORDER_WIDTH}px solid ${button.checked ? palette.text : palette.border}; border-radius: 8px;
+                border: ${ROW_BORDER_WIDTH}px solid ${borderColor}; border-radius: ${isPlainRow ? 4 : 8}px;
                 padding: ${ROW_VERTICAL_INSET}px ${ROW_HORIZONTAL_INSET}px;
                 min-height: ${MINIMUM_CONTENT_HEIGHT}px; min-width: 0;`);
         }
