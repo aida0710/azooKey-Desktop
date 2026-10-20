@@ -59,15 +59,41 @@ class SupportDiagnosticsTests(unittest.TestCase):
     def test_renderer_reason_distinguishes_setting_extension_and_missing_engine(self):
         cases = [
             (False, "wayland", None, "support.renderer.ibus-list", "support.fallback.setting"),
+            (False, "x11", {"rendererRegistered": True}, "support.renderer.ibus-list", "support.fallback.setting"),
+            (False, "wayland", {"rendererRegistered": True}, "support.renderer.ibus-list", "support.fallback.setting"),
             (True, "x11", {}, "support.renderer.gtk-tree", "support.none"),
+            (True, "x11", {"rendererRegistered": False}, "support.renderer.gtk-tree", "support.none"),
             (True, "wayland", {"rendererRegistered": True}, "support.renderer.shell-tree", "support.none"),
             (True, "wayland", {"rendererRegistered": False}, "support.renderer.ibus-list", "support.fallback.extension"),
+            (True, "x11", None, "support.unknown", "support.fallback.unavailable"),
             (True, "wayland", None, "support.unknown", "support.fallback.unavailable"),
         ]
         for tree, session, status, renderer, reason in cases:
             with self.subTest(session=session, status=status, tree=tree):
                 self.assertEqual(renderer_status(tree_enabled=tree, session=session, engine_status=status),
                                  (message(renderer), message(reason)))
+
+    def test_report_uses_the_registered_shell_renderer_on_both_sessions(self):
+        for session in ("x11", "wayland"):
+            with self.subTest(session=session):
+                report = diagnostics(
+                    tree_enabled=True, engine_status={"rendererRegistered": True},
+                    environment={"XDG_SESSION_TYPE": session}, build_info={},
+                    os_release={"ID": "ubuntu", "VERSION_ID": "24.04"}, architecture="x86_64",
+                )
+                self.assertIn(f"{message('support.renderer')}: {message('support.renderer.shell-tree')}",
+                              report.splitlines())
+                self.assertIn(f"{message('support.fallback')}: {message('support.none')}",
+                              report.splitlines())
+
+    def test_unknown_session_does_not_claim_a_registered_renderer(self):
+        for session in ("", "tty", "unknown"):
+            with self.subTest(session=session):
+                self.assertEqual(
+                    renderer_status(tree_enabled=True, session=session,
+                                    engine_status={"rendererRegistered": True}),
+                    (message("support.unknown"), message("support.fallback.unavailable")),
+                )
 
 
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
