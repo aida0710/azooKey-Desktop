@@ -7,6 +7,7 @@ import time
 from typing import Callable
 
 from .async_bridge import Request
+from .ime_shortcuts import IMEShortcut, ime_shortcut
 from .input_preview import InputPreview, is_core_input, is_native_key
 
 
@@ -51,6 +52,8 @@ class InputCoordinator:
         """A projected native key must wait for an authoritative Core reply."""
         if event is None:
             return False
+        if ime_shortcut(event) is not None or self.has_unicode_input:
+            return True
         if self.is_resetting:
             # These keys remain consumed in either reset language. Accept
             # them immediately and let Core produce their composition/commit.
@@ -119,11 +122,17 @@ class InputCoordinator:
         if reply.failed or (reply.snapshot.get("error") and pending.completion is None):
             self.recover_pending()
             return False
+        if reply.generation != self.generation and self.snapshot.get("inputState") == "unicodeInput":
+            # A restarted Core no longer owns this Unicode sequence. Its reply
+            # may treat a hex digit as text or Enter as a native newline.
+            self.generation = reply.generation
+            self.recover_pending()
+            return False
         self.pending.popleft()
         self._watch_progress()
         if reply.generation != self.generation:
             self.generation = reply.generation
-            self.recover(self.snapshot.get("preedit", ""))
+            self.recover(self._recovery_preedit())
             self.snapshot = {}
         snapshot = reply.snapshot
         self._remember_language(snapshot)
@@ -163,14 +172,36 @@ class InputCoordinator:
     def has_pending_preview(self):
         return any(pending.operation == "key" for pending in self.pending)
 
+    @property
+    def has_unicode_input(self):
+        return (self.snapshot.get("inputState") == "unicodeInput"
+                or self._unicode_entry_index(self.pending) is not None)
+
+    @staticmethod
+    def _unicode_entry_index(pending_inputs):
+        return next((index for index, pending in enumerate(pending_inputs)
+                     if pending.operation == "key"
+                     and ime_shortcut(pending.payload.get("event")) == IMEShortcut.UNICODE), None)
+
+    def _recovery_preedit(self):
+        # U+... is an instruction to Core, never document text to recover.
+        return "" if self.snapshot.get("inputState") == "unicodeInput" else self.snapshot.get("preedit", "")
+
     def recover_pending(self):
         # Only acknowledged snapshots reached the application. Preserve that
         # text once, then return each unacknowledged physical key in order.
         # Never retry a request whose converter-side effects are uncertain.
         original_pending = list(self.pending)
-        return_ids = {id(pending) for pending in original_pending if pending.key is not None}
-        preedit = self.snapshot.get("preedit", "")
-        projection, unrepresented = self._project()
+        recoverable = original_pending
+        if self.snapshot.get("inputState") == "unicodeInput":
+            recoverable = []
+        else:
+            unicode_index = self._unicode_entry_index(original_pending)
+            if unicode_index is not None:
+                recoverable = original_pending[:unicode_index]
+        return_ids = {id(pending) for pending in recoverable if pending.key is not None}
+        preedit = self._recovery_preedit()
+        projection, unrepresented = self._project(recoverable)
         if projection.discarded or projection.restored_reading:
             # A canceled composition must not be resurrected by replaying its
             # physical keys after a converter failure.
@@ -224,6 +255,10 @@ class InputCoordinator:
     def _preview(self):
         if not self.has_pending_preview:
             return
+        if self.has_unicode_input:
+            # Hex validation, cancellation and the resulting character belong
+            # to Core. Keep its last display until the ordered reply arrives.
+            return
         projection, unrepresented = self._project()
         if unrepresented:
             if unrepresented[0].key_reply:
@@ -246,9 +281,9 @@ class InputCoordinator:
         self.has_recovery_preedit = bool(text)
         self.preview(text, cursor)
 
-    def _project(self):
+    def _project(self, pending_inputs=None):
         projection = InputPreview(self.snapshot, settings=self.settings)
-        pending_inputs = list(self.pending)
+        pending_inputs = list(self.pending) if pending_inputs is None else pending_inputs
         for index, pending in enumerate(pending_inputs):
             if pending.operation == "key" and not projection.apply(pending.payload.get("event", {})):
                 return projection, pending_inputs[index:]
