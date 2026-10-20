@@ -475,11 +475,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 $0.toKatakana().applyingTransform(.fullwidthToHalfwidth, reverse: false)!
             })
         case .submitFullWidthRomanCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate {
+            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate(inputState: self.inputState) {
                 $0.applyingTransform(.fullwidthToHalfwidth, reverse: true)!
             })
         case .submitHalfWidthRomanCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate {
+            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate(inputState: self.inputState) {
                 $0.applyingTransform(.fullwidthToHalfwidth, reverse: false)!
             })
         case .enableDebugWindow:

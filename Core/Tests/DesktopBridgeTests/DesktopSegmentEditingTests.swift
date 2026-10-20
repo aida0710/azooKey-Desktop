@@ -105,4 +105,42 @@ import Testing
             #expect(snapshot.commits.isEmpty)
         }
     }
+
+    @Test(arguments: [false, true], [UInt16(101), UInt16(109)])
+    func romanConversionCommitsOnlyTheSelectedCandidate(live: Bool, functionKey: UInt16) throws {
+        try withSession(liveConversion: live, treeCandidates: true) { session in
+            let snapshot = try beginSelecting(session)
+            let prefix = try #require(snapshot.candidates.first { $0.text == "に" && $0.comparisonGroup == 2 })
+            _ = session.select(candidateIndex: prefix.index, submit: false, expectedGeneration: snapshot.generation)
+
+            let committed = session.key(key(functionKey))
+            #expect(committed.commits == [functionKey == 101 ? "ｎｉ" : "ni"])
+            #expect(committed.reading == "ほんごをべんきょう")
+            #expect(!committed.preedit.isEmpty)
+        }
+    }
+
+    @Test(arguments: [UInt16(101), UInt16(109)])
+    func romanConversionUsesTheEditedRangeAndStillConvertsWholeSelections(functionKey: UInt16) throws {
+        try withSession(liveConversion: false, treeCandidates: false) { session in
+            var snapshot = try beginSelecting(session)
+            let wholeCandidate = try #require(snapshot.candidates.max { ($0.comparisonGroup ?? 0) < ($1.comparisonGroup ?? 0) })
+            _ = session.select(candidateIndex: wholeCandidate.index, submit: false, expectedGeneration: snapshot.generation)
+            for _ in 0..<6 {
+                snapshot = session.key(key(123, shift: true))
+            }
+            snapshot = session.key(key(functionKey))
+            #expect(snapshot.commits == [functionKey == 101 ? "ｎｉｈｏｎｇｏ" : "nihongo"])
+            #expect(snapshot.reading == "をべんきょう")
+
+            _ = session.reset(commit: false)
+            snapshot = try beginSelecting(session)
+            let wholeSelection = try #require(snapshot.candidates.max { ($0.comparisonGroup ?? 0) < ($1.comparisonGroup ?? 0) })
+            _ = session.select(candidateIndex: wholeSelection.index, submit: false, expectedGeneration: snapshot.generation)
+            snapshot = session.key(key(functionKey))
+            #expect(snapshot.commits == [functionKey == 101 ? "ｎｉｈｏｎｇｏｗｏｂｅｎｋｙｏｕ" : "nihongowobenkyou"])
+            #expect(snapshot.reading.isEmpty)
+            #expect(snapshot.preedit.isEmpty)
+        }
+    }
 }

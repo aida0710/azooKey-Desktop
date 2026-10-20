@@ -823,16 +823,24 @@ public final class SegmentsManager {
     }
 
     @MainActor
-    public func getModifiedRomanCandidate(inputState: InputState = .composing, _ transform: (String) -> String) -> Candidate {
+    public func getModifiedRomanCandidate(inputState: InputState, _ transform: (String) -> String) -> Candidate {
         let targetComposingText: ComposingText
+        let composingCount: ComposingCount
         switch inputState {
         case .selecting:
-            targetComposingText = self.composingText.prefixToCursorPosition()
+            composingCount = self.selectedCandidate?.composingCount
+                ?? .surfaceCount(self.composingText.convertTargetCursorPosition)
+            var remaining = self.composingText
+            remaining.prefixComplete(composingCount: composingCount)
+            let selectedReadingCount = self.composingText.convertTarget.count - remaining.convertTarget.count
+            var selectedInput = self.composingText
+            _ = selectedInput.moveCursorFromCursorPosition(count: selectedReadingCount - selectedInput.convertTargetCursorPosition)
+            targetComposingText = selectedInput.prefixToCursorPosition()
         case .composing, .previewing, .none, .replaceSuggestion, .attachDiacritic, .unicodeInput:
             targetComposingText = self.composingText
+            composingCount = .inputCount(self.composingText.input.count)
         }
         let inputString = targetComposingText.input.map(\.piece).inputString(preferIntention: false)
-        let composingCount: ComposingCount = .inputCount(targetComposingText.input.count)
         let candidateText = transform(inputString)
         let candidate = Candidate(
             text: candidateText,

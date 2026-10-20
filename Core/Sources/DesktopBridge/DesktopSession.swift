@@ -234,7 +234,7 @@ final class DesktopSession: SegmentManagerDelegate {
         generation += 1
         if doubleTap, event.keyCode == 102, !segments.isEmpty {
             var commits: [String] = []
-            commit(segments.getModifiedRomanCandidate { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &commits)
+            commit(segments.getModifiedRomanCandidate(inputState: state) { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &commits)
             language = .english
             state = segments.isEmpty ? .none : .composing
             converter.commitUpdateLearningData()
@@ -305,9 +305,9 @@ final class DesktopSession: SegmentManagerDelegate {
         case .submitHankakuKatakanaCandidate:
             commit(segments.getModifiedRubyCandidate(inputState: state) { $0.toKatakana().applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &result.commits)
         case .submitFullWidthRomanCandidate:
-            commit(segments.getModifiedRomanCandidate { $0.applyingTransform(.fullwidthToHalfwidth, reverse: true) ?? $0 }, into: &result.commits)
+            commit(segments.getModifiedRomanCandidate(inputState: state) { $0.applyingTransform(.fullwidthToHalfwidth, reverse: true) ?? $0 }, into: &result.commits)
         case .submitHalfWidthRomanCandidate:
-            commit(segments.getModifiedRomanCandidate { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &result.commits)
+            commit(segments.getModifiedRomanCandidate(inputState: state) { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &result.commits)
         case .enableDebugWindow: segments.requestDebugWindowMode(enabled: true)
         case .disableDebugWindow: segments.requestDebugWindowMode(enabled: false)
         case .stopComposition: segments.stopComposition()
