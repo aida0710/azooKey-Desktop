@@ -231,3 +231,35 @@ for (const workAreaHeight of [800, 320]) {
     }
 }
 print('GNOME expanded entry: examples gain readable space at 800px, 320px stays bounded, and composition/page controls/confirm-once survive PASS');
+
+
+const fractional = new Detail({changed() {}, toggleTree() {}});
+fractional.setWordDefinitions(longResponse);
+fractional.applyPalette({background: '#fff', text: '#000', border: '#ccc'});
+const fractionalHeaderHeight = 44.2;
+const fractionalHeadingHeight = 30.4;
+const fractionalPreviewHeight = 32.7;
+fractional._header.get_preferred_height = () => [fractionalHeaderHeight, fractionalHeaderHeight];
+fractional._definitionHeading.get_preferred_height = () => [fractionalHeadingHeight, fractionalHeadingHeight];
+fractional._definitionPreview.get_preferred_height = () => [fractionalPreviewHeight, fractionalPreviewHeight];
+fractional._scrollContent.get_preferred_height = () => [900.3, 900.3];
+const separatorHeight = Number(fractional.actor.style.match(/border-top: ([\d.]+)px/)[1]);
+for (const [expanded, maximumHeight, availableHeight] of [
+    [true, 345.6, 500.8], [true, 345.6, 160.9], [true, 120.1, 70.9],
+    [false, 120.7, 150.8], [false, 120.7, 100.9], [false, 120.7, 70.9],
+]) {
+    fractional.expanded = expanded;
+    const height = fractional.layout({identity: 'fractional', treeExpanded: false,
+        fontSize: 24, width: 558, maximumHeight, availableHeight});
+    for (const allocation of [height, fractional.actor.height, fractional._scroll.height, fractional._definitionSummary.height])
+        assert(Number.isInteger(allocation) && allocation >= 0, 'Every detail allocation must use whole pixels');
+    const previewHeight = fractional._definitionSummary.visible ? Math.ceil(fractionalPreviewHeight) +
+        (fractional._definitionHeading.visible ? Math.ceil(fractionalHeadingHeight) : 0) : 0;
+    const childrenAndBorder = Math.ceil(fractionalHeaderHeight) + separatorHeight +
+        Math.ceil(fractional._scroll.height) + previewHeight;
+    assert(childrenAndBorder <= height, 'Independently rounded children plus the separator must fit the parent');
+    assert(height <= Math.floor(availableHeight), 'The parent must stay inside the remaining work area');
+    if (expanded)
+        assert(height <= Math.floor(maximumHeight), 'The expanded viewport must stay inside its fractional maximum');
+}
+print('GNOME fractional theme metrics: rounded child heights and the separator stay within whole-pixel parent/work-area bounds PASS');

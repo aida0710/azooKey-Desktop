@@ -7,6 +7,8 @@ import {createWrappingLabel} from './candidateText.js';
 
 // Secondary controls use less padding but retain their action target height.
 const DETAILS_INSET = 8;
+// The painted separator belongs outside the children's content allocation.
+const DETAILS_BORDER_WIDTH = 1;
 // Only the first short meaning is visible before the user opens the full entry.
 const DEFINITION_SUMMARY_CHARACTERS = 96;
 const WORDNET_URL = 'https://bond-lab.github.io/wnja/index.ja.html';
@@ -71,25 +73,30 @@ export class CandidateDetail {
         }
         this._definitionSource.visible = this._definition?.status === 'found';
         this._definitionSource.set_style(`font-size: ${Math.max(12, fontSize - 4)}px; padding: 5px 8px; min-height: 34px;`);
-        const headerHeight = this._header.get_preferred_height(width)[1];
-        const headingHeight = this._definitionHeading.get_preferred_height(textWidth)[1];
-        const previewHeight = this._definitionPreview.get_preferred_height(textWidth)[1];
+        // Clutter rounds children independently; reserve natural heights upward
+        // and allocate whole pixels downward so their sum stays inside the actor.
+        const headerHeight = Math.ceil(this._header.get_preferred_height(width)[1]);
+        const headingHeight = Math.ceil(this._definitionHeading.get_preferred_height(textWidth)[1]);
+        const previewHeight = Math.ceil(this._definitionPreview.get_preferred_height(textWidth)[1]);
+        const headerAndBorderHeight = headerHeight + DETAILS_BORDER_WIDTH;
+        const maximumPixelHeight = Math.max(0, Math.floor(maximumHeight));
+        const availablePixelHeight = Math.max(0, Math.floor(availableHeight));
         const summaryNaturalHeight = headingHeight + previewHeight;
         // Give the measured preview priority over list rows, within the remaining
         // work area; a theme's actual font metrics need not equal a pixel multiplier.
-        const preferredHeight = this.expanded ? maximumHeight : Math.max(maximumHeight, headerHeight + summaryNaturalHeight);
-        const heightBudget = Math.max(headerHeight, Math.min(availableHeight, preferredHeight));
-        const contentBudget = Math.max(0, heightBudget - headerHeight);
+        const preferredHeight = this.expanded ? maximumPixelHeight : Math.max(maximumPixelHeight, headerAndBorderHeight + summaryNaturalHeight);
+        const heightBudget = Math.max(headerAndBorderHeight, Math.min(availablePixelHeight, preferredHeight));
+        const contentBudget = Math.max(0, heightBudget - headerAndBorderHeight);
         const showPreview = !this.expanded && previewHeight <= contentBudget;
         this._definitionPreview.visible = showPreview;
         this._definitionHeading.visible = showPreview && headingHeight + previewHeight <= contentBudget;
         this._definitionSummary.visible = showPreview;
         const detailHeight = this.expanded ? Math.min(contentBudget,
-            this._scrollContent.get_preferred_height(width)[1]) : 0;
+            Math.ceil(this._scrollContent.get_preferred_height(width)[1])) : 0;
         const summaryHeight = showPreview ? previewHeight + (this._definitionHeading.visible ? headingHeight : 0) : 0;
         this._definitionSummary.set_size(width, summaryHeight);
         this._scroll.height = detailHeight;
-        const height = headerHeight + detailHeight + summaryHeight;
+        const height = headerAndBorderHeight + detailHeight + summaryHeight;
         this.actor.set_size(width, height);
         return height;
     }
@@ -179,7 +186,7 @@ export class CandidateDetail {
 
     applyPalette(palette) {
         this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text};
-            border-top: 1px solid ${palette.border};`);
+            border-top: ${DETAILS_BORDER_WIDTH}px solid ${palette.border};`);
     }
 
     reset() { this.expanded = false; this.setWordDefinitions(null); this.retire(); }
