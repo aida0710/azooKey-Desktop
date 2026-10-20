@@ -14,6 +14,16 @@ SUMMARY_CHARACTER_LIMIT = 96
 SUMMARY_MAXIMUM_HEIGHT = 144
 # Two measured body lines remain useful even when the entire popup must scroll.
 SUMMARY_MINIMUM_LINES = 2
+# Full entries grow only their independent card to roughly 330px with controls.
+FULL_ENTRY_MAXIMUM_HEIGHT = 280
+TERMINAL_DEFINITION_STATES = frozenset(("found", "notFound", "unavailable", "error"))
+
+
+def definition_target_key(target):
+    if target is None:
+        return None
+    # A fresh request generation may keep the same word in the same control.
+    return (target.context, target.node_id, target.candidate_index, target.word, target.reading)
 
 
 def definition_text(response, *, expanded=False, include_heading=True):
@@ -72,10 +82,11 @@ class WordDefinitionView(Gtk.Box):
         self.changed = changed
         self.expanded = False
         self.response = None
-        self.last_definition = None
+        self.retained_response = None
+        self.retained_target_key = None
         self.active = False
         self.target_identity = None
-        self.header = Gtk.Box(spacing=4)
+        self.header = Gtk.Box(spacing=4, margin_start=8, margin_end=8, margin_bottom=8)
         self.word_heading = Gtk.Label(xalign=0)
         self.word_heading.set_margin_start(CandidateDetail.HORIZONTAL_MARGIN)
         self.word_heading.set_margin_end(CandidateDetail.HORIZONTAL_MARGIN)
@@ -88,10 +99,10 @@ class WordDefinitionView(Gtk.Box):
         self.replace_actions()
         self.summary = CandidateDetail(minimum_height=0, maximum_height=SUMMARY_MAXIMUM_HEIGHT)
         self.details = CandidateDetail(minimum_height=0)
-        self.pack_start(self.header, False, False, 0)
         self.pack_start(self.word_heading, False, False, 0)
         self.pack_start(self.summary, False, False, 0)
         self.pack_start(self.details, False, False, 0)
+        self.pack_start(self.header, False, False, 0)
         for widget in (self.header, self.word_heading, self.summary, self.details):
             widget.set_no_show_all(True)
 
@@ -110,30 +121,33 @@ class WordDefinitionView(Gtk.Box):
         if target_identity != self.target_identity:
             self.target_identity = target_identity
             self.replace_actions()
-        full_response = response
-        if (response and response.get("status") == "loading" and self.last_definition
-                and (response.get("word"), response.get("reading")) == (self.last_definition.get("word"), self.last_definition.get("reading"))):
-            # A new generation of the same word can reuse the visible text while
-            # its cached result is delivered, without resetting the reading position.
-            full_response = self.last_definition
-        elif response and response.get("status") == "found":
-            self.last_definition = response
+        target_key = definition_target_key(target_identity)
+        if (active and response and response.get("status") == "loading" and self.retained_response
+                and target_key is not None and target_key == self.retained_target_key
+                and (response.get("word"), response.get("reading")) ==
+                (self.retained_response.get("word"), self.retained_response.get("reading"))):
+            # Shrinking to a loading caption can clamp the outer scroll before
+            # the same result returns. Retain all visible content and controls.
+            response = self.retained_response
+        elif active and response and response.get("status") in TERMINAL_DEFINITION_STATES:
+            self.retained_response = response
+            self.retained_target_key = target_key
         else:
-            self.last_definition = None
+            self.retained_response = None
+            self.retained_target_key = None
         self.response = response
         self.active = active
         self.font_size = font_size
         toggle_key = "candidate.definition.closeFull" if self.expanded else "candidate.definition.openFull"
         self.toggle.set_label(("▾ " if self.expanded else "▸ ") + message(toggle_key))
         self.toggle.get_accessible().set_name(message(toggle_key))
-        heading = message("candidate.definition.word", word=(response or {}).get("word", ""),
-                          reading=(response or {}).get("reading", ""))
+        heading = (response or {}).get("word", "")
         self.word_heading.set_text(heading)
         attributes = Pango.AttrList()
         attributes.insert(Pango.attr_size_new_absolute(round(font_size * Pango.SCALE)))
         self.word_heading.set_attributes(attributes)
         self.summary.update(definition_text(response, include_heading=False), font_size=font_size, width=width)
-        self.details.update(definition_text(full_response, expanded=True), font_size=font_size, width=width)
+        self.details.update(definition_text(response, expanded=True), font_size=font_size, width=width)
         # The header opts out of its parent's show_all to keep live input compact.
         self.toggle.show_all()
         self.summary.get_child().show_all()
@@ -151,7 +165,8 @@ class WordDefinitionView(Gtk.Box):
         controls_width += max(0, len(controls) - 1) * self.header.get_spacing()
         # System text scaling also enlarges these native buttons. Wrap only
         # the controls, never move the dictionary below the candidate column.
-        self.header.set_orientation(Gtk.Orientation.VERTICAL if controls_width > width else Gtk.Orientation.HORIZONTAL)
+        header_width = width - self.header.get_margin_start() - self.header.get_margin_end()
+        self.header.set_orientation(Gtk.Orientation.VERTICAL if controls_width > header_width else Gtk.Orientation.HORIZONTAL)
 
     def fit_height(self, *, width, available_height):
         pane = self.details if self.expanded else self.summary
@@ -166,8 +181,7 @@ class WordDefinitionView(Gtk.Box):
         # A short work area scrolls the card rather than crushing a meaning into
         # a few pixels. The dictionary's own viewport handles long entries.
         limit = max(minimum_body, available_height - controls_height)
-        if not self.expanded:
-            limit = min(SUMMARY_MAXIMUM_HEIGHT, limit)
+        limit = min(FULL_ENTRY_MAXIMUM_HEIGHT if self.expanded else SUMMARY_MAXIMUM_HEIGHT, limit)
         pane.set_min_content_height(0)
         pane.set_max_content_height(max(1, limit))
         natural_height = pane.get_child().get_preferred_height_for_width(width)[1]
@@ -182,7 +196,8 @@ class WordDefinitionView(Gtk.Box):
         self.expanded = False
         self.active = False
         self.response = None
-        self.last_definition = None
+        self.retained_response = None
+        self.retained_target_key = None
         self.target_identity = None
         self.replace_actions()
 

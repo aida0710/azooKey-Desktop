@@ -20,11 +20,21 @@ class WordDefinitionColumnLayoutTests(unittest.TestCase):
         for font_size in (18, 24, 48):
             wide = word_definition_columns(candidate_width=420, font_size=font_size, available_width=960)
             narrow = word_definition_columns(candidate_width=420, font_size=font_size, available_width=320)
-            self.assertLessEqual(wide.width, 960)
-            self.assertGreaterEqual(narrow.candidate_width, 360)
-            self.assertGreaterEqual(narrow.definition_width, 280)
+            if font_size <= 24:
+                self.assertLessEqual(wide.width, 960)
+            else:
+                self.assertGreater(wide.width, 960)  # Enlarged readable cards use the horizontal viewport.
+            self.assertGreaterEqual(narrow.candidate_width, round(240 * font_size / 18))
+            self.assertGreaterEqual(narrow.definition_width, round(280 * font_size / 18))
             self.assertGreater(narrow.width, 320)
             self.assertEqual(narrow.gap, 10)
+
+    def test_standard_cards_are_small_and_large_text_expands_both_readable_cards(self):
+        standard = word_definition_columns(candidate_width=260, font_size=18, available_width=1200)
+        large = word_definition_columns(candidate_width=round(260 * 24 / 18), font_size=24, available_width=1200)
+        self.assertEqual((standard.candidate_width, standard.definition_width, standard.width), (260, 280, 550))
+        self.assertGreater(large.candidate_width, standard.candidate_width)
+        self.assertGreater(large.definition_width, standard.definition_width)
 
     def test_pointer_can_cross_the_gap_and_read_the_entry_but_not_leave_into_other_regions(self):
         rectangles = {"row": (100, 200, 300, 44), "definition": (420, 160, 320, 300)}
@@ -143,7 +153,7 @@ class WordDefinitionGtkTests(unittest.TestCase):
         CandidateThemeTests.wait_for_paint(self.panel, self.GLib)
         toggle = self.panel.definitions.toggle
         self.assertTrue(toggle.get_mapped())
-        self.assertIn("全文を表示", toggle.get_label())
+        self.assertIn("詳しく", toggle.get_label())
         self.assertGreaterEqual(toggle.get_allocated_height(), 44)
         self.assertEqual(self.panel.definitions.source.get_label(), "WordNet 1.1")
         self.assertEqual(self.panel.definitions.source.get_accessible().get_name(), "日本語ワードネット 1.1")
@@ -212,11 +222,15 @@ class WordDefinitionGtkTests(unittest.TestCase):
         self.assertGreater(scroll.get_upper(), scroll.get_page_size())
         scroll.set_value(30)
         reading_position = scroll.get_value()
+        summary_before = self.panel.definitions.summary.displayed_text
         self.assertGreater(reading_position, 0)
         self.panel.suspend(); self.flush()
         self.assertFalse(self.panel.get_visible())
         self.assertIsNone(self.panel.definition_lookup.target)
-        self.panel.update({**self.snapshot, "generation": 2}); self.wait_found()
+        self.panel.update({**self.snapshot, "generation": 2})
+        self.assertEqual(self.panel.definitions.summary.displayed_text, summary_before)
+        self.assertTrue(self.panel.definitions.source.get_visible())
+        self.wait_found()
         CandidateThemeTests.wait_for_paint(self.panel, self.GLib)
         self.assertIn("保証", self.panel.definitions.summary.displayed_text)
         self.assertEqual(scroll.get_value(), reading_position)
@@ -226,6 +240,10 @@ class WordDefinitionGtkTests(unittest.TestCase):
         with patch("azookey.word_definition_view.Gio.AppInfo.launch_default_for_uri") as opened:
             old_source_action()
             opened.assert_not_called()
+        self.panel.update({**self.snapshot, "contextId": "different-input-field", "generation": 3})
+        self.assertEqual(self.panel.definitions.response["status"], "loading")
+        self.assertNotEqual(self.panel.definitions.summary.displayed_text, summary_before)
+        self.wait_found()
         self.assertEqual(self.commits, [])
 
     def test_large_text_and_full_entry_stay_inside_the_available_screen(self):
@@ -329,7 +347,7 @@ class WordDefinitionGtkTests(unittest.TestCase):
                 self.paint()
                 horizontal = self.panel.viewport.get_hadjustment()
                 self.assertGreater(horizontal.get_upper(), horizontal.get_page_size())
-                self.assertGreaterEqual(self.panel.candidate_width, 360)
+                self.assertGreaterEqual(self.panel.candidate_width, round(240 * self.panel.font_size / 18))
                 self.assertGreaterEqual(self.panel.definition_width, 280)
                 horizontal.set_value(horizontal.get_upper() - horizontal.get_page_size()); self.paint()
                 self.assert_widget_inside_popup(self.panel.definitions.source)
@@ -345,6 +363,147 @@ class WordDefinitionGtkTests(unittest.TestCase):
             self.panel.navigation.confirm.clicked()
             self.panel.navigation.confirm.clicked()
             self.assertEqual(self.commits, [("select", 0, True)])
+
+    def snapshot_with_candidates(self, count):
+        snapshot = deepcopy(self.snapshot)
+        for index in range(3, count):
+            word = f"候補{index}"
+            snapshot["nodes"].append({"id": index, "text": word, "reading": "コウホ", "depth": 0,
+                                      "parent": None, "terminals": [index], "preview": {"candidateIndex": index}})
+            snapshot["candidates"].append({"index": index, "text": word, "tokens": [{"text": word, "reading": "コウホ"}]})
+        snapshot["columns"] = [[node["id"] for node in snapshot["nodes"]]]
+        snapshot["candidatePage"].update({"totalCount": count, "items": [
+            {"index": item["index"], "text": item["text"], "reading": item["tokens"][0]["reading"]}
+            for item in snapshot["candidates"][:9]]})
+        return snapshot
+
+    def test_small_default_card_prioritizes_numbers_and_words_with_about_five_rows(self):
+        self.panel.update(self.snapshot_with_candidates(9)); self.wait_found(); self.paint()
+        navigation = self.panel.navigation
+        self.assertGreaterEqual(self.panel.candidate_width, 240)
+        self.assertLessEqual(self.panel.candidate_width, 280)
+        for widget in (self.panel.composition_title, self.panel.composition, navigation.header,
+                       navigation.hint, self.panel.disclosures):
+            self.assertFalse(widget.get_visible())
+        self.assertTrue(navigation.confirm.get_mapped())
+        self.assertTrue(self.panel.disclosure_actions["options"].get_mapped())
+        self.assertEqual(navigation.row_buttons[0].number_label.get_text(), "1")
+        self.assertEqual(navigation.row_buttons[0].text_label.get_text(), "保証")
+        self.assertEqual(navigation.row_buttons[0].selection_label.get_text(), "✓")
+        first_five = navigation.row_buttons[:5]
+        first_six = navigation.row_buttons[:6]
+        five_rows_height = sum(row.get_allocated_height() for row in first_five) + 4 * navigation.rows.get_spacing()
+        six_rows_height = sum(row.get_allocated_height() for row in first_six) + 5 * navigation.rows.get_spacing()
+        self.assertGreaterEqual(navigation.scroll.get_allocated_height(), five_rows_height)
+        self.assertLess(navigation.scroll.get_allocated_height(), six_rows_height)
+        for row in navigation.row_buttons:
+            self.assertGreaterEqual(row.get_allocated_height(), 44)
+        self.assertGreater(navigation.scroll.get_vadjustment().get_upper(),
+                           navigation.scroll.get_vadjustment().get_page_size())
+        self.assertFalse(navigation.previous.get_mapped())
+        self.assertFalse(navigation.next.get_mapped())
+        self.assertEqual(self.commits, [])
+
+    def test_opening_full_explanation_changes_only_the_independent_right_card(self):
+        import sqlite3
+        with sqlite3.connect(self.path) as connection:
+            connection.execute("UPDATE synset_def SET def=? WHERE synset='assurance' AND lang='jpn'",
+                               ("義務が果たされるという保証。" * 200,))
+        self.panel.update(self.snapshot); self.wait_found(); self.paint()
+        left_before = (self.panel.content.get_allocated_width(), self.panel.content.get_allocated_height(),
+                       self.panel.navigation.scroll.get_allocated_height())
+        rows_before = tuple(self.panel.navigation.row_buttons)
+        self.assertEqual(self.panel.definitions.word_heading.get_text(), "保証")
+        self.panel.definitions.toggle.clicked(); self.paint()
+        self.assertTrue(self.panel.definitions.expanded)
+        self.assertEqual(left_before, (self.panel.content.get_allocated_width(), self.panel.content.get_allocated_height(),
+                                       self.panel.navigation.scroll.get_allocated_height()))
+        self.assertEqual(tuple(self.panel.navigation.row_buttons), rows_before)
+        self.assertGreaterEqual(self.panel.definition_column.get_allocated_height(), 280)
+        self.assertLessEqual(self.panel.definition_column.get_allocated_height(), 340)
+        scroll = self.panel.definitions.details.get_vadjustment()
+        self.assertGreater(scroll.get_upper(), scroll.get_page_size())
+        self.assertIs(self.document.get_focus(), self.entry)
+        self.assertEqual(self.commits, [])
+
+    def test_footer_keeps_paging_confirmation_and_optional_word_controls_separate_from_selection(self):
+        snapshot = self.snapshot_with_candidates(18)
+        snapshot["candidatePage"].update({"previousIndex": None, "nextIndex": 9})
+        self.panel.update(snapshot); self.wait_found(); self.paint()
+        navigation = self.panel.navigation
+        old_next = navigation.next
+        old_confirm = navigation.confirm
+        old_options = self.panel.disclosure_actions["options"]
+        for control in (navigation.next, navigation.confirm, old_options):
+            self.assertIs(control.get_parent(), navigation.footer)
+            self.assertGreaterEqual(control.get_allocated_height(), 44)
+            self.assertFalse(control.get_can_focus())
+            self.assert_widget_inside_popup(control)
+        self.assertEqual(navigation.next.get_accessible().get_name(), "次へ")
+        navigation.next.clicked()
+        self.assertEqual(self.commits, [("select", 9, False)])
+        old_options.clicked(); self.paint()
+        self.assertTrue(self.panel.disclosures.get_visible())
+        self.assertFalse(self.panel.scroll.get_visible())
+        self.assertFalse(self.panel.details.get_visible())
+        old_tree = self.panel.disclosure_actions["tree"]
+        old_options.clicked(); self.paint()
+        old_tree.clicked()
+        self.assertFalse(self.panel.tree_expanded)
+        self.assertFalse(self.panel.disclosures.get_visible())
+        self.panel.update({**snapshot, "contextId": "another-field", "generation": 2}); self.paint()
+        old_next.clicked(); old_confirm.clicked(); old_options.clicked()
+        self.assertEqual(self.commits, [("select", 9, False)])
+        self.assertFalse(self.panel.options_expanded)
+        self.assertFalse(self.panel.disclosures.get_visible())
+        navigation.confirm.clicked(); navigation.confirm.clicked()
+        self.assertEqual(self.commits, [("select", 9, False), ("select", 0, True)])
+        self.assertIs(self.document.get_focus(), self.entry)
+
+    def test_optional_metadata_exposes_full_commit_text_without_restoring_default_clutter(self):
+        self.panel.update(self.snapshot); self.wait_found(); self.paint()
+        self.panel.disclosure_actions["options"].clicked()
+        self.panel.disclosure_actions["details"].clicked(); self.paint()
+        self.assertTrue(self.panel.composition.get_visible())
+        self.assertEqual(self.panel.composition.displayed_text, self.snapshot["candidates"][0]["text"])
+        self.assertTrue(self.panel.details.get_visible())
+        self.panel.disclosure_actions["details"].clicked(); self.paint()
+        self.assertFalse(self.panel.composition.get_visible())
+        self.assertFalse(self.panel.details.get_visible())
+        self.assertFalse(self.panel.navigation.hint.get_visible())
+        self.assertEqual(self.commits, [])
+
+    def test_gap_and_space_below_the_short_card_leave_the_common_parent_transparent(self):
+        import cairo
+        from gi.repository import Gtk
+        self.panel.update(self.snapshot_with_candidates(9)); self.wait_found(); self.paint()
+        left_x, left_y = self.panel.content.translate_coordinates(self.panel, 0, 0)
+        right_x, right_y = self.panel.definition_column.translate_coordinates(self.panel, 0, 0)
+        left_right = left_x + self.panel.content.get_allocated_width()
+        left_bottom = left_y + self.panel.content.get_allocated_height()
+        right_bottom = right_y + self.panel.definition_column.get_allocated_height()
+        self.assertGreater(right_x, left_right)
+        self.assertGreater(left_bottom, right_bottom)
+        width, height = self.panel.get_size()
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+        context = cairo.Context(surface)
+        context.set_source_rgba(1, 0, 0, 1)
+        context.paint()  # A redraw must clear an existing opaque backing pixel too.
+        Gtk.Widget.draw(self.panel, context)
+        surface.flush()
+        pixels = surface.get_data()
+        gap = ((left_right + right_x) // 2, max(left_y, right_y) + 8)
+        below = (right_x + self.panel.definition_column.get_allocated_width() // 2,
+                 (right_bottom + left_bottom) // 2)
+        for x, y in (gap, below):
+            pixel = bytes(pixels[y * surface.get_stride() + x * 4:y * surface.get_stride() + x * 4 + 4])
+            self.assertEqual(int.from_bytes(pixel, sys.byteorder) >> 24, 0, (x, y))
+        row = self.panel.navigation.row_buttons[0]
+        row_x, row_y = row.translate_coordinates(self.panel, row.get_allocated_width() // 2,
+                                                 row.get_allocated_height() // 2)
+        offset = row_y * surface.get_stride() + row_x * 4
+        self.assertEqual(int.from_bytes(bytes(pixels[offset:offset + 4]), sys.byteorder) >> 24, 255)
+        self.assertTrue(self.panel.get_app_paintable())
 
     def enter_definition_from_alternative(self):
         from gi.repository import Gdk

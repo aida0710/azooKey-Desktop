@@ -2,12 +2,13 @@
 from dataclasses import dataclass
 
 
-# Keep sentences and dictionary prose readable without shrinking 18/24px text.
-CANDIDATE_MINIMUM_WIDTH = 360
-CANDIDATE_MAXIMUM_WIDTH = 480
+# Compact IME cards keep readable type; large type expands instead of shrinking.
+CANDIDATE_MINIMUM_WIDTH = 240
+CANDIDATE_PREFERRED_WIDTH = 260
+CANDIDATE_MAXIMUM_WIDTH = 280
 DEFINITION_MINIMUM_WIDTH = 280
-DEFINITION_PREFERRED_WIDTH = 320
-DEFINITION_MAXIMUM_WIDTH = 360
+DEFINITION_PREFERRED_WIDTH = 280
+DEFINITION_MAXIMUM_WIDTH = 320
 COLUMN_GAP = 10
 STANDARD_FONT_SIZE = 18
 
@@ -24,12 +25,14 @@ class WordDefinitionColumns:
 
 
 def word_definition_columns(*, candidate_width, font_size, available_width):
-    candidate = min(CANDIDATE_MAXIMUM_WIDTH, max(CANDIDATE_MINIMUM_WIDTH, int(candidate_width)))
-    definition = min(DEFINITION_MAXIMUM_WIDTH, max(
-        DEFINITION_MINIMUM_WIDTH, round(DEFINITION_PREFERRED_WIDTH * font_size / STANDARD_FONT_SIZE)))
-    candidate = min(candidate, max(CANDIDATE_MINIMUM_WIDTH,
-                                   available_width - COLUMN_GAP - DEFINITION_MINIMUM_WIDTH))
-    definition = min(definition, max(DEFINITION_MINIMUM_WIDTH, available_width - COLUMN_GAP - candidate))
+    scale = max(1, font_size / STANDARD_FONT_SIZE)
+    minimum_candidate = round(CANDIDATE_MINIMUM_WIDTH * scale)
+    minimum_definition = round(DEFINITION_MINIMUM_WIDTH * scale)
+    candidate = min(round(CANDIDATE_MAXIMUM_WIDTH * scale), max(minimum_candidate, int(candidate_width)))
+    definition = min(round(DEFINITION_MAXIMUM_WIDTH * scale), max(
+        minimum_definition, round(DEFINITION_PREFERRED_WIDTH * scale)))
+    candidate = min(candidate, max(minimum_candidate, available_width - COLUMN_GAP - minimum_definition))
+    definition = min(definition, max(minimum_definition, available_width - COLUMN_GAP - candidate))
     return WordDefinitionColumns(candidate, definition)
 
 

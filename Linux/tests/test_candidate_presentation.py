@@ -254,14 +254,33 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertFalse(navigation.row_buttons[1].selected)
         self.assertEqual(self.actions, [])
 
-    def test_short_candidate_page_shows_all_rows_when_the_work_area_has_room(self):
+    def test_short_words_fit_while_wrapped_sentences_remain_reachable_in_the_compact_menu(self):
         from gi.repository import GLib
         from Linux.tests.test_candidate_theme import CandidateThemeTests
 
         CandidateThemeTests.wait_for_paint(self.panel, GLib)
         adjustment = self.panel.navigation.scroll.get_vadjustment()
+        self.assertGreater(adjustment.get_upper(), adjustment.get_page_size())
+        self.assertEqual(self.panel.navigation.row_buttons[1].text_label.get_text(),
+                         self.snapshot["candidatePage"]["items"][1]["text"])
+        adjustment.set_value(adjustment.get_upper() - adjustment.get_page_size())
+        CandidateThemeTests.wait_for_paint(self.panel, GLib)
+        last = self.panel.navigation.row_buttons[-1]
+        _x, row_y = last.translate_coordinates(self.panel.navigation.rows, 0, 0)
+        self.assertGreaterEqual(row_y, adjustment.get_value())
+        self.assertLessEqual(row_y + last.get_allocated_height(), adjustment.get_value() + adjustment.get_page_size())
+
+        short = copy.deepcopy(self.snapshot)
+        for index, (word, reading) in enumerate((("私", "ワタシ"), ("日本語", "ニホンゴ"), ("勉強", "ベンキョウ"))):
+            short["nodes"][index].update({"text": word, "reading": reading})
+            short["candidates"][index]["text"] = word
+            short["candidatePage"]["items"][index].update({"text": word, "reading": reading})
+        self.panel.update(short)
+        CandidateThemeTests.wait_for_paint(self.panel, GLib)
         self.assertEqual(adjustment.get_page_size(), adjustment.get_upper())
         self.assertEqual(len(self.panel.navigation.row_buttons), 3)
+        self.assertIs(self.document.get_focus(), self.entry)
+        self.assertEqual(self.actions, [])
 
     def test_pending_at_confirm_does_not_confirm_the_next_selection_or_replaced_text(self):
         from gi.repository import GLib

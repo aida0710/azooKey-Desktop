@@ -12,7 +12,10 @@ from .candidate_detail import CandidateDetail
 from .word_definition_target import word_definition_target
 from .word_definition_lookup import WordDefinitionLookup, word_definition_worker
 from .word_definition_view import WordDefinitionView
-from .word_definition_layout import word_definition_columns, pointer_in_definition_corridor, pointer_in_rectangle
+from .word_definition_layout import (
+    CANDIDATE_PREFERRED_WIDTH, STANDARD_FONT_SIZE, pointer_in_definition_corridor,
+    pointer_in_rectangle, word_definition_columns,
+)
 from .candidate_navigation import CandidateNavigation
 from .candidate_placement import COLUMN_START_INSET, popup_placement
 from .ibus_coordinates import logical_cursor_rectangle
@@ -44,6 +47,7 @@ class TreePanel(Gtk.Window):
         visual = self.get_screen().get_rgba_visual()
         if visual:
             self.set_visual(visual)
+        self.connect("draw", self.clear_background)
         self.get_style_context().add_class("azookey-tree")
         css = Gtk.CssProvider()
         css.load_from_data(b"""
@@ -101,6 +105,7 @@ class TreePanel(Gtk.Window):
         self.definitions = WordDefinitionView(lambda: self.update(self.snapshot))
         self.definition_column = Gtk.EventBox(visible_window=False)
         self.definition_column.set_can_focus(False)
+        self.definition_column.set_valign(Gtk.Align.START)
         self.definition_column.set_no_show_all(True)
         self.definition_column.set_margin_bottom(8)
         self.definition_column.add(self.definitions)
@@ -153,6 +158,7 @@ class TreePanel(Gtk.Window):
         self.scroll_idle = None
         self.tree_expanded = False
         self.details_expanded = False
+        self.options_expanded = False
         self.disclosure_actions = {}
         self.suspending = False
         self.panel_css = Gtk.CssProvider()
@@ -168,6 +174,16 @@ class TreePanel(Gtk.Window):
         screen = self.get_screen()
         monitors_changed = screen.connect("monitors-changed", self.display_geometry_changed)
         self.connect("destroy", lambda *_: screen.disconnect(monitors_changed))
+
+    def clear_background(self, _widget, context):
+        # Only the individual cards paint a background; expose the desktop in
+        # their gap and below the shorter card after any resize or disclosure.
+        context.save()
+        context.set_operator(cairo.OPERATOR_SOURCE)
+        context.set_source_rgba(0, 0, 0, 0)
+        context.paint()
+        context.restore()
+        return False
 
     def display_geometry_changed(self, *_args):
         # X11 updates its global window scale before this monitor notification.
@@ -217,6 +233,7 @@ class TreePanel(Gtk.Window):
         self.candidate_numbers = {}
         self.tree_expanded = False
         self.details_expanded = False
+        self.options_expanded = False
         self.focus_key = None
         self.placement_side = None
         self.layout_diagnostics = {}
@@ -270,6 +287,7 @@ class TreePanel(Gtk.Window):
             self.navigation.dismiss(expanded_on_update=mode != "live")
             self.tree_expanded = mode == "live"
             self.details_expanded = False
+            self.options_expanded = False
             self.definitions.reset()
             self.definition_lookup.invalidate()
             self.retire_disclosures()
@@ -345,6 +363,9 @@ class TreePanel(Gtk.Window):
         aligned_x = self.column_anchor_x - COLUMN_START_INSET
         candidate_width = int(min(max(minimum_popup_width, width),
                                   760 if not aligned else max(minimum_popup_width, width), area.width) + 0.5)
+        if not live:
+            # Dictionary disclosure and long tree nodes never widen the candidate card.
+            candidate_width = round(CANDIDATE_PREFERRED_WIDTH * self.font_size / STANDARD_FONT_SIZE)
         columns_layout = (word_definition_columns(candidate_width=candidate_width, font_size=self.font_size,
                                                   available_width=area.width) if not live else None)
         self.candidate_width = columns_layout.candidate_width if columns_layout else candidate_width
@@ -358,14 +379,16 @@ class TreePanel(Gtk.Window):
             return
         popup_width = min(area.width, self.popup_content_width)
         self.content.set_size_request(self.candidate_width, -1)
+        self.content.set_valign(Gtk.Align.FILL if live else Gtk.Align.START)
         self.definition_column.set_size_request(self.definition_width, -1)
         self.card.set_spacing(columns_layout.gap if columns_layout else 0)
-        list_height = min(CandidateNavigation.MAXIMUM_LIST_HEIGHT, area.height // 3)
-        self.navigation.update(snapshot, font_size=self.font_size, list_height=list_height, compact=live)
+        list_height = min(CandidateNavigation.MAXIMUM_LIST_HEIGHT, area.height // 3) if live else area.height
+        self.navigation.update(snapshot, font_size=self.font_size, list_height=list_height, compact=live, minimal=not live)
         show_menu = not live or self.navigation.expanded
-        self.composition_title.set_visible(show_menu)
-        self.composition.set_visible(show_menu)
-        self.disclosures.set_visible(show_menu)
+        show_composition = show_menu and (live or self.details_expanded)
+        self.composition_title.set_visible(show_composition)
+        self.composition.set_visible(show_composition)
+        self.disclosures.set_visible(show_menu and (live or self.options_expanded or self.tree_expanded or self.details_expanded))
         self.content.reorder_child(self.scroll, 5 if show_menu else 0)
         self.update_composition(self.candidate_width)
         self.update_disclosures()
@@ -465,7 +488,7 @@ class TreePanel(Gtk.Window):
         navigation_children = sum(child.get_visible() for child in self.navigation.get_children())
         control_height += max(0, navigation_children - 1) * self.navigation.get_spacing()
         panes = [(self.composition, 1, COMPOSITION_MAXIMUM_HEIGHT), (self.remaining, 1, REMAINING_MAXIMUM_HEIGHT),
-                 (self.navigation.scroll, PRIMARY_LIST_HEIGHT_SHARE, CandidateNavigation.MAXIMUM_LIST_HEIGHT),
+                 (self.navigation.scroll, PRIMARY_LIST_HEIGHT_SHARE, self.navigation.list_height_limit),
                  (self.scroll, SUPPLEMENT_HEIGHT_SHARE, TREE_MAXIMUM_HEIGHT),
                  (self.details, SUPPLEMENT_HEIGHT_SHARE, CandidateDetail.MAXIMUM_HEIGHT)]
         panes = [pane for pane in panes if pane[0].get_visible()]
@@ -500,11 +523,32 @@ class TreePanel(Gtk.Window):
                 self.disclosure_actions[name] = button
             self.disclosure_actions[name].set_label(("▾ " if expanded else "▸ ") + message(close_key if expanded else open_key))
             self.disclosure_actions[name].show()
+        if self.presentation_mode == "menu":
+            if "options" not in self.disclosure_actions:
+                button = CandidateNavigation.button(lambda source: self.toggle_disclosure("options", source))
+                button.set_size_request(MINIMUM_NODE_SIZE, MINIMUM_NODE_SIZE)
+                button.get_style_context().add_class("candidate-disclosure")
+                self.navigation.footer.pack_start(button, False, False, 0)
+                self.disclosure_actions["options"] = button
+            options = self.disclosure_actions["options"]
+            options.set_label("⋯")
+            options.update_accessibility(message("candidate.closeOptions" if self.options_expanded else "candidate.openOptions"),
+                                         selected=self.options_expanded, description=message("candidate.openOptions"))
+            options.set_tooltip_text(message("candidate.openOptions"))
+            options.show()
 
     def toggle_disclosure(self, name, source):
         if not self.get_visible() or self.disclosure_actions.get(name) is not source:
             return
-        if name == "tree":
+        if name == "options":
+            self.options_expanded = not self.options_expanded
+            if not self.options_expanded:
+                self.tree_expanded = False
+                self.details_expanded = False
+                self.clear_actions()
+                self.focus_key = None
+                self.retire_disclosures()
+        elif name == "tree":
             self.tree_expanded = not self.tree_expanded
             self.clear_actions()
             self.focus_key = None
