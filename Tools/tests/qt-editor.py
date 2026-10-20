@@ -6,16 +6,19 @@ import pathlib
 import sys
 import time
 from fixture_events import FixtureEvents
+from fixture_reset import observe_reset
 
-from PyQt6.QtCore import QEvent, QTimer, QT_VERSION_STR
+from PyQt6.QtCore import QEvent, QTimer, QT_VERSION_STR, Qt
 from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QTextEdit, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QTabWidget, QTextEdit, QVBoxLayout, QWidget
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", type=pathlib.Path)
 parser.add_argument("--events", type=pathlib.Path)
+parser.add_argument("--reset-controls", action="store_true",
+                    help="Expose a non-focusing test action for Qt's retained application input context")
 arguments = parser.parse_args()
 if arguments.output:
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
@@ -36,6 +39,7 @@ tabs = QTabWidget()
 native_page = QWidget()
 native_layout = QVBoxLayout(native_page)
 editors = []
+retained_field_index = 0
 browser_fields = []
 # The prefix distinguishes this fixture's events from Chromium diagnostics.
 BROWSER_EVENT_PREFIX = "AZOOKEY_FIXTURE:"
@@ -62,6 +66,13 @@ def record():
         pending_output.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         pending_output.replace(arguments.output)
         event_log.append("state", state=state)
+
+
+def record_focus(_old, current):
+    global retained_field_index
+    if current in editors:
+        retained_field_index = editors.index(current)
+    record()
 
 
 class TestEditor(QTextEdit):
@@ -100,6 +111,14 @@ for index in range(2):
     editor.selectionChanged.connect(record)
     editors.append(editor)
     native_layout.addWidget(editor)
+if arguments.reset_controls:
+    reset_button = QPushButton("Reset retained input context")
+    reset_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    reset_button.clicked.connect(lambda: observe_reset(
+        event_log, api="QInputMethod.reset", field_index=retained_field_index,
+        reset=application.inputMethod().reset,
+    ))
+    native_layout.addWidget(reset_button)
 tabs.addTab(native_page, "Qt")
 
 browser = QWebEngineView()
@@ -127,7 +146,7 @@ report();
 </script></html>""")
 tabs.addTab(browser, "QtWebEngine")
 tabs.currentChanged.connect(record)
-application.focusChanged.connect(lambda _old, _new: record())
+application.focusChanged.connect(record_focus)
 application.focusWindowChanged.connect(lambda _window: record())
 window.setCentralWidget(tabs)
 window.resize(900, 600)

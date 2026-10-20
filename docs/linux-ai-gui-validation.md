@@ -65,7 +65,7 @@ python3 "$fixture_tools/ai_mock_server.py" release \
 
 ## 二つの欄を同じ文字と選択範囲にする
 
-GTK と Qt の fixture は `fixture_events.py` と同じディレクトリへコピーし、`--output state.json --events events.jsonl` を付けます。既存の events ファイルには追記できません。Chromium は `ime-editor.html` を専用 profile で開き、loopback CDP から `window.imeFixture.snapshot()` / `observations()` を読み取ります。QtWebEngine は独立 Chromium の代わりに数えません。
+GTK と Qt の fixture は `fixture_events.py`、`fixture_reset.py` と同じディレクトリへコピーし、`--output state.json --events events.jsonl` を付けます。既存の events ファイルには追記できません。Chromium は `ime-editor.html` を専用 profile で開き、loopback CDP から `window.imeFixture.snapshot()` / `observations()` を読み取ります。試行前後の履歴が同じ `ready` イベントから始まり、試行前の履歴全体が末尾の履歴にも残ることを照合します。2,000 件の上限に達した履歴から挿入数の完全性を推定しません。QtWebEngine は独立 Chromium の代わりに数えません。
 
 実キーボードで英数モードへ切り替え、両欄へ `PRIVATE_BEFORE TARGET_TEXT PRIVATE_AFTER` を入力します。元欄の `TARGET_TEXT` だけを選択し、本文・選択範囲・実焦点を保存します。二欄の内容と選択範囲を等しくすることで、文字列の一致だけに頼った誤適用を見つけます。CDP や AT-SPI の編集 API で本文を作りません。
 
@@ -81,9 +81,13 @@ GTK と Qt の fixture は `fixture_events.py` と同じディレクトリへコ
 | Reset 後の遅い応答 | `waiting` の間に保存した元 context へ Reset を送り、その通知を確認してから解放する | 両欄への結果の挿入は 0 回。古い結果から適用を再開しない |
 | 結果表示後の Reset | 結果表示後、適用前に元 context を Reset する | 結果の挿入は 0 回。元欄へ戻っても適用が復活しない。保存済みプレビューとコピーの状態を記録 |
 
-Reset はアプリの通常キー操作とは別の障害注入です。元欄を選択した時点で `ai_context_reset.py capture --context-file <new-file>` を実行し、同じファイルで `reset` を呼びます。IBus の bus GUID が変わった場合は拒否します。[InputContext の Reset](https://ibus.github.io/docs/ibus-1.5/IBusInputContext.html#ibus-input-context-reset) の応答と、製品 engine に届いた Reset の観測を同じ試行へ残します。要求の ACK だけでガード検証を合格にしません。
+Reset は通常入力とは別の障害注入です。元欄を選択した時点で `ai_context_identity.py --context-file <new-file>` を実行し、bus GUID と元 context を記録します。IBus は [context を作成した接続だけからの操作を許可](https://github.com/ibus/ibus/blob/1.5.29/bus/inputcontext.c#L1288)するため、別プロセスからその path へ Reset を送る方法は使いません。
 
-合成テキストの試行中だけ、同じ user session で次の監視を使います。`FocusInId` の context path と engine object path を結び付け、同じ engine への `Reset` を確認します。アプリから自然に届いた Reset と、helper による明示 Reset を、時刻と送信元で区別します。
+GTK・Qt は `--reset-controls` を明示したときだけ、非 focus の試験ボタンを表示します。AI ダイアログを前面に保ったまま、そのボタンを AT action で一度操作します。GTK の `Reset input context 1` は欄 1 の [`Gtk.TextView.reset_im_context`](https://docs.gtk.org/gtk3/method.TextView.reset_im_context.html)、Qt の `Reset retained input context` はアプリの [`QInputMethod.reset`](https://doc.qt.io/qt-6/qinputmethod.html#reset)を呼びます。Qt には欄を指定する引数がないため、直前に実 focus を持った欄を記録し、別欄の context と見なさないでください。本文や選択を作る API は呼びません。
+
+`reset-requested` と `reset-returned` はアプリ内 API の記録であり、配達の成功ではありません。ボタン操作前後に AI ウィンドウが active のままであること、元欄の本文と選択が変わらないこと、同じ試行内で製品 engine へ実際に `Reset` が届くことを別々に確認します。IBus の [Reset 転送は context に engine がある場合だけ](https://github.com/ibus/ibus/blob/1.5.29/bus/inputcontext.c#L1109)なので、非 active の context から配達されなければ、その条件を未検証として残します。Chromium に同じ公開 API の試験操作は用意していません。GTK/Qt の結果を転記しません。
+
+合成テキストの試行中だけ、同じ user session で次の監視を使います。`FocusInId` の context path と engine object path を結び付け、同じ engine への `Reset` を確認します。アプリから自然に届いた Reset と、試験ボタンによる明示 Reset を、時刻と送信元で区別します。
 
 ```bash
 ibus_address=$(ibus address)
