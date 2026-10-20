@@ -343,8 +343,7 @@ final class CandidateTreeView: NSView {
 
     private func candidateNumber(nodeID: Int) -> String? {
         // A shared word may preserve a full candidate; its badge must name that same action.
-        guard !tree.nodes[nodeID].terminalCandidateIndices.isEmpty,
-              let index = tree.preferredCandidate(at: nodeID, preserving: selection.selectedCandidateIndex) else {
+        guard let index = tree.preferredCandidate(at: nodeID, preserving: selection.selectedCandidateIndex) else {
             return nil
         }
         return numberLabels[index]
