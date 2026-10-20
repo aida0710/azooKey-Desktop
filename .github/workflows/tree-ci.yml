@@ -37,6 +37,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Check Homebrew updater with isolated fixtures
+        run: python3 Tools/tests/test-homebrew-update.py
       - run: bash Tools/test-docker.sh
       - name: Fetch pinned model pointers without LFS installation
         env:
@@ -53,10 +55,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Check Homebrew updater with native plist tools and isolated fixtures
+        run: python3 Tools/tests/test-homebrew-update.py
       - run: bash Tools/tests/test-sync-upstream.sh
       - run: bash Tools/tests/test-docker-preflight.sh
       - run: bash Tools/test-tree-model.sh
       - run: swift test --package-path Core
+      - name: Check the Homebrew update window and job lifecycle
+        run: bash Tools/test-macos-app.sh test --filter HomebrewUpdate --jobs 4
       - run: bash Tools/test-macos-app.sh test --jobs 4
       - run: AZOOKEY_INFERENCE_BACKEND=cpu bash Tools/test-macos-app.sh test --jobs 4
       - name: Diagnose a macOS test-process crash

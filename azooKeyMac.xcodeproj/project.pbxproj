@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B33385969BF5DD31318A1BC9 /* HomebrewUpdate.command in Resources */ = {isa = PBXBuildFile; fileRef = 42BBB8A1AAB17674CF2D2051 /* HomebrewUpdate.command */; };
 		1A41E61C26E745DD009B65D7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1A41E61B26E745DD009B65D7 /* Assets.xcassets */; };
 		1A41E64226E74627009B65D7 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A41E64126E74627009B65D7 /* AppDelegate.swift */; };
 		1A41E64726E74937009B65D7 /* main.tiff in Resources */ = {isa = PBXBuildFile; fileRef = 1A41E64626E74937009B65D7 /* main.tiff */; };
@@ -40,6 +41,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		42BBB8A1AAB17674CF2D2051 /* HomebrewUpdate.command */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = HomebrewUpdate.command; sourceTree = "<group>"; };
 		1A41E61426E745D9009B65D7 /* azooKeyMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = azooKeyMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A41E61B26E745DD009B65D7 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1A41E62426E745DD009B65D7 /* azooKeyMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = azooKeyMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -140,6 +142,7 @@
 		55E1E7412BEF63AE0084A069 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				42BBB8A1AAB17674CF2D2051 /* HomebrewUpdate.command */,
 				551434E12D576B6600A9B5CA /* lm_c_abc.marisa */,
 				551434E22D576B6600A9B5CA /* lm_r_xbx.marisa */,
 				551434E32D576B6600A9B5CA /* lm_u_abx.marisa */,
@@ -272,6 +275,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B33385969BF5DD31318A1BC9 /* HomebrewUpdate.command in Resources */,
 				1A41E64726E74937009B65D7 /* main.tiff in Resources */,
 				551434E52D576B6600A9B5CA /* lm_u_abx.marisa in Resources */,
 				551434E62D576B6600A9B5CA /* lm_u_xbc.marisa in Resources */,
