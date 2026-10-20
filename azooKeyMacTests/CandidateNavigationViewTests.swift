@@ -24,7 +24,8 @@ final class CandidateNavigationViewTests: XCTestCase {
             CandidatePresentation(candidate: Candidate(text: "候補\($0)", value: 0,
                                                        composingCount: .surfaceCount(0), lastMid: 0, data: []))
         }
-        controller.updateCandidatePresentations(candidates, selectionIndex: 0, cursorLocation: .zero)
+        controller.updateCandidatePresentations(candidates, selectionIndex: 0, cursorLocation: .zero,
+                                                enterConfirmsCandidate: true)
         for _ in 0..<9 { controller.selectNextCandidate() }
         XCTAssertEqual(controller.currentSelectedRow, 9)
         XCTAssertEqual(controller.getNumberCandidate(num: 1), 9)

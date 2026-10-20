@@ -1,20 +1,44 @@
 import AppKit
-import XCTest
 @testable import azooKeyMac
+import XCTest
 
 @MainActor
 final class CandidateThemeTests: XCTestCase {
     func testAppearanceAndAccessibilityPreferenceChooseAllFourPalettes() throws {
-        for (appearance, expected) in [
-            (NSAppearance.Name.aqua, "light"), (.darkAqua, "dark"),
-            (.accessibilityHighContrastAqua, "highContrastLight"),
-            (.accessibilityHighContrastDarkAqua, "highContrastDark")
+        for (appearance, increaseContrast, expected) in [
+            (NSAppearance.Name.aqua, false, "light"), (.darkAqua, false, "dark"),
+            (.aqua, true, "highContrastLight"), (.darkAqua, true, "highContrastDark")
         ] {
             let native = try XCTUnwrap(NSAppearance(named: appearance))
-            XCTAssertEqual(CandidateTheme.name(for: native, increaseContrast: false), expected)
+            XCTAssertEqual(CandidateTheme.name(for: native, increaseContrast: increaseContrast), expected)
         }
-        XCTAssertEqual(CandidateTheme.name(for: try XCTUnwrap(NSAppearance(named: .aqua)), increaseContrast: true), "highContrastLight")
-        XCTAssertEqual(CandidateTheme.name(for: try XCTUnwrap(NSAppearance(named: .darkAqua)), increaseContrast: true), "highContrastDark")
+    }
+
+    func testHighContrastAppearanceRequestsKeepTheirBaseColorWithContrastEnabled() throws {
+        // Apple directs views to use Aqua/Dark Aqua plus the accessibility
+        // preference, not to assign a high-contrast appearance directly:
+        // https://developer.apple.com/documentation/appkit/nsappearance/name-swift.struct/accessibilityhighcontrastaqua
+        let supported: [NSAppearance.Name] = [
+            .aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua
+        ]
+        for (requested, expected) in [
+            (NSAppearance.Name.accessibilityHighContrastAqua, "highContrastLight"),
+            (.accessibilityHighContrastDarkAqua, "highContrastDark")
+        ] {
+            let native = try XCTUnwrap(NSAppearance(named: requested))
+            let systemContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+            let observation: [String: Any] = [
+                "requested": requested.rawValue, "native": native.name.rawValue,
+                "bestMatch": native.bestMatch(from: supported)?.rawValue ?? "nil",
+                "workspaceIncreaseContrast": systemContrast,
+                "withoutContrast": CandidateTheme.name(for: native, increaseContrast: false),
+                "withContrast": CandidateTheme.name(for: native, increaseContrast: true)
+            ]
+            let encoded = try JSONSerialization.data(withJSONObject: observation, options: [.sortedKeys])
+            let description = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+            print("candidate-appearance: " + description)
+            XCTAssertEqual(CandidateTheme.name(for: native, increaseContrast: true), expected)
+        }
     }
 
     func testAppKitSRGBTextColorsMeetTheContrastDesignTarget() throws {
