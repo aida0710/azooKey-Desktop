@@ -118,6 +118,10 @@ class InputCoordinator:
         self.snapshot = {**snapshot, "commits": [], "request": None}
         self.render(snapshot)
 
+    @property
+    def has_pending_preview(self):
+        return any(pending.operation == "key" for pending in self.pending)
+
     def recover_pending(self):
         # Only acknowledged snapshots reached the application. Preserve that
         # text once, then return each unacknowledged physical key in order.
@@ -169,7 +173,7 @@ class InputCoordinator:
         return False
 
     def _preview(self):
-        if not any(pending.operation == "key" for pending in self.pending):
+        if not self.has_pending_preview:
             return
         projection, unrepresented = self._project()
         if unrepresented:
