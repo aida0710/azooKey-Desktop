@@ -28,6 +28,10 @@ final class CandidateDetailView: NSScrollView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    func applyPalette(_ palette: CandidatePalette) {
+        label.textColor = palette.text
+    }
+
     func update(text: String, fontSize: CGFloat) {
         label.font = .systemFont(ofSize: fontSize)
         label.stringValue = text

@@ -71,9 +71,12 @@ final class CandidateTreeView: NSView {
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(viewportChanged),
                                                name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(refreshAppearance),
+                                                           name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
         addSubview(scrollView)
         addSubview(details)
         setAccessibilityLabel("木構造の変換候補")
+        refreshAppearance()
     }
 
     convenience init() { self.init(frame: .zero) }
@@ -88,11 +91,24 @@ final class CandidateTreeView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill()
+        CandidateTheme.palette(for: effectiveAppearance).background.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
     }
 
     @objc private func viewportChanged() { updateVisibleControls() }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshAppearance()
+    }
+
+    @objc private func refreshAppearance() {
+        needsDisplay = true
+        canvas.needsDisplay = true
+        nodeButtons.values.forEach { $0.needsDisplay = true }
+        terminalButtons.values.forEach { $0.needsDisplay = true }
+        details.applyPalette(CandidateTheme.palette(for: effectiveAppearance))
+    }
 
     func update(entries: [CandidateTree.Entry], selectionIndex: Int?, numbers: [Int: String] = [:],
                 documentWidths: [CGFloat]? = nil) {
@@ -285,7 +301,6 @@ final class CandidateTreeView: NSView {
             button.font = .systemFont(ofSize: textSize.pointSize)
             button.toolTip = token.reading.isEmpty ? token.text : "\(token.text)（\(token.reading)）"
             button.setAccessibilityLabel(button.toolTip)
-            button.relativeScore = scores[id]
             button.toolTip! += scores[id].map { "\n相対スコア \($0)（取得候補内の評価。正解の確率ではありません）" } ?? "\n比較可能なスコアなし"
             if let preview = tree.preview(at: id, preserving: selection.selectedCandidateIndex) {
                 button.toolTip! += "\n" + preview.detailDescription
@@ -359,27 +374,35 @@ private final class TreeCanvas: NSView {
     var nodeFrames: [Int: NSRect] = [:]
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.withAlphaComponent(1).setFill()
+        let palette = CandidateTheme.palette(for: effectiveAppearance)
+        palette.background.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
         for edge in edges {
             let selected = selectedPath.contains(edge.nodeID)
-            (selected ? TreeButton.scoreColor(scores[edge.nodeID]) : NSColor.gray.withAlphaComponent(0.5)).setStroke()
+            (selected ? palette.text : palette.border).setStroke()
             let path = NSBezierPath()
-            path.lineWidth = selected ? 2 : 0.75
+            path.lineWidth = selected ? 3 : 1
+            if !selected { path.setLineDash([2, 3], count: 2, phase: 0) }
             path.move(to: edge.from)
             let middle = (edge.from.x + edge.to.x) / 2
             path.curve(to: edge.to, controlPoint1: NSPoint(x: middle, y: edge.from.y), controlPoint2: NSPoint(x: middle, y: edge.to.y))
             path.stroke()
         }
-        NSColor.secondaryLabelColor.setFill()
+        palette.text.setFill()
         NSBezierPath(ovalIn: NSRect(x: 1, y: 15, width: 6, height: 6)).fill()
         let style = NSMutableParagraphStyle()
         style.alignment = .center
         for (id, frame) in nodeFrames {
             let label = scores[id].map(String.init) ?? "—"
-            (label as NSString).draw(in: NSRect(x: frame.minX, y: frame.maxY, width: frame.width, height: 13),
-                                    withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
-                                                     .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style])
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
+                .foregroundColor: palette.scoreText, .paragraphStyle: style
+            ]
+            let width = min(frame.width, max(22, (label as NSString).size(withAttributes: attributes).width + 6))
+            let badge = NSRect(x: frame.midX - width / 2, y: frame.maxY, width: width, height: 16)
+            CandidateTheme.scoreColor(scores[id], palette: palette).setFill()
+            NSBezierPath(rect: badge).fill()
+            (label as NSString).draw(in: badge, withAttributes: attributes)
         }
     }
 }
@@ -393,7 +416,6 @@ private final class TreeButton: NSButton {
     var highlightedPath = false
     var focusedNode = false
     var documentAligned = false
-    var relativeScore: Int?
     var compactBadge = false
     override var acceptsFirstResponder: Bool { false }
     override func isAccessibilitySelected() -> Bool { highlightedPath }
@@ -417,20 +439,20 @@ private final class TreeButton: NSButton {
         tracking = area
     }
     override func mouseEntered(with event: NSEvent) { hovered?() }
-    static func scoreColor(_ score: Int?) -> NSColor {
-        if let score, score < 75 {
-            return NSColor(red: 0.83, green: 0.39, blue: 0.06, alpha: 1)
-        }
-        return NSColor(red: 0.25, green: 0.45, blue: 0.8, alpha: 1)
-    }
     override func draw(_ dirtyRect: NSRect) {
+        let palette = CandidateTheme.palette(for: effectiveAppearance)
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 4, yRadius: 4)
-        (highlightedPath ? Self.scoreColor(relativeScore) : NSColor.controlBackgroundColor.withAlphaComponent(1)).setFill()
+        (highlightedPath ? palette.selection : palette.surface).setFill()
         shape.fill()
+        if highlightedPath {
+            palette.text.setStroke()
+            shape.lineWidth = 2
+            shape.stroke()
+        }
         if focusedNode {
-            NSColor.white.withAlphaComponent(0.9).setStroke()
+            (highlightedPath ? palette.selectionText : palette.text).setStroke()
             let underline = NSBezierPath()
-            underline.lineWidth = 1.5
+            underline.lineWidth = 2
             underline.move(to: NSPoint(x: 6, y: bounds.height - 4))
             underline.line(to: NSPoint(x: bounds.width - 6, y: bounds.height - 4))
             underline.stroke()
@@ -442,7 +464,7 @@ private final class TreeButton: NSButton {
         let textFont = font ?? NSFont.systemFont(ofSize: 18)
         let height = textFont.ascender - textFont.descender + 2
         (title as NSString).draw(in: NSRect(x: inset, y: (bounds.height - height) / 2, width: bounds.width - inset * 2, height: height),
-                                withAttributes: [.font: textFont, .foregroundColor: highlightedPath ? NSColor.white : NSColor.labelColor,
+                                withAttributes: [.font: textFont, .foregroundColor: highlightedPath ? palette.selectionText : palette.text,
                                                  .paragraphStyle: style])
     }
 }
