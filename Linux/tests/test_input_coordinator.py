@@ -48,6 +48,29 @@ class InputCoordinatorTests(unittest.TestCase):
             ("forward", (ord("b"), 38, 0)),
         ])
 
+    def test_modifier_presses_during_pending_input_preserve_text_and_key_order(self):
+        self.key("a")
+        physical_keys = []
+        for keyval, mask in ((0xFFE1, 1), (0xFFE3, 4), (0xFFE9, 8), (0xFFEB, 1 << 6)):
+            for state in (0, mask | (1 << 30)):
+                physical_key = (keyval, 0, state)
+                physical_keys.append(physical_key)
+                event = translate(keyval, state, 0)
+                self.coordinator.submit(
+                    "key" if event is not None else None,
+                    payload={"event": event} if event is not None else {}, key=physical_key,
+                )
+        self.key("b")
+        self.assertEqual(self.effects, [], "A physical modifier must not recover the pending input")
+        self.assertEqual(self.previews[-1], ("ab", 2))
+        self.worker.respond(0, {"consumed": True, "preedit": "あ", "inputState": "composing"})
+        self.worker.respond(len(self.worker.requests) - 1, {
+            "consumed": True, "preedit": "あb", "inputState": "composing",
+        })
+        self.assertEqual([effect[1] for effect in self.effects if effect[0] == "forward"], physical_keys)
+        self.assertFalse(any(effect[0] == "recover" for effect in self.effects))
+        self.assertEqual(self.coordinator.snapshot["preedit"], "あb")
+
     def test_failure_preserves_acknowledged_preedit_once_and_returns_pending_keys_in_order(self):
         self.key("a")
         self.worker.respond(0, {"consumed": True, "preedit": "あ", "cursor": 1})

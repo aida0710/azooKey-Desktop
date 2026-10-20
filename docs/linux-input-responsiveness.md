@@ -14,6 +14,8 @@ bridgeは`inputState`とUnicode scalar位置の`readingCursor`を返す必要が
 
 候補取消と全文取消、Enterで先に確定した部分、Left/Right、Home/End、Backspace/Delete、Ctrl+hを区別する。文字境界には、GTKが依存するPangoの[Unicode grapheme boundary](https://docs.gtk.org/Pango/struct.LogAttr.html)を使う。保全用バッファの外を編集する操作や扱えないネイティブ操作は、先行入力を回収してアプリへ返す。
 
+物理キーボードでは、Shift+LeftはShift自体の押下、Shift付きLeft、Shiftの解放として届く。Shift・Control・Alt・Superなどの修飾キー単独を編集として予測せず、キー解放と同様にネイティブイベントの順序を保つ。[XKBの修飾keysyms](https://github.com/xkbcommon/libxkbcommon/blob/master/include/xkbcommon/xkbcommon-keysyms.h)を文字入力と区別する。回帰試験は待機中と250ms/2秒の応答待ちでpress/releaseを送り、途中確定と文字キーの転送が起きないこと、続く修飾付き矢印とEnterが一度だけ確定することを確認する。
+
 ## Escape、focus-out、reset
 
 Escapeは通常のCore入力として順序を保って処理する。応答待ち中も候補を隠すが、Spaceの後のEscapeで読みを消さない。修飾付きEscapeを無条件の全文破棄として扱わない。
