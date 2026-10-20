@@ -93,7 +93,8 @@ class CandidateThemeTests(unittest.TestCase):
                 "detailDescription": f"相対スコア {score}" if score is not None else "未評価",
             }
         panel.update(snapshot)
-        panel.navigation.toggle.clicked()
+        panel.disclosure_actions["tree"].clicked()
+        panel.disclosure_actions["details"].clicked()
         original_actions = dict(panel.actions)
         original_rows = list(panel.navigation.row_buttons)
         original_details = panel.details.displayed_text
@@ -120,6 +121,11 @@ class CandidateThemeTests(unittest.TestCase):
             self.assertIs(document.get_focus(), entry)
             self.assertFalse(panel.get_accept_focus())
             self.assertFalse(panel.get_focus_on_map())
+            for label in (panel.composition.label, panel.remaining.label, panel.details.label):
+                foreground = label.get_style_context().get_color(label.get_state_flags())
+                expected = Gdk.RGBA()
+                expected.parse(PALETTES[mode]["text"])
+                self.assertEqual(foreground.to_string(), expected.to_string())
             for row, role in zip(original_rows, ("selectionText", "text")):
                 foreground = row.get_style_context().get_color(row.get_state_flags())
                 expected = Gdk.RGBA()
@@ -168,7 +174,10 @@ class CandidateThemeTests(unittest.TestCase):
             self.assertGreater(painted_reading, 4, "The reading below the first line must remain visible")
         self.assertEqual(submitted, [])
         panel.actions[("node", 2)].clicked()
-        self.assertEqual(submitted, [("node", 2, True)])
+        self.assertEqual(submitted, [("node", 2, False)])
+        panel.update({**snapshot, "selection": 1, "selectedPath": [0, 2], "focusedNode": 2})
+        panel.navigation.confirm.clicked()
+        self.assertEqual(submitted, [("node", 2, False), ("select", 1, True)])
 
     @staticmethod
     def assert_pixel(surface, x, y, color):

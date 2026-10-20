@@ -88,6 +88,7 @@ class RelativeScorePanelTests(unittest.TestCase):
         }
         try:
             panel.update(snapshot)
+            panel.disclosure_actions["tree"].clicked()
             self.assertIn(description, panel.details.displayed_text)
             focused_action = panel.actions[("node", 0)]
             self.assertIn(description, focused_action.get_accessible().get_description())
@@ -101,7 +102,9 @@ class RelativeScorePanelTests(unittest.TestCase):
             self.assertFalse(panel.get_accept_focus())
             self.assertEqual(commits, [])
             focused_action.clicked()
-            self.assertEqual(commits, [("node", 0, True)])
+            self.assertEqual(commits, [("node", 0, False)])
+            panel.navigation.confirm.clicked()
+            self.assertEqual(commits, [("node", 0, False), ("select", 0, True)])
         finally:
             panel.destroy()
 
