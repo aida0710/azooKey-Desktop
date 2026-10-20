@@ -1,8 +1,8 @@
 // Keep the candidate and dictionary readable; exceptionally narrow desktops
 // expose both columns through one horizontal viewport instead of shrinking text.
-const COLUMN_WIDTHS = {candidateMinimum: 360, candidatePreferred: 480,
-    definitionMinimum: 280, definitionPreferred: 360, gap: 10,
-    candidateCharacters: 22, definitionCharacters: 16};
+const COLUMN_WIDTHS = {candidateMinimum: 240, candidatePreferred: 320,
+    definitionMinimum: 280, definitionPreferred: 340, gap: 10,
+    candidateCharacters: 13, definitionCharacters: 16};
 
 export function candidateColumns({availableWidth, fontSize}) {
     const candidatePreferred = Math.min(COLUMN_WIDTHS.candidatePreferred,

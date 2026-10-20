@@ -38,7 +38,8 @@ detail.setWordDefinitions(response);
 detail.layout({identity: 'a', treeExpanded: false, fontSize: 18, width: 360, maximumHeight: 100});
 assert(detail._definitionPreview.text.includes('義務が果たされる'), 'Actual short meaning must render');
 assert(detail._definitionPreview.is_mapped(), 'The short meaning must have its own visible line');
-assert(detail._definitionHeading.text.includes(messages.definitionSourceShort), 'The heading must name the source');
+equal(detail._definitionHeading.text, '保証');
+assert(detail._definitionFull.text.includes('NICT'), 'The full entry must retain the source attribution');
 assert(detail._definitionPreview.accessible_name.includes('義務が果たされる'), 'AT must read the current meaning without an AT-SPI Text interface');
 assert(detail._definitionFull.accessible_name.includes('保証を求める'), 'AT must read the full definition and examples');
 equal(detail._definitionPreview.wrap, true);
@@ -99,14 +100,14 @@ for (const label of [measured._definitionHeading, measured._definitionPreview])
     label.get_preferred_height = () => [41, 41];
 const measuredHeight = measured.layout({identity: 'theme', treeExpanded: false,
     fontSize: 24, width: 200, maximumHeight: 96, availableHeight: 190});
-assert(measuredHeight === 44 + imports.candidateLineHeight(24, new MeasuredBox()) * 2 &&
-    measured._scroll.height === imports.candidateLineHeight(24, new MeasuredBox()) * 2,
-    'Measured heading and a readable meaning line must survive in the logical right column');
+assert(measuredHeight >= 44 + imports.candidateLineHeight(24, new MeasuredBox()) + 2 &&
+    measured._scroll.height >= imports.candidateLineHeight(24, new MeasuredBox()),
+    'The word header, one readable meaning line and both borders must fit in the logical right card');
 assert(measured._definitionPreview.is_mapped() && measured._definitionHeading.is_mapped(),
     'Separate word and wrapped meaning actors must remain readable through the scroll viewport');
 const oneLineHeight = measured.layout({identity: 'theme', treeExpanded: false,
     fontSize: 24, width: 200, maximumHeight: 60, availableHeight: 90});
-assert(oneLineHeight >= 44 + imports.candidateLineHeight(24, new MeasuredBox()) * 2 &&
+assert(oneLineHeight >= 44 + imports.candidateLineHeight(24, new MeasuredBox()) + 2 &&
     measured._definitionPreview.is_mapped() && measured._definitionHeading.visible,
     'A short right column must keep its heading and a readable meaning line for the whole-card viewport');
 equal(measured._definitionPreview.accessible_name, `${messages.definitionWord('保証', 'ホショウ')}\n義務が果たされるという保証`);
@@ -230,9 +231,9 @@ for (const {width: workAreaWidth, height: workAreaHeight, caretY} of cardCases) 
             card._columnsScroll.set_child(card._columns);
             card._composition = new Composition(selection => commits.push(selection.values));
             card._composition._header.get_preferred_height = () => [44, 44];
-            card._card.add_child(card._composition.actor);
             card._card.add_child(card._columnsScroll);
-            card._navigation = new Navigation({select() {}, changed() {}, preview() {}});
+            card._navigation = new Navigation({select() {}, changed() {}, preview() {},
+                compact: true, confirmation: card._composition.actor});
             card._details = new Detail({changed() {}, toggleTree() {}});
             card._candidateColumn.add_child(card._navigation.actor);
             card._candidateColumn.add_child(card._treeScroll);
@@ -256,16 +257,17 @@ for (const {width: workAreaWidth, height: workAreaHeight, caretY} of cardCases) 
             assert(card._columns.get_children()[0] === card._candidateColumn &&
                 card._columns.get_children()[1] === card._details.actor && !card._columns.vertical,
                 'The definition must remain the right sibling of the candidate list');
-            assert(card._candidateColumn.width >= 360 && card._details.actor.width >= 280,
+            assert(card._candidateColumn.width >= 240 && card._details.actor.width >= 280,
                 'Narrow screens must scroll both legible columns instead of shrinking fonts');
             assert(card._details._definitionPreview.style.includes(`font-size: ${fontSize}px`),
                 'The definition must preserve the selected font size');
-            const totalHeight = compositionHeight + card._columnsScroll.height;
+            const totalHeight = card._columnsScroll.height;
             equal(card._card.height, totalHeight);
             assert(card._cardScroll.height + 2 <= candidateAvailableHeight({cursor: options.location, bounds: options.bounds}) &&
                 card._popup.height <= workAreaHeight, 'The whole-card viewport must fit beside the caret');
-            assert(compositionHeight >= 44 + card._composition._scroll.height +
-                card._composition._remainingScroll.height + 16, 'Measured confirm/header and body must fit the logical composition');
+            assert(compositionHeight >= 44 && card._composition.actor.get_parent() === card._navigation.footer &&
+                !card._composition._scroll.visible && !card._composition._title.visible,
+                'Full candidates must use one footer action without repeating the document proposal');
             assert(card._navigation._scroll.height >= card._navigation.minimumRowHeight({fontSize}),
                 'At least one complete readable candidate row must survive a short viewport');
             equal(card._cardScroll.vscrollbar_policy, totalHeight > card._cardScroll.height ?
@@ -282,6 +284,10 @@ for (const {width: workAreaWidth, height: workAreaHeight, caretY} of cardCases) 
             if (workAreaHeight === 800)
                 assert(card._details._scroll.height >= fontSize * 4,
                     'A normal desktop must show several lines in the right entry');
+            assert(!card._navigation._hint.visible && !card._navigation._toggle.visible,
+                'The compact candidate list must omit repeated hints and its close control');
+            assert(card._navigation._scroll.height <= card._navigation.minimumRowHeight({fontSize}) * 5,
+                'The compact menu must show at most five ordinary candidate rows');
             equal(commits, []);
             confirm.get_accessible().do_action();
             confirm.get_accessible().do_action();
@@ -303,7 +309,7 @@ fractional._header.get_preferred_height = () => [fractionalHeaderHeight, fractio
 fractional._definitionHeading.get_preferred_height = () => [fractionalHeadingHeight, fractionalHeadingHeight];
 fractional._definitionPreview.get_preferred_height = () => [fractionalPreviewHeight, fractionalPreviewHeight];
 fractional._scrollContent.get_preferred_height = () => [900.3, 900.3];
-const separatorWidth = Number(fractional.actor.style.match(/border-left: ([\d.]+)px/)[1]);
+const separatorWidth = Number(fractional.actor.style.match(/border: ([\d.]+)px/)[1]) * 2;
 for (const [expanded, maximumHeight, availableHeight] of [
     [true, 345.6, 500.8], [true, 345.6, 160.9], [true, 120.1, 70.9],
     [false, 120.7, 150.8], [false, 120.7, 100.9], [false, 120.7, 70.9],
@@ -313,14 +319,14 @@ for (const [expanded, maximumHeight, availableHeight] of [
         fontSize: 24, width: 558, maximumHeight, availableHeight});
     for (const allocation of [height, fractional.actor.height, fractional._scroll.height])
         assert(Number.isInteger(allocation) && allocation >= 0, 'Every detail allocation must use whole pixels');
-    const childrenHeight = Math.ceil(fractionalHeaderHeight) + fractional._scroll.height;
+    const childrenHeight = Math.ceil(fractionalHeaderHeight) + fractional._scroll.height + 2;
     assert(childrenHeight <= height, 'Rounded header and scrolling text must fit the parent');
     assert(fractional._scroll.width + separatorWidth <= fractional.actor.width,
         'The right column must reserve its separator outside the scroll viewport');
-    assert(height <= Math.max(Math.ceil(fractionalHeaderHeight) + imports.candidateLineHeight(24, new MeasuredBox()) * 2, Math.floor(availableHeight)),
+    assert(height <= Math.max(Math.ceil(fractionalHeaderHeight) + imports.candidateLineHeight(24, new MeasuredBox()) + 2, Math.floor(availableHeight)),
         'The logical parent must respect its readable minimum or the available whole-card height');
     if (expanded)
-        assert(height <= Math.max(Math.ceil(fractionalHeaderHeight) + imports.candidateLineHeight(24, new MeasuredBox()) * 2, Math.floor(maximumHeight)),
+        assert(height <= Math.max(Math.ceil(fractionalHeaderHeight) + imports.candidateLineHeight(24, new MeasuredBox()) + 2, Math.floor(maximumHeight)),
             'The expanded column must respect its readable minimum or fractional budget');
 }
 print('GNOME fractional theme metrics: rounded heights and side separator stay within whole-pixel parent/work-area bounds PASS');

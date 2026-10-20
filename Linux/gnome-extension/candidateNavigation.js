@@ -13,27 +13,32 @@ const MINIMUM_CONTENT_HEIGHT = 32;
 const ROW_BORDER_WIDTH = 1;
 
 export class CandidateNavigation {
-    constructor({select, changed, preview}) {
+    constructor({select, changed, preview, confirmation = null, compact = false}) {
         this._select = select;
         this._changed = changed;
         this._preview = preview;
+        this._compact = compact;
         this.hoveredItem = null;
         this._hoveredButton = null;
         this.expanded = true;
         this.actor = new St.BoxLayout({vertical: true, can_focus: false});
         this._header = new St.BoxLayout();
+        this.footer = this._header;
         this._status = new St.Label({x_expand: true, y_align: Clutter.ActorAlign.CENTER});
         this._status.set_width(1);
         this._header.add_child(this._status);
         this._replaceHeaderButtons();
-        this.actor.add_child(this._header);
+        if (!compact) this.actor.add_child(this._header);
         this._hint = new St.Label({text: messages.selectHint});
+        this._hint.visible = !compact;
         this.actor.add_child(this._hint);
         this._scroll = new St.ScrollView({can_focus: false,
             hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC});
         this._rows = new St.BoxLayout({vertical: true});
         this._scroll.set_child(this._rows);
         this.actor.add_child(this._scroll);
+        if (confirmation) this._header.add_child(confirmation);
+        if (compact) this.actor.add_child(this._header);
         this._scroll.get_vadjustment().connect('notify::page-size', () => this._revealSelection());
     }
 
@@ -96,13 +101,16 @@ export class CandidateNavigation {
             ['select', index, submit, snapshot.generation, snapshot.contextId]);
         this._status.text = messages.position(page.position ?? '—', page.totalCount);
         this._toggle.label = this.expanded ? messages.closeList : messages.openList;
+        // A compact conversion list stays open; its footer only pages and commits.
+        this._toggle.visible = !this._compact;
         for (const [button, index, label] of [
             [this._previous, page.previousIndex, messages.previousPage],
             [this._next, page.nextIndex, messages.nextPage]]) {
-            button.label = label;
+            button.label = this._compact ? (button === this._previous ? messages.previousPageSymbol : messages.nextPageSymbol) : label;
             button.reactive = index !== null && index !== undefined;
             button._selection = button.reactive ? action(index, false) : null;
             button.visible = this.expanded;
+            button.accessible_name = label;
         }
         const pageIdentity = JSON.stringify([page.items, snapshot.contextId, snapshot.showCandidateIndex, fontSize]);
         const identity = JSON.stringify([pageIdentity, actionIdentity]);
@@ -171,7 +179,8 @@ export class CandidateNavigation {
         this._scroll.height = height;
         this._scroll.visible = this.expanded;
         this._revealSelection();
-        return this._header.get_preferred_height(width)[1] + this._hint.get_preferred_height(width)[1] +
+        return this._header.get_preferred_height(width)[1] +
+            (this._hint.visible ? this._hint.get_preferred_height(width)[1] : 0) +
             (this.expanded ? height : 0);
     }
 

@@ -41,7 +41,7 @@ export class CandidateComposition {
         this.actor.add_child(this._remainingScroll);
     }
 
-    update(snapshot, {fontSize, width, maximumHeight, palette}) {
+    update(snapshot, {fontSize, width, maximumHeight, palette, compact = false}) {
         const candidate = snapshot.candidates?.find(item => item.index === snapshot.selection);
         const enterConfirmsCandidate = ['selecting', 'previewing', 'replaceSuggestion'].includes(snapshot.inputState);
         const identity = JSON.stringify([snapshot.contextId, snapshot.generation, snapshot.selection, enterConfirmsCandidate]);
@@ -51,6 +51,8 @@ export class CandidateComposition {
             if (candidate) this._createConfirm(snapshot, candidate, enterConfirmsCandidate);
         }
         this._title.text = enterConfirmsCandidate ? messages.composition : messages.proposal;
+        this._title.visible = !compact;
+        this._scroll.visible = !compact;
         const sentence = candidate?.text ?? snapshot.preedit ?? '';
         if (sentence !== this._sentence.text) {
             this._sentence.text = sentence;
@@ -77,6 +79,18 @@ export class CandidateComposition {
         for (const label of [this._sentence, this._reading, this._remaining]) label.set_width(innerWidth);
         if (this._confirm) this._confirm.set_style(`color: ${palette.selectionText}; background-color: ${palette.selection};
             border: 2px solid ${palette.text}; border-radius: 8px; padding: 4px 12px; min-height: 32px; font-size: ${fontSize}px;`);
+        if (compact) {
+            // The document already shows the proposal. Keep its explicit commit
+            // action in the candidate footer rather than repeating the sentence.
+            this.actor.set_style('padding: 0;');
+            this._remainingScroll.hide();
+            this._scroll.height = 0;
+            this._remainingScroll.height = 0;
+            const buttonWidth = Math.ceil(this._header.get_preferred_width(-1)[1]);
+            const buttonHeight = Math.ceil(this._header.get_preferred_height(buttonWidth)[1]);
+            this.actor.set_size(buttonWidth, buttonHeight);
+            return buttonHeight;
+        }
         const headerHeight = Math.ceil(this._header.get_preferred_height(innerWidth)[1]);
         const minimumTextHeight = candidateLineHeight(fontSize + 2, this.actor) + SENTENCE_GAP;
         const minimumRemainingHeight = remaining ? candidateLineHeight(readingFontSize, this.actor) + READING_GAP : 0;

@@ -82,9 +82,9 @@ extension._details = new Detail({changed: () => extension._render(extension._las
 extension._columns.add_child(extension._details.actor);
 extension._layoutDiagnostics = {update() {}, clear() {}};
 extension._announcements = {update() {}, reset() {}};
-extension._navigation = new Navigation({select: value => extension._call('Select', value), changed() {}, preview: () => extension._refreshDetails()});
 extension._composition = new Composition(value => extension._call('Select', value));
-extension._card.add_child(extension._composition.actor);
+extension._navigation = new Navigation({select: value => extension._call('Select', value), changed() {},
+    preview: () => extension._refreshDetails(), compact: true, confirmation: extension._composition.actor});
 extension._candidateColumn.add_child(extension._navigation.actor);
 const submitted = [];
 extension._call = (method, variant) => submitted.push([method, ...variant.values]);

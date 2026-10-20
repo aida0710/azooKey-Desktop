@@ -25,10 +25,11 @@ const MINIMUM_NODE_HEIGHT = 44; // A number badge shares the word's pointer/AT t
 const DEFINITION_TIMEOUT_MILLISECONDS = 5000; // A dictionary result may fail without delaying input.
 const NODE_BORDER_WIDTH = 2; // Reserve both borders outside the measured label heights.
 // Bound each scrollable section so the source document remains visible around the card.
-const CARD_LAYOUT = {maximumWidth: 560, compositionFraction: 0.26,
-    treeFraction: 0.35, listFraction: 0.45};
+const CARD_LAYOUT = {maximumWidth: 560, compositionFraction: 0.26, treeFraction: 0.35};
 // The popup border is outside its children, including the horizontal viewport.
 const CARD_BORDER_WIDTH = 1;
+// Five familiar IME rows keep the conversion list small beside the document.
+const COMPACT_MENU = {visibleRows: 5, summaryHeight: 180, fullHeight: 320};
 
 export default class AzooKeyTreeExtension extends Extension {
     enable() {
@@ -54,11 +55,12 @@ export default class AzooKeyTreeExtension extends Extension {
         this._announcements = new CandidateAnnouncements(announcement =>
             this._popup.get_accessible().emit('notification', announcement, Atk.Live.POLITE));
         this._composition = new CandidateComposition(selection => this._call('Select', selection));
-        this._card.add_child(this._composition.actor);
         this._navigation = new CandidateNavigation({
             select: selection => { if (selection) this._call('Select', selection); },
             changed: () => { if (this._lastSnapshot) this._render(this._lastSnapshot); },
             preview: () => this._refreshDetails(),
+            confirmation: this._composition.actor,
+            compact: true,
         });
         this._columnsScroll = new St.ScrollView({can_focus: false, reactive: true,
             hscrollbar_policy: St.PolicyType.AUTOMATIC, vscrollbar_policy: St.PolicyType.NEVER});
@@ -179,8 +181,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._lastSnapshot = data;
         const anchor = this._cursor.anchor(data.location);
         const palette = this._theme.palette;
-        this._popup.set_style(`background-color: ${palette.background}; color: ${palette.text};
-            border: 1px solid ${palette.border}; border-radius: 12px;`);
+        this._popup.set_style('background-color: transparent; border: none; box-shadow: none;');
         this._canvas.set_style(`background-color: ${palette.background};`);
         this._details.applyPalette(palette);
         const nodes = data.nodes ?? [];
@@ -429,6 +430,8 @@ export default class AzooKeyTreeExtension extends Extension {
     _layoutCard(data, {bounds, fontSize, treeContentWidth, treeContentHeight, nodes, actionIdentity, location, palette}) {
         const isMenu = this._presentationMode === 'menu';
         for (const actor of [this._composition.actor, this._navigation.actor, this._details.actor]) actor.visible = isMenu;
+        this._candidateColumn.set_style(`background-color: ${palette.background}; color: ${palette.text};
+            border: ${CARD_BORDER_WIDTH}px solid ${palette.border}; border-radius: 8px;`);
         if (!isMenu) {
             this._clearWordDefinitions();
             this._detailState = null;
@@ -442,47 +445,63 @@ export default class AzooKeyTreeExtension extends Extension {
             this._candidateColumn.set_size(placement.width, placement.treeHeight);
             this._columns.set_size(placement.width, placement.treeHeight);
             this._columnsScroll.set_size(placement.width, placement.treeHeight);
-            this._treeScroll.set_size(placement.width, placement.treeHeight);
+            this._treeScroll.set_size(Math.max(0, placement.width - CARD_BORDER_WIDTH * 2),
+                Math.max(0, placement.treeHeight - CARD_BORDER_WIDTH * 2));
             this._card.set_size(placement.width, placement.treeHeight);
             this._cardScroll.set_size(placement.width, placement.treeHeight);
             this._popup.set_size(placement.width, placement.height);
             return placement;
         }
         const columns = candidateColumns({availableWidth: Math.max(1, bounds.width - CARD_BORDER_WIDTH * 2), fontSize});
+        const candidateInnerWidth = columns.candidateWidth - CARD_BORDER_WIDTH * 2;
         const availableHeight = candidateAvailableHeight({cursor: location, bounds});
         this._columns.set_style(`spacing: ${columns.gap}px;`);
-        const compositionHeight = Math.ceil(this._composition.update(data,
-            {fontSize, width: columns.viewportWidth, maximumHeight: availableHeight * CARD_LAYOUT.compositionFraction, palette}));
-        this._composition.actor.set_size(columns.viewportWidth, compositionHeight);
+        // A partial commit still needs its remaining reading. Full candidates
+        // use only the footer action because the document shows their text.
+        const hasRemaining = Boolean(data.candidates?.find(item => item.index === data.selection)?.commitScope?.remainingReading);
+        const compositionParent = hasRemaining ? this._candidateColumn : this._navigation.footer;
+        if (this._composition.actor.get_parent() !== compositionParent) {
+            this._composition.actor.get_parent()?.remove_child(this._composition.actor);
+            if (hasRemaining) compositionParent.insert_child_at_index(this._composition.actor, 0);
+            else compositionParent.add_child(this._composition.actor);
+        }
+        const compositionHeight = this._composition.update(data, {fontSize, width: candidateInnerWidth,
+            maximumHeight: availableHeight * CARD_LAYOUT.compositionFraction, palette, compact: !hasRemaining});
+        const proposalHeight = hasRemaining ? compositionHeight : 0;
         const overflowsHorizontally = columns.contentWidth > columns.viewportWidth;
         // Theme minimum widths can otherwise add a redundant horizontal bar to
         // a fully visible pair. Only genuinely narrow work areas scroll sideways.
         this._columnsScroll.hscrollbar_policy = overflowsHorizontally ? St.PolicyType.AUTOMATIC : St.PolicyType.NEVER;
         const scrollbarHeight = overflowsHorizontally ?
             Math.ceil(this._columnsScroll.get_hscroll_bar().get_preferred_height(columns.viewportWidth)[1]) : 0;
-        const bodyAvailable = Math.max(0, Math.floor(availableHeight - compositionHeight -
+        const bodyAvailable = Math.max(0, Math.floor(availableHeight -
             CARD_BORDER_WIDTH * 2 - scrollbarHeight - 1));
         this._detailState = {nodes, showScores: data.showRelativeScores};
         const navigationMinimum = Math.ceil(this._navigation.update(data,
-            {fontSize, width: columns.candidateWidth, listHeight: 0, palette}));
+            {fontSize, width: candidateInnerWidth, listHeight: 0, palette}));
         this._refreshDetails();
         const detailHeight = this._details.layout({identity: actionIdentity, treeExpanded: this._treeExpanded,
-            fontSize, width: columns.definitionWidth, maximumHeight: bodyAvailable});
+            allowTree: (data.columns?.length ?? 0) > 1,
+            fontSize, width: columns.definitionWidth,
+            maximumHeight: Math.min(bodyAvailable, this._details.expanded ? COMPACT_MENU.fullHeight : COMPACT_MENU.summaryHeight)});
         const rowMinimum = this._navigation.expanded ? this._navigation.minimumRowHeight({fontSize}) : 0;
         const bodyBudget = Math.max(bodyAvailable, navigationMinimum + rowMinimum);
-        const available = Math.max(0, bodyBudget - navigationMinimum);
+        const available = Math.max(0, bodyBudget - navigationMinimum - proposalHeight);
         const treeHeight = this._treeExpanded ? Math.floor(Math.min(treeContentHeight,
             Math.max(0, available - rowMinimum) * CARD_LAYOUT.treeFraction)) : 0;
         const navigationHeight = Math.ceil(this._navigation.update(data,
-            {fontSize, width: columns.candidateWidth,
+            {fontSize, width: candidateInnerWidth,
                 listHeight: Math.max(rowMinimum, Math.min(available - treeHeight,
-                    Math.floor(availableHeight * CARD_LAYOUT.listFraction))), palette}));
-        this._navigation.actor.set_size(columns.candidateWidth, navigationHeight);
-        const bodyHeight = Math.max(navigationHeight + treeHeight, detailHeight);
-        this._candidateColumn.set_size(columns.candidateWidth, bodyHeight);
+                    rowMinimum * COMPACT_MENU.visibleRows)), palette}));
+        this._navigation.actor.set_size(candidateInnerWidth, navigationHeight);
+        const candidateHeight = proposalHeight + navigationHeight + treeHeight + CARD_BORDER_WIDTH * 2;
+        const bodyHeight = Math.max(candidateHeight, detailHeight);
+        this._candidateColumn.set_size(columns.candidateWidth, candidateHeight);
+        this._candidateColumn.y_align = Clutter.ActorAlign.START;
+        this._details.actor.y_align = Clutter.ActorAlign.START;
         this._columns.set_size(columns.contentWidth, bodyHeight);
         this._columnsScroll.set_size(columns.viewportWidth, bodyHeight + scrollbarHeight);
-        const cardHeight = compositionHeight + bodyHeight + scrollbarHeight;
+        const cardHeight = bodyHeight + scrollbarHeight;
         this._card.set_size(columns.viewportWidth, cardHeight);
         // Fixed controls and at least one readable row keep their natural size.
         // A very short caret-side region scrolls the whole card to reach them.
@@ -495,7 +514,7 @@ export default class AzooKeyTreeExtension extends Extension {
             contentHeight: 0, detailHeight: viewportHeight + CARD_BORDER_WIDTH * 2,
             aligned: false, preferredSide: this._placementSide});
         this._treeScroll.visible = this._treeExpanded;
-        this._treeScroll.set_size(columns.candidateWidth, treeHeight);
+        this._treeScroll.set_size(candidateInnerWidth, treeHeight);
         this._popup.set_size(placement.width, placement.height);
         return placement;
     }

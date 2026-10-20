@@ -11,8 +11,8 @@ const DETAILS_INSET = 8;
 const DETAILS_BORDER_WIDTH = 1;
 // Only the first short meaning is visible before the user opens the full entry.
 const DEFINITION_SUMMARY_CHARACTERS = 96;
-// Keep the word heading and one actual meaning line readable before scrolling.
-const MINIMUM_DEFINITION_LINES = 2;
+// The fixed header names the word; retain one actual meaning line below it.
+const MINIMUM_DEFINITION_LINES = 1;
 const WORDNET_URL = 'https://bond-lab.github.io/wnja/index.ja.html';
 
 export class CandidateDetail {
@@ -25,8 +25,9 @@ export class CandidateDetail {
         this.actor.add_child(this._header);
         this._definitionSummary = new St.BoxLayout({vertical: true, can_focus: false});
         this._definitionHeading = this._summaryLine();
+        this._definitionHeading.x_expand = true;
+        this._header.add_child(this._definitionHeading);
         this._definitionPreview = createWrappingLabel({can_focus: false});
-        this._definitionSummary.add_child(this._definitionHeading);
         this._definitionSummary.add_child(this._definitionPreview);
         this._scroll = new St.ScrollView({can_focus: false,
             hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC});
@@ -49,7 +50,7 @@ export class CandidateDetail {
         return label;
     }
 
-    layout({identity, treeExpanded, fontSize, width, maximumHeight, availableHeight = maximumHeight}) {
+    layout({identity, treeExpanded, allowTree = true, fontSize, width, maximumHeight, availableHeight = maximumHeight}) {
         if (identity !== this._identity) {
             this.retire();
             this._identity = identity;
@@ -61,14 +62,15 @@ export class CandidateDetail {
             });
         }
         this._tree.label = treeExpanded ? messages.closeTree : messages.openTree;
+        this._tree.visible = allowTree;
         this._toggle.label = this.expanded ? messages.definitionCloseFull : messages.definitionOpenFull;
         for (const button of [this._tree, this._toggle])
             button.set_style(`font-size: ${Math.max(12, fontSize - 4)}px; padding: 5px 8px; min-height: 34px;`);
         this._scroll.show();
-        const contentWidth = Math.max(1, width - DETAILS_BORDER_WIDTH);
+        const contentWidth = Math.max(1, width - DETAILS_BORDER_WIDTH * 2);
         // A large text scale can make the two controls wider than the side
         // column. Stack only its controls; the definition stays to the right.
-        this._header.vertical = [this._tree, this._toggle].reduce((sum, button) =>
+        this._header.vertical = [this._tree, this._toggle].filter(button => button.visible).reduce((sum, button) =>
             sum + Math.ceil(button.get_preferred_width(-1)[1]), 0) > contentWidth;
         const textWidth = Math.max(1, contentWidth - DETAILS_INSET * 2);
         for (const label of [this.label, this._definitionFull]) {
@@ -76,11 +78,10 @@ export class CandidateDetail {
             label.set_style(`font-size: ${fontSize}px; padding: 0 ${DETAILS_INSET}px ${DETAILS_INSET}px;`);
         }
         this._definitionSummary.set_style(`padding: 0 ${DETAILS_INSET}px;`);
-        for (const label of [this._definitionHeading, this._definitionPreview]) {
-            label.set_width(textWidth);
-            label.set_style(`font-size: ${fontSize}px; padding: 0;`);
-            label.show();
-        }
+        this._definitionHeading.set_width(this._header.vertical ? textWidth : 1);
+        this._definitionHeading.set_style(`font-size: ${fontSize}px; font-weight: 600; padding: 4px ${DETAILS_INSET}px;`);
+        this._definitionPreview.set_width(textWidth);
+        this._definitionPreview.set_style(`font-size: ${fontSize}px; padding: 0;`);
         this._definitionSummary.visible = !this.expanded;
         this._definitionFull.visible = this.expanded;
         this.label.visible = this.expanded;
@@ -91,9 +92,10 @@ export class CandidateDetail {
         const headerHeight = Math.ceil(this._header.get_preferred_height(contentWidth)[1]);
         const maximumPixelHeight = Math.max(0, Math.floor(maximumHeight));
         const availablePixelHeight = Math.max(0, Math.floor(availableHeight));
-        const heightBudget = Math.max(headerHeight + candidateLineHeight(fontSize, this.actor) * MINIMUM_DEFINITION_LINES,
+        const borderHeight = DETAILS_BORDER_WIDTH * 2;
+        const heightBudget = Math.max(borderHeight + headerHeight + candidateLineHeight(fontSize, this.actor) * MINIMUM_DEFINITION_LINES,
             Math.min(availablePixelHeight, maximumPixelHeight));
-        const contentBudget = Math.max(0, heightBudget - headerHeight);
+        const contentBudget = Math.max(0, heightBudget - headerHeight - borderHeight);
         // Both the short meaning and full entry scroll within the right column;
         // opening the dictionary never consumes rows from the candidate list.
         this._definitionSummary.set_width(contentWidth);
@@ -101,7 +103,7 @@ export class CandidateDetail {
         const detailHeight = Math.min(contentBudget,
             Math.ceil(this._scrollContent.get_preferred_height(contentWidth)[1]));
         this._scroll.set_size(contentWidth, detailHeight);
-        const height = Math.min(heightBudget, headerHeight + detailHeight);
+        const height = Math.min(heightBudget, borderHeight + headerHeight + detailHeight);
         this.actor.set_size(width, height);
         return height;
     }
@@ -138,7 +140,7 @@ export class CandidateDetail {
         if (response !== this._definition) this._replaceDefinitionSource();
         this._definition = response;
         const heading = this._definitionHeadingText();
-        this._definitionHeading.text = (response?.status === 'found' ? `${heading} · ${messages.definitionSourceShort}` : heading)
+        this._definitionHeading.text = (response?.word ?? heading)
             .replace(/[\r\n\u2028\u2029]+/g, ' ');
         this._definitionHeading.accessible_name = this._definitionHeading.text;
         const preview = this._definitionPreviewText();
@@ -191,14 +193,15 @@ export class CandidateDetail {
 
     applyPalette(palette) {
         this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text};
-            border-left: ${DETAILS_BORDER_WIDTH}px solid ${palette.border};`);
+            border: ${DETAILS_BORDER_WIDTH}px solid ${palette.border}; border-radius: 8px;`);
     }
 
     reset() { this.expanded = false; this.setWordDefinitions(null); this.retire(); }
 
     retire() {
         this._identity = null;
-        this._header.destroy_all_children();
+        this._tree?.destroy();
+        this._toggle?.destroy();
         this._tree = this._toggle = null;
     }
 
