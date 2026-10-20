@@ -69,6 +69,44 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertFalse(textFields(in: view).map(\.stringValue).joined().contains("注釈の例"))
     }
 
+    func testHoveringANumberPreviewsItsPartialCandidateAndCommitsItOnce() throws {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 320))
+        var submitted: [Int] = []
+        var selected: [Int] = []
+        view.onCandidateSubmitted = { submitted.append($0) }
+        view.onSelectionChanged = { selected.append($0) }
+        view.update(entries: [
+            .init(text: "日本語", tokens: [.init(text: "日本語", reading: "ニホンゴ")], candidateIndex: 0,
+                  scope: .init(consumedReading: "にほんご", remainingReading: "にゅうりょく")),
+            .init(text: "日本語入力", tokens: [.init(text: "日本語", reading: "ニホンゴ"), .init(text: "入力")],
+                  candidateIndex: 1, annotation: "全文の注釈",
+                  scope: .init(consumedReading: "にほんごにゅうりょく", remainingReading: ""))
+        ], selectionIndex: 1, numbers: [0: "1", 1: "2"])
+        view.layoutSubtreeIfNeeded()
+        let word = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "日本語" })
+        let number = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "1" })
+        let entered = try XCTUnwrap(NSEvent.enterExitEvent(
+            with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+            context: nil, eventNumber: 0, trackingNumber: 0, userData: nil
+        ))
+        word.mouseEntered(with: entered)
+        XCTAssertTrue(textFields(in: view).contains { $0.stringValue.contains("全文の注釈") })
+        number.mouseEntered(with: entered)
+        let details = textFields(in: view).map(\.stringValue).joined(separator: "\n")
+        XCTAssertTrue(details.contains("確定予定: 日本語\n"))
+        XCTAssertTrue(details.contains("にゅうりょく"))
+        XCTAssertFalse(details.contains("全文の注釈"))
+        XCTAssertTrue(number.accessibilityHelp()?.contains("にゅうりょく") == true)
+        word.mouseEntered(with: entered)
+        XCTAssertTrue(textFields(in: view).contains { $0.stringValue.contains("全文の注釈") })
+        number.mouseEntered(with: entered)
+        XCTAssertEqual(submitted, [])
+        XCTAssertEqual(selected, [])
+        XCTAssertFalse(number.acceptsFirstResponder)
+        number.performClick(nil)
+        XCTAssertEqual(submitted, [0])
+    }
+
     func testScoresExplainRelativeMeaningAndRefreshOnCandidateChange() throws {
         let view = CandidateTreeView()
         let scored: [CandidateTree.Entry] = [

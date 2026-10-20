@@ -14,6 +14,7 @@ final class CandidateTreeView: NSView {
     var onCandidateSubmitted: ((Int) -> Void)?
     var onLayoutChanged: (() -> Void)?
     private var tree = CandidateTree(entries: [])
+    private var candidatePage = CandidatePage(entries: [], selectionIndex: nil)
     private var selection = CandidateTreeSelection(tree: CandidateTree(entries: []), candidateIndex: nil)
     private let scrollView = NSScrollView()
     private let details = CandidateDetailView(frame: .zero)
@@ -120,8 +121,8 @@ final class CandidateTreeView: NSView {
         textSize = size
         tree = updatedTree
         numberLabels = numbers
-        navigation.update(page: CandidatePage(entries: entries, selectionIndex: selectionIndex, pageStart: numbers.keys.min()),
-                          numbers: numbers, fontSize: size.pointSize)
+        candidatePage = CandidatePage(entries: entries, selectionIndex: selectionIndex, pageStart: numbers.keys.min())
+        navigation.update(page: candidatePage, numbers: numbers, fontSize: size.pointSize)
         selection.synchronize(tree: tree, candidateIndex: selectionIndex)
         if changed {
             rebuild()
@@ -281,6 +282,7 @@ final class CandidateTreeView: NSView {
                 }
                 self.submit(candidateIndex: index)
             }
+            terminal.hovered = { [weak self] in self?.showNumberDetails(candidateIndex: index) }
             canvas.addSubview(terminal)
             terminalButtons[index] = terminal
         }
@@ -314,6 +316,9 @@ final class CandidateTreeView: NSView {
             if let frame = terminalFrames[index] { button.frame = frame }
             let title = numberLabels[index] ?? "↵"
             if button.title != title { button.title = title }
+            let preview = candidatePage.items.first { $0.index == index }?.detailDescription
+            button.toolTip = [button.accessibilityLabel(), preview].compactMap { $0 }.joined(separator: "\n")
+            button.setAccessibilityHelp(button.toolTip)
             button.highlightedPath = selection.selectedCandidateIndex == index
             button.font = .monospacedSystemFont(ofSize: max(14, textSize.pointSize - 4), weight: .medium)
             button.compactBadge = documentWidths?.count == displayedColumns.count
@@ -358,6 +363,12 @@ final class CandidateTreeView: NSView {
         let preview = tree.preview(at: nodeID, preserving: selection.selectedCandidateIndex)?.detailDescription
         let description = [word, preview, Localization.text("candidate.detailKeys")].compactMap { $0 }.joined(separator: "\n")
         details.update(text: description, fontSize: CGFloat(textSize.pointSize))
+    }
+
+    private func showNumberDetails(candidateIndex: Int) {
+        // A shared word and its adjacent number may commit different entries.
+        let preview = candidatePage.items.first { $0.index == candidateIndex }?.detailDescription ?? ""
+        details.update(text: preview, fontSize: CGFloat(textSize.pointSize))
     }
 }
 

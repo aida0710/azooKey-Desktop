@@ -204,7 +204,9 @@ export default class AzooKeyTreeExtension extends Extension {
                         this._call('Select', selection);
                 });
                 widget.connect('notify::hover', () => {
-                    if (widget.hover && operation === 'node') this._showDetails(index);
+                    if (!widget.hover) return;
+                    if (operation === 'node') this._showDetails(index);
+                    else this._showNumberDetails(index);
                 });
                 this._canvas.add_child(widget);
                 this._buttons.set(identity, widget);
@@ -244,11 +246,13 @@ export default class AzooKeyTreeExtension extends Extension {
             if (data.showCandidateIndex && index !== undefined) {
                 const number = index - (data.pageStart ?? 0) + 1;
                 if (number >= 1 && number <= 9) {
+                    const item = data.candidatePage?.items?.find(candidate => candidate.index === index);
+                    const numberDescription = [`候補 ${index + 1} を確定`, item?.detailDescription].filter(Boolean).join('\n');
                     button({operation: 'select', index, label: String(number), frame: {
                         x: aligned ? frame.x + frame.width - rowHeight : frame.x + frame.width + 1,
                         y: aligned ? frame.y + frame.height + 16 : frame.y,
                         width: rowHeight, height: rowHeight,
-                    }, active: index === data.selection, focused: false, accessibleName: `候補 ${index + 1} を確定`});
+                    }, active: index === data.selection, focused: false, accessibleName: numberDescription});
                 }
             }
         }
@@ -313,6 +317,13 @@ export default class AzooKeyTreeExtension extends Extension {
         if (!node) return;
         const text = [node.text, node.reading, node.previewDescription, messages.detailKeys].filter(Boolean).join('\n');
         this._details.update({text, fontSize: state.fontSize, width: state.width});
+    }
+
+    _showNumberDetails(index) {
+        if (!this._detailState) return;
+        // The numbered action commits this entry even when the word is shared.
+        const item = this._lastSnapshot?.candidatePage?.items?.find(candidate => candidate.index === index);
+        this._details.update({...this._detailState, text: item?.detailDescription ?? ''});
     }
 
     disable() {
