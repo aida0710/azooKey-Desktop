@@ -304,6 +304,7 @@ class Engine(IBus.Engine):
         words = [nodes[column[0]]["text"] for column in snapshot.get("columns", []) if column]
         geometry = self.anchor.geometry(words)
         self.panel.location = self.anchor.position if geometry else (self.anchor.location or (0, 0, 0, 0))
+        self.panel.caret_location = self.anchor.location
         return {**snapshot, "wordGeometry": geometry}
 
     def do_focus_in(self):
