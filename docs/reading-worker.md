@@ -40,6 +40,14 @@ process 世代、context、focus epoch を編集前に照合します。不正�
 
 未知の要求項目、負の revision、非対応 operation、数値選択も拒否します。未知 operation は `unsupported_reading_operation`、未接続キーは `unsupported_reading_action`、再変換 shortcut は `reconversion_requires_coordinator` です。これらを入力操作の成功として適用してはいけません。
 
+## 通常の変換キー
+
+Space・下矢印は必要な読み区切りを正式入力へ加え、候補がなければ入力応答に `request: "candidates"` を返します。その間は読みを表示し続け、候補到着後の明示キーで選択します。この開発段階では、到着だけで変換表示へ進めません。候補待ちのEnterは読みを確定し、Escapeは変換要求を取り消して読みを残します。さらにEscapeを押すと読みを取り消します。
+
+Shift＋左右は実際に選んだ候補の消費範囲を基準に文節を変更し、変更後の正式入力を要求に使用します。候補待ちでSpaceを押しても編集した範囲は保持します。選択中のSpace・Shift＋Space・上下矢印は現在の一覧内を移動し、Enterは選択した候補IDを確定します。全読みを消費する候補を優先してpreviewし、なければ実在する先頭候補を使います。複数候補の単語を組み合わせません。
+
+明示選択後の Enter は、その候補と検証済みの残る読みを使用します。候補プロセスが停止しても、表示済みの選択対象を変えません。学習通知は元の入力応答にだけ含め、通常の snapshot や次のキーへ再送しません。Enterや右矢印による部分確定後は文脈も更新して残りの候補を要求し、到着待ちでもEnterで残る読みを確定できます。選択取消・編集では古い選択を外し、選択中の英数切替では表示中の文字を確定します。選択した接頭辞と生の読みを一括確定する場合、その組合せを架空の候補として学習させません。
+
 ## 候補の保持、採用、確定
 
 1. coordinator が候補 worker の世代を取得し、その世代を `prepare-candidates` に渡します。読み側は正式入力と現在の文脈から要求を作り、対象 worker の世代を保存します。
@@ -64,4 +72,4 @@ transport の上限は `DesktopWorkerProtocolLimits` にまとめています。
 
 Swift と実 JSONL で、旧世代・旧焦点・close/open ABA、別欄、private、部分確定、候補停止、不正要求後の継続を検査します。消費範囲の負例には明示した合成候補を使います。`AZOOKEY_CANDIDATE_BRIDGE` を指定した追加試験は別の実 candidate process を使い、実候補の retain ACK → 採用 → 選択 → 確定 → complete を往復します。候補 process を SIGSTOP した間も、読み側の編集・確定が完了することを検査します。
 
-frontend coordinator、通常製品入口への切替、一般設定同期、予測・AI・再変換、Spaceによる正式separator、ライブ変換 ON は未接続です。実アプリの key-to-paint、IBus / GTK / Qt / Wayland の応答性や、P1 #17 全体の受入を、この protocol 単体の成功で満たしたとは扱いません。
+frontend coordinator、通常製品入口への切替、一般設定同期、予測・数字確定・F6〜F10・AI・再変換、ライブ変換 ON は未接続です。実アプリの key-to-paint、IBus / GTK / Qt / Wayland の応答性や、P1 #17 全体の受入を、この protocol 単体の成功で満たしたとは扱いません。

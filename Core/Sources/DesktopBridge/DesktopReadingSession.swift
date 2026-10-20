@@ -18,6 +18,8 @@ struct DesktopReadingSession {
     private var candidates = DesktopReadingCandidates()
     private var candidateContext: DesktopReadingCandidateContext?
     private var candidateCompletions: [DesktopCandidateCompletion] = []
+    // A pending preview/selection keeps the visible reading until another explicit input.
+    private var pendingConversionState: InputState?
     private let japaneseInputStyle: InputStyle
 
     init(inputStyle: InputStyle = .mapped(id: .defaultRomanToKana)) {
@@ -67,6 +69,7 @@ struct DesktopReadingSession {
         next.composition.stopComposition()
         next.candidates.invalidate()
         next.candidateContext = nil
+        next.pendingConversionState = nil
         next.state = .none
         next.generation += 1
         next.compositionRevision += 1
@@ -94,6 +97,7 @@ struct DesktopReadingSession {
     mutating func selectCandidate(_ selection: DesktopCandidateSelection) throws -> DesktopSnapshot {
         guard let candidateContext else { throw DesktopReadingCandidates.Failure.unavailableCandidate }
         try candidates.select(selection, composition: composition, context: currentContext(candidateContext))
+        pendingConversionState = nil
         state = .selecting
         generation += 1
         return snapshot()
@@ -101,13 +105,22 @@ struct DesktopReadingSession {
 
     /// Only immediate keyboard navigation may translate a current list position into an identity.
     mutating func selectCurrentCandidate(index: Int) throws -> DesktopSnapshot {
+        try selectCandidate(at: index)
+        pendingConversionState = nil
+        state = .selecting
+        generation += 1
+        return snapshot()
+    }
+
+    private mutating func selectCandidate(at index: Int) throws {
         guard let batch = candidates.batch, batch.candidates.indices.contains(index) else {
             throw DesktopReadingCandidates.Failure.unavailableCandidate
         }
+        guard let candidateContext else { throw DesktopReadingCandidates.Failure.unavailableCandidate }
         let selection = DesktopCandidateSelection(
             batch: .init(authority: batch.authority, workerGeneration: batch.workerGeneration, batchID: batch.batchID),
             candidateID: batch.candidates[index].candidateID)
-        return try selectCandidate(selection)
+        try candidates.select(selection, composition: composition, context: currentContext(candidateContext))
     }
 
     mutating func candidateWorkerUnavailable() {
@@ -166,7 +179,7 @@ struct DesktopReadingSession {
         return response
     }
 
-    // Match Core's key interpretation; candidate-dependent actions stay explicit until connected.
+    // Core interprets the key; the reading owner decides when an available candidate is selected.
     // swiftlint:disable:next cyclomatic_complexity
     private mutating func applyKey(_ event: KeyEventCore) throws -> DesktopSnapshot {
         generation += 1
@@ -193,29 +206,50 @@ struct DesktopReadingSession {
         case .fallthrough:
             consumed = false
         case .appendToMarkedText(let text):
+            resumeReading()
             composition.insertAtCursorPosition(text, inputStyle: inputStyle)
         case .appendPieceToMarkedText(let pieces):
+            resumeReading()
+            composition.insertAtCursorPosition(pieces: pieces, inputStyle: inputStyle)
+        case .commitMarkedTextAndAppendToMarkedText(let text):
+            commits.append(try commitDisplayedText())
+            composition.insertAtCursorPosition(text, inputStyle: inputStyle)
+        case .commitMarkedTextAndAppendPieceToMarkedText(let pieces):
+            commits.append(try commitDisplayedText())
             composition.insertAtCursorPosition(pieces: pieces, inputStyle: inputStyle)
         case .insertWithoutMarkedText(let text):
             commits.append(text)
         case .removeLastMarkedText:
-            candidates.clearSelection()
+            resumeReading()
             composition.deleteBackwardFromCursorPosition()
         case .removeNextMarkedText:
-            candidates.clearSelection()
+            resumeReading()
             composition.deleteForwardFromCursorPosition()
         case .moveCompositionCursor(let movement):
-            candidates.clearSelection()
+            resumeReading()
             composition.moveCursor(movement)
         case .commitMarkedText:
             commits.append(try commitDisplayedText())
         case .submitSelectedCandidate:
-            guard let candidateContext else { throw Failure.unsupportedAction }
-            let committed = try candidates.takeSelection(composition: composition, context: currentContext(candidateContext))
-            commits.append(committed.text)
-            composition = committed.remaining
-            candidateCompletions.append(committed.completion)
+            return try commitSelectedCandidate(callback: callback)
+        case .enterFirstCandidatePreviewMode:
+            return try beginConversion(state: .previewing)
+        case .enterCandidateSelectionMode:
+            return try beginConversion(state: .selecting)
+        case .editSegment(let count):
+            composition.editSegment(count: count, selectedCount: candidates.selectedCount?.composingCount)
+            return requestConversion(state: .selecting)
+        case .selectNextCandidate:
+            try moveCandidateSelection(by: 1)
+        case .selectPrevCandidate:
+            try moveCandidateSelection(by: -1)
+        case .hideCandidateWindow:
+            cancelConversion()
         case .stopComposition:
+            if pendingConversionState != nil {
+                cancelConversion()
+                return snapshot()
+            }
             composition.stopComposition()
         case .selectInputLanguage(let selectedLanguage):
             language = selectedLanguage
@@ -241,6 +275,7 @@ struct DesktopReadingSession {
     }
 
     private mutating func commitDisplayedText() throws -> String {
+        pendingConversionState = nil
         guard !composition.isEmpty else {
             return ""
         }
@@ -257,6 +292,72 @@ struct DesktopReadingSession {
         composition.stopComposition()
         candidates.invalidate()
         return text
+    }
+
+    private mutating func beginConversion(state requestedState: InputState) throws -> DesktopSnapshot {
+        let nextState = pendingConversionState == .selecting ? .selecting : requestedState
+        if pendingConversionState == nil {
+            let previous = try CompositionSnapshot.capture(composition).encoded()
+            composition.insertCompositionSeparator(inputStyle: inputStyle)
+            if try CompositionSnapshot.capture(composition).encoded() != previous {
+                candidates.invalidate()
+            }
+        }
+        guard let index = candidates.preferredSelectionIndex else {
+            return requestConversion(state: nextState)
+        }
+        try selectCandidate(at: index)
+        pendingConversionState = nil
+        state = nextState
+        return snapshot()
+    }
+
+    private mutating func requestConversion(
+        state requestedState: InputState, commits: [String] = []
+    ) -> DesktopSnapshot {
+        candidates.invalidate()
+        pendingConversionState = requestedState
+        state = .composing
+        var response = snapshot(commits: commits)
+        response.request = "candidates"
+        return response
+    }
+
+    private mutating func commitSelectedCandidate(callback: ClientActionCallback) throws -> DesktopSnapshot {
+        guard let candidateContext else { throw DesktopReadingCandidates.Failure.unavailableCandidate }
+        let committed = try candidates.takeSelection(composition: composition, context: currentContext(candidateContext))
+        composition = committed.remaining
+        candidateCompletions.append(committed.completion)
+        pendingConversionState = nil
+        applyCallback(callback)
+        if composition.isEmpty {
+            return snapshot(commits: [committed.text])
+        }
+        // A suffix has no selected identity until its own candidate batch is explicitly selected.
+        return requestConversion(state: state, commits: [committed.text])
+    }
+
+    private mutating func cancelConversion() {
+        pendingConversionState = nil
+        candidates.invalidate()
+        composition.moveCursor(.end)
+        state = .composing
+    }
+
+    private mutating func resumeReading() {
+        pendingConversionState = nil
+        candidates.clearSelection()
+        composition.clearConversionRange()
+        state = .composing
+    }
+
+    private mutating func moveCandidateSelection(by offset: Int) throws {
+        guard let batch = candidates.batch, let selectedIndex = candidates.selectionIndex,
+              !batch.candidates.isEmpty else {
+            throw DesktopReadingCandidates.Failure.unavailableCandidate
+        }
+        let count = batch.candidates.count
+        try selectCandidate(at: (selectedIndex + offset + count) % count)
     }
 
     private mutating func applyCallback(_ callback: ClientActionCallback) {

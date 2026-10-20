@@ -46,6 +46,15 @@ struct DesktopReadingCandidates {
     var selectionIndex: Int? { selection?.index }
     var selectedText: String? { selection.map { $0.accepted.batch.candidates[$0.index].text } }
     var selectedSuffix: String? { selection.map { $0.accepted.consumption[$0.index].remaining.convertTarget } }
+    var selectedCount: ComposingCountSnapshot? {
+        selection.map { $0.accepted.batch.candidates[$0.index].composingCount }
+    }
+    var preferredSelectionIndex: Int? {
+        guard let available, !available.batch.candidates.isEmpty else {
+            return nil
+        }
+        return available.consumption.firstIndex { $0.remaining.isEmpty } ?? 0
+    }
 
     mutating func prepare(
         composition: CompositionState, context: DesktopReadingCandidateContext
