@@ -29,8 +29,7 @@ private final class DeferredAIClient {
     }
 }
 
-/// Records the actual InputMethodKit insert/marked-text boundary without an app.
-@MainActor
+/// Records the InputMethodKit boundary. The test controller calls it on the main actor.
 private final class FakeTextInput: NSObject, IMKTextInput {
     var inserted: [String] = []
     var marked = ""
@@ -52,7 +51,10 @@ private final class FakeTextInput: NSObject, IMKTextInput {
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer!) -> NSRect {
         NSRect(x: 100, y: 200, width: 1, height: 20)
     }
-    func characterIndex(for point: NSPoint) -> Int { 0 }
+    func characterIndex(for point: NSPoint, tracking mappingMode: IMKLocationToOffsetMappingMode, inMarkedRange: UnsafeMutablePointer<ObjCBool>!) -> Int {
+        inMarkedRange?.pointee = false
+        return 0
+    }
     func attributes(forCharacterIndex index: Int, lineHeightRectangle rect: NSRectPointer!) -> [AnyHashable: Any]! {
         rect?.pointee = NSRect(x: 100, y: 200, width: 1, height: 20)
         return [:]
@@ -65,8 +67,9 @@ private final class FakeTextInput: NSObject, IMKTextInput {
     func overrideKeyboard(withKeyboardNamed keyboardUniqueName: String!) {}
     func selectMode(_ modeIdentifier: String!) {}
     func supportsUnicode() -> Bool { true }
-    func uniqueClientIdentifier() -> Int { 1 }
-    func windowLevel() -> Int { NSWindow.Level.normal.rawValue }
+    func supportsProperty(_ property: TSMDocumentPropertyTag) -> Bool { false }
+    func uniqueClientIdentifierString() -> String! { "azookey-tests-fake-client" }
+    func windowLevel() -> CGWindowLevel { CGWindowLevel(NSWindow.Level.normal.rawValue) }
     func bundleIdentifier() -> String! { "azookey.tests.fake-client" }
 }
 
@@ -75,11 +78,13 @@ final class AISuggestionInputTests: XCTestCase {
     private var controller: azooKeyMacInputController!
     private var client: FakeTextInput!
     private var sender: DeferredAIClient!
+    private var serverFixture: InputMethodTestServer?
     private var directory: URL!
     private var restoreSettings: (() -> Void)!
 
-    override func setUp() {
-        super.setUp()
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        _ = NSApplication.shared
         let oldBackend = Config.AIBackendPreference().value
         let oldContext = Config.IncludeContextInAITransform().value
         let oldLive = Config.LiveConversion().value
@@ -101,17 +106,24 @@ final class AISuggestionInputTests: XCTestCase {
         )
         client = FakeTextInput()
         sender = DeferredAIClient()
-        controller = azooKeyMacInputController(
-            server: IMKServer(), delegate: nil, client: client, segmentsManager: manager
+        serverFixture = try InputMethodTestServer(
+            directoryURL: directory, controllerClass: azooKeyMacInputController.self
         )
-        controller.aiSuggestionSession.sendRequest = sender.send
+        controller = try XCTUnwrap(azooKeyMacInputController(
+            server: serverFixture?.server, delegate: nil, client: client, segmentsManager: manager
+        ))
+        let deferredSender = sender!
+        controller.aiSuggestionSession.sendRequest = { request in try await deferredSender.send(request) }
     }
 
     override func tearDown() {
-        controller.cancelReplaceSuggestion()
+        controller?.cancelReplaceSuggestion()
         controller = nil
-        restoreSettings()
-        try? FileManager.default.removeItem(at: directory)
+        serverFixture = nil
+        restoreSettings?()
+        if let directory {
+            try? FileManager.default.removeItem(at: directory)
+        }
         super.tearDown()
     }
 

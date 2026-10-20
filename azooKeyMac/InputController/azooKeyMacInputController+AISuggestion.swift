@@ -122,7 +122,7 @@ extension azooKeyMacInputController {
             text = segmentsManager.commitMarkedText(inputState: .composing)
         }
         if !text.isEmpty {
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            reconversionClient.commitText(text, client: client)
         }
         cancelReplaceSuggestion()
         inputState = .none
