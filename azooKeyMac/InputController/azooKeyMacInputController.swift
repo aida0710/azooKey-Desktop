@@ -187,7 +187,9 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         // refreshCandidateWindow / refreshPredictionWindow は composing/selecting 状態で
         // client.attributes(...) を呼ぶ経路があるため、activate 中は使わずウィンドウを
         // 明示的に閉じる。
-        self.candidatesViewController.updateCandidatePresentations([], selectionIndex: nil, cursorLocation: .zero)
+        self.candidatesViewController.updateCandidatePresentations(
+            [], selectionIndex: nil, cursorLocation: .zero, enterConfirmsCandidate: false
+        )
         self.candidatesWindow.setIsVisible(false)
         self.candidatesWindow.orderOut(nil)
         self.candidatesViewController.hide()
@@ -211,7 +213,9 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         self.candidatesWindow.orderOut(nil)
         self.predictionWindow.orderOut(nil)
         self.replaceSuggestionWindow.orderOut(nil)
-        self.candidatesViewController.updateCandidatePresentations([], selectionIndex: nil, cursorLocation: .zero)
+        self.candidatesViewController.updateCandidatePresentations(
+            [], selectionIndex: nil, cursorLocation: .zero, enterConfirmsCandidate: false
+        )
         super.deactivateServer(sender)
     }
 
@@ -690,7 +694,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.candidatesViewController.updateCandidatePresentations(
                 candidatePresentations,
                 selectionIndex: selectionIndex,
-                cursorLocation: rect.origin
+                cursorLocation: rect.origin,
+                enterConfirmsCandidate: self.inputState.enterConfirmsCandidate
             )
             self.candidatesWindow.orderFront(nil)
         case .composing(let candidates, let selectionIndex):
@@ -706,7 +711,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.candidatesViewController.updateCandidatePresentations(
                 candidatePresentations,
                 selectionIndex: selectionIndex,
-                cursorLocation: rect.origin
+                cursorLocation: rect.origin,
+                enterConfirmsCandidate: self.inputState.enterConfirmsCandidate
             )
             self.candidatesWindow.orderFront(nil)
         case .hidden:
@@ -754,7 +760,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         self.predictionViewController.updateCandidatePresentations(
             candidates.map { .init(candidate: $0) },
             selectionIndex: nil,
-            cursorLocation: rect.origin
+            cursorLocation: rect.origin,
+            enterConfirmsCandidate: false
         )
 
         if self.candidatesWindow.isVisible {
@@ -813,7 +820,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         self.predictionViewController.updateCandidatePresentations(
             candidates.map { .init(candidate: $0) },
             selectionIndex: nil,
-            cursorLocation: rect.origin
+            cursorLocation: rect.origin,
+            enterConfirmsCandidate: false
         )
         if self.candidatesWindow.isVisible {
             self.positionPredictionWindowRightOfCandidateWindow()
