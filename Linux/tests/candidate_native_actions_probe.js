@@ -57,9 +57,9 @@ export function probeNativeActions(Navigation, layoutManager, report) {
             queue(navigation._rows.get_children()[0]);
             navigation.update(snapshot(9, 2, 'another-native-at-probe'), layout);
         }, () => equal(submitted, [])],
-        ['current candidate runs once', () => {
+        ['current candidate selects once without committing', () => {
             queue(navigation._rows.get_children()[0]);
-        }, () => equal(submitted, [['select', 9, true, 2, 'another-native-at-probe']])],
+        }, () => equal(submitted, [['select', 9, false, 2, 'another-native-at-probe']])],
     ];
     function waitForPaint(callback) {
         const deadline = GLib.get_monotonic_time() + PAINT_DEADLINE_US;

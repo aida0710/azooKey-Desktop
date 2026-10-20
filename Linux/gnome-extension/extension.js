@@ -7,6 +7,7 @@ import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {CandidateDetail} from './candidateDetail.js';
+import {CandidateComposition} from './candidateComposition.js';
 import {messages} from './candidateMessages.js';
 import {candidatePlacement} from './candidatePlacement.js';
 import {ShellCursor} from './shellCursor.js';
@@ -19,21 +20,24 @@ import {addScoreBadge, SCORE_LINE_HEIGHT} from './candidateScore.js';
 const NAME = 'org.azookey.Tree';
 const PATH = '/org/azookey/Tree';
 const CANDIDATE_ROW_GAP = 4; // Separate actions even when the score line is hidden.
+// Bound each scrollable section so the source document remains visible around the card.
+const CARD_LAYOUT = {minimumWidth: 360, maximumWidth: 560, lineCharacters: 26,
+    compositionFraction: 0.26, detailsFraction: 0.14, treeFraction: 0.35, listFraction: 0.45};
 
 export default class AzooKeyTreeExtension extends Extension {
     enable() {
         this._buttons = new Map();
         this._hoveredAction = null;
+        this._treeExpanded = false;
         this._popup = new St.BoxLayout({vertical: true, can_focus: false});
         this._announcements = new CandidateAnnouncements(announcement =>
             this._popup.get_accessible().emit('notification', announcement, Atk.Live.POLITE));
+        this._composition = new CandidateComposition(selection => this._call('Select', selection));
+        this._popup.add_child(this._composition.actor);
         this._navigation = new CandidateNavigation({
             select: selection => { if (selection) this._call('Select', selection); },
             changed: () => { if (this._lastSnapshot) this._render(this._lastSnapshot); },
-            preview: item => {
-                if (!item) this._refreshDetails();
-                else if (this._detailState) this._details.update({...this._detailState, text: item.detailDescription});
-            },
+            preview: () => this._refreshDetails(),
         });
         this._popup.add_child(this._navigation.actor);
         this._treeScroll = new St.ScrollView({
@@ -47,7 +51,13 @@ export default class AzooKeyTreeExtension extends Extension {
         this._content.add_child(this._canvas);
         this._treeScroll.set_child(this._content);
         this._popup.add_child(this._treeScroll);
-        this._details = new CandidateDetail();
+        this._details = new CandidateDetail({
+            changed: () => { if (this._lastSnapshot) this._render(this._lastSnapshot); },
+            toggleTree: () => {
+                this._treeExpanded = !this._treeExpanded;
+                if (this._lastSnapshot) this._render(this._lastSnapshot);
+            },
+        });
         this._popup.add_child(this._details.actor);
         this._interfaceSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
         this._theme = new CandidateTheme(() => {
@@ -61,6 +71,7 @@ export default class AzooKeyTreeExtension extends Extension {
         });
         this._subscription = Gio.DBus.session.signal_subscribe(NAME, NAME, null, PATH, null,
             Gio.DBusSignalFlags.NONE, (_connection, _sender, _path, _interface, signal, parameters) => {
+                if (signal === 'Suspend') this._suspendCandidates();
                 if (signal === 'Hide') {
                     this._hideCandidates();
                 }
@@ -96,7 +107,31 @@ export default class AzooKeyTreeExtension extends Extension {
         this._lastSnapshot = null;
         this._placementSide = null;
         this._layoutDiagnostics.clear();
-        this._navigation.collapse();
+        this._treeExpanded = false;
+        this._navigation.reset();
+        this._details.reset();
+        this._composition.retire();
+        this._detailState = null;
+        this._cancelReveal();
+        this._clearButtons();
+    }
+
+    _cancelReveal() {
+        if (this._scrollIdle) GLib.source_remove(this._scrollIdle);
+        this._scrollIdle = 0;
+        this._focusKey = null;
+    }
+
+    _suspendCandidates() {
+        // Keep only presentation preferences. No old action survives the pending interval.
+        this._popup.hide();
+        this._lastSnapshot = null;
+        this._detailState = null;
+        this._hoveredAction = null;
+        this._navigation.retire();
+        this._details.retire();
+        this._composition.retire();
+        this._cancelReveal();
         this._clearButtons();
     }
 
@@ -111,16 +146,24 @@ export default class AzooKeyTreeExtension extends Extension {
         this._lastSnapshot = data;
         const anchor = this._cursor.anchor(data.location);
         const palette = this._theme.palette;
-        this._canvas.set_style(`background-color: ${palette.background}; border-radius: 6px;`);
+        this._popup.set_style(`background-color: ${palette.background}; color: ${palette.text};
+            border: 1px solid ${palette.border}; border-radius: 12px;`);
+        this._canvas.set_style(`background-color: ${palette.background};`);
         this._details.applyPalette(palette);
         const nodes = data.nodes ?? [];
         const candidateIdentity = JSON.stringify([data.contextId, data.reading, data.candidates,
             nodes.map(({relativeScore, scorePresentation, preview, previewDescription, ...node}) => node)]);
         if (candidateIdentity !== this._candidateIdentity) {
+            if (this._candidateIdentity !== undefined && this._candidateIdentity !== null) {
+                this._navigation.reset();
+                this._details.reset();
+                this._composition.retire();
+                this._treeExpanded = false;
+            }
             this._hoveredAction = null;
             this._candidateIdentity = candidateIdentity;
         }
-        const actionIdentity = JSON.stringify([candidateIdentity, data.generation, data.selection]);
+        const actionIdentity = JSON.stringify([candidateIdentity, data.generation, data.selection, data.focusedNode, this._treeExpanded]);
         if (actionIdentity !== this._actionIdentity) {
             this._clearButtons();
             this._actionIdentity = actionIdentity;
@@ -137,36 +180,36 @@ export default class AzooKeyTreeExtension extends Extension {
         }
         const visibleButtons = new Set();
         const byId = new Map(nodes.map(node => [node.id, node]));
-        const columns = data.columns ?? [];
-        if (!columns.length) {
+        const allColumns = data.columns ?? [];
+        if (!allColumns.length) {
             this._hideCandidates();
             return;
         }
+        const focusedDepth = byId.get(data.focusedNode)?.depth ?? 0;
+        // Keep the selected path, expanding alternatives only at the active word.
+        const columns = this._treeExpanded ? allColumns.map((column, depth) =>
+            depth === focusedDepth ? column : [data.selectedPath?.[depth] ?? column[0]]) : [];
         const frames = new Map();
-        const documentWidths = data.wordGeometry?.widths ?? [];
         const fontSize = (data.candidateTextSize === 'large' ? 24 : 18) *
             Math.max(1, this._interfaceSettings.get_double('text-scaling-factor'));
-        const minimumWidth = fontSize + (data.showCandidateIndex ? 14 : 8);
-        const aligned = anchor.permitsWordAlignment && documentWidths.length === columns.length &&
-            documentWidths.every(width => Number.isFinite(width) && width >= minimumWidth);
-        const alignmentReason = aligned ? 'estimated-inline' :
-            (data.layoutReason ?? (anchor.permitsWordAlignment
-                ? (documentWidths.length ? 'column-too-narrow' : 'missing-word-geometry') : 'caret-only'));
+        // A sentence/list card follows the caret rather than pretending its rows align to document words.
+        const aligned = false;
+        const alignmentReason = 'sentence-card';
         const rowHeight = fontSize + 14;
         const scoreHeight = data.showRelativeScores ? SCORE_LINE_HEIGHT : 0;
-        const rowPitch = rowHeight + scoreHeight + CANDIDATE_ROW_GAP + (data.showCandidateIndex && aligned ? rowHeight : 0);
+        const rowPitch = rowHeight + scoreHeight + CANDIDATE_ROW_GAP;
         let nextX = 12;
         for (const [depth, column] of columns.entries()) {
             const measure = new St.Label({text: byId.get(column[0]).text, style: `font-size: ${fontSize}px;`});
             // St needs a stage-backed theme node even for a temporary measurement.
             this._canvas.add_child(measure);
-            const columnWidth = aligned ? documentWidths[depth] : Math.max(fontSize + 12, Math.min(240, measure.get_preferred_width(-1)[1] + 12));
+            const columnWidth = Math.max(fontSize + 24, Math.min(280, measure.get_preferred_width(-1)[1] + 24));
             measure.destroy();
             column.forEach((id, row) => frames.set(id, {x: nextX, y: 6 + row * rowPitch, width: columnWidth, height: rowHeight}));
-            nextX += columnWidth + (aligned ? 0 : (data.showCandidateIndex ? rowHeight + 2 : 12));
+            nextX += columnWidth + (data.showCandidateIndex ? rowHeight + 2 : 12);
         }
         const width = Math.max(60, nextX);
-        const height = Math.max(32, Math.max(...columns.map(column => column.length)) * rowPitch + 6);
+        const height = columns.length ? Math.max(32, Math.max(...columns.map(column => column.length)) * rowPitch + 6) : 0;
         this._canvas.set_size(width, height);
         const selected = new Set(data.selectedPath ?? []);
         const edges = columns.flat().map(id => {
@@ -242,13 +285,13 @@ export default class AzooKeyTreeExtension extends Extension {
             widget.accessible_name = accessibleName;
             widget.get_accessible().accessible_description = description;
             visibleButtons.add(identity);
-            widget._selection = new GLib.Variant('(sibis)', [operation, index, true, data.generation, data.contextId]);
+            widget._selection = new GLib.Variant('(sibis)', [operation, index, false, data.generation, data.contextId]);
             widget.set_checked(active);
             const textColor = active ? palette.selectionText : palette.text;
             const borderWidth = 2;
             widget.set_style(`color: ${textColor}; background-color: ${active ? palette.selection : palette.surface}; border: ${borderWidth}px solid ${active ? palette.text : 'transparent'}; border-radius: 4px; padding: 0;`);
             const captions = new St.BoxLayout({vertical: true, y_align: Clutter.ActorAlign.CENTER});
-            const caption = new St.Label({text: label, x_align: aligned ? Clutter.ActorAlign.START : Clutter.ActorAlign.CENTER});
+            const caption = new St.Label({text: label, x_align: Clutter.ActorAlign.CENTER});
             const size = operation === 'select' ? Math.max(14, fontSize - 4) : fontSize;
             caption.set_style(`font-size: ${size}px;`);
             if (focused) {
@@ -269,7 +312,8 @@ export default class AzooKeyTreeExtension extends Extension {
             const node = byId.get(id);
             const presentation = data.showRelativeScores ? node.scorePresentation : null;
             const accessibleName = [node.text, node.reading].filter(Boolean).join('\n');
-            const description = [node.previewDescription, presentation?.detailDescription].filter(Boolean).join('\n');
+            const description = [id === data.focusedNode ? messages.focusedSelect : messages.select,
+                node.previewDescription, presentation?.detailDescription].filter(Boolean).join('\n');
             button({operation: 'node', index: id, label: node.text, frame,
                 active: selected.has(id), focused: id === data.focusedNode,
                 accessibleName, description});
@@ -279,10 +323,9 @@ export default class AzooKeyTreeExtension extends Extension {
                 const number = index - (data.pageStart ?? 0) + 1;
                 if (number >= 1 && number <= 9) {
                     const item = data.candidatePage?.items?.find(candidate => candidate.index === index);
-                    const numberDescription = [`候補 ${index + 1} を確定`, item?.detailDescription].filter(Boolean).join('\n');
+                    const numberDescription = [messages.numberSelect(index + 1), item?.detailDescription].filter(Boolean).join('\n');
                     button({operation: 'select', index, label: String(number), frame: {
-                        x: aligned ? frame.x + frame.width - rowHeight : frame.x + frame.width + 1,
-                        y: aligned ? frame.y + frame.height + scoreHeight : frame.y,
+                        x: frame.x + frame.width + 1, y: frame.y,
                         width: rowHeight, height: rowHeight,
                     }, active: index === data.selection, focused: false, accessibleName: numberDescription});
                 }
@@ -303,26 +346,8 @@ export default class AzooKeyTreeExtension extends Extension {
         const monitorIndex = Main.layoutManager.monitors.findIndex(m => x >= m.x && x < m.x + m.width && y >= m.y && y < m.y + m.height);
         const index = monitorIndex >= 0 ? monitorIndex : Main.layoutManager.primaryIndex;
         const bounds = global.workspace_manager.get_active_workspace().get_work_area_for_monitor(index);
-        const detailHeight = Math.min(160, bounds.height / 3);
-        const navigationHeight = this._navigation.update(data,
-            {fontSize, listHeight: Math.min(240, bounds.height / 3)});
-        this._navigation.applyPalette(palette);
-        const placement = candidatePlacement({cursor: anchor.location, bounds,
-            contentWidth: width, contentHeight: height, detailHeight: detailHeight + navigationHeight, aligned,
-            preferredSide: this._placementSide});
-        if (aligned && !placement.permitsAlignment) {
-            this._render({...data, wordGeometry: null, layoutReason: 'outside-workarea'});
-            return;
-        }
-        // The popup follows the compact content; there is no full-window backdrop.
-        // Reserve a bounded detail area, leaving the source document visible.
-        const {width: popupWidth, height: popupHeight, treeHeight} = placement;
-        this._treeScroll.set_size(popupWidth, treeHeight);
-        this._navigation.actor.set_size(popupWidth, navigationHeight);
-        this._details.actor.set_size(popupWidth, detailHeight);
-        this._popup.set_size(popupWidth, popupHeight);
-        this._detailState = {nodes: byId, fontSize, width: popupWidth, showScores: data.showRelativeScores};
-        this._refreshDetails();
+        const placement = this._layoutCard(data, {bounds, fontSize, treeContentHeight: height,
+            nodes: byId, actionIdentity, location: anchor.location, palette});
         this._popup.set_position(placement.x, placement.y);
         this._placementSide = placement.side;
         this._layoutDiagnostics.update({source: anchor.source, aligned, reason: alignmentReason,
@@ -331,7 +356,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._announcements.update(data);
         const focus = frames.get(data.focusedNode);
         const focusKey = `${data.contextId}:${data.generation}:${data.selection}:${data.focusedNode}`;
-        if (focus && focusKey !== this._focusKey) {
+        if (this._treeExpanded && focus && focusKey !== this._focusKey) {
             this._focusKey = focusKey;
             if (this._scrollIdle) GLib.source_remove(this._scrollIdle);
             this._scrollIdle = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
@@ -350,27 +375,54 @@ export default class AzooKeyTreeExtension extends Extension {
         }
     }
 
+    _layoutCard(data, {bounds, fontSize, treeContentHeight, nodes, actionIdentity, location, palette}) {
+        // Three independently scrollable regions keep long sentences and enlarged text reachable.
+        const popupWidth = Math.min(bounds.width, Math.max(CARD_LAYOUT.minimumWidth,
+            Math.min(CARD_LAYOUT.maximumWidth, fontSize * CARD_LAYOUT.lineCharacters)));
+        const compositionHeight = this._composition.update(data,
+            {fontSize, width: popupWidth, maximumHeight: bounds.height * CARD_LAYOUT.compositionFraction, palette});
+        this._detailState = {nodes, showScores: data.showRelativeScores};
+        const navigationMinimum = this._navigation.update(data,
+            {fontSize, width: popupWidth, listHeight: 1, palette});
+        this._refreshDetails();
+        const detailHeight = this._details.layout({identity: actionIdentity, treeExpanded: this._treeExpanded,
+            fontSize, width: popupWidth, maximumHeight: bounds.height * CARD_LAYOUT.detailsFraction});
+        const available = Math.max(1, bounds.height - compositionHeight - detailHeight - navigationMinimum - 2);
+        const treeHeight = this._treeExpanded ? Math.min(treeContentHeight, available * CARD_LAYOUT.treeFraction) : 0;
+        const navigationHeight = this._navigation.update(data,
+            {fontSize, width: popupWidth, listHeight: Math.min(available - treeHeight, bounds.height * CARD_LAYOUT.listFraction), palette});
+        this._navigation.actor.set_size(popupWidth, navigationHeight);
+        const placement = candidatePlacement({cursor: location, bounds,
+            contentWidth: popupWidth, contentHeight: treeHeight,
+            detailHeight: compositionHeight + navigationHeight + detailHeight, aligned: false,
+            preferredSide: this._placementSide});
+        this._treeScroll.visible = this._treeExpanded;
+        this._treeScroll.set_size(popupWidth, treeHeight);
+        this._popup.set_size(popupWidth, placement.height);
+        return placement;
+    }
+
     _showDetails(nodeID) {
         const state = this._detailState;
         const node = state?.nodes.get(nodeID);
         if (!node) return;
         const scoreDescription = state.showScores ? node.scorePresentation?.detailDescription : null;
         const text = [node.text, node.reading, node.previewDescription, scoreDescription, messages.detailKeys].filter(Boolean).join('\n');
-        this._details.update({text, fontSize: state.fontSize, width: state.width});
+        this._details.update({text});
     }
 
     _showNumberDetails(index) {
         if (!this._detailState) return;
-        // The numbered action commits this entry even when the word is shared.
+        // The numbered action addresses this candidate even when its word is shared.
         const item = this._lastSnapshot?.candidatePage?.items?.find(candidate => candidate.index === index);
-        this._details.update({...this._detailState, text: item?.detailDescription ?? ''});
+        this._details.update({text: item?.detailDescription ?? ''});
     }
 
     _refreshDetails() {
         if (!this._detailState) return;
         const item = this._navigation.expanded ? this._navigation.hoveredItem : null;
         if (item) {
-            this._details.update({...this._detailState, text: item.detailDescription});
+            this._details.update({text: item.detailDescription});
             return;
         }
         const target = this._hoveredAction;
@@ -387,9 +439,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._call('SetRenderer', new GLib.Variant('(b)', [false]));
         if (this._watch) Gio.bus_unwatch_name(this._watch);
         if (this._subscription) Gio.DBus.session.signal_unsubscribe(this._subscription);
-        if (this._scrollIdle) GLib.source_remove(this._scrollIdle);
-        this._scrollIdle = 0;
-        this._focusKey = null;
+        this._cancelReveal();
         this._hoveredAction = null;
         this._cursor?.destroy();
         this._cursor = null;
