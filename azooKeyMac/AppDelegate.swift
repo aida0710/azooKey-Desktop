@@ -141,6 +141,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @MainActor
     func openUserDictionaryEditorWindow() {
         if let userDictionaryEditorWindow {
             // Show the window
