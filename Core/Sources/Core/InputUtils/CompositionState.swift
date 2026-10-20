@@ -9,9 +9,14 @@ public struct CompositionState: Sendable {
     public init() {}
 
     public init(checkpoint: CompositionCheckpoint) {
-        self.composingText = checkpoint.composingText
-        self.lastInputStyle = checkpoint.inputStyle
-        self.conversionRangeEnd = checkpoint.conversionRangeEnd
+        self.init(composingText: checkpoint.composingText, lastInputStyle: checkpoint.inputStyle,
+                  conversionRangeEnd: checkpoint.conversionRangeEnd)
+    }
+
+    init(composingText: ComposingText, lastInputStyle: InputStyle, conversionRangeEnd: Int?) {
+        self.composingText = composingText
+        self.lastInputStyle = lastInputStyle
+        self.conversionRangeEnd = conversionRangeEnd
     }
 
     public var isEmpty: Bool { self.composingText.isEmpty }
