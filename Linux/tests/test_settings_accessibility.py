@@ -24,7 +24,7 @@ class SettingsAccessibilityTests(unittest.TestCase):
             ("tree", "live", "halfSpace", "backslash", "optionDirect", "aiEnabled", "includeContext",
              "predictiveTyping", "typoCorrection", "debug"), False,
         )
-        values.update(candidateTextSize="large", inputStyle="default", learning="onlyOutput",
+        values.update(candidateTextSize="large", showRelativeScores=True, inputStyle="default", learning="onlyOutput",
                       punctuation=3, personalization="soft", profile="保持するプロフィール", inferenceLimit=10,
                       userDictionary={"items": []}, customTable="", aiModel="fixture",
                       aiEndpoint="https://example.invalid", transformShortcut={"key": "g", "modifiers": 6})
