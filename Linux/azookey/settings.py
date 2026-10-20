@@ -11,6 +11,7 @@ from .prompts import parse_shortcut, shortcut_text
 from .personalization import import_model
 from .i18n import text as message
 from .learning_settings import learning_choices
+from .support_page import SupportPage
 
 
 def config_path():
@@ -40,6 +41,7 @@ class SettingsWindow(Gtk.Window):
         self.set_default_size(620, 620)
         self.bridge = Bridge()
         self.values = self.bridge.request("settings")["settings"]
+        first_setup = not config_path().exists()
         if config_path().is_file():
             self.values.update(json.loads(config_path().read_text()))
         self.widgets = {}
@@ -93,6 +95,12 @@ class SettingsWindow(Gtk.Window):
         download = Gtk.Button(label="入力訂正モデルをダウンロード")
         download.connect("clicked", self.download_weights)
         ai.pack_start(download, False, False, 0)
+        support = self.page(book, message("support.title"))
+        support.pack_start(SupportPage(lambda: self.values), True, True, 0)
+        if first_setup:
+            support_index = book.get_n_pages() - 1
+            book.get_nth_page(support_index).show_all()
+            book.set_current_page(support_index)
         self.message = Gtk.Label(xalign=0, wrap=True)
         box.pack_start(self.message, False, False, 0)
         save = Gtk.Button(label="保存")
@@ -116,7 +124,7 @@ class SettingsWindow(Gtk.Window):
         dialog.destroy()
         if response == Gtk.ResponseType.OK:
             try:
-                reply = Gio.DBus.session.call_sync("org.azookey.Tree", "/org/azookey/Tree", "org.azookey.Tree",
+                reply = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync("org.azookey.Tree", "/org/azookey/Tree", "org.azookey.Tree",
                                                    "ResetLearning", None, GLib.VariantType.new("(b)"),
                                                    Gio.DBusCallFlags.NONE, 5000, None)
                 success = reply.unpack()[0]

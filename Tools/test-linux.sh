@@ -14,6 +14,7 @@ swift build --package-path Core --product azookey-desktop-bridge "${SWIFT_OPTION
 export AZOOKEY_BRIDGE="$(swift build --package-path Core --show-bin-path)/azookey-desktop-bridge"
 python3 -m unittest discover -s Linux/tests -v
 GDK_BACKEND=x11 xvfb-run -a python3 -m unittest Linux.tests.test_tree_panel Linux.tests.test_candidate_accessibility Linux.tests.test_candidate_details -v
+dbus-run-session -- xvfb-run -a python3 -m unittest Linux.tests.test_support_diagnostics -v
 dbus-run-session -- xvfb-run -a bash Tools/tests/linux-desktop.sh
 dbus-run-session -- xvfb-run -a env AZOOKEY_IBUS_TEST=Linux/tests/ibus_composition_editing.py bash Tools/tests/linux-desktop.sh
 bash Tools/tests/linux-async.sh

@@ -1,16 +1,18 @@
 # Ubuntuで使う
 
-Ubuntu 24.04 / IBusが対象です。[試験版Release](https://github.com/aida0710/azooKey-Desktop/releases/tag/tree-v0.1.0)から、CPUに合う `azookey-tree_0.1.0_arm64.deb` または `azookey-tree_0.1.0_amd64.deb` と対応する `.sha256` をダウンロードしてください。同じディレクトリで `sha256sum -c ファイル名.deb.sha256` により照合できます。
+Ubuntu 24.04 / IBusが対象です。2026-10-20 時点の公開版 [tree-v0.1.2](https://github.com/aida0710/azooKey-Desktop/releases/tag/tree-v0.1.2)から、CPUに合う `azookey-tree_0.1.2_arm64.deb` または `azookey-tree_0.1.2_amd64.deb` と対応する `.sha256` をダウンロードしてください。同じディレクトリで `sha256sum -c ファイル名.deb.sha256` により照合できます。新しい試験版は[配布一覧](https://github.com/aida0710/azooKey-Desktop/releases)を確認します。
 
 ソースから作成する場合は次のコマンドを使います。arm64とamd64はそれぞれのCPU上で同じDockerビルドを実行します。依存パッケージはDocker内へ入ります。
 
 ```sh
 python3 Tools/fetch-models.py
 bash Tools/test-docker.sh --zenzai
-bash Tools/package-linux-docker.sh 0.1.0
+bash Tools/package-linux-docker.sh 0.1.2
 ```
 
-取得または生成したdebを、対象Ubuntu内で `sudo apt install ./azookey-tree_0.1.0_arm64.deb` により導入します（amd64ではファイル名もamd64に変更）。異なるCPU用のパッケージは使えません。同じ版番号の開発ビルドを入れ直す場合は `sudo apt install --reinstall ./ファイル名.deb` とします。
+取得または生成したdebを、対象Ubuntu内で `sudo apt install ./azookey-tree_0.1.2_arm64.deb` により導入します（amd64ではファイル名もamd64に変更）。異なるCPU用のパッケージは使えません。同じ版番号の開発ビルドを入れ直す場合は `sudo apt install --reinstall ./ファイル名.deb` とします。開発ソースに公開版の番号を付けたものは、公開済みパッケージと同一とは限りません。
+
+[更新・無効化・アンインストール・復旧](setup-and-recovery.md)も参照してください。
 
 1. 入力方式をIBusに設定します（`im-config -n ibus`）。
 2. GNOMEの「設定 → キーボード → 入力ソース」に「日本語 → azooKey Tree」を追加します。

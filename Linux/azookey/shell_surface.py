@@ -8,6 +8,7 @@ NAME = "org.azookey.Tree"
 PATH = "/org/azookey/Tree"
 XML = """<node><interface name="org.azookey.Tree">
   <method name="ResetLearning"><arg type="b" direction="out"/></method>
+  <method name="RendererStatus"><arg type="b" direction="out"/></method>
   <method name="SetRenderer"><arg type="b" direction="in"/></method>
   <method name="Select"><arg type="s" direction="in"/><arg type="i" direction="in"/>
     <arg type="b" direction="in"/><arg type="i" direction="in"/><arg type="s" direction="in"/></method>
@@ -32,6 +33,9 @@ class ShellSurface:
         self.registration = connection.register_object(PATH, info, self.method, None, None)
 
     def method(self, _connection, sender, _path, _interface, name, parameters, invocation):
+        if name == "RendererStatus":
+            invocation.return_value(GLib.Variant("(b)", (self.renderer is not None,)))
+            return
         if name == "ResetLearning":
             AsyncBridge.reset_shared_learning(
                 lambda success: invocation.return_value(GLib.Variant("(b)", (success,))))

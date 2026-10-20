@@ -25,7 +25,7 @@ struct ConfigWindow: View {
     @ConfigState private var keyboardLayout = Config.KeyboardLayout()
     @ConfigState private var aiBackend = Config.AIBackendPreference()
 
-    @State private var selectedTab: Tab = .basic
+    @State private var selectedTab: Tab = Config.SetupGuideSeen().value ? .basic : .support
     @State private var zenzaiProfileHelpPopover = false
     @State private var zenzaiInferenceLimitHelpPopover = false
     @State private var openAiApiKeyPopover = false
@@ -44,12 +44,18 @@ struct ConfigWindow: View {
         case basic = "基本"
         case customize = "カスタマイズ"
         case advanced = "詳細設定"
+        case support
+
+        var title: String {
+            self == .support ? Localization.text("support.title") : rawValue
+        }
 
         var icon: String {
             switch self {
             case .basic: return "star"
             case .customize: return "slider.horizontal.3"
             case .advanced: return "gearshape.2"
+            case .support: return "questionmark.circle"
             }
         }
     }
@@ -263,7 +269,7 @@ struct ConfigWindow: View {
         VStack(spacing: 0) {
             // カスタムタブバー
             HStack(spacing: 4) {
-                ForEach([Tab.basic, Tab.customize, Tab.advanced], id: \.self) { tab in
+                ForEach(Tab.allCases, id: \.self) { tab in
                     Button(
                         action: {
                             selectedTab = tab
@@ -273,7 +279,7 @@ struct ConfigWindow: View {
                                 Image(systemName: tab.icon)
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundColor(selectedTab == tab ? Color(nsColor: .controlAccentColor) : Color(nsColor: .secondaryLabelColor))
-                                Text(tab.rawValue)
+                                Text(tab.title)
                                     .font(.system(size: 11, weight: selectedTab == tab ? .medium : .regular))
                                     .foregroundColor(selectedTab == tab ? Color(nsColor: .labelColor) : Color(nsColor: .secondaryLabelColor))
                             }
@@ -312,6 +318,8 @@ struct ConfigWindow: View {
                     basicTabView
                 } else if selectedTab == .customize {
                     customizeTabView
+                } else if selectedTab == .support {
+                    SupportSettingsView()
                 } else {
                     advancedTabView
                 }
@@ -668,20 +676,6 @@ struct ConfigWindow: View {
                 }
             } header: {
                 Label("開発者向け設定", systemImage: "hammer")
-            }
-
-            Section {
-                LabeledContent("Version") {
-                    Text(PackageMetadata.gitTag ?? PackageMetadata.gitCommit ?? "Unknown Version")
-                        .monospaced()
-                        .bold()
-                        .copyable([
-                            PackageMetadata.gitTag ?? PackageMetadata.gitCommit ?? "Unknown Version"
-                        ])
-                }
-                .textSelection(.enabled)
-            } header: {
-                Label("アプリ情報", systemImage: "info.circle")
             }
         }
         .formStyle(.grouped)
