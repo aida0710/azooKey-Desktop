@@ -36,6 +36,19 @@ import Testing
         }
     }
 
+    @Test func aDirectoryReplacedWithAValidTableCanBeReadThroughTheSameURL() throws {
+        try withTemporaryFile { file in
+            let table = "q\tにほんご\n"
+            try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+            #expect(throws: CustomInputTableStore.ReadFailure.notRegularFile) {
+                try CustomInputTableStore.load(from: file, maximumBytes: table.utf8.count)
+            }
+            try FileManager.default.removeItem(at: file)
+            try Data(table.utf8).write(to: file)
+            #expect(try CustomInputTableStore.load(from: file, maximumBytes: table.utf8.count) == table)
+        }
+    }
+
     private func withTemporaryFile(_ operation: (URL) throws -> Void) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
