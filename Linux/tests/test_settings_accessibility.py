@@ -48,13 +48,13 @@ class SettingsAccessibilityTests(unittest.TestCase):
     def test_labels_name_the_entry_combo_and_multiline_controls(self):
         from gi.repository import Atk, Gtk
         controls = list(self.window.widgets.values()) + [
-            self.window.api_key, self.window.transform_shortcut, self.window.custom_table, self.window.dictionary,
+            self.window.api_key, self.window.transform_shortcut, self.window.custom_table, self.window.dictionary_button,
         ]
         for control in controls:
             with self.subTest(control=control.get_name()):
                 accessible = control.get_accessible()
                 self.assertTrue(accessible.get_name())
-                if isinstance(control, Gtk.CheckButton):
+                if isinstance(control, Gtk.Button):
                     continue
                 relation = accessible.ref_relation_set().get_relation_by_type(Atk.RelationType.LABELLED_BY)
                 self.assertIsNotNone(relation)

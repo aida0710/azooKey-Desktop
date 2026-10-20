@@ -90,7 +90,6 @@
 "settings.personalization" = "個人化モデル";
 "settings.personalization.explanation" = "変換プロフィールは変換時の補足情報です。個人化モデルは別途作成したモデルを使います。どちらも履歴学習とは別の設定です。";
 "settings.custom-table" = "カスタム入力表（TSV）";
-"settings.dictionary-text" = "ユーザー辞書（読み・単語・ヒントをタブで区切る）";
 "settings.save" = "保存";
 "ai.title" = "AI変換";
 "ai.backend.external" = "OpenAI互換API";

@@ -40,6 +40,13 @@ struct DesktopSnapshot: Encodable {
     var error: String?
     var settings: DesktopSettings?
     var suggestions: [String]?
+    var dictionaryIssues: [UserDictionaryValidation.Issue]?
+    var dictionarySaved: Bool?
+    var dictionarySaveError: String?
+    var dictionaryImportPreview: UserDictionaryImportPreview.Preview?
+    var dictionaryImportItems: [Config.UserDictionaryEntry]?
+    var dictionaryExportJSON: String?
+    var dictionaryExchangeError: String?
     var reading = ""
     var readingCursor = 0
     var inputState = "none"
@@ -239,8 +246,10 @@ final class DesktopSession: SegmentManagerDelegate {
         reconversionSession.recordCommit(commits[0], checkpoint: checkpoint, context: reconversionContext)
     }
 
-    func reloadSettings() throws {
-        try CompiledUserDictionaryStore.exportCurrentDictionaries(memoryDirectoryURL: segments.azooKeyMemoryDir)
+    func reloadSettings(rebuildDictionary: Bool = true) throws {
+        if rebuildDictionary {
+            try CompiledUserDictionaryStore.exportCurrentDictionaries(memoryDirectoryURL: segments.azooKeyMemoryDir)
+        }
         segments.reloadUserDictionary()
         segments.reloadPersonalization()
     }

@@ -90,7 +90,6 @@
 "settings.personalization" = "Personalization model";
 "settings.personalization.explanation" = "The conversion profile provides context for conversion. Personalization uses a separately created model. Both are independent of learning history.";
 "settings.custom-table" = "Custom input table (TSV)";
-"settings.dictionary-text" = "User dictionary (reading, word and optional hint separated by tabs)";
 "settings.save" = "Save";
 "ai.title" = "AI conversion";
 "ai.backend.external" = "OpenAI-compatible API";

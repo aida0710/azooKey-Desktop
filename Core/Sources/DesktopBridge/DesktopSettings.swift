@@ -63,7 +63,6 @@ struct DesktopSettings: Codable {
         Config.OpenAiApiEndpoint().value = aiEndpoint
         Config.IncludeContextInAITransform().value = includeContext
         Config.TransformShortcut().value = transformShortcut
-        Config.UserDictionary().value = userDictionary
         Config.userDefaults.synchronize()
     }
 }

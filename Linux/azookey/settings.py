@@ -1,4 +1,3 @@
-import uuid
 import threading
 import gi
 gi.require_version("Gtk", "3.0")
@@ -12,6 +11,8 @@ from .settings_pages import populate_settings_pages
 from .settings_store import SettingsStore, config_path
 from .settings_schema import input_defaults, validate_settings
 from .settings_recovery import SettingsRecoveryBar, confirm_restore
+from .user_dictionary_editor import UserDictionaryEditor
+from .user_dictionary_service import UserDictionaryService
 
 
 def read_key():
@@ -45,6 +46,7 @@ class SettingsWindow(Gtk.Window):
         self.recovery_bar = None
         self.widgets = {}
         self.closed = False
+        self.dictionary_editor = None
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=18)
         self.add(box)
         if loaded.problem:
@@ -63,14 +65,57 @@ class SettingsWindow(Gtk.Window):
         save.connect("clicked", self.save)
         box.pack_start(save, False, False, 0)
         self.connect("destroy", self.destroyed)
+        self.connect("delete-event", self.close_requested)
         if self.recovery_bar:
             self.set_focus(self.recovery_bar.restore_button)
 
     def destroyed(self, _window):
         self.closed = True
+        if self.dictionary_editor is not None and not self.dictionary_editor.closed:
+            self.dictionary_editor.close()
         self.bridge.close()
         if Gtk.main_level():
             Gtk.main_quit()
+
+    def close_requested(self, _window, _event):
+        if self.dictionary_editor is None or self.dictionary_editor.closed:
+            return False
+        self.dictionary_editor.present()
+        return True
+
+    def refresh_dictionary_button(self):
+        count = len(self.values["userDictionary"]["items"])
+        self.dictionary_button.set_label(message("settings.dictionary_edit", count=count))
+
+    def edit_dictionary(self, _button):
+        if self.dictionary_editor is not None and not self.dictionary_editor.closed:
+            self.dictionary_editor.present()
+            return
+        store = SettingsStore()
+        opened = store.load(self.values)
+        if opened.problem:
+            self.message.set_text(message("settings.recovery_required"))
+            return
+        if opened.stamp != self.settings_stamp:
+            self.message.set_text(message("settings.changed"))
+            return
+        service = UserDictionaryService(store, opened)
+
+        def saved(_entries):
+            if self.closed:
+                return
+            self.values = service.last_saved.values
+            self.settings_stamp = service.last_saved.stamp
+            self.refresh_dictionary_button()
+            key = "settings.backup_warning" if service.last_saved.backup_warning else "settings.dictionary_saved"
+            self.message.set_text(message(key))
+
+        self.dictionary_editor = UserDictionaryEditor(
+            opened.values["userDictionary"]["items"], validate=service.validate,
+            save=service.save, parent=self, on_saved=saved,
+        )
+        self.dictionary_editor.set_modal(True)
+        self.dictionary_editor.show_all()
 
     def restore_settings(self, use_defaults):
         if not confirm_restore(self):
@@ -96,9 +141,7 @@ class SettingsWindow(Gtk.Window):
                 widget.set_active_id(str(values[key]))
             else:
                 widget.set_text(str(values[key]))
-        entries = values["userDictionary"]["items"]
-        text = "\n".join("\t".join([item["reading"], item["word"], item.get("hint") or ""]) for item in entries)
-        self.dictionary.get_buffer().set_text(text)
+        self.refresh_dictionary_button()
         self.custom_table.get_buffer().set_text(values["customTable"])
         self.transform_shortcut.set_text(shortcut_text(values["transformShortcut"]))
 
@@ -246,15 +289,6 @@ class SettingsWindow(Gtk.Window):
                     values[key] = widget.get_text()
             for key in ("punctuation", "inferenceLimit"):
                 values[key] = int(values[key])
-            items = []
-            for line in self.text(self.dictionary).splitlines():
-                if not line.strip():
-                    continue
-                fields = line.split("\t")
-                if len(fields) not in (2, 3) or not all(fields[:2]):
-                    raise ValueError("辞書は読み・単語・任意のヒントをタブで区切ってください。")
-                items.append({"id": str(uuid.uuid4()), "reading": fields[0], "word": fields[1], "hint": fields[2] if len(fields) == 3 else ""})
-            values["userDictionary"] = {"items": items}
             values["customTable"] = self.text(self.custom_table)
             values["transformShortcut"] = parse_shortcut(self.transform_shortcut.get_text())
             if values["transformShortcut"] is None:

@@ -61,9 +61,11 @@ def populate_dictionary_page(window, parent):
     personal = Gtk.Button(label="Tunerの個人化モデルを読み込む…")
     personal.connect("clicked", window.import_personalization)
     parent.pack_start(personal, False, False, 0)
-    entries = window.values["userDictionary"]["items"]
-    dictionary_text = "\n".join("\t".join([item["reading"], item["word"], item.get("hint") or ""]) for item in entries)
-    window.dictionary = window.text_area(parent, dictionary_text, message("settings.dictionary-text"))
+    window.dictionary_button = Gtk.Button()
+    window.dictionary_button.connect("clicked", window.edit_dictionary)
+    window.refresh_dictionary_button()
+    parent.pack_start(window.dictionary_button, False, False, 0)
+    parent.pack_start(Gtk.Label(label=message("settings.dictionary_separate_save"), xalign=0, wrap=True), False, False, 0)
 
 
 def populate_ai_page(window, parent):

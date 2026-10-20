@@ -10,6 +10,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from azookey.bridge import Bridge
 from azookey.keymap import translate
 from azookey.personalization import import_model
+from unittest.mock import patch
 
 
 @unittest.skipUnless(os.environ.get("AZOOKEY_BRIDGE"), "build the real Swift bridge first")
@@ -18,10 +19,13 @@ class BridgeIntegrationTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.old = os.environ.get("AZOOKEY_DATA_DIR")
         os.environ["AZOOKEY_DATA_DIR"] = self.directory.name
+        self.config_environment = patch.dict(os.environ, {"XDG_CONFIG_HOME": str(pathlib.Path(self.directory.name) / "config")})
+        self.config_environment.start()
         self.bridge = Bridge()
 
     def tearDown(self):
         self.bridge.close()
+        self.config_environment.stop()
         if self.old is None:
             os.environ.pop("AZOOKEY_DATA_DIR", None)
         else:
@@ -206,10 +210,15 @@ class BridgeIntegrationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "linux", "settings integration runs in the isolated Ubuntu container")
     def test_settings_user_dictionary_and_custom_table_validation(self):
+        from azookey.settings_store import SettingsStore
+        from azookey.user_dictionary_service import UserDictionaryService
         original = self.bridge.request("settings")["settings"]
+        store = SettingsStore()
+        dictionary = UserDictionaryService(store, store.load(original))
         try:
             settings = {**original, "live": False, "learning": "nothing",
                         "userDictionary": {"items": [{"id": "18afee1d-8174-45c6-80e2-78d315b73f81", "reading": "こでっくす", "word": "Codex検証辞書", "hint": "test"}]}}
+            dictionary.save(settings["userDictionary"]["items"])
             self.assertNotIn("error", self.bridge.request("configure", settings=settings))
             for character in "kodekkusu":
                 self.bridge.request("key", event=translate(ord(character), 0))
@@ -223,6 +232,7 @@ class BridgeIntegrationTests(unittest.TestCase):
             self.assertEqual(self.bridge.request("settings")["settings"]["inferenceLimit"], settings["inferenceLimit"])
         finally:
             self.bridge.request("reset")
+            dictionary.save(original["userDictionary"]["items"])
             self.bridge.request("configure", settings=original)
 
     @unittest.skipUnless(sys.platform == "linux", "local API fixture runs in isolated Ubuntu")
