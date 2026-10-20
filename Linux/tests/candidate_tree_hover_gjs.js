@@ -1,6 +1,6 @@
 import {attachCandidateAction} from '../gnome-extension/candidateAccessibility.js';
 import {messages} from '../gnome-extension/candidateMessages.js';
-import {Actor, drainActions, loadShellClass} from './gnome_actor_fixture.js';
+import {Actor, ScrollableActor, ScrollViewActor, drainActions, loadShellClass} from './gnome_actor_fixture.js';
 
 function equal(actual, expected) {
     if (JSON.stringify(actual) !== JSON.stringify(expected))
@@ -8,7 +8,7 @@ function equal(actual, expected) {
 }
 const bounds = {x: 0, y: 0, width: 1920, height: 1080};
 const imports = {
-    St: {Button: Actor, BoxLayout: Actor, Label: Actor, ScrollView: Actor, DrawingArea: Actor,
+    St: {Button: Actor, BoxLayout: ScrollableActor, Label: Actor, ScrollView: ScrollViewActor, DrawingArea: Actor,
         PolicyType: {NEVER: 0, AUTOMATIC: 1}},
     Clutter: {ActorAlign: {CENTER: 0, START: 1}, EVENT_PROPAGATE: false},
     GLib: {Variant: class { constructor(_signature, values) { this.values = values; } },
@@ -33,8 +33,10 @@ extension._hoveredAction = null;
 extension._treeExpanded = true;
 extension._popup = new Actor();
 extension._canvas = new Actor();
-extension._treeScroll = new Actor();
-extension._treeScroll.set_child(extension._canvas);
+extension._treeScroll = new ScrollViewActor();
+extension._content = new ScrollableActor();
+extension._content.add_child(extension._canvas);
+extension._treeScroll.set_child(extension._content);
 extension._popup.add_child(extension._treeScroll);
 extension._theme = {palette: {background: 'white', text: 'black', surface: 'gray', border: 'black',
     selection: 'blue', selectionText: 'white'}};
@@ -283,7 +285,9 @@ longPartial.candidates[0].text = longText;
 longPartial.candidatePage.items[0].text = longText;
 extension._render(longPartial);
 const composition = extension._composition;
-equal(composition._remaining.get_parent() === composition._remainingScroll, true);
+equal(composition._remainingContent instanceof ScrollableActor, true);
+equal(composition._remaining.get_parent() === composition._remainingContent, true);
+equal(composition._remainingContent.get_parent() === composition._remainingScroll, true);
 equal(composition._content.get_children().includes(composition._remaining), false);
 equal(composition._remainingScroll.visible, true);
 equal(composition._remainingScroll.height > 0, true);

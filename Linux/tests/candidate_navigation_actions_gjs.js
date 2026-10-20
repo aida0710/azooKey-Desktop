@@ -1,7 +1,7 @@
 // Real navigation code with a model of Cally 46's deferred action delivery.
 import {attachCandidateAction} from '../gnome-extension/candidateAccessibility.js';
 import {messages} from '../gnome-extension/candidateMessages.js';
-import {Actor, drainActions, loadShellClass} from './gnome_actor_fixture.js';
+import {Actor, ScrollableActor, ScrollViewActor, drainActions, loadShellClass} from './gnome_actor_fixture.js';
 
 function equal(actual, expected) {
     if (JSON.stringify(actual) !== JSON.stringify(expected))
@@ -10,7 +10,8 @@ function equal(actual, expected) {
 
 // Stub only GNOME actors; all navigation and activation decisions are product code.
 const imports = {
-    St: {Button: Actor, BoxLayout: Actor, Label: Actor, ScrollView: Actor, PolicyType: {NEVER: 0, AUTOMATIC: 1}},
+    St: {Button: Actor, BoxLayout: ScrollableActor, Label: Actor, ScrollView: ScrollViewActor,
+        PolicyType: {NEVER: 0, AUTOMATIC: 1}},
     Clutter: {ActorAlign: {CENTER: 0, START: 1}, EVENT_PROPAGATE: false},
     Pango: {WrapMode: {WORD_CHAR: 0}, EllipsizeMode: {NONE: 0}},
     GLib: {Variant: class { constructor(_signature, values) { this.values = values; } }},

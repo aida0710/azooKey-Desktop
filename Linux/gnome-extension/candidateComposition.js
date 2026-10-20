@@ -33,7 +33,10 @@ export class CandidateComposition {
         this.actor.add_child(this._scroll);
         this._remainingScroll = new St.ScrollView({can_focus: false,
             hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC});
-        this._remainingScroll.set_child(this._remaining);
+        // ScrollView requires StScrollable; a Label cannot be its direct child.
+        this._remainingContent = new St.BoxLayout({vertical: true});
+        this._remainingContent.add_child(this._remaining);
+        this._remainingScroll.set_child(this._remainingContent);
         this.actor.add_child(this._remainingScroll);
     }
 
