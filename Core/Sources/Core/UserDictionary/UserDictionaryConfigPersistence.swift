@@ -67,7 +67,7 @@ public enum UserDictionaryConfigPersistence {
             let previous: Any?
             if let snapshot {
                 let container = try PropertyListSerialization.propertyList(
-                    from: snapshot, options: [], format: nil
+                    from: snapshot, format: nil
                 ) as? [String: Any]
                 previous = container?["value"]
             } else {
