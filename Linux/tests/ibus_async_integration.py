@@ -184,6 +184,16 @@ def check_editing_during_delay(bus):
     english.context.focus_out()
     wait_until(lambda: english.document == "ba")
 
+    suggestion = Field(bus, "azookey-delay-ai-edit")
+    suggestion.focus()
+    suggestion.type("a")
+    wait_until(lambda: suggestion.preedit == "a")
+    suggestion.key(IBus.KEY_F7)
+    wait_until(lambda: suggestion.preedit == "人工知能の候補")
+    suggestion.type("a")
+    suggestion.context.focus_out()
+    wait_until(lambda: suggestion.commits == ["にほんごa"])
+
     broken_settings = Field(bus, "azookey-delay-settings-error")
     broken_settings.focus()
     broken_settings.type("n")
@@ -202,7 +212,8 @@ def check_editing_during_delay(bus):
     assert conversion.commits == ["kana"]
     assert editing.commits == ["a"]
     assert english.document == "ba"
-    return [conversion, editing, english, broken_settings]
+    assert suggestion.commits == ["にほんごa"]
+    return [conversion, editing, english, suggestion, broken_settings]
 
 
 if __name__ == "__main__":
