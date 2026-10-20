@@ -104,7 +104,10 @@ class InputPreview:
             # Preserve the last actual text while conversion/prediction runs.
             return self.state != "none"
         elif event.get("characters"):
-            if self.state in SELECTION_STATES:
+            if self.state == "replaceSuggestion":
+                self._restore_reading()
+                self.state = "composing"
+            elif self.state in SELECTION_STATES:
                 self.prefix += self.text
                 self._clear_composition()
             self._insert(event["characters"])
