@@ -21,10 +21,12 @@ struct DesktopReadingSession {
     // A pending preview/selection keeps the visible reading until another explicit input.
     private var pendingConversionState: InputState?
     private var japaneseInputStyle: InputStyle
+    private let candidateRequestMode: DesktopCandidateRequestMode
     private var customInputTableRevisions: [String: String] = [:]
 
-    init(inputStyle: InputStyle = .mapped(id: .defaultRomanToKana)) {
+    init(inputStyle: InputStyle = .mapped(id: .defaultRomanToKana), candidateRequestMode: DesktopCandidateRequestMode = .manual) {
         japaneseInputStyle = inputStyle
+        self.candidateRequestMode = candidateRequestMode
     }
 
     var canConfigureSettings: Bool { composition.isEmpty && state == .none }
@@ -216,6 +218,8 @@ struct DesktopReadingSession {
         let (clientAction, callback) = state.event(
             eventCore: event, userAction: action, inputLanguage: language,
             liveConversionEnabled: false, enableDebugWindow: false, enableSuggestion: false)
+        let prefetch = candidateRequestMode.requestsCandidates(after: clientAction)
+        let previousComposition = prefetch ? try compositionSnapshot().encoded() : nil
         if let conversion = FunctionKeyConversion(action: clientAction) {
             return try commitConvertedText(conversion)
         }
@@ -302,6 +306,9 @@ struct DesktopReadingSession {
         }
         var response = snapshot(commits: commits)
         response.consumed = consumed
+        if prefetch, !composition.isEmpty, try compositionSnapshot().encoded() != previousComposition {
+            response.request = "candidates"
+        }
         return response
     }
 
