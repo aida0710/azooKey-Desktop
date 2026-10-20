@@ -12,7 +12,14 @@ const external = [];
 const pending = [];
 const Gio = {AppInfo: {launch_default_for_uri: uri => external.push(uri)},
     DBus: {session: {call: (...arguments_) => pending.push(arguments_)}}, DBusCallFlags: {NONE: 0}};
-const imports = {Gio, St: {Button: Actor, BoxLayout: ScrollableActor, Label: Actor, ScrollView: ScrollViewActor,
+class MeasuredBox extends ScrollableActor {
+    get_preferred_height(width) {
+        const heights = this.children.filter(child => child.visible).map(child => child.get_preferred_height(width)[1]);
+        const height = this.vertical ? heights.reduce((sum, value) => sum + value, 0) : Math.max(0, ...heights);
+        return [height, height];
+    }
+}
+const imports = {Gio, St: {Button: Actor, BoxLayout: MeasuredBox, Label: Actor, ScrollView: ScrollViewActor,
     PolicyType: {NEVER: 0, AUTOMATIC: 1}}, Pango: {WrapMode: {WORD_CHAR: 0}, EllipsizeMode: {NONE: 0, END: 1}},
     Clutter: {ActorAlign: {START: 0, CENTER: 1}}, attachCandidateAction, messages,
     GLib: {Variant: class { constructor(signature, values) { this.signature = signature; this.values = values; } }},
@@ -26,7 +33,15 @@ const response = {status: 'found', word: '保証', reading: 'ホショウ', read
 detail.update({text: '既存の候補詳細'});
 detail.setWordDefinitions(response);
 detail.layout({identity: 'a', treeExpanded: false, fontSize: 18, width: 360, maximumHeight: 100});
-assert(detail._definitionSummary.text.includes('義務が果たされる'), 'Actual short meaning must render');
+assert(detail._definitionPreview.text.includes('義務が果たされる'), 'Actual short meaning must render');
+assert(detail._definitionPreview.is_mapped(), 'The short meaning must have its own visible line');
+assert(detail._definitionHeading.text.includes(messages.definitionSourceShort), 'The heading must name the source');
+assert(detail._definitionPreview.accessible_name.includes('義務が果たされる'), 'AT must read the current meaning without an AT-SPI Text interface');
+assert(detail._definitionFull.accessible_name.includes('保証を求める'), 'AT must read the full definition and examples');
+equal(detail._definitionPreview.wrap, false);
+equal(detail._definitionHeading.wrap, false);
+assert(detail._scrollContent.get_children()[0] === detail._definitionFull &&
+    detail._scrollContent.get_children()[1] === detail.label, 'The full meaning must precede candidate metadata');
 assert(detail._definitionFull.text.includes('保証を求める') && detail._definitionFull.text.includes('確約'), 'Examples and read-only synonyms must render');
 assert(detail._definitionFull.text.includes(messages.definitionReadingNote) && detail._definitionFull.text.includes('NICT'), 'Reading caveat and attribution must render');
 equal(external, []);
@@ -59,8 +74,10 @@ for (const expanded of [false, true]) {
     assert(height <= 120 && detail.actor.height <= 120, 'Long entries must fit the available detail height');
     assert(detail._definitionSource.get_parent() === detail._scrollContent, 'The source action must remain in the scrollable full entry');
     if (!expanded) {
-        assert(detail._definitionSummary.height <= 24 * 2.8, 'The short preview must occupy at most two lines');
-        equal(detail._definitionSummary.ellipsize, imports.Pango.EllipsizeMode.END);
+        assert(detail._definitionHeading.visible && detail._definitionPreview.visible, 'Long words must not displace the meaning line');
+        equal(detail._definitionHeading.ellipsize, imports.Pango.EllipsizeMode.END);
+        equal(detail._definitionPreview.ellipsize, imports.Pango.EllipsizeMode.END);
+        assert(detail._definitionPreview.accessible_name.includes('語釈'.repeat(300)), 'Ellipsis must preserve the full source meaning in AT');
         assert(!detail._definitionSource.is_mapped(), 'Folded entries must not expose hidden source controls');
     } else {
         assert(detail._definitionFull.text.includes('長文用例'), 'Expanded entries must retain the full long text');
@@ -68,6 +85,29 @@ for (const expanded of [false, true]) {
     }
 }
 print('GNOME narrow work area: long words/meanings at 24px stay bounded with full entry/source reachable by scrolling PASS');
+
+
+const measured = new Detail({changed() {}, toggleTree() {}});
+measured.setWordDefinitions(response);
+// Model a theme whose two text lines exceed the nominal detail budget.
+measured._header.get_preferred_height = () => [44, 44];
+for (const label of [measured._definitionHeading, measured._definitionPreview])
+    label.get_preferred_height = () => [41, 41];
+const measuredHeight = measured.layout({identity: 'theme', treeExpanded: false,
+    fontSize: 24, width: 200, maximumHeight: 96, availableHeight: 190});
+assert(measuredHeight >= 44 + 41 * 2 && measuredHeight <= 190,
+    'Actual heading/meaning metrics must be reserved before list space, within the remaining work area');
+assert(measured._definitionPreview.is_mapped() && measured._definitionHeading.is_mapped(),
+    'Both independent single-line labels must stay visible under a larger theme');
+const oneLineHeight = measured.layout({identity: 'theme', treeExpanded: false,
+    fontSize: 24, width: 200, maximumHeight: 60, availableHeight: 90});
+assert(oneLineHeight <= 90 && measured._definitionPreview.is_mapped() && !measured._definitionHeading.visible,
+    'When only one measured line fits, the actual meaning takes priority over the heading');
+equal(measured._definitionPreview.accessible_name, `${messages.definitionWord('保証', 'ホショウ')}\n義務が果たされるという保証`);
+measured.setWordDefinitions({...response, word: '保障', senses: [{definitions: ['新しい語釈'], examples: [], synonyms: []}]});
+assert(measured._definitionPreview.accessible_name.includes('新しい語釈') &&
+    !measured._definitionFull.accessible_name.includes('保証を求める'), 'AT names must replace old meanings on target changes');
+print('GNOME native regression model: separate single-line meanings, measured theme budget and current/full AT names PASS');
 
 detail._scroll.get_vadjustment().value = 29;
 detail.setWordDefinitions(null);

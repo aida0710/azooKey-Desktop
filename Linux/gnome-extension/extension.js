@@ -424,7 +424,8 @@ export default class AzooKeyTreeExtension extends Extension {
             {fontSize, width: popupWidth, listHeight: 1, palette});
         this._refreshDetails();
         const detailHeight = this._details.layout({identity: actionIdentity, treeExpanded: this._treeExpanded,
-            fontSize, width: popupWidth, maximumHeight: bounds.height * CARD_LAYOUT.detailsFraction});
+            fontSize, width: popupWidth, maximumHeight: bounds.height * CARD_LAYOUT.detailsFraction,
+            availableHeight: Math.max(0, bounds.height - compositionHeight - navigationMinimum - 2)});
         const available = Math.max(1, bounds.height - compositionHeight - detailHeight - navigationMinimum - 2);
         const treeHeight = this._treeExpanded ? Math.min(treeContentHeight, available * CARD_LAYOUT.treeFraction) : 0;
         const navigationHeight = this._navigation.update(data,
