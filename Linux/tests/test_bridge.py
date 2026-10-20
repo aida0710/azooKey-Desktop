@@ -5,6 +5,7 @@ import unittest
 import tempfile
 import json
 import threading
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from azookey.bridge import Bridge
@@ -27,6 +28,40 @@ class BridgeIntegrationTests(unittest.TestCase):
         else:
             os.environ["AZOOKEY_DATA_DIR"] = self.old
         self.directory.cleanup()
+
+    def apply_settings(self, settings):
+        snapshot = self.bridge.request("configure", settings=settings)
+        self.assertNotIn("error", snapshot, "the requested preferences must reach the converter")
+        return snapshot
+
+    @unittest.skipUnless(sys.platform == "linux", "isolated settings")
+    def test_initial_settings_can_be_reapplied_after_conversion_process_restarts(self):
+        settings = self.bridge.request("settings")["settings"]
+        self.bridge.close()
+        self.bridge = Bridge()
+        self.apply_settings({**settings, "learning": "onlyOutput"})
+        reapplied = self.bridge.request("settings")["settings"]
+        self.assertEqual(reapplied["learning"], "onlyOutput")
+        self.assertEqual(reapplied["userDictionary"], settings["userDictionary"])
+
+    @unittest.skipUnless(sys.platform == "linux", "isolated settings")
+    def test_restarting_with_saved_default_entries_preserves_their_existing_ids(self):
+        settings = self.bridge.request("settings")["settings"]
+        for entry in settings["userDictionary"]["items"]:
+            entry["id"] = str(uuid.uuid4()).upper()
+        settings_path = pathlib.Path(os.environ["XDG_CONFIG_HOME"]) / "azookey-tree" / "settings.json"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        saved_content = json.dumps(settings, ensure_ascii=False).encode()
+        settings_path.write_bytes(saved_content)
+
+        for _ in range(2):
+            self.bridge.close()
+            self.bridge = Bridge()
+            self.apply_settings({**settings, "learning": "onlyOutput"})
+            reapplied = self.bridge.request("settings")["settings"]
+            self.assertEqual(reapplied["learning"], "onlyOutput")
+            self.assertEqual(reapplied["userDictionary"], settings["userDictionary"])
+            self.assertEqual(settings_path.read_bytes(), saved_content)
 
     def test_protocol_real_conversion_and_stale_generation(self):
         for character in "nihongo":
@@ -155,7 +190,7 @@ class BridgeIntegrationTests(unittest.TestCase):
 
         try:
             settings = {**original, "live": False, "learning": "inputAndOutput"}
-            self.bridge.request("configure", settings=settings)
+            self.apply_settings(settings)
             baseline = candidates_for("kyou")
             baseline_rank = [item["text"] for item in baseline["candidates"]].index("京")
             commit_candidate(baseline, "京")
@@ -163,10 +198,10 @@ class BridgeIntegrationTests(unittest.TestCase):
             learned_memory = stored_memory()
             self.assertTrue(learned_memory, "the fixture must save actual converter learning")
 
-            for mode in ("onlyOutput", "nothing", "onlyOutput"):
-                with self.subTest(mode=mode):
-                    self.bridge = Bridge(environment=environment)
-                    self.bridge.request("configure", settings={**settings, "learning": mode})
+            def check_stopped_learning(mode):
+                self.bridge = Bridge(environment=environment)
+                try:
+                    self.apply_settings({**settings, "learning": mode})
                     snapshot = candidates_for("kyou")
                     rank = [item["text"] for item in snapshot["candidates"]].index("京")
                     if mode == "onlyOutput":
@@ -175,12 +210,17 @@ class BridgeIntegrationTests(unittest.TestCase):
                         self.assertEqual(rank, baseline_rank, "disabled learning must not affect conversion")
                     # Both modes stop updates, including commits of a different word.
                     commit_candidate(candidates_for("nihongo"), "日本語")
+                finally:
                     self.bridge.close()
-                    self.assertEqual(stored_memory(), learned_memory, "stopping learning must not update or delete saved data")
+                self.assertEqual(stored_memory(), learned_memory, "stopping learning must not update or delete saved data")
+
+            for mode in ("onlyOutput", "nothing", "onlyOutput"):
+                with self.subTest(mode=mode):
+                    check_stopped_learning(mode)
         finally:
             self.bridge.close()
             self.bridge = Bridge()
-            self.bridge.request("configure", settings=original)
+            self.apply_settings(original)
 
     @unittest.skipUnless(sys.platform == "linux" and os.environ.get("AZOOKEY_RESOURCES"), "verified MARISA model fixture")
     def test_personalization_import_and_off_apply_to_the_existing_session(self):
