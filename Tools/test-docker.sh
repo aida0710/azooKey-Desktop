@@ -21,8 +21,14 @@ if $CPU; then
     IMAGE=azookey-tree-zenzai-tests:local
     EXTRA+=(--mount "type=bind,source=$ROOT/build/models,target=/opt/azookey/models,readonly" --env AZOOKEY_RESOURCES=/opt/azookey/models)
 fi
-# Source is copied into the image: tests cannot modify files on the host.
+# Keep each run's fixed-fixture evidence after the disposable container exits.
+mkdir -p "$ROOT/build/test-artifacts"
+ARTIFACT_DIRECTORY="$(mktemp -d "$ROOT/build/test-artifacts/linux.XXXXXX")"
+echo "Native toolkit evidence: $ARTIFACT_DIRECTORY"
+# Source is copied into the image; only the evidence directory is writable.
 "$DOCKER" run --rm --init --cpus=4 --memory=8g \
     --mount type=volume,source=azookey-tree-core-build,target=/workspace/Core/.build \
     --mount type=volume,source=azookey-tree-spm-cache,target=/root/.cache/org.swift.swiftpm \
+    --mount "type=bind,source=$ARTIFACT_DIRECTORY,target=/test-artifacts" \
+    --env AZOOKEY_TOOLKIT_ARTIFACTS=/test-artifacts \
     ${EXTRA[@]+"${EXTRA[@]}"} "$IMAGE" "$@"
