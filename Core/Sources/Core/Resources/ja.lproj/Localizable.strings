@@ -14,6 +14,8 @@
 "candidate.previousPage" = "前へ";
 "candidate.nextPage" = "次へ";
 "candidate.composition" = "確定する文章";
+"candidate.proposal" = "候補のプレビュー";
+"candidate.submitCandidate" = "この候補を確定";
 "candidate.selected" = "選択中";
 "candidate.openTree" = "文節を調整";
 "candidate.closeTree" = "文節を閉じる";

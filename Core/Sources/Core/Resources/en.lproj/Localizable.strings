@@ -14,6 +14,8 @@
 "candidate.previousPage" = "Previous";
 "candidate.nextPage" = "Next";
 "candidate.composition" = "Text to confirm";
+"candidate.proposal" = "Candidate preview";
+"candidate.submitCandidate" = "Confirm this candidate";
 "candidate.selected" = "Selected";
 "candidate.openTree" = "Adjust segments";
 "candidate.closeTree" = "Hide segments";

@@ -8,6 +8,8 @@ export const messages = {
     previousPage: '前へ',
     nextPage: '次へ',
     composition: '確定する文章',
+    proposal: '候補のプレビュー',
+    submitCandidate: 'この候補を確定',
     selected: '選択中',
     openTree: '文節を調整',
     closeTree: '文節を閉じる',
