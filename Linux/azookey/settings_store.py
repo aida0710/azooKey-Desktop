@@ -174,7 +174,7 @@ class SettingsStore:
             values = validate_settings(changes, defaults=current)
             return self._save_locked(values)
 
-    def save_with_backend(self, values, *, apply_staged, expected_stamp):
+    def save_with_backend(self, values, *, apply_staged, expected_stamp, recover=False):
         """Publish through a backend transaction while holding the writer lock.
 
         apply_staged must atomically install and verify the exact staged JSON,
@@ -183,10 +183,11 @@ class SettingsStore:
         """
         with self._writer():
             validated = validate_settings(values)
-            self._check_write(validated, expected_stamp=expected_stamp)
-            with _staged_settings(self.path, validated) as staged:
-                apply_staged(staged)
-            return self._record_saved(validated)
+            current_stamp = self._check_write(validated, expected_stamp=expected_stamp, recover=recover)
+            with self._preserved_original(current_stamp, recover=recover) as preserved:
+                with _staged_settings(self.path, validated) as staged:
+                    apply_staged(staged)
+            return self._record_saved(validated, preserved=preserved)
 
     def _read_before_save(self, defaults):
         if _stamp(self.path) is None:
@@ -204,19 +205,24 @@ class SettingsStore:
             self._read_before_save(values)
         return current_stamp
 
-    def _save_locked(self, values, *, expected_stamp=UNSPECIFIED_STAMP, recover=False):
-        current_stamp = self._check_write(values, expected_stamp=expected_stamp, recover=recover)
+    @contextmanager
+    def _preserved_original(self, current_stamp, *, recover):
         preserved = None
         if recover and current_stamp is not None:
             suffix = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
             preserved = self.path.with_name(f"settings.recovered-{suffix}-{uuid.uuid4().hex[:8]}.json")
             os.replace(self.path, preserved)
         try:
-            _write_atomic(self.path, values)
-        except OSError:
+            yield preserved
+        except BaseException:
             if preserved is not None and not self.path.exists():
                 os.replace(preserved, self.path)
             raise
+
+    def _save_locked(self, values, *, expected_stamp=UNSPECIFIED_STAMP, recover=False):
+        current_stamp = self._check_write(values, expected_stamp=expected_stamp, recover=recover)
+        with self._preserved_original(current_stamp, recover=recover) as preserved:
+            _write_atomic(self.path, values)
         return self._record_saved(values, preserved=preserved)
 
     def _record_saved(self, values, *, preserved=None):

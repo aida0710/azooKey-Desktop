@@ -14,6 +14,7 @@ class Request:
     payload: dict
     complete: Callable[["Reply"], object]
     cancelled: threading.Event = field(default_factory=threading.Event)
+    persist: Callable[[], object] | None = None
 
 
 @dataclass
@@ -102,6 +103,13 @@ class AsyncBridge:
                         if bridge is not None:
                             bridge.invalidate()
                         reply = Reply(generation=generation, failed=True)
+                if request.persist and not reply.failed and not reply.snapshot.get("error"):
+                    # Best-effort persistence stays in request order and off
+                    # the main loop. A backup failure cannot undo Core input.
+                    try:
+                        request.persist()
+                    except (OSError, ValueError):
+                        pass
                 self.last_progress_at = time.monotonic()
                 if not request.cancelled.is_set():
                     self.dispatch(request.complete, reply)

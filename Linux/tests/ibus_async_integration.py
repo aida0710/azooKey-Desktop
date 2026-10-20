@@ -192,8 +192,9 @@ def check_editing_during_delay(bus):
     settings_path.write_text("{synthetic invalid JSON")
     try:
         broken_settings.type("a")
-        wait_until(lambda: broken_settings.document == "na")
-        assert [key[0] for key in broken_settings.forwarded] == [ord("n"), ord("a")]
+        broken_settings.key(IBus.KEY_Return)
+        wait_until(lambda: broken_settings.commits == ["na"])
+        assert broken_settings.forwarded == []
     finally:
         settings_path.unlink()
         broken_settings.context.focus_out()

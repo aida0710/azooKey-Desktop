@@ -268,6 +268,25 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(called, [])
         self.assertEqual(self.path.read_text(), "{")
 
+    def test_backend_recovery_preserves_original_and_restores_it_on_failure(self):
+        original = b"{ synthetic broken JSON"
+        self.path.write_bytes(original)
+        opened = self.store.load(self.values)
+
+        def reject_staged(_staged):
+            raise RuntimeError("synthetic backend rejection")
+
+        with self.assertRaises(RuntimeError):
+            self.store.save_with_backend(self.values, apply_staged=reject_staged, expected_stamp=opened.stamp, recover=True)
+        self.assertEqual(self.path.read_bytes(), original)
+        self.assertEqual(self.store.load(self.values).stamp, opened.stamp)
+        self.assertEqual(list(self.path.parent.glob("settings.recovered-*")), [])
+        saved = self.store.save_with_backend(
+            self.values, apply_staged=lambda staged: staged.replace(self.path), expected_stamp=opened.stamp, recover=True,
+        )
+        self.assertEqual(saved.backup_path.read_bytes(), original)
+        self.assertEqual(json.loads(self.path.read_text()), self.values)
+
 
 if __name__ == "__main__":
     unittest.main()
