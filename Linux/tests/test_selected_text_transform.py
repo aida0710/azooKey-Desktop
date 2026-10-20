@@ -16,6 +16,7 @@ from test_ai_transform_target import accessible_fixture, selection_fixture
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
 class SelectedTextTransformationFixture(unittest.TestCase):
     def setUp(self):
+        from azookey.ai_transform_target import FocusedInputContext
         from azookey.selected_text_transform import SelectedTextTransformation
         self.directory = tempfile.TemporaryDirectory()
         self.config = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.directory.name})
@@ -27,6 +28,9 @@ class SelectedTextTransformationFixture(unittest.TestCase):
             focus_revision=object(),
             input=SimpleNamespace(cancelled=object()),
             current_transform_selection=lambda: None if self.engine.sensitive else self.selection,
+            current_transform_context=lambda: None if self.engine.sensitive or self.selection is None else
+                FocusedInputContext(context_id=self.selection.context_id, selection=self.selection,
+                                    has_surrounding_update=True),
             make_ai_scope=lambda _: scope_fixture(), save_ai_context=lambda _: True,
             start_ai=lambda snapshot, scope, **values: self.requests.append(values),
             get_surrounding_text=lambda: None,
@@ -143,17 +147,20 @@ class SelectedTextTransformationTests(SelectedTextTransformationFixture):
         self.assertEqual(self.inspections, [])
         self.assert_preview_preserved_without_apply()
 
-    def test_focus_in_requires_fresh_surrounding_text_before_an_application(self):
+    def test_focus_in_clears_cached_surrounding_text_before_verification(self):
         from azookey.engine import Engine
         from gi.repository import IBus
         engine = SimpleNamespace(
             focused=False, sensitive=False, focus_revision=object(),
             transform_selection=selection_fixture(),
+            focus_identity=selection_fixture().context_id, has_transform_surrounding_update=True,
             client_capabilities=IBus.Capabilite.SURROUNDING_TEXT,
             anchor=SimpleNamespace(update=lambda *_: None),
             reload_settings=lambda: None, get_surrounding_text=lambda: None,
             register_properties=lambda _: None,
+            transformation=SimpleNamespace(focus_entered=lambda: None),
         )
+        engine.current_transform_context = lambda: Engine.current_transform_context(engine)
         Engine.activate_input_context(engine)
         self.assertTrue(engine.focused)
         self.assertIsNone(Engine.current_transform_selection(engine))

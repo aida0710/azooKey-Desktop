@@ -6,7 +6,9 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from azookey.ai_transform_target import AccessibleSelection, InputSelection, PendingTransformation, TransformationTarget
+from azookey.ai_transform_target import (
+    AccessibleSelection, FocusedInputContext, InputSelection, PendingTransformation, TransformationTarget,
+)
 from azookey.focused_text import (
     ACCESSIBLE, ACTIVE, DEFUNCT, EDITABLE, FOCUSED, PASSWORD_TEXT, READ_ONLY, ROOT, SENSITIVE, SHOWING,
     AccessibilityUnavailable, FocusedTextReader, inspect_focused_text,
@@ -76,6 +78,22 @@ class TransformationTargetTests(unittest.TestCase):
         paragraph = selection_fixture()
         accessible = replace(accessible_fixture(), start=102, end=104, before="別の段落\n前 ", after=" 後\n次の段落")
         self.assertTrue(accessible.describes(paragraph))
+
+    def test_focus_without_repeated_surrounding_requires_original_context_and_fresh_accessible_target(self):
+        context = FocusedInputContext(context_id=selection_fixture().context_id, selection=None,
+                                      has_surrounding_update=False)
+        pending = self.pending()
+        self.assertEqual(pending.take_after_focus(context, accessible_fixture()), "新しい本文")
+        self.assertIsNone(pending.take_after_focus(context, accessible_fixture()))
+        for changed in (None, replace(context, context_id=("/input/other", "gnome-shell")),
+                        replace(context, has_surrounding_update=True),
+                        replace(context, selection=selection_fixture())):
+            with self.subTest(context=changed):
+                pending = self.pending()
+                self.assertIsNone(pending.take_after_focus(changed, accessible_fixture()))
+                self.assertIsNone(pending.take_after_focus(context, accessible_fixture()))
+        self.assertIsNone(self.pending().take_after_focus(context, None))
+        self.assertIsNone(self.pending().take_after_focus(context, replace(accessible_fixture(), selected="別文")))
 
 
 class AccessibilityFixture:

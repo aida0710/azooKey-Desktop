@@ -19,6 +19,27 @@ class AITargetFixtureEngine(engine_module.Engine):
     __gtype_name__ = "AzooKeyAITargetFixtureEngine"
     dialog_owner = None
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hold_target_reply = False
+        self.held_target_reply = None
+        self.target_reads_without_surrounding = 0
+        self.transformation.inspect = self.inspect_target
+
+    def inspect_target(self, selection, completion):
+        from azookey.selected_text_transform import SelectedTextTransformation
+        if self.transformation.pending and not self.has_transform_surrounding_update:
+            self.target_reads_without_surrounding += 1
+
+        def inspected(accessible):
+            # Only callback delivery is gated; the reader and target checks
+            # remain real so Reset races do not depend on machine speed.
+            if self.hold_target_reply:
+                self.held_target_reply = (completion, accessible)
+            else:
+                completion(accessible)
+        SelectedTextTransformation.inspect(selection, inspected)
+
     def do_destroy(self):
         print(json.dumps({"event": "engine-destroy", "engine": self.context_id}), flush=True)
         super().do_destroy()
@@ -46,6 +67,7 @@ class AITargetFixtureEngine(engine_module.Engine):
         owner = type(self).dialog_owner or self
         if keyval == Gdk.KEY_F12:
             type(self).dialog_owner = self
+            self.target_reads_without_surrounding = 0
             self.prompt("敬語に直す")
         elif keyval == Gdk.KEY_F11:
             if owner.transformation.dialog:
@@ -55,6 +77,14 @@ class AITargetFixtureEngine(engine_module.Engine):
                 owner.transformation.dialog.response(Gtk.ResponseType.OK)
         elif keyval == Gdk.KEY_F9:
             owner.transformation.close()
+        elif keyval == Gdk.KEY_F4:
+            owner.hold_target_reply = True
+        elif keyval == Gdk.KEY_F3:
+            reply, owner.held_target_reply = owner.held_target_reply, None
+            owner.hold_target_reply = False
+            if reply:
+                completion, accessible = reply
+                completion(accessible)
         elif keyval == Gdk.KEY_F7:
             dialog = owner.transformation.dialog
             if dialog:
@@ -77,6 +107,9 @@ class AITargetFixtureEngine(engine_module.Engine):
                 "can_apply": bool(dialog and dialog.get_widget_for_response(Gtk.ResponseType.OK).get_sensitive()),
                 "can_copy": bool(dialog and dialog.copy_button.get_sensitive()),
                 "pending": owner.transformation.pending is not None,
+                "target_reply_held": owner.held_target_reply is not None,
+                "surrounding_updated": owner.has_transform_surrounding_update,
+                "target_reads_without_surrounding": owner.target_reads_without_surrounding,
             }
             self.update_auxiliary_text(IBus.Text.new_from_string(json.dumps(status)), True)
         else:

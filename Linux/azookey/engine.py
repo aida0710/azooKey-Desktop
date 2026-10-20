@@ -20,7 +20,7 @@ from .settings_store import SettingsStore
 from .i18n import text
 from .shell_surface import surface
 from .prompts import PromptHistory, matches
-from .ai_transform_target import InputSelection
+from .ai_transform_target import FocusedInputContext, InputSelection
 from .selected_text_transform import SelectedTextTransformation
 from .ai_scope import AIRequestConfiguration, AIRequestScope, MODIFIER_KEYS
 from .ai_review import AISuggestionReview
@@ -50,6 +50,7 @@ class Engine(IBus.Engine):
         self.focus_revision = object()
         self.focus_identity = None
         self.transform_selection = None
+        self.has_transform_surrounding_update = False
         self.ai_pending = False
         self.last_language_key = (None, 0)
         self.destroyed = False
@@ -167,10 +168,15 @@ class Engine(IBus.Engine):
         return self.reconversion_context
 
     def current_transform_selection(self):
+        context = self.current_transform_context()
+        return context.selection if context else None
+
+    def current_transform_context(self):
         if (not self.focused or self.sensitive
-                or not self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT):
+                or not self.focus_identity or not self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT):
             return None
-        return self.transform_selection
+        return FocusedInputContext(context_id=self.focus_identity, selection=self.transform_selection,
+                                   has_surrounding_update=self.has_transform_surrounding_update)
 
     def show_reconversion_status(self, text):
         self.update_auxiliary_text(IBus.Text.new_from_string(text), bool(text))
@@ -281,6 +287,7 @@ class Engine(IBus.Engine):
         self.right = value[max(cursor, anchor):][:100]
         self.selected_text = value[min(cursor, anchor):max(cursor, anchor)]
         self.transform_selection = InputSelection.capture(self.focus_identity, value, cursor=cursor, anchor=anchor)
+        self.has_transform_surrounding_update = True
         self.reconversion_context = surrounding_context(
             value, cursor, anchor,
             can_replace=bool(self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT),
@@ -318,6 +325,7 @@ class Engine(IBus.Engine):
         self.focused = True
         self.focus_revision = object()
         self.transform_selection = None
+        self.has_transform_surrounding_update = False
         self.anchor.update("", 0)
         self.reload_settings()
         self.get_surrounding_text()
@@ -330,6 +338,7 @@ class Engine(IBus.Engine):
             properties.append(IBus.Property.new(name, IBus.PropType.NORMAL, label, "", label, True, True,
                                                 IBus.PropState.UNCHECKED, None))
         self.register_properties(properties)
+        self.transformation.focus_entered()
 
     def do_property_activate(self, name, _state):
         if name == "setup":
@@ -346,6 +355,7 @@ class Engine(IBus.Engine):
         self.focused = False
         self.focus_revision = object()
         self.focus_identity = self.transform_selection = None
+        self.has_transform_surrounding_update = False
         self.clear_reconversion()
         surface().hide(self)
         self.input.cancel()

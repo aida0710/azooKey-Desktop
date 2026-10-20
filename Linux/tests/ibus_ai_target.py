@@ -69,7 +69,7 @@ class AITargetIntegration:
         start, end = bounds if bounds else (field.get_position(), field.get_position())
         context.set_surrounding_text(IBus.Text.new_from_string(field.get_text()), end, start)
 
-    def focus(self, context_index, field_index=0):
+    def focus(self, context_index, field_index=0, *, preserve_selection=False):
         if self.active:
             self.active.focus_out()
         self.selected_field = field_index
@@ -83,8 +83,11 @@ class AITargetIntegration:
                                   Gio.DBusCallFlags.NONE, ENGINE_SWITCH_TIMEOUT_MS, None)
         if context_index == 2:
             self.publish_selection(self.active)
-        else:
-            self.select_original()
+        elif not self.suppress_surrounding:
+            if preserve_selection:
+                self.publish_selection(self.active)
+            else:
+                self.select_original()
         status = self.wait_status(lambda observed: observed["focus_identity"]
                                   and observed["focus_identity"][0] == self.active.get_object_path())
         assert status["has_focus_id"] and status["active_surrounding_text"]
@@ -140,7 +143,7 @@ class AITargetIntegration:
     def reject_case(self, context_index, field_index):
         self.preview()
         before = len(self.commits)
-        self.focus(context_index, field_index)
+        self.focus(context_index, field_index, preserve_selection=True)
         status = self.wait_status(lambda observed: observed["visible"] and not observed["can_apply"])
         assert status["generated"] and status["can_copy"]
         assert len(self.commits) == before
@@ -150,18 +153,45 @@ class AITargetIntegration:
     def reject_reset_before_surrounding(self):
         self.preview()
         before = len(self.commits)
+        self.key(Gdk.KEY_F4)
         self.suppress_surrounding = True
         self.focus(0)
+        self.wait_status(lambda status: status["target_reply_held"])
         self.active.call_sync("Reset", None, Gio.DBusCallFlags.NONE, ENGINE_SWITCH_TIMEOUT_MS, None)
         self.suppress_surrounding = False
         self.select_original()
+        self.key(Gdk.KEY_F3)
         status = self.wait_status(lambda observed: observed["visible"] and not observed["can_apply"])
         assert status["generated"] and status["can_copy"] and len(self.commits) == before
         self.key(Gdk.KEY_F9)
 
+    def return_without_repeated_surrounding(self, *, field_index=0, context_index=0, changed_text=False):
+        self.preview()
+        before = len(self.commits)
+        if changed_text:
+            self.fields.fields[field_index].set_text("前 別文 後")
+        self.suppress_surrounding = True
+        try:
+            self.focus(context_index, field_index)
+            unchanged = field_index == 0 and context_index == 0 and not changed_text
+            if unchanged:
+                status = self.wait_status(lambda observed: not observed["dialog"])
+                assert self.commits[before:] == [(self.contexts[0].get_object_path(), "変更済み")]
+                assert self.fields.fields[0].get_text() == "前 変更済み 後"
+            else:
+                status = self.wait_status(lambda observed: observed["visible"] and not observed["can_apply"])
+                assert status["generated"] and status["can_copy"] and len(self.commits) == before
+                expected = "前 別文 後" if changed_text else "前 原文 後"
+                assert self.fields.fields[field_index].get_text() == expected
+                self.key(Gdk.KEY_F9)
+            assert not status["surrounding_updated"]
+            assert status["target_reads_without_surrounding"] == (1 if context_index == 0 else 0)
+        finally:
+            self.suppress_surrounding = False
+
     def run(self):
         self.preview(reset_transfers=True)
-        self.focus(0)
+        self.focus(0, preserve_selection=True)
         self.wait_status(lambda status: not status["dialog"])
         wait_until(lambda: len(self.commits) == 1, "original input context did not receive the replacement")
         assert self.commits == [(self.contexts[0].get_object_path(), "変更済み")]
@@ -171,10 +201,18 @@ class AITargetIntegration:
         # the actual editable AT-SPI object is a different field.
         self.reject_case(0, 1)
         self.reject_reset_before_surrounding()
+        self.return_without_repeated_surrounding()
+        self.return_without_repeated_surrounding(field_index=1)
+        self.return_without_repeated_surrounding(context_index=1, field_index=1)
+        self.return_without_repeated_surrounding(changed_text=True)
         print(json.dumps({"status": "PASS", "original_commits": 1, "other_context_commits": 0,
                           "shared_context_other_field_commits": 0, "rejected_preview_preserved": True,
                           "reset_before_delayed_surrounding_commits": 0,
                           "dialog_opening_and_dismissal_resets_verified": True,
+                          "no_repeated_surrounding_original_commits": 1,
+                          "no_repeated_surrounding_other_field_commits": 0,
+                          "no_repeated_surrounding_other_context_commits": 0,
+                          "no_repeated_surrounding_changed_text_commits": 0,
                           "external_ai_requests": 0, "focus_ids": [context.get_object_path() for context in self.contexts]}))
 
     def close(self):
