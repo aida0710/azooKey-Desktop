@@ -1,13 +1,22 @@
 # azooKey Tree — macOS / Ubuntu
 
-このフォークは [azooKey/azooKey-Desktop](https://github.com/azooKey/azooKey-Desktop) に木構造の変換候補とUbuntu用IBusフロントエンドを追加します。元の変換候補を単語の共通接頭辞でまとめ、矢印キーで枝を移動し、番号ボタンで確定します。設定で従来のリストへ戻せます。
+このフォークは [azooKey/azooKey-Desktop](https://github.com/azooKey/azooKey-Desktop) に木構造の変換候補とUbuntu用IBusフロントエンドを追加します。元の変換候補を単語の共通接頭辞でまとめ、矢印キーで枝を移動します。設定で従来のリストへ戻せます。
 
-**[試験版 tree-v0.1.0](https://github.com/aida0710/azooKey-Desktop/releases/tag/tree-v0.1.0)を公開しています。** macOS版はad-hoc署名・未公証です。ATOKと同等の精度や全アプリの互換性を保証する段階ではありません。下記の「上流の案内」にあるインストール方法では、このフォークの追加機能は入りません。
+0.1.2では、選択中の文を上段にそろえ、各語の代替候補を2つまで下へ表示します。語をクリックすると対応する候補を確定します。候補背景は不透明で、語ごとの色と相対スコアを表示します。数値は正解確率ではありません。[元動画との違いと検証範囲](docs/reference-candidate-layout.md)を参照してください。
+
+**試験版の配布物は [Releases](https://github.com/aida0710/azooKey-Desktop/releases) から取得できます。** macOS版はad-hoc署名・未公証です。ATOKと同等の精度や全アプリの互換性を保証する段階ではありません。下記の「上流の案内」にあるインストール方法では、このフォークの追加機能は入りません。
 
 Apple Silicon Mac（macOS 14以降）:
 
 ```sh
 brew install --cask aida0710/tap/azookey-tree
+```
+
+既に導入済みの場合:
+
+```sh
+brew update
+brew upgrade --cask aida0710/tap/azookey-tree
 ```
 
 導入後、システム設定の「キーボード → 入力ソース」にazooKeyを追加します。表示されない場合はmacOSへの再ログインが必要です。公式azooKeyとは同じ入力方式IDのため同時に導入できません。ATOKは削除しません。

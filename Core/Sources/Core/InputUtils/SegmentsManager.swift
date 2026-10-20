@@ -98,10 +98,14 @@ public final class SegmentsManager {
     public func makeCandidatePresentations(_ candidates: [Candidate]) -> [CandidatePresentation] {
         let additionalPresentations = self.additionalCandidatePresentationsForSelectionIndex
         return candidates.indices.map { index in
+            var remaining = self.composingText
+            remaining.prefixComplete(composingCount: candidates[index].composingCount)
+            let consumed = self.composingText.input.count - remaining.input.count
             if index < additionalPresentations.count {
-                return .init(candidate: candidates[index], displayContext: additionalPresentations[index].displayContext)
+                return .init(candidate: candidates[index], displayContext: additionalPresentations[index].displayContext,
+                             consumedInputCount: consumed)
             }
-            return .init(candidate: candidates[index])
+            return .init(candidate: candidates[index], consumedInputCount: consumed)
         }
     }
 
@@ -714,6 +718,14 @@ public final class SegmentsManager {
         case .none, .previewing, .replaceSuggestion, .attachDiacritic, .unicodeInput:
             return .hidden
         case .composing:
+            if Config.TreeCandidates().value, let candidates, !candidates.isEmpty,
+               let firstCandidate = self.rawCandidates?.mainResults.first {
+                // Use the selection list's indices even while composing. Its
+                // prefix-clause candidates can precede the displayed full text.
+                let index = candidates.firstIndex(of: firstCandidate)
+                    ?? candidates.firstIndex(where: { $0.text == firstCandidate.text }) ?? 0
+                return .composing(candidates, selectionIndex: index)
+            }
             if !self.liveConversionEnabled, let firstCandidate = self.rawCandidates?.mainResults.first {
                 return .composing([firstCandidate], selectionIndex: 0)
             } else {

@@ -11,6 +11,7 @@ from gi.repository import IBus, Gdk, GLib, Gtk
 from .bridge import Bridge
 from .keymap import translate
 from .tree_panel import TreePanel
+from .preedit_anchor import PreeditAnchor
 from .settings import config_path, read_key
 from .shell_surface import surface
 from .prompts import PromptHistory, matches
@@ -26,6 +27,7 @@ class Engine(IBus.Engine):
         self.bridge = Bridge.acquire()
         self.bridge_generation = self.bridge.restarts
         self.panel = TreePanel(self.choose)
+        self.anchor = PreeditAnchor(self.panel.measure)
         self.snapshot = {}
         self.private = False
         self.sensitive = False
@@ -77,6 +79,7 @@ class Engine(IBus.Engine):
         # visible preedit once; never replay an uncertain converter operation.
         text = self.snapshot.get("preedit", "")
         self.snapshot = {}
+        self.anchor.update("", 0)
         if preserve and text and not self.private:
             self.commit_text(IBus.Text.new_from_string(text))
         surface().hide(self)
@@ -139,14 +142,23 @@ class Engine(IBus.Engine):
         return GLib.SOURCE_REMOVE
 
     def do_set_cursor_location(self, x, y, width, height):
-        self.panel.location = (x, y, width, height)
+        self.anchor.locate((x, y, width, height))
+        snapshot = self.positioned_snapshot(self.snapshot)
         if self.focused and self.settings.get("tree", True):
-            surface().show(self, self.snapshot, self.panel.location)
+            surface().show(self, snapshot, self.panel.location)
         if self.panel.get_visible():
-            self.panel.position()
+            self.panel.update(snapshot)
+
+    def positioned_snapshot(self, snapshot):
+        nodes = {node["id"]: node for node in snapshot.get("nodes", [])}
+        words = [nodes[column[0]]["text"] for column in snapshot.get("columns", []) if column]
+        geometry = self.anchor.geometry(words)
+        self.panel.location = self.anchor.position if geometry else (self.anchor.location or (0, 0, 0, 0))
+        return {**snapshot, "wordGeometry": geometry}
 
     def do_focus_in(self):
         self.focused = True
+        self.anchor.update("", 0)
         self.get_surrounding_text()
         properties = IBus.PropList()
         properties.append(IBus.Property.new("InputMode", IBus.PropType.NORMAL, IBus.Text.new_from_string("あ"), "",
@@ -224,7 +236,9 @@ class Engine(IBus.Engine):
         for text in snapshot.get("commits", []):
             self.commit_text(IBus.Text.new_from_string(text))
         preedit = snapshot.get("preedit", "")
+        self.anchor.update(preedit, snapshot.get("cursor", 0), committed=bool(snapshot.get("commits")))
         self.update_preedit_text(IBus.Text.new_from_string(preedit), snapshot.get("cursor", 0), bool(preedit))
+        snapshot = self.positioned_snapshot(snapshot)
         prediction = snapshot.get("prediction", "")
         selected = snapshot.get("selection")
         annotation = next((c.get("annotation", "") for c in snapshot.get("candidates", []) if c["index"] == selected), "")

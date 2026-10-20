@@ -80,10 +80,10 @@ public enum UserAction {
         }
     }
 
-    private static func intention(_ c: Character, invertPunctuation: Bool) -> Character? {
+    private static func intention(_ c: Character, invertPunctuation: Bool, punctuationStyle: Config.PunctuationStyle.Value?) -> Character? {
         switch c {
         case ",":
-            let normal: Character = switch Config.PunctuationStyle().value {
+            let normal: Character = switch punctuationStyle ?? Config.PunctuationStyle().value {
             case .kutenAndComma, .periodAndComma: "，"
             default: KeyMap.h2zMap(c) ?? "、"
             }
@@ -92,7 +92,7 @@ public enum UserAction {
             }
             return normal
         case ".":
-            let normal: Character = switch Config.PunctuationStyle().value {
+            let normal: Character = switch punctuationStyle ?? Config.PunctuationStyle().value {
             case .periodAndToten, .periodAndComma: "．"
             default: KeyMap.h2zMap(c) ?? "。"
             }
@@ -110,7 +110,8 @@ public enum UserAction {
     public static func getUserAction(
         eventCore: KeyEventCore,
         inputLanguage: InputLanguage,
-        typeBackSlash: Bool? = nil
+        typeBackSlash: Bool? = nil,
+        punctuationStyle: Config.PunctuationStyle.Value? = nil
     ) -> UserAction {
         let typeBackSlash = typeBackSlash ?? Config.TypeBackSlash().value
         // see: https://developer.mozilla.org/ja/docs/Web/API/UI_Events/Keyboard_event_code_values#mac_%E3%81%A7%E3%81%AE%E3%82%B3%E3%83%BC%E3%83%89%E5%80%A4
@@ -120,7 +121,7 @@ public enum UserAction {
                 return string.map { .character($0) }
             case .japanese:
                 return string.map {
-                    .key(intention: intention($0, invertPunctuation: invertPunctuation), input: $0, modifiers: [])
+                    .key(intention: intention($0, invertPunctuation: invertPunctuation, punctuationStyle: punctuationStyle), input: $0, modifiers: [])
                 }
             }
         }

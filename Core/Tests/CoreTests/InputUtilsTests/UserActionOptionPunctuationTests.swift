@@ -31,38 +31,30 @@ private func makeEvent(
 }
 
 @Test func testOptionPunctuationMappings() async throws {
-    let defaults = Config.userDefaults
-    let key = Config.PunctuationStyle.key
-    let originalData = defaults.data(forKey: key)
-    defer {
-        if let data = originalData {
-            defaults.set(data, forKey: key)
-        } else {
-            defaults.removeObject(forKey: key)
-        }
-    }
-
     let option: KeyEventCore.ModifierFlag = [.option]
     let shiftOption: KeyEventCore.ModifierFlag = [.shift, .option]
 
-    Config.PunctuationStyle().value = .kutenAndToten
+    // Mapping tests must not share mutable process preferences with parallel sessions.
     #expect(inputString(from: UserAction.getUserAction(
         eventCore: makeEvent(logicalKey: ",", characters: "≤", modifiers: option),
-        inputLanguage: .japanese
+        inputLanguage: .japanese,
+        punctuationStyle: .kutenAndToten
     )) == "，")
     #expect(inputString(from: UserAction.getUserAction(
         eventCore: makeEvent(logicalKey: ".", characters: "≥", modifiers: option),
-        inputLanguage: .japanese
+        inputLanguage: .japanese,
+        punctuationStyle: .kutenAndToten
     )) == "．")
 
-    Config.PunctuationStyle().value = .periodAndComma
     #expect(inputString(from: UserAction.getUserAction(
         eventCore: makeEvent(logicalKey: ",", characters: "≤", modifiers: option),
-        inputLanguage: .japanese
+        inputLanguage: .japanese,
+        punctuationStyle: .periodAndComma
     )) == "、")
     #expect(inputString(from: UserAction.getUserAction(
         eventCore: makeEvent(logicalKey: ".", characters: "≥", modifiers: option),
-        inputLanguage: .japanese
+        inputLanguage: .japanese,
+        punctuationStyle: .periodAndComma
     )) == "。")
 
     #expect(inputString(from: UserAction.getUserAction(

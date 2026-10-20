@@ -22,6 +22,8 @@ class CandidatesViewController: BaseCandidateViewController {
     var showCandidateIndex = false
     private let treeView = CandidateTreeView()
     private var treeEntries: [CandidateTree.Entry] = []
+    private var lastCursorLocation: CGPoint?
+    private var documentGeometry: CandidateDocumentGeometry?
     private var usesTree: Bool { Config.TreeCandidates().value }
 
     override func loadView() {
@@ -53,7 +55,8 @@ class CandidatesViewController: BaseCandidateViewController {
                 numbers[index] = String(index - showedRows.lowerBound + 1)
             }
         }
-        treeView.update(entries: treeEntries, selectionIndex: selectionIndex, numbers: numbers)
+        treeView.update(entries: treeEntries, selectionIndex: selectionIndex, numbers: numbers, documentWidths: documentGeometry?.widths)
+        if usesTree, let cursor = lastCursorLocation { resizeWindowToFitContent(cursorLocation: cursor) }
     }
 
     func handleTreeNavigation(_ direction: CandidateTreeSelection.Direction) -> Bool {
@@ -77,27 +80,59 @@ class CandidatesViewController: BaseCandidateViewController {
         let size = treeView.preferredSize
         let frame = WindowPositioning.frameNearCursor(
             currentFrame: .init(window.frame), screenRect: .init(screen.visibleFrame),
-            cursorLocation: .init(cursorLocation),
+            cursorLocation: .init(documentGeometry?.anchor ?? cursorLocation),
             desiredSize: .init(width: min(size.width, screen.visibleFrame.width), height: min(size.height, screen.visibleFrame.height))
         ).cgRect
         window.setFrame(frame, display: true, animate: false)
     }
 
     override func updateCandidatePresentations(_ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint) {
+        lastCursorLocation = cursorLocation
         self.showedRows = selectionIndex == nil ? 0...8 : self.showedRows
         treeView.isHidden = !usesTree
         tableView.enclosingScrollView?.isHidden = usesTree
+        view.subviews.compactMap { $0 as? NSVisualEffectView }.forEach { $0.isHidden = usesTree }
+        configureWindowForRoundedCorners()
         treeEntries = candidates.enumerated().map { index, presentation in
             .init(text: presentation.candidate.text,
                   tokens: presentation.candidate.data.map { .init(text: $0.word, reading: $0.ruby) },
-                  candidateIndex: index)
+                  candidateIndex: index, score: Double(presentation.candidate.value),
+                  comparisonGroup: presentation.consumedInputCount)
         }
-        treeView.update(entries: treeEntries, selectionIndex: selectionIndex)
+        treeView.update(entries: treeEntries, selectionIndex: selectionIndex, documentWidths: documentGeometry?.widths)
         super.updateCandidatePresentations(
             candidates,
             selectionIndex: selectionIndex,
             cursorLocation: cursorLocation
         )
+    }
+
+    func alignWithDocument(_ candidates: [CandidatePresentation], selectionIndex: Int?, preedit: String,
+                           rectAtOffset: (Int) -> NSRect) {
+        documentGeometry = nil
+        guard usesTree, let selectionIndex, candidates.indices.contains(selectionIndex) else {
+            return
+        }
+        let projection = CandidateTree(entries: candidates.enumerated().map { index, presentation in
+            .init(text: presentation.candidate.text,
+                  tokens: presentation.candidate.data.map { .init(text: $0.word, reading: $0.ruby) }, candidateIndex: index)
+        })
+        let words = (projection.paths[selectionIndex] ?? []).map { projection.nodes[$0].token.text }
+        let geometry = CandidateDocumentGeometry(
+            words: words, preedit: preedit, rectAtOffset: rectAtOffset
+        )
+        if let geometry, let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(geometry.anchor) }),
+           geometry.anchor.x + max(60, geometry.widths.reduce(12, +)) <= screen.visibleFrame.maxX {
+            documentGeometry = geometry
+        }
+    }
+
+    override func configureWindowForRoundedCorners() {
+        super.configureWindowForRoundedCorners()
+        if usesTree {
+            view.window?.hasShadow = false
+            view.window?.contentView?.layer?.cornerRadius = 0
+        }
     }
 
     override internal func updateSelectionCallback(_ row: Int, notifySelectionChange: Bool) {
