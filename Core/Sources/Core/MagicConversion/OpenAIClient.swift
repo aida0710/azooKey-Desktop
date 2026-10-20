@@ -185,7 +185,7 @@ struct Prompt {
 //
 // - methods:
 //    - toJSON(): リクエストをOpenAI APIに適したJSON形式に変換する。
-public struct OpenAIRequest {
+public struct OpenAIRequest: Sendable {
     public init(prompt: String, target: String, modelName: String) {
         self.prompt = prompt
         self.target = target

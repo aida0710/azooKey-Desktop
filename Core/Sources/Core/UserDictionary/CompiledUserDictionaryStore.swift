@@ -3,7 +3,7 @@ import KanaKanjiConverterModuleWithDefaultDictionary
 
 public enum CompiledUserDictionaryStore {
     enum BuildError: Error {
-        case missingCharIDFile
+        case missingCompiledFiles
     }
 
     public static func directoryURL(memoryDirectoryURL: URL) -> URL {
@@ -11,26 +11,24 @@ public enum CompiledUserDictionaryStore {
     }
 
     public static func exportCurrentDictionaries(memoryDirectoryURL: URL) throws {
-        try Self.rebuild(
-            entries: Self.currentEntries(),
-            directoryURL: Self.directoryURL(memoryDirectoryURL: memoryDirectoryURL)
+        let directoryURL = UserDictionaryFileLock.canonicalDirectoryURL(
+            Self.directoryURL(memoryDirectoryURL: memoryDirectoryURL)
         )
+        let lock = try UserDictionaryFileLock(directoryURL: directoryURL)
+        defer { withExtendedLifetime(lock) {} }
+        let items = Config.UserDictionary().value.items + Config.SystemUserDictionary().value.items
+        try Self.rebuildLocked(items: items, directoryURL: directoryURL)
     }
 
     public static func hasExportedDictionary(memoryDirectoryURL: URL) -> Bool {
         Self.hasCompiledDictionary(at: Self.directoryURL(memoryDirectoryURL: memoryDirectoryURL))
     }
 
-    private static func currentEntries() -> [DicdataElement] {
-        let userEntries = Config.UserDictionary().value.items.map { item in
+    static func entries(from items: [Config.UserDictionaryEntry]) -> [DicdataElement] {
+        items.map { item in
             let ruby = item.reading.toKatakana()
             return DicdataElement(word: item.word, ruby: ruby, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -5)
         }
-        let systemEntries = Config.SystemUserDictionary().value.items.map { item in
-            let ruby = item.reading.toKatakana()
-            return DicdataElement(word: item.word, ruby: ruby, cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -5)
-        }
-        return userEntries + systemEntries
     }
 
     static func hasCompiledDictionary(at directoryURL: URL) -> Bool {
@@ -40,42 +38,61 @@ public enum CompiledUserDictionaryStore {
     }
 
     static func rebuild(entries: [DicdataElement], directoryURL: URL, charIDFileURL: URL? = nil) throws {
-        let fileManager = FileManager.default
-        let parentURL = directoryURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: parentURL, withIntermediateDirectories: true)
+        let directoryURL = UserDictionaryFileLock.canonicalDirectoryURL(directoryURL)
+        let lock = try UserDictionaryFileLock(directoryURL: directoryURL)
+        defer { withExtendedLifetime(lock) {} }
+        let items = entries.map { Config.UserDictionaryEntry(word: $0.word, reading: $0.ruby) }
+        try Self.rebuildLocked(items: items, directoryURL: directoryURL, charIDFileURL: charIDFileURL)
+    }
 
-        let temporaryURL = parentURL.appendingPathComponent(
-            "\(directoryURL.lastPathComponent).building-\(UUID().uuidString)",
-            isDirectory: true
+    private static func rebuildLocked(
+        items: [Config.UserDictionaryEntry], directoryURL: URL, charIDFileURL: URL? = nil
+    ) throws {
+        let operations = UserDictionaryFileOperations()
+        let update = try Self.prepare(
+            items: items, directoryURL: directoryURL,
+            charIDFileURL: charIDFileURL, operations: operations
         )
-        try fileManager.createDirectory(at: temporaryURL, withIntermediateDirectories: true)
-
         do {
-            if !entries.isEmpty {
-                guard let charIDFileURL = charIDFileURL ?? Self.defaultCharIDFileURL() else {
-                    throw BuildError.missingCharIDFile
-                }
-                let supportedCharacters = Set(try String(contentsOf: charIDFileURL, encoding: .utf8))
-                let indexableEntries = entries.filter {
-                    !$0.ruby.isEmpty && $0.ruby.allSatisfy(supportedCharacters.contains)
-                }
-                if !indexableEntries.isEmpty {
-                    try DictionaryBuilder.exportDictionary(
-                        entries: indexableEntries,
-                        to: temporaryURL,
-                        baseName: "user",
-                        shardByFirstCharacter: false,
-                        charIDFileURL: charIDFileURL
-                    )
-                }
-            }
-
-            if fileManager.fileExists(atPath: directoryURL.path) {
-                try fileManager.removeItem(at: directoryURL)
-            }
-            try fileManager.moveItem(at: temporaryURL, to: directoryURL)
+            try update.install()
         } catch {
-            try? fileManager.removeItem(at: temporaryURL)
+            let originalError = error
+            var rollbackFailures: [UserDictionarySaveError.RollbackFailure] = []
+            do {
+                try update.rollback()
+            } catch {
+                rollbackFailures.append(.init(phase: .dictionary, underlying: error))
+            }
+            throw UserDictionarySaveError(
+                phase: .installation, underlying: originalError,
+                rollbackFailures: rollbackFailures, recoveryDirectoryURL: update.recoveryDirectoryURL
+            )
+        }
+        _ = update.finish()
+    }
+
+    static func prepare(
+        items: [Config.UserDictionaryEntry], directoryURL: URL,
+        charIDFileURL: URL?, operations: UserDictionaryFileOperations
+    ) throws -> CompiledUserDictionaryUpdate {
+        let characterTable = items.isEmpty ? nil : try UserDictionaryValidation.characterTable(at: charIDFileURL)
+        if let characterTable {
+            let issues = UserDictionaryValidation.validate(items: items, supportedCharacters: characterTable.characters)
+            guard issues.isEmpty else {
+                throw UserDictionaryValidation.InvalidEntries(issues: issues)
+            }
+        }
+        let update = try CompiledUserDictionaryUpdate(directoryURL: directoryURL, operations: operations)
+        do {
+            if let characterTable {
+                try operations.compile(Self.entries(from: items), update.stagingURL, characterTable.url)
+                guard Self.hasCompiledDictionary(at: update.stagingURL) else {
+                    throw BuildError.missingCompiledFiles
+                }
+            }
+            return update
+        } catch {
+            update.discardStaging()
             throw error
         }
     }
