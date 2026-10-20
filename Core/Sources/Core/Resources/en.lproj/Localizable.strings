@@ -2,3 +2,8 @@
 "ai.suggestion.empty" = "No AI suggestions. You can keep typing";
 "ai.suggestion.failed" = "AI conversion failed. You can keep typing";
 "candidate.focused" = "Current navigation target";
+"candidate.detail" = "Candidate details";
+"candidate.textSize" = "Candidate text size";
+"candidate.textSize.standard" = "Standard";
+"candidate.textSize.large" = "Large";
+"candidate.detailKeys" = "Arrow keys show details; PageUp / PageDown scroll the details";

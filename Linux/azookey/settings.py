@@ -9,6 +9,7 @@ from gi.repository import Gtk, GLib, Gio
 from .bridge import Bridge
 from .prompts import parse_shortcut, shortcut_text
 from .personalization import import_model
+from .i18n import text as message
 
 
 def config_path():
@@ -53,6 +54,8 @@ class SettingsWindow(Gtk.Window):
             button = Gtk.CheckButton(label=label, active=self.values[key])
             basic.pack_start(button, False, False, 0)
             self.widgets[key] = button
+        self.combo(basic, "candidateTextSize", message("candidate.textSize"),
+                   [("standard", message("candidate.textSize.standard")), ("large", message("candidate.textSize.large"))])
         self.combo(basic, "inputStyle", "入力配列", [("default", "ローマ字"), ("defaultAZIK", "AZIK"), ("defaultKanaJIS", "かな JIS"), ("defaultKanaUS", "かな US"), ("custom", "カスタム")])
         self.combo(basic, "learning", "学習", [("inputAndOutput", "入力と変換結果"), ("onlyOutput", "変換結果のみ"), ("nothing", "しない")])
         self.combo(basic, "punctuation", "句読点", [(1, "、。"), (2, "，。"), (3, "、．"), (4, "，．")])

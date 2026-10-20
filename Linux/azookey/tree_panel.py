@@ -6,6 +6,7 @@ gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo
 
 from .candidate_accessibility import CandidateAction
+from .candidate_detail import CandidateDetail
 from .i18n import text as message
 
 
@@ -31,6 +32,9 @@ class TreePanel(Gtk.Window):
                 background: transparent; border: none; box-shadow: none;
                 padding: 0; min-width: 0; min-height: 0;
             }
+            .azookey-tree .candidate-detail, .azookey-tree .candidate-detail viewport {
+                background: @theme_base_color; border: none;
+            }
         """)
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.select = select
@@ -38,8 +42,12 @@ class TreePanel(Gtk.Window):
         self.candidate_identity = None
         self.rectangles = []
         self.scroll = Gtk.ScrolledWindow()
-        self.scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
-        self.add(self.scroll)
+        self.scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.content.pack_start(self.scroll, True, True, 0)
+        self.details = CandidateDetail()
+        self.content.pack_start(self.details, False, False, 0)
+        self.add(self.content)
         self.canvas = Gtk.DrawingArea()
         self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.canvas.connect("draw", self.draw)
@@ -84,16 +92,20 @@ class TreePanel(Gtk.Window):
         self.rectangles = []
         geometry = snapshot.get("wordGeometry") or {}
         widths = geometry.get("widths", [])
-        aligned = len(widths) == len(columns) and all(w >= 6 for w in widths)
-        self.font_size = min(12, geometry.get("fontSize", 12)) if aligned else 12
+        # Logical pixels are scaled by GTK; do not copy AppKit point measurements.
+        base_size = 24 if snapshot.get("candidateTextSize") == "large" else 18
+        scale = self.get_settings().get_property("gtk-xft-dpi") / (96 * Pango.SCALE)
+        self.font_size = base_size * max(1, scale)
+        aligned = len(widths) == len(columns) and all(w >= self.font_size + 8 for w in widths)
         self.aligned = aligned
-        row_height = max(24, int(self.font_size * 1.4))
-        row_pitch = row_height + (30 if snapshot.get("showCandidateIndex") and aligned else 18)
+        row_height = int(self.font_size + 14)
+        row_pitch = row_height + (40 if snapshot.get("showCandidateIndex") and aligned else 20)
         x = 12
         for depth, column in enumerate(columns):
             # Other candidates may cover the entire sentence. They must never
             # change the chosen word's position or cover the following column.
-            column_width = widths[depth] if aligned else max(24, min(160, self.measure(by_id[column[0]]["text"]) + 12))
+            column_width = widths[depth] if aligned else max(self.font_size + 12, min(
+                240, self.measure(by_id[column[0]]["text"], font_size=self.font_size) + 12))
             for row, node_id in enumerate(column):
                 node = by_id[node_id]
                 self.rectangles.append(("node", node_id, x, 6 + row * row_pitch, column_width, row_height, node["text"], node["reading"]))
@@ -102,9 +114,9 @@ class TreePanel(Gtk.Window):
                 if snapshot.get("showCandidateIndex") and index is not None:
                     number = index - snapshot.get("pageStart", 0) + 1
                     if 1 <= number <= 9:
-                        badge = (x + column_width - 12, 18 + row * row_pitch + row_height, 12, 10) if aligned else (x + column_width + 1, 8 + row * row_pitch, 20, 20)
+                        badge = (x + column_width - row_height, 22 + row * row_pitch + row_height, row_height, 24) if aligned else (x + column_width + 1, 6 + row * row_pitch, row_height, row_height)
                         self.rectangles.append(("select", index, *badge, str(number), ""))
-            x += column_width + (0 if aligned else (22 if snapshot.get("showCandidateIndex") else 12))
+            x += column_width + (0 if aligned else (row_height + 2 if snapshot.get("showCandidateIndex") else 12))
         width = max(60, x)
         height = max(32, max(map(len, columns)) * row_pitch + 6)
         self.canvas.set_size_request(int(width + 0.5), height)
@@ -116,11 +128,14 @@ class TreePanel(Gtk.Window):
             # Use the ordinary compact popup when the span cannot fit onscreen.
             self.update({**snapshot, "wordGeometry": None})
             return
-        popup_width, popup_height = int(min(width if aligned else 760, width, area.width) + 0.5), min(420, height, area.height)
+        # Keep a useful detail line below even for a one-character candidate.
+        popup_width = int(min(max(320, width), 760 if not aligned else max(320, width), area.width) + 0.5)
+        popup_height = min(420, height, max(1, area.height - CandidateDetail.MAXIMUM_HEIGHT))
         self.scroll.set_min_content_width(popup_width)
         self.scroll.set_min_content_height(popup_height)
         self.resize(popup_width, popup_height)
         self.update_actions()
+        self.show_details(snapshot.get("focusedNode") if snapshot.get("focusedNode") is not None else columns[0][0])
         self.show_all()
         self.position()
         self.canvas.queue_draw()
@@ -131,9 +146,10 @@ class TreePanel(Gtk.Window):
             self.cancel_scroll()
             def reveal():
                 self.scroll_idle = None
-                for kind, index, x, _, width, *_ in self.rectangles:
+                for kind, index, x, y, width, height, *_ in self.rectangles:
                     if kind == "node" and index == focus["id"]:
                         self.scroll.get_hadjustment().clamp_page(max(0, x - 8), x + width + 22)
+                        self.scroll.get_vadjustment().clamp_page(max(0, y - 8), y + height + 16)
                         break
                 return GLib.SOURCE_REMOVE
             self.scroll_idle = GLib.idle_add(reveal)
@@ -154,6 +170,8 @@ class TreePanel(Gtk.Window):
             button = self.actions.get(identity)
             if button is None:
                 button = CandidateAction(lambda source, identity=identity: self.activate(identity, source))
+                if kind == "node":
+                    button.connect("enter-notify-event", lambda _button, _event, index=index: self.show_details(index))
                 self.surface.put(button, int(x), int(y))
                 self.actions[identity] = button
             self.surface.move(button, int(x), int(y))
@@ -168,6 +186,22 @@ class TreePanel(Gtk.Window):
                 name = message("candidate.numberConfirm", number=index + 1)
             button.set_tooltip_text(name)
             button.update_accessibility(name, selected=active, description=description)
+
+    def show_details(self, node_id):
+        node = next((item for item in self.snapshot.get("nodes", []) if item["id"] == node_id), None)
+        if node is None:
+            self.details.update("", font_size=self.font_size, width=320)
+            return False
+        content = node["text"] + ("\n" + node["reading"] if node.get("reading") else "")
+        width = self.scroll.get_min_content_width()
+        self.details.update(content + "\n" + message("candidate.detailKeys"), font_size=self.font_size, width=width)
+        return False
+
+    def scroll_details(self, forward):
+        if not self.get_visible():
+            return False
+        self.details.scroll_page(forward)
+        return True
 
     def activate(self, identity, source):
         # Removed ATK objects may outlive a candidate update in the AT client.
@@ -186,10 +220,13 @@ class TreePanel(Gtk.Window):
         y = below if below + popup_height <= area.y + area.height else y - popup_height
         self.move(x, max(area.y, min(y, area.y + area.height - popup_height)))
 
-    def measure(self, text):
+    def measure(self, text, *, font_size=None):
+        # PreeditAnchor calibrates this reference font against the document caret.
+        # Candidate preferences must not change that measurement mid-composition.
+        document_reference_size = 40 / 3
         layout = self.canvas.create_pango_layout(text)
         font = Pango.FontDescription("Sans")
-        font.set_absolute_size(40 / 3 * Pango.SCALE)
+        font.set_absolute_size((font_size or document_reference_size) * Pango.SCALE)
         layout.set_font_description(font)
         return layout.get_pixel_size()[0]
 
@@ -245,13 +282,13 @@ class TreePanel(Gtk.Window):
                 context.stroke()
             color = (1, 1, 1) if active else (foreground.red, foreground.green, foreground.blue)
             inset = 2 if self.aligned else 4
-            size = self.font_size if kind == "node" else (7 if self.aligned else 12)
+            size = self.font_size if kind == "node" else max(14, self.font_size - 4)
             self.text(context, text, x + inset, y, width - inset * 2, size, color, self.aligned, height)
             if kind == "node":
                 score = scores.get(index)
                 self.text(context, str(score) if score is not None else "—",
-                          x, y + height, width, 9, (foreground.red, foreground.green, foreground.blue),
-                          False, 12, 6)
+                          x, y + height, width, 12, (foreground.red, foreground.green, foreground.blue),
+                          False, 16)
         return False
 
     @staticmethod
@@ -259,19 +296,10 @@ class TreePanel(Gtk.Window):
         return (0.83, 0.39, 0.06, 1) if score is not None and score < 75 else (0.25, 0.45, 0.8, 1)
 
     @staticmethod
-    def fitted_layout(context, text, width, size, minimum_size=8):
+    def fitted_layout(context, text, width, size):
         layout = PangoCairo.create_layout(context)
         font = Pango.FontDescription("Sans")
         layout.set_text(text, -1)
-        # Measure with the same Cairo font context used for drawing. GTK's
-        # widget context can have different fallback metrics / font options.
-        for _ in range(12):
-            font.set_absolute_size(size * Pango.SCALE)
-            layout.set_font_description(font)
-            measured = layout.get_pixel_size()[0]
-            if measured <= width or size <= minimum_size:
-                break
-            size = max(minimum_size, min(size - 0.25, size * width / measured))
         font.set_absolute_size(size * Pango.SCALE)
         layout.set_font_description(font)
         layout.set_width(max(1, int(width * Pango.SCALE)))
@@ -279,8 +307,8 @@ class TreePanel(Gtk.Window):
         return layout
 
     @staticmethod
-    def text(context, text, x, y, width, size, color, aligned=False, height=24, minimum_size=8):
-        layout = TreePanel.fitted_layout(context, text, width, size, minimum_size)
+    def text(context, text, x, y, width, size, color, aligned=False, height=24):
+        layout = TreePanel.fitted_layout(context, text, width, size)
         layout.set_alignment(Pango.Alignment.LEFT if aligned else Pango.Alignment.CENTER)
         context.set_source_rgb(*color)
         context.move_to(x, y + (height - layout.get_pixel_size()[1]) / 2)

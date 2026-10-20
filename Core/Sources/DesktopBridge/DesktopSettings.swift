@@ -4,6 +4,7 @@ import KanaKanjiConverterModuleWithDefaultDictionary
 
 struct DesktopSettings: Codable {
     var tree = Config.TreeCandidates().value
+    var candidateTextSize = Config.CandidateTextSize().value
     var live = Config.LiveConversion().value
     var halfSpace = Config.TypeHalfSpace().value
     var backslash = Config.TypeBackSlash().value
@@ -43,6 +44,7 @@ struct DesktopSettings: Codable {
             try CustomInputTableStore.clear()
         }
         Config.TreeCandidates().value = tree
+        Config.CandidateTextSize().value = candidateTextSize
         Config.LiveConversion().value = live
         Config.TypeHalfSpace().value = halfSpace
         Config.TypeBackSlash().value = backslash

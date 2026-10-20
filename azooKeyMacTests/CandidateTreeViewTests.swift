@@ -16,6 +16,34 @@ final class CandidateTreeViewTests: XCTestCase {
         .init(text: "日本画", tokens: [.init(text: "日本"), .init(text: "画")], candidateIndex: 1)
     ]
 
+    private func textFields(in view: NSView) -> [NSTextField] {
+        view.subviews.flatMap { child in
+            (child as? NSTextField).map { [$0] } ?? textFields(in: child)
+        }
+    }
+
+    func testLargeCandidateTextRetainsTheFullReadingWithoutCommitting() throws {
+        let preference = Config.CandidateTextSize()
+        let previous = preference.value
+        defer { preference.value = previous }
+        preference.value = .large
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 400, height: 320))
+        var submitted: [Int] = []
+        view.onCandidateSubmitted = { submitted.append($0) }
+        let word = String(repeating: "長い候補👩‍💻ABC", count: 10)
+        let reading = String(repeating: "ナガイコウホ", count: 10)
+        view.update(entries: [.init(text: word, tokens: [.init(text: word, reading: reading)], candidateIndex: 0)],
+                    selectionIndex: 0, documentWidths: [6])
+        view.layoutSubtreeIfNeeded()
+        let candidate = try XCTUnwrap(buttons(in: view).first { $0.title == word })
+        XCTAssertGreaterThanOrEqual(candidate.font?.pointSize ?? 0, 24)
+        XCTAssertGreaterThan(candidate.frame.width, 6)
+        XCTAssertTrue(textFields(in: view).contains { $0.stringValue.contains(word) && $0.stringValue.contains(reading) })
+        XCTAssertTrue(view.scrollDetails(forward: true))
+        XCTAssertFalse(candidate.acceptsFirstResponder)
+        XCTAssertEqual(submitted, [])
+    }
+
     func testScoresExplainRelativeMeaningAndRefreshOnCandidateChange() throws {
         let view = CandidateTreeView()
         let scored: [CandidateTree.Entry] = [
@@ -44,19 +72,19 @@ final class CandidateTreeViewTests: XCTestCase {
 
     func testDocumentWidthsKeepEveryBranchInItsWordColumn() throws {
         let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 600, height: 160))
-        view.update(entries: entries, selectionIndex: 0, documentWidths: [40, 20])
+        view.update(entries: entries, selectionIndex: 0, documentWidths: [64, 40])
         let controls = buttons(in: view)
         let first = try XCTUnwrap(controls.first { $0.title == "日本" })
         let chosen = try XCTUnwrap(controls.first { $0.title == "語" })
         let alternative = try XCTUnwrap(controls.first { $0.title == "画" })
-        XCTAssertEqual(chosen.frame.minX - first.frame.minX, 40)
+        XCTAssertEqual(chosen.frame.minX - first.frame.minX, 64)
         XCTAssertEqual(alternative.frame.minX, chosen.frame.minX)
-        XCTAssertEqual(alternative.frame.width, 20)
+        XCTAssertEqual(alternative.frame.width, 40)
     }
 
     func testAlignedLongSentenceDoesNotScrollAndNumbersLeaveScoreRoom() throws {
         let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 1000, height: 180))
-        view.update(entries: entries, selectionIndex: 0, numbers: [0: "1"], documentWidths: [810, 20])
+        view.update(entries: entries, selectionIndex: 0, numbers: [0: "1"], documentWidths: [810, 40])
         XCTAssertGreaterThan(view.preferredSize.width, 830)
         let controls = buttons(in: view)
         let word = try XCTUnwrap(controls.first { $0.title == "語" })
@@ -90,8 +118,8 @@ final class CandidateTreeViewTests: XCTestCase {
         }
         view.update(entries: alternatives, selectionIndex: 0)
         let visible = buttons(in: view)
-        XCTAssertLessThanOrEqual(view.preferredSize.height, 150, "Alternatives must not expand the entire candidate trie")
-        XCTAssertLessThan(view.preferredSize.width, 300, "Short words should not occupy fixed wide columns")
+        XCTAssertLessThanOrEqual(view.preferredSize.height, 320, "Keep a compact tree plus a bounded detail area")
+        XCTAssertLessThanOrEqual(view.preferredSize.width, 320, "Short words only need the detail area's minimum width")
         XCTAssertLessThanOrEqual(visible.count, 4, "Show the path and two alternatives at each word")
         let first = visible.first { $0.title == "日本語" }
         let second = visible.first { $0.title == "候補0" }

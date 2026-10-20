@@ -11,14 +11,14 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 @unittest.skipUnless(os.environ.get("DISPLAY") and os.environ.get("AZOOKEY_BRIDGE"), "requires Xvfb and the Swift bridge")
 class TreePanelTests(unittest.TestCase):
-    def test_candidate_text_fits_narrow_document_columns(self):
+    def test_candidate_text_uses_ellipsis_instead_of_shrinking_below_readable_size(self):
         import cairo
         from azookey.tree_panel import TreePanel
         context = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 100, 40))
         for text, width in [("このように", 60), ("科学的", 36), ("が", 12)]:
-            layout = TreePanel.fitted_layout(context, text, width, 13)
-            self.assertFalse(layout.is_ellipsized(), text)
-            self.assertLessEqual(layout.get_pixel_size()[0], width)
+            layout = TreePanel.fitted_layout(context, text, width, 18)
+            self.assertEqual(layout.get_font_description().get_size(), 18 * 1024)
+            self.assertTrue(layout.is_ellipsized(), text)
 
     def test_word_columns_stay_under_document_words(self):
         from azookey.tree_panel import TreePanel
@@ -84,7 +84,7 @@ class TreePanelTests(unittest.TestCase):
                 self.assertLessEqual(len(words), len(snapshot["columns"]) * 3)
                 self.assertEqual({words[column[0]][3] for column in snapshot["columns"]}, {6})
                 width, height = panel.canvas.get_size_request()
-                self.assertLessEqual(height, 132)
+                self.assertLessEqual(height, 200)
                 surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
                 panel.draw(panel.canvas, cairo.Context(surface))
                 surface.flush()

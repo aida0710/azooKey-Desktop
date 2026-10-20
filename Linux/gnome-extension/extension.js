@@ -4,6 +4,8 @@ import GLib from 'gi://GLib';
 import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {CandidateDetail} from './candidateDetail.js';
+import {messages} from './candidateMessages.js';
 
 const NAME = 'org.azookey.Tree';
 const PATH = '/org/azookey/Tree';
@@ -11,22 +13,29 @@ const PATH = '/org/azookey/Tree';
 export default class AzooKeyTreeExtension extends Extension {
     enable() {
         this._buttons = new Map();
-        this._popup = new St.ScrollView({
+        this._popup = new St.BoxLayout({vertical: true, can_focus: false});
+        this._treeScroll = new St.ScrollView({
             reactive: true, can_focus: false,
             hscrollbar_policy: St.PolicyType.AUTOMATIC,
-            vscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
             style: 'background-color: transparent; border: none; box-shadow: none;',
         });
         this._content = new St.BoxLayout({vertical: true});
         this._canvas = new St.Widget({layout_manager: new Clutter.FixedLayout(),
             style: 'background-color: #202124; border-radius: 6px;'});
         this._content.add_child(this._canvas);
-        this._popup.set_child(this._content);
+        this._treeScroll.set_child(this._content);
+        this._popup.add_child(this._treeScroll);
+        this._details = new CandidateDetail();
+        this._popup.add_child(this._details.actor);
+        this._interfaceSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
         Main.layoutManager.addTopChrome(this._popup);
         this._popup.hide();
         this._subscription = Gio.DBus.session.signal_subscribe(NAME, NAME, null, PATH, null,
             Gio.DBusSignalFlags.NONE, (_connection, _sender, _path, _interface, signal, parameters) => {
                 if (signal === 'Hide') this._popup.hide();
+                if (signal === 'ScrollDetails' && this._popup.visible)
+                    this._details.scrollPage(parameters.deepUnpack()[0]);
                 if (signal === 'Update') {
                     try { this._render(JSON.parse(parameters.deepUnpack()[0])); }
                     catch (error) {
@@ -74,17 +83,19 @@ export default class AzooKeyTreeExtension extends Extension {
         if (!columns.length) { this._popup.hide(); return; }
         const frames = new Map();
         const documentWidths = data.wordGeometry?.widths ?? [];
-        const aligned = documentWidths.length === columns.length && documentWidths.every(w => Number.isFinite(w) && w >= 6);
-        const fontSize = aligned ? Math.min(12, data.wordGeometry.fontSize ?? 12) : 12;
-        const rowHeight = 24, rowPitch = rowHeight + (data.showCandidateIndex && aligned ? 30 : 18);
+        const fontSize = (data.candidateTextSize === 'large' ? 24 : 18) *
+            Math.max(1, this._interfaceSettings.get_double('text-scaling-factor'));
+        const aligned = documentWidths.length === columns.length &&
+            documentWidths.every(width => Number.isFinite(width) && width >= fontSize + 8);
+        const rowHeight = fontSize + 14, rowPitch = rowHeight + (data.showCandidateIndex && aligned ? 40 : 20);
         const scoreColor = score => Number.isFinite(score) && score < 75 ? '#d4630f' : '#4073cc';
         let nextX = 12;
         for (const [depth, column] of columns.entries()) {
-            const measure = new St.Label({text: byId.get(column[0]).text, style: 'font-size: 13px;'});
-            const columnWidth = aligned ? documentWidths[depth] : Math.max(24, Math.min(160, measure.get_preferred_width(-1)[1] + 12));
+            const measure = new St.Label({text: byId.get(column[0]).text, style: `font-size: ${fontSize}px;`});
+            const columnWidth = aligned ? documentWidths[depth] : Math.max(fontSize + 12, Math.min(240, measure.get_preferred_width(-1)[1] + 12));
             measure.destroy();
             column.forEach((id, row) => frames.set(id, {x: nextX, y: 6 + row * rowPitch, width: columnWidth, height: rowHeight}));
-            nextX += columnWidth + (aligned ? 0 : (data.showCandidateIndex ? 22 : 12));
+            nextX += columnWidth + (aligned ? 0 : (data.showCandidateIndex ? rowHeight + 2 : 12));
         }
         const width = Math.max(60, nextX);
         const height = Math.max(32, Math.max(...columns.map(column => column.length)) * rowPitch + 6);
@@ -133,12 +144,12 @@ export default class AzooKeyTreeExtension extends Extension {
                 lines.queue_repaint();
             }
         }
-        const button = (operation, index, label, x, y, w, h, active, focused, accessibleName, score) => {
+        const button = ({operation, index, label, frame, active, focused, accessibleName, score}) => {
             const compactBadge = operation === 'select' && aligned;
             const identity = JSON.stringify([operation, index, accessibleName]);
             let widget = this._buttons.get(identity);
             if (!widget) {
-                widget = new St.Button({can_focus: false, reactive: true, accessible_name: accessibleName});
+                widget = new St.Button({can_focus: false, reactive: true, track_hover: true, accessible_name: accessibleName});
                 widget.connect('button-press-event', () => {
                     widget._pressedSelection = widget._selection;
                     return Clutter.EVENT_PROPAGATE;
@@ -154,6 +165,9 @@ export default class AzooKeyTreeExtension extends Extension {
                     if (this._buttons.get(identity) === widget && this._popup.visible)
                         this._call('Select', selection);
                 });
+                widget.connect('notify::hover', () => {
+                    if (widget.hover && operation === 'node') this._showDetails(index);
+                });
                 this._canvas.add_child(widget);
                 this._buttons.set(identity, widget);
             }
@@ -163,18 +177,13 @@ export default class AzooKeyTreeExtension extends Extension {
             widget.set_style(`color: ${active ? '#ffffff' : '#eeeeef'}; background-color: ${active ? scoreColor(score) : '#24252b'}; border: none; border-bottom: ${compactBadge ? '0' : (focused ? '2px solid #ffffff' : '2px solid transparent')}; border-radius: 4px; padding: ${compactBadge ? 0 : 2}px; font-size: 12px;`);
             const captions = new St.BoxLayout({vertical: true, y_align: Clutter.ActorAlign.CENTER});
             const caption = new St.Label({text: label, x_align: aligned ? Clutter.ActorAlign.START : Clutter.ActorAlign.CENTER});
-            let size = operation === 'select' ? (aligned ? 7 : 11) : fontSize;
-            for (let attempt = 0; attempt < 12; attempt++) {
-                caption.set_style(`font-size: ${size}px;`);
-                const measured = caption.get_preferred_width(-1)[1];
-                if (measured <= w - 4 || size <= 8) break;
-                size = Math.max(8, Math.min(size - 0.25, size * (w - 4) / measured));
-            }
-            caption.set_width(Math.max(1, w - 4));
+            const size = operation === 'select' ? Math.max(14, fontSize - 4) : fontSize;
+            caption.set_style(`font-size: ${size}px;`);
+            caption.set_width(Math.max(1, frame.width - 4));
             captions.add_child(caption);
             widget.set_child(captions);
-            widget.set_position(x, y);
-            widget.set_size(w, h);
+            widget.set_position(frame.x, frame.y);
+            widget.set_size(frame.width, frame.height);
             this._canvas.set_child_above_sibling(widget, null);
         };
         for (const [id, frame] of frames) {
@@ -182,22 +191,25 @@ export default class AzooKeyTreeExtension extends Extension {
             const score = node.relativeScore;
             const detail = Number.isFinite(score)
                 ? `相対スコア ${score}（取得候補内の評価。正解の確率ではありません）` : '比較可能なスコアなし';
-            button('node', id, node.text, frame.x, frame.y, frame.width, frame.height,
-                selected.has(id), id === data.focusedNode, `${node.text} ${node.reading}`, score);
+            button({operation: 'node', index: id, label: node.text, frame,
+                active: selected.has(id), focused: id === data.focusedNode,
+                accessibleName: `${node.text} ${node.reading}`, score});
             const scoreText = Number.isFinite(score) ? String(score) : '—';
             const scoreLabel = new St.Label({text: scoreText, accessible_name: detail,
-                style: `color: #a9a9b0; font-size: ${Math.min(9, frame.width / (scoreText.length * 0.65))}px;`,
+                style: 'color: #a9a9b0; font-size: 12px;',
                 x_align: Clutter.ActorAlign.CENTER});
             scoreLabel.set_position(frame.x, frame.y + frame.height);
-            scoreLabel.set_size(frame.width, 12);
+            scoreLabel.set_size(frame.width, 16);
             this._canvas.add_child(scoreLabel);
             const index = node.terminals.includes(data.selection) ? data.selection : node.terminals[0];
             if (data.showCandidateIndex && index !== undefined) {
                 const number = index - (data.pageStart ?? 0) + 1;
                 if (number >= 1 && number <= 9) {
-                    button('select', index, String(number), aligned ? frame.x + frame.width - 12 : frame.x + frame.width + 1,
-                        aligned ? frame.y + frame.height + 12 : frame.y + 2, aligned ? 12 : 20, aligned ? 10 : 20,
-                        index === data.selection, false, `候補 ${index + 1} を確定`);
+                    button({operation: 'select', index, label: String(number), frame: {
+                        x: aligned ? frame.x + frame.width - rowHeight : frame.x + frame.width + 1,
+                        y: aligned ? frame.y + frame.height + 16 : frame.y,
+                        width: rowHeight, height: aligned ? 24 : rowHeight,
+                    }, active: index === data.selection, focused: false, accessibleName: `候補 ${index + 1} を確定`});
                 }
             }
         }
@@ -217,8 +229,16 @@ export default class AzooKeyTreeExtension extends Extension {
             return;
         }
         // The popup follows the compact content; there is no full-window backdrop.
-        const popupWidth = Math.min(width, aligned ? width : 760, bounds.width), popupHeight = Math.min(height, bounds.height);
+        // Reserve a bounded detail area, leaving the source document visible.
+        const detailHeight = Math.min(160, bounds.height / 3);
+        const popupWidth = Math.min(Math.max(320, width), aligned ? Math.max(320, width) : 760, bounds.width);
+        const treeHeight = Math.min(height, bounds.height - detailHeight);
+        const popupHeight = treeHeight + detailHeight;
+        this._treeScroll.set_size(popupWidth, treeHeight);
+        this._details.actor.set_size(popupWidth, detailHeight);
         this._popup.set_size(popupWidth, popupHeight);
+        this._detailState = {nodes: byId, fontSize, width: popupWidth};
+        this._showDetails(data.focusedNode ?? columns[0][0]);
         x = Math.max(bounds.x, Math.min(x, bounds.x + bounds.width - popupWidth));
         y = y + cursorHeight + popupHeight <= bounds.y + bounds.height ? y + cursorHeight : y - popupHeight;
         this._popup.set_position(x, Math.max(bounds.y, Math.min(y, bounds.y + bounds.height - popupHeight)));
@@ -237,10 +257,19 @@ export default class AzooKeyTreeExtension extends Extension {
                     adjustment.value = Math.max(adjustment.lower,
                         Math.min(value, adjustment.upper - adjustment.page_size));
                 };
-                reveal(this._popup.get_hadjustment(), Math.max(0, focus.x - 8), focus.x + focus.width + 22);
+                reveal(this._treeScroll.get_hadjustment(), Math.max(0, focus.x - 8), focus.x + focus.width + rowHeight + 2);
+                reveal(this._treeScroll.get_vadjustment(), Math.max(0, focus.y - 8), focus.y + focus.height + 16);
                 return GLib.SOURCE_REMOVE;
             });
         }
+    }
+
+    _showDetails(nodeID) {
+        const state = this._detailState;
+        const node = state?.nodes.get(nodeID);
+        if (!node) return;
+        const text = node.text + (node.reading ? `\n${node.reading}` : '') + `\n${messages.detailKeys}`;
+        this._details.update({text, fontSize: state.fontSize, width: state.width});
     }
 
     disable() {

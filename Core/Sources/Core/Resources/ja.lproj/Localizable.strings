@@ -2,3 +2,8 @@
 "ai.suggestion.empty" = "AI 候補がありません。入力はそのまま続けられます";
 "ai.suggestion.failed" = "AI 変換に失敗しました。入力はそのまま続けられます";
 "candidate.focused" = "操作対象";
+"candidate.detail" = "候補の詳細";
+"candidate.textSize" = "候補の文字サイズ";
+"candidate.textSize.standard" = "標準";
+"candidate.textSize.large" = "大きい";
+"candidate.detailKeys" = "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール";
