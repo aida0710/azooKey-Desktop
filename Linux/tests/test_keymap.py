@@ -21,6 +21,11 @@ class KeymapTests(unittest.TestCase):
         self.assertEqual(translate(0xFFC7, 0)["keyCode"], 109)
         self.assertEqual(translate(ord("9"), 0)["keyCode"], 25)
 
+    def test_home_end_and_forward_delete_reach_the_composition_editor(self):
+        self.assertEqual(translate(0xFF50, 0)["keyCode"], 0x73)
+        self.assertEqual(translate(0xFF57, 0)["keyCode"], 0x77)
+        self.assertEqual(translate(0xFFFF, 0)["keyCode"], 0x75)
+
     def test_encoded_fullwidth_unicode_is_text_not_a_function_key(self):
         self.assertEqual(translate(0x0100FF21, 0)["characters"], "Ａ")
         self.assertEqual(translate(0x0100FF76, 0)["characters"], "ｶ")

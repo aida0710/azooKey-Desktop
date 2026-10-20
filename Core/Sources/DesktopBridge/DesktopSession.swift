@@ -38,6 +38,8 @@ struct DesktopSnapshot: Encodable {
     var settings: DesktopSettings?
     var suggestions: [String]?
     var reading = ""
+    var readingCursor = 0
+    var inputState = "none"
     var prediction: String?
     var pageStart = 0
     var showCandidateIndex = false
@@ -267,7 +269,7 @@ final class DesktopSession: SegmentManagerDelegate {
         case .consume: break
         case .fallthrough: result.consumed = false
         case .showCandidateWindow: segments.requestSetCandidateWindowState(visible: true)
-        case .hideCandidateWindow: segments.requestSetCandidateWindowState(visible: false)
+        case .hideCandidateWindow: segments.cancelCandidateSelection()
         case .enterFirstCandidatePreviewMode:
             segments.insertCompositionSeparator(inputStyle: inputStyle, skipUpdate: false)
             segments.requestSetCandidateWindowState(visible: false)
@@ -278,6 +280,7 @@ final class DesktopSession: SegmentManagerDelegate {
         case .appendPieceToMarkedText(let pieces): segments.insertAtCursorPosition(pieces: pieces, inputStyle: inputStyle)
         case .insertWithoutMarkedText(let text): result.commits.append(text)
         case .editSegment(let count): segments.editSegment(count: count)
+        case .moveCompositionCursor(let movement): segments.moveCompositionCursor(movement)
         case .commitMarkedText: result.commits.append(segments.commitMarkedText(inputState: state))
         case .commitMarkedTextAndAppendToMarkedText(let text):
             result.commits.append(segments.commitMarkedText(inputState: state))
@@ -288,6 +291,9 @@ final class DesktopSession: SegmentManagerDelegate {
         case .submitSelectedCandidate: commitSelected(into: &result.commits)
         case .removeLastMarkedText:
             segments.deleteBackwardFromCursorPosition()
+            segments.requestResettingSelection()
+        case .removeNextMarkedText:
+            segments.deleteForwardFromCursorPosition()
             segments.requestResettingSelection()
         case .selectPrevCandidate: segments.requestSelectingPrevCandidate()
         case .selectNextCandidate: segments.requestSelectingNextCandidate()
@@ -367,6 +373,16 @@ final class DesktopSession: SegmentManagerDelegate {
         result.zenzaiLoaded = modelURL.map { converter.zenzStatus == "load \($0.absoluteString)" } ?? false
         result.personalizationConfigured = segments.hasPersonalizationConfiguration
         result.reading = segments.convertTarget
+        result.readingCursor = unicodeScalarOffset(in: result.reading, utf16Offset: segments.readingCursorUTF16Offset)
+        result.inputState = switch state {
+        case .none: "none"
+        case .composing: "composing"
+        case .previewing: "previewing"
+        case .selecting: "selecting"
+        case .replaceSuggestion: "replaceSuggestion"
+        case .unicodeInput: "unicodeInput"
+        case .attachDiacritic: "attachDiacritic"
+        }
         if state == .composing {
             result.prediction = SegmentsManager.preferredPredictionCandidates(
                 typoCorrectionCandidates: segments.requestTypoCorrectionPredictionCandidates(),

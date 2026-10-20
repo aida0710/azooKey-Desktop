@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 @Suite struct DesktopSegmentEditingTests {
-    private func withSession(
+    func withSession(
         liveConversion: Bool,
         treeCandidates: Bool,
         _ test: (DesktopSession) throws -> Void
@@ -25,11 +25,11 @@ import Testing
         try test(session)
     }
 
-    private func key(_ code: UInt16, shift: Bool = false) -> KeyEventCore {
+    func key(_ code: UInt16, shift: Bool = false) -> KeyEventCore {
         .init(modifierFlags: shift ? [.shift] : [], characters: nil, charactersIgnoringModifiers: nil, keyCode: code)
     }
 
-    private func beginSelecting(_ session: DesktopSession) throws -> DesktopSnapshot {
+    func beginSelecting(_ session: DesktopSession) throws -> DesktopSnapshot {
         for character in "nihongowobenkyou" {
             _ = session.key(.init(modifierFlags: [], characters: String(character), charactersIgnoringModifiers: String(character), keyCode: 0))
         }
@@ -37,9 +37,14 @@ import Testing
         return session.key(key(49))
     }
 
-    private func selectedCandidate(_ snapshot: DesktopSnapshot) throws -> DesktopSnapshot.CandidateItem {
+    func selectedCandidate(_ snapshot: DesktopSnapshot) throws -> DesktopSnapshot.CandidateItem {
         let index = try #require(snapshot.selection)
         return try #require(snapshot.candidates.first { $0.index == index })
+    }
+
+    func selectWholeCandidate(_ session: DesktopSession, from snapshot: DesktopSnapshot) throws -> DesktopSnapshot {
+        let candidate = try #require(snapshot.candidates.max { ($0.comparisonGroup ?? 0) < ($1.comparisonGroup ?? 0) })
+        return session.select(candidateIndex: candidate.index, submit: false, expectedGeneration: snapshot.generation)
     }
 
     @Test(arguments: [false, true], [false, true])
@@ -47,8 +52,7 @@ import Testing
         try withSession(liveConversion: live, treeCandidates: tree) { session in
             var snapshot = try beginSelecting(session)
             let reading = snapshot.reading
-            let wholeCandidate = try #require(snapshot.candidates.max { ($0.comparisonGroup ?? 0) < ($1.comparisonGroup ?? 0) })
-            snapshot = session.select(candidateIndex: wholeCandidate.index, submit: false, expectedGeneration: snapshot.generation)
+            snapshot = try selectWholeCandidate(session, from: snapshot)
             let initialSelected = try selectedCandidate(snapshot)
             var previousConsumedCount = try #require(initialSelected.comparisonGroup)
 
@@ -74,7 +78,7 @@ import Testing
                 previousConsumedCount = consumedCount
             }
 
-            #expect(previousConsumedCount == wholeCandidate.comparisonGroup)
+            #expect(previousConsumedCount == initialSelected.comparisonGroup)
         }
     }
 
@@ -82,8 +86,7 @@ import Testing
     func committingAnEditedPrefixKeepsTheSuffixForCandidateChangesEscapeAndBackspace(live: Bool, tree: Bool) throws {
         try withSession(liveConversion: live, treeCandidates: tree) { session in
             var snapshot = try beginSelecting(session)
-            let wholeCandidate = try #require(snapshot.candidates.max { ($0.comparisonGroup ?? 0) < ($1.comparisonGroup ?? 0) })
-            _ = session.select(candidateIndex: wholeCandidate.index, submit: false, expectedGeneration: snapshot.generation)
+            _ = try selectWholeCandidate(session, from: snapshot)
             snapshot = session.key(key(123, shift: true))
             let suffix = String(snapshot.reading.suffix(1))
             let selected = try selectedCandidate(snapshot)
@@ -124,8 +127,7 @@ import Testing
     func romanConversionUsesTheEditedRangeAndStillConvertsWholeSelections(functionKey: UInt16) throws {
         try withSession(liveConversion: false, treeCandidates: false) { session in
             var snapshot = try beginSelecting(session)
-            let wholeCandidate = try #require(snapshot.candidates.max { ($0.comparisonGroup ?? 0) < ($1.comparisonGroup ?? 0) })
-            _ = session.select(candidateIndex: wholeCandidate.index, submit: false, expectedGeneration: snapshot.generation)
+            _ = try selectWholeCandidate(session, from: snapshot)
             for _ in 0..<6 {
                 snapshot = session.key(key(123, shift: true))
             }
@@ -135,12 +137,43 @@ import Testing
 
             _ = session.reset(commit: false)
             snapshot = try beginSelecting(session)
-            let wholeSelection = try #require(snapshot.candidates.max { ($0.comparisonGroup ?? 0) < ($1.comparisonGroup ?? 0) })
-            _ = session.select(candidateIndex: wholeSelection.index, submit: false, expectedGeneration: snapshot.generation)
+            _ = try selectWholeCandidate(session, from: snapshot)
             snapshot = session.key(key(functionKey))
             #expect(snapshot.commits == [functionKey == 101 ? "ｎｉｈｏｎｇｏｗｏｂｅｎｋｙｏｕ" : "nihongowobenkyou"])
             #expect(snapshot.reading.isEmpty)
             #expect(snapshot.preedit.isEmpty)
+        }
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func escapeAfterShrinkingTheRangeKeepsTheWholeReadingForEnterAndFurtherInput(live: Bool, tree: Bool) throws {
+        try withSession(liveConversion: live, treeCandidates: tree) { session in
+            for shouldEnter in [true, false] {
+                _ = session.reset(commit: false)
+                var snapshot = try beginSelecting(session)
+                _ = try selectWholeCandidate(session, from: snapshot)
+                for _ in 0..<6 {
+                    snapshot = session.key(key(123, shift: true))
+                }
+                snapshot = session.key(key(53))
+                #expect(snapshot.reading == "にほんごをべんきょう")
+                #expect(snapshot.preedit.contains("勉強") || snapshot.preedit.hasSuffix("べんきょう"))
+                let escapedText = snapshot.preedit
+                if shouldEnter {
+                    snapshot = session.key(key(36))
+                    #expect(snapshot.commits == [escapedText])
+                    #expect(snapshot.reading.isEmpty)
+                } else {
+                    snapshot = session.key(.init(modifierFlags: [], characters: "a", charactersIgnoringModifiers: "a", keyCode: 0))
+                    if live {
+                        #expect(snapshot.reading == "にほんごをべんきょうあ")
+                        #expect(snapshot.commits.isEmpty)
+                    } else {
+                        #expect(snapshot.commits == [escapedText])
+                        #expect(snapshot.reading == "あ")
+                    }
+                }
+            }
         }
     }
 }
