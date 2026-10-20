@@ -4,6 +4,7 @@ from gi.repository import Gtk
 from .ai_preview import AITransformationPreview
 from .ai_scope_view import AIRequestScopeView
 from .i18n import text as message
+from .labeled_controls import label_control, StatusMessage
 from .prompts import PromptHistory, parse_shortcut, shortcut_text
 
 
@@ -12,42 +13,49 @@ class PromptDialog(Gtk.Dialog):
     DEFAULT_SIZE = (620, 660)
 
     def __init__(self, preview, initial_prompt="", *, scope, on_context_changed):
-        super().__init__(title="いい感じ変換")
+        super().__init__(title=message("ai.title"))
         self.set_default_size(*self.DEFAULT_SIZE)
-        self.add_buttons("キャンセル", Gtk.ResponseType.CANCEL, "適用", Gtk.ResponseType.OK)
+        self.add_buttons(message("settings.cancel"), Gtk.ResponseType.CANCEL, message("ai.preview.apply"), Gtk.ResponseType.OK)
         self.set_response_sensitive(Gtk.ResponseType.OK, False)
         self.history = PromptHistory()
         self.preview = AITransformationPreview()
         self.closed = False
         self.connect("destroy", self.destroyed)
-        box = self.get_content_area()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         box.set_spacing(10)
         box.set_border_width(16)
+        scroller = Gtk.ScrolledWindow()
+        scroller.add(box)
+        self.get_content_area().pack_start(scroller, True, True, 0)
         self.scope_view = AIRequestScopeView(scope, self.scope_changed)
         self.on_context_changed = on_context_changed
         box.add(self.scope_view)
         box.add(Gtk.Label(label=message("ai.scope.history"), xalign=0, wrap=True))
-        self.entry = Gtk.Entry(text=initial_prompt, placeholder_text="例：敬語に直す、英語へ翻訳する")
+        self.entry = Gtk.Entry(text=initial_prompt, placeholder_text=message("ai.instruction-placeholder"))
+        label_control(box, self.entry, message("ai.instruction"), mnemonic="I")
         box.add(self.entry)
         history = Gtk.ComboBoxText()
         self.items = self.history.load()
-        history.append("", "履歴から選択")
+        history.append("", message("ai.history.choose"))
         for index, item in enumerate(self.items):
             history.append(str(index), ("★ " if item["pinned"] else "") + item["prompt"])
         history.set_active_id("")
         history.connect("changed", self.select_history)
+        label_control(box, history, message("ai.history"), mnemonic="H")
         box.add(history)
-        self.pin = Gtk.CheckButton(label="ピン留めする")
+        self.pin = Gtk.CheckButton(label=message("ai.pin"))
         box.add(self.pin)
-        self.shortcut = Gtk.Entry(placeholder_text="ピン留め用ショートカット（例：Ctrl+Alt+e）")
+        self.shortcut = Gtk.Entry(placeholder_text=message("ai.shortcut.placeholder"))
+        label_control(box, self.shortcut, message("ai.shortcut.prompt"), mnemonic="S")
         box.add(self.shortcut)
         self.preview_button = Gtk.Button(label=message("ai.scope.preview"))
         box.add(self.preview_button)
         self.text = Gtk.TextView(editable=False, wrap_mode=Gtk.WrapMode.WORD_CHAR)
+        label_control(box, self.text, message("ai.preview"))
         scroll = Gtk.ScrolledWindow(min_content_height=160)
         scroll.add(self.text)
         box.pack_start(scroll, True, True, 0)
-        self.message = Gtk.Label(xalign=0, wrap=True)
+        self.message = StatusMessage()
         box.add(self.message)
         self.preview_button.connect("clicked", lambda _: self.generate(preview))
         self.entry.connect("activate", lambda _: self.generate(preview))
@@ -99,7 +107,7 @@ class PromptDialog(Gtk.Dialog):
         self.preview_button.set_sensitive(False)
         self.scope_view.context.set_sensitive(False)
         self.set_response_sensitive(Gtk.ResponseType.OK, False)
-        self.message.set_text("生成中…")
+        self.message.set_text(message("ai.scope.generating"))
 
         def finish(text):
             if self.closed or not self.preview.complete(revision, text):
@@ -108,5 +116,5 @@ class PromptDialog(Gtk.Dialog):
             self.scope_view.context.set_sensitive(True)
             self.text.get_buffer().set_text(text or "")
             self.set_response_sensitive(Gtk.ResponseType.OK, bool(text))
-            self.message.set_text("内容を確認して適用してください。" if text else "生成できませんでした。AI設定を確認してください。")
+            self.message.set_text(message("ai.preview.ready" if text else "ai.preview.failed"))
         preview(prompt, self.scope_view.scope, finish)
