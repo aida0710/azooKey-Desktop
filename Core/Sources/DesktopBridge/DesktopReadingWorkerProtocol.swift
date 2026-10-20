@@ -50,6 +50,7 @@ struct DesktopReadingWorkerRequest: Codable {
         "candidate-worker-stopped": ["reference", "candidateWorkerGeneration"],
         "adopt-candidates": ["reference", "batch", "retainedReference"],
         "select": ["reference", "selection"],
+        "commit-candidate": ["reference", "selection"],
         "learning-revision": ["readingProcessGeneration", "settingsRevision"]
     ]
 
