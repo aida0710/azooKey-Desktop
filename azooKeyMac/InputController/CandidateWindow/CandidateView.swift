@@ -22,6 +22,7 @@ class CandidatesViewController: BaseCandidateViewController {
     var showCandidateIndex = false
     private let treeView = CandidateTreeView()
     private var treeEntries: [CandidateTree.Entry] = []
+    private var enterConfirmsCandidate = false
     private var lastCursorLocation: CGPoint?
     private var documentGeometry: CandidateDocumentGeometry?
     private var alignmentReason = "client-rectangles-unavailable"
@@ -57,12 +58,16 @@ class CandidatesViewController: BaseCandidateViewController {
 
     private func refreshTree(selectionIndex: Int?) {
         var numbers: [Int: String] = [:]
-        if showCandidateIndex {
+        // Live numbers identify candidates without changing the input state's number-key behavior.
+        if showCandidateIndex || !enterConfirmsCandidate {
             for index in showedRows where candidates.indices.contains(index) {
                 numbers[index] = String(index - showedRows.lowerBound + 1)
             }
         }
-        treeView.update(entries: treeEntries, selectionIndex: selectionIndex, numbers: numbers, documentWidths: documentGeometry?.widths)
+        treeView.update(
+            entries: treeEntries, selectionIndex: selectionIndex, numbers: numbers,
+            documentWidths: documentGeometry?.widths, enterConfirmsCandidate: enterConfirmsCandidate
+        )
         if usesTree, let cursor = lastCursorLocation { resizeWindowToFitContent(cursorLocation: cursor) }
     }
 
@@ -101,7 +106,11 @@ class CandidatesViewController: BaseCandidateViewController {
             cursor: cursorLocation, popup: frame, workArea: screen.visibleFrame)
     }
 
-    override func updateCandidatePresentations(_ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint) {
+    override func updateCandidatePresentations(
+        _ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint,
+        enterConfirmsCandidate: Bool = false
+    ) {
+        self.enterConfirmsCandidate = enterConfirmsCandidate
         lastCursorLocation = cursorLocation
         self.showedRows = selectionIndex == nil ? 0...8 : self.showedRows
         treeView.isHidden = !usesTree
@@ -109,11 +118,15 @@ class CandidatesViewController: BaseCandidateViewController {
         view.subviews.compactMap { $0 as? NSVisualEffectView }.forEach { $0.isHidden = usesTree }
         configureWindowForRoundedCorners()
         treeEntries = candidates.enumerated().map { $0.element.treeEntry(index: $0.offset) }
-        treeView.update(entries: treeEntries, selectionIndex: selectionIndex, documentWidths: documentGeometry?.widths)
+        treeView.update(
+            entries: treeEntries, selectionIndex: selectionIndex, documentWidths: documentGeometry?.widths,
+            enterConfirmsCandidate: enterConfirmsCandidate
+        )
         super.updateCandidatePresentations(
             candidates,
             selectionIndex: selectionIndex,
-            cursorLocation: cursorLocation
+            cursorLocation: cursorLocation,
+            enterConfirmsCandidate: enterConfirmsCandidate
         )
     }
 
@@ -220,7 +233,8 @@ class CandidatesViewController: BaseCandidateViewController {
         self.currentSelectedRow = -1
         self.showedRows = 0...8
         treeEntries = []
-        treeView.update(entries: [], selectionIndex: nil)
+        enterConfirmsCandidate = false
+        treeView.update(entries: [], selectionIndex: nil, enterConfirmsCandidate: false)
     }
 
     override var numberOfVisibleRows: Int {
