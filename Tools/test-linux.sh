@@ -13,6 +13,7 @@ swift test --package-path Core "${SWIFT_OPTIONS[@]}"
 swift build --package-path Core --product azookey-desktop-bridge "${SWIFT_OPTIONS[@]}"
 export AZOOKEY_BRIDGE="$(swift build --package-path Core --show-bin-path)/azookey-desktop-bridge"
 python3 -m unittest discover -s Linux/tests -v
+dbus-run-session -- xvfb-run -a python3 -m unittest Linux.tests.test_ai_scope -v
 xvfb-run -a python3 Linux/tests/test_tree_panel.py -v
 dbus-run-session -- xvfb-run -a bash Tools/tests/linux-desktop.sh
 bash Tools/tests/linux-async.sh
