@@ -166,7 +166,7 @@ class Engine(IBus.Engine):
 
     def recover_composition(self, text=""):
         self.ai_review.cancel()
-        queued = self.reconversion.cancel()
+        text, queued = self.reconversion.take_recovery(text)
         self.pending_settings_stamp = None
         self.snapshot = {}
         self.anchor.update("", 0)

@@ -35,7 +35,7 @@ class ReconversionTests(unittest.TestCase):
         return 1
 
     def recover(self, text):
-        queued = self.coordinator.cancel()
+        text, queued = self.coordinator.take_recovery(text)
         self.effects.append(("recover", text))
         for key in queued:
             self.effects.append(("forward", key))
@@ -47,6 +47,20 @@ class ReconversionTests(unittest.TestCase):
     def acknowledge(self):
         self.document = surrounding_context("前後", 1, 1, can_replace=True, sensitive=False)
         self.coordinator.surrounding_changed()
+
+    def confirm_with_buffered_enter(self):
+        self.prepare()
+        self.coordinator.process(translate(0xFF0D, 0), (0xFF0D, 0, 0))
+        self.acknowledge()
+        self.effects.clear()
+
+    def assert_changed_confirmation_is_discarded(self):
+        self.assertFalse(self.coordinator.active)
+        self.assertFalse(self.inputs.snapshot.get("preedit"))
+        self.assertFalse(any(effect[0] in ("replay", "forward") for effect in self.effects))
+        self.assertFalse(any(effect[0] == "recover" and effect[1] for effect in self.effects))
+        self.assertFalse(any(effect[0] == "render" and effect[1].get("preedit") for effect in self.effects))
+        self.assertIn(("status", "文字や入力位置が変わったため再変換を中止しました"), self.effects)
 
     def test_selection_waits_for_deletion_ack_and_preserves_later_key_order(self):
         self.prepare()
@@ -104,6 +118,101 @@ class ReconversionTests(unittest.TestCase):
         self.assertEqual(self.effects[-2:], [("recover", "日本語"), ("forward", (ord("a"), 0, 0))])
         self.worker.respond(1, failed=True)
         self.assertEqual(sum(effect[0] == "recover" for effect in self.effects), 1)
+
+    def test_document_change_during_confirmation_discards_preedit_and_late_replies(self):
+        self.confirm_with_buffered_enter()
+        self.document = surrounding_context("別後", 1, 1, can_replace=True, sensitive=False)
+        self.coordinator.surrounding_changed()
+        self.assert_changed_confirmation_is_discarded()
+        effects_after_cancel = list(self.effects)
+        self.worker.respond(1, {"preedit": "古い候補", "reading": "にほんご"})
+        self.worker.respond(1, failed=True)
+        self.assertEqual(self.effects, effects_after_cancel)
+        self.assertEqual(self.worker.requests[-1].operation, "reset")
+
+    def test_confirmation_reply_rechecks_cursor_without_a_surrounding_notification(self):
+        self.confirm_with_buffered_enter()
+        self.document = surrounding_context("前後", 0, 0, can_replace=True, sensitive=False)
+        self.worker.respond(1, {"preedit": "古い候補", "reading": "にほんご"})
+        self.assert_changed_confirmation_is_discarded()
+
+    def test_transport_failure_cannot_restore_original_when_context_is_unavailable(self):
+        self.confirm_with_buffered_enter()
+        self.document = None
+        self.worker.respond(1, failed=True)
+        self.assert_changed_confirmation_is_discarded()
+
+    def test_error_reply_cannot_restore_original_after_an_unreported_document_change(self):
+        self.confirm_with_buffered_enter()
+        self.document = surrounding_context("別後", 1, 1, can_replace=True, sensitive=False)
+        self.worker.respond(1, {"reconversionError": "stale_request"})
+        self.assert_changed_confirmation_is_discarded()
+
+    def test_timeout_cannot_restore_original_after_an_unreported_document_change(self):
+        self.confirm_with_buffered_enter()
+        self.document = surrounding_context("別後", 1, 1, can_replace=True, sensitive=False)
+        self.inputs._progress_expired()
+        self.assert_changed_confirmation_is_discarded()
+
+    def test_converter_restart_cannot_restore_original_after_an_unreported_document_change(self):
+        self.confirm_with_buffered_enter()
+        self.document = surrounding_context("別後", 1, 1, can_replace=True, sensitive=False)
+        self.worker.respond(1, {"preedit": "古い候補", "reading": "にほんご"}, generation=1)
+        self.assert_changed_confirmation_is_discarded()
+
+    def test_converter_restart_preserves_original_before_keys_and_accepts_next_input(self):
+        self.confirm_with_buffered_enter()
+        self.worker.respond(1, {"preedit": "古い候補", "reading": "にほんご"}, generation=1)
+        self.assertEqual(self.effects, [("recover", "日本語"), ("forward", (0xFF0D, 0, 0))])
+        self.assertFalse(self.coordinator.active)
+        self.inputs.submit("key", payload={"event": translate(ord("a"), 0)}, key=(ord("a"), 0, 0))
+        self.worker.respond(2, {"consumed": True, "preedit": "あ"}, generation=1)
+        self.assertEqual(self.effects[-1], ("render", {"consumed": True, "preedit": "あ"}))
+        self.assertEqual(sum(effect == ("recover", "日本語") for effect in self.effects), 1)
+
+    def test_timeout_in_unchanged_context_preserves_original_once_and_key_order(self):
+        self.confirm_with_buffered_enter()
+        self.inputs._progress_expired()
+        self.assertEqual(self.effects, [("recover", "日本語"), ("forward", (0xFF0D, 0, 0))])
+        self.worker.respond(1, {"preedit": "古い候補", "reading": "にほんご"})
+        self.assertEqual(len(self.effects), 2)
+
+    def test_focus_cancellation_after_ack_discards_late_success_and_failure(self):
+        self.confirm_with_buffered_enter()
+        self.coordinator.cancel()
+        self.inputs.cancel()
+        self.worker.respond(1, {"preedit": "古い候補", "reading": "にほんご"})
+        self.worker.respond(1, failed=True)
+        self.assertEqual(self.effects, [])
+
+    def test_document_change_during_acknowledged_preedit_display_stops_confirmation(self):
+        self.prepare()
+
+        def change_document(snapshot):
+            self.effects.append(("render", snapshot))
+            self.document = surrounding_context("別後", 1, 1, can_replace=True, sensitive=False)
+            self.coordinator.surrounding_changed()
+
+        self.inputs.render = change_document
+        self.acknowledge()
+        self.assertFalse(self.coordinator.active)
+        self.assertFalse(any(request.operation == "confirm-reconversion" for request in self.worker.requests))
+        self.assertFalse(any(effect[0] == "recover" and effect[1] for effect in self.effects))
+
+    def test_document_change_while_showing_confirmed_candidates_discards_buffered_keys(self):
+        self.confirm_with_buffered_enter()
+
+        def change_document(snapshot):
+            self.effects.append(("render", snapshot))
+            self.document = surrounding_context("別後", 1, 1, can_replace=True, sensitive=False)
+
+        self.inputs.render = change_document
+        self.worker.respond(1, {"preedit": "新候補", "reading": "にほんご"})
+        self.assertFalse(self.coordinator.active)
+        self.assertFalse(self.inputs.snapshot.get("preedit"))
+        self.assertFalse(any(effect[0] in ("replay", "forward") for effect in self.effects))
+        self.assertFalse(any(effect[0] == "recover" and effect[1] for effect in self.effects))
+        self.assertEqual(self.effects[-1], ("status", "文字や入力位置が変わったため再変換を中止しました"))
 
     def test_missing_reading_does_not_edit_document_and_escape_closes_prompt(self):
         self.coordinator.start(undo=False)
