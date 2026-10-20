@@ -55,9 +55,9 @@ extension azooKeyMacInputController {
         }
         switch self.inputState {
         case .composing, .replaceSuggestion:
-            _ = self.handleClientAction(.requestReplaceSuggestion, clientActionCallback: .transition(.replaceSuggestion), client: client)
+            _ = self.handleClientAction(.requestReplaceSuggestion, clientActionCallback: .transition(.composing), client: client)
         case .none:
-            _ = self.handleClientAction(.requestPredictiveSuggestion, clientActionCallback: .transition(.replaceSuggestion), client: client)
+            _ = self.handleClientAction(.requestPredictiveSuggestion, clientActionCallback: .transition(.composing), client: client)
         default:
             break
         }
