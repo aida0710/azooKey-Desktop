@@ -47,7 +47,7 @@ if operation=="plutil":
 if operation=="uname":
     print(configuration.get("platform","Darwin"));sys.exit(0)
 if operation=="open":
-    assert sys.argv[2:]==[configuration["bundle"]]
+    assert sys.argv[2:]==[str(pathlib.Path(configuration["bundle"]).resolve())]
     with (root/"open.jsonl").open("a") as stream: stream.write(json.dumps(sys.argv[2:])+"\n")
     sys.exit(configuration.get("openExit",0))
 assert operation=="brew"
@@ -231,7 +231,21 @@ class HomebrewUpdateTests(unittest.TestCase):
         self.assertEqual([call["arguments"] for call in self.mutations()], [
             ["update"], ["upgrade", "--cask", "--no-ask", "--require-sha", CASK]])
         self.assertFalse(self.resource.exists(), "The running helper must survive old Resources removal")
-        self.assertEqual(json.loads((self.directory / "open.jsonl").read_text()), [str(self.bundle)])
+        self.assertEqual(json.loads((self.directory / "open.jsonl").read_text()), [str(self.bundle.resolve())])
+
+    def test_app_reached_through_a_parent_alias_restarts_the_same_installed_bundle(self):
+        installed_bundle = self.bundle.resolve()
+        alias = self.directory / "aliased input methods"
+        alias.symlink_to(self.bundle.parent, target_is_directory=True)
+        self.bundle = alias / self.bundle.name
+        self.resource = self.bundle / "Contents/Resources/HomebrewUpdate.command"
+        self.request["bundlePath"] = str(self.bundle)
+        self.configuration["bundle"] = str(self.bundle)
+
+        status = self.run_helper()
+
+        self.assertEqual(status["phase"], "restarted")
+        self.assertEqual(json.loads((self.directory / "open.jsonl").read_text()), [str(installed_bundle)])
 
     def test_current_version_finishes_without_upgrade_or_restart(self):
         self.configuration["latest"] = "0.1.0"
