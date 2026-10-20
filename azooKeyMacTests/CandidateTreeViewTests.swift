@@ -16,6 +16,72 @@ final class CandidateTreeViewTests: XCTestCase {
         .init(text: "日本画", tokens: [.init(text: "日本"), .init(text: "画")], candidateIndex: 1)
     ]
 
+    func testScoresExplainRelativeMeaningAndRefreshOnCandidateChange() throws {
+        let view = CandidateTreeView()
+        let scored: [CandidateTree.Entry] = [
+            .init(text: "選択", tokens: [.init(text: "選択", reading: "センタク")], candidateIndex: 0, score: log(69)),
+            .init(text: "洗濯", tokens: [.init(text: "洗濯", reading: "センタク")], candidateIndex: 1, score: log(31))
+        ]
+        view.update(entries: scored, selectionIndex: 0)
+        let selection = try XCTUnwrap(buttons(in: view).first { $0.title == "選択" })
+        XCTAssertTrue(selection.toolTip?.contains("相対スコア 69") == true)
+        XCTAssertTrue(selection.accessibilityLabel()?.contains("確率ではありません") == true)
+        view.update(entries: entries, selectionIndex: 0)
+        XCTAssertFalse(buttons(in: view).contains { $0.toolTip?.contains("相対スコア 69") == true })
+    }
+
+    func testLongAlternativeDoesNotMoveFollowingWords() throws {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 600, height: 160))
+        view.update(entries: entries, selectionIndex: 0)
+        let before = try XCTUnwrap(buttons(in: view).first { $0.title == "語" }).frame.minX
+        view.update(entries: entries + [
+            .init(text: "にほんごにゅうりょく", tokens: [], candidateIndex: 2)
+        ], selectionIndex: 0)
+        let after = try XCTUnwrap(buttons(in: view).first { $0.title == "語" }).frame.minX
+        XCTAssertEqual(after, before, "A whole-sentence alternative must not widen the first word's column")
+    }
+
+    func testDocumentWidthsKeepEveryBranchInItsWordColumn() throws {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 600, height: 160))
+        view.update(entries: entries, selectionIndex: 0, documentWidths: [40, 20])
+        let controls = buttons(in: view)
+        let first = try XCTUnwrap(controls.first { $0.title == "日本" })
+        let chosen = try XCTUnwrap(controls.first { $0.title == "語" })
+        let alternative = try XCTUnwrap(controls.first { $0.title == "画" })
+        XCTAssertEqual(chosen.frame.minX - first.frame.minX, 40)
+        XCTAssertEqual(alternative.frame.minX, chosen.frame.minX)
+        XCTAssertEqual(alternative.frame.width, 20)
+    }
+
+    func testAlignedLongSentenceDoesNotScrollAndNumbersLeaveScoreRoom() throws {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 1000, height: 180))
+        view.update(entries: entries, selectionIndex: 0, numbers: [0: "1"], documentWidths: [810, 20])
+        XCTAssertGreaterThan(view.preferredSize.width, 830)
+        let controls = buttons(in: view)
+        let word = try XCTUnwrap(controls.first { $0.title == "語" })
+        let number = try XCTUnwrap(controls.first { $0.title == "1" })
+        XCTAssertGreaterThanOrEqual(number.frame.minY, word.frame.maxY + 12,
+                                    "The shortcut number must leave the score line unobstructed")
+    }
+
+    func testDocumentGeometryUsesUTF16OffsetsAndRejectsWrappedText() throws {
+        var queries: [Int] = []
+        let geometry = try XCTUnwrap(CandidateDocumentGeometry(words: ["🙂", "日本", "日本"], preedit: "🙂日本日本") { offset in
+            queries.append(offset)
+            return NSRect(x: 100 + offset * 10, y: 200, width: 1, height: 20)
+        })
+        XCTAssertEqual(queries, [0, 2, 4, 6])
+        XCTAssertEqual(geometry.widths, [20, 20, 20])
+        XCTAssertEqual(geometry.anchor.x + 12, 100)
+        XCTAssertNil(CandidateDocumentGeometry(words: ["日本", "語"], preedit: "日本語") { offset in
+            NSRect(x: offset * 10, y: offset > 1 ? 180 : 200, width: 1, height: 20)
+        })
+        XCTAssertNil(CandidateDocumentGeometry(words: ["日本"], preedit: "にほん") { _ in
+            XCTFail("Do not query unrelated candidate text")
+            return .zero
+        })
+    }
+
     func testReferenceLayoutKeepsChosenSentenceOnOneCompactRow() {
         let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 600, height: 160))
         let alternatives = (0..<100).map {
@@ -131,7 +197,7 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertEqual(committed, [1])
     }
 
-    func testReferenceRenderingHasTransparentOuterBackground() throws {
+    func testReferenceRenderingHasOpaquePanelWithTransparentCorners() throws {
         let view = CandidateTreeView()
         let tokens = ["このように", "確率的に", "候補", "がある", "中を", "AI", "に", "よ"]
         var fixture = [CandidateTree.Entry(text: tokens.joined(), tokens: tokens.map { .init(text: $0) }, candidateIndex: 0)]
@@ -150,6 +216,8 @@ final class CandidateTreeViewTests: XCTestCase {
             let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
             view.cacheDisplay(in: view.bounds, to: bitmap)
             XCTAssertEqual(bitmap.colorAt(x: bitmap.pixelsWide - 1, y: bitmap.pixelsHigh - 1)?.alphaComponent, 0)
+            XCTAssertEqual(bitmap.colorAt(x: 10, y: 10)?.alphaComponent, 1,
+                           "The document behind the candidate region must not show through")
             if let directory = ProcessInfo.processInfo.environment["AZOOKEY_TREE_SNAPSHOT_DIR"] {
                 let url = URL(fileURLWithPath: directory).appendingPathComponent("macos-compact-\(name).png")
                 try bitmap.representation(using: .png, properties: [:])?.write(to: url)

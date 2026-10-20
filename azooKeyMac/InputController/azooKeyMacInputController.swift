@@ -592,12 +592,18 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     }
 
     func refreshCandidateWindow() {
+        let preedit = self.segmentsManager.getCurrentMarkedText(inputState: self.inputState).map(\.content).joined()
         switch self.segmentsManager.getCurrentCandidateWindow(inputState: self.inputState) {
         case .selecting(let candidates, let selectionIndex):
             var rect: NSRect = .zero
             self.client().attributes(forCharacterIndex: 0, lineHeightRectangle: &rect)
             self.candidatesViewController.showCandidateIndex = true
             let candidatePresentations = self.segmentsManager.makeCandidatePresentations(candidates)
+            self.candidatesViewController.alignWithDocument(candidatePresentations, selectionIndex: selectionIndex, preedit: preedit) { offset in
+                var wordRect: NSRect = .zero
+                self.client().attributes(forCharacterIndex: offset, lineHeightRectangle: &wordRect)
+                return wordRect
+            }
             self.candidatesViewController.updateCandidatePresentations(
                 candidatePresentations,
                 selectionIndex: selectionIndex,
@@ -609,6 +615,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.client().attributes(forCharacterIndex: 0, lineHeightRectangle: &rect)
             self.candidatesViewController.showCandidateIndex = false
             let candidatePresentations = self.segmentsManager.makeCandidatePresentations(candidates)
+            self.candidatesViewController.alignWithDocument(candidatePresentations, selectionIndex: selectionIndex, preedit: preedit) { offset in
+                var wordRect: NSRect = .zero
+                self.client().attributes(forCharacterIndex: offset, lineHeightRectangle: &wordRect)
+                return wordRect
+            }
             self.candidatesViewController.updateCandidatePresentations(
                 candidatePresentations,
                 selectionIndex: selectionIndex,

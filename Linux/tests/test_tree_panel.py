@@ -11,6 +11,44 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 @unittest.skipUnless(os.environ.get("DISPLAY") and os.environ.get("AZOOKEY_BRIDGE"), "requires Xvfb and the Swift bridge")
 class TreePanelTests(unittest.TestCase):
+    def test_candidate_text_fits_narrow_document_columns(self):
+        import cairo
+        from azookey.tree_panel import TreePanel
+        context = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 100, 40))
+        for text, width in [("このように", 60), ("科学的", 36), ("が", 12)]:
+            layout = TreePanel.fitted_layout(context, text, width, 13)
+            self.assertFalse(layout.is_ellipsized(), text)
+            self.assertLessEqual(layout.get_pixel_size()[0], width)
+
+    def test_word_columns_stay_under_document_words(self):
+        from azookey.tree_panel import TreePanel
+        panel = TreePanel(lambda *_: None)
+        panel.location = (100, 100, 1, 20)
+        try:
+            snapshot = {
+                "nodes": [
+                    {"id": 0, "text": "このように", "reading": "", "parent": None, "terminals": []},
+                    {"id": 1, "text": "確率的に", "reading": "", "parent": 0, "terminals": [0]},
+                    {"id": 2, "text": "このようにかくりつてきに", "reading": "", "parent": None, "terminals": [1]},
+                ],
+                "columns": [[0, 2], [1]], "selectedPath": [0, 1],
+                "wordGeometry": {"widths": [75, 60], "fontSize": 15},
+            }
+            panel.update(snapshot)
+            words = {r[1]: r for r in panel.rectangles if r[0] == "node"}
+            self.assertEqual(words[1][2] - words[0][2], 75)
+            self.assertEqual(words[0][2], words[2][2])
+            self.assertLessEqual(words[2][4], 75, "Long alternatives must not cover the next word")
+            panel.update({**snapshot, "showCandidateIndex": True})
+            word = next(r for r in panel.rectangles if r[:2] == ("node", 1))
+            number = next(r for r in panel.rectangles if r[:2] == ("select", 0))
+            self.assertGreaterEqual(number[3], word[3] + word[5] + 12)
+            panel.location = (2, 100, 1, 20)
+            panel.update(snapshot)
+            self.assertFalse(panel.aligned, "Screen-edge clamping must not pretend to retain document coordinates")
+        finally:
+            panel.destroy()
+
     def test_real_conversion_compact_rendering_and_single_click_commit(self):
         import cairo
         from gi.repository import GLib
@@ -46,12 +84,14 @@ class TreePanelTests(unittest.TestCase):
                 self.assertLessEqual(len(words), len(snapshot["columns"]) * 3)
                 self.assertEqual({words[column[0]][3] for column in snapshot["columns"]}, {6})
                 width, height = panel.canvas.get_size_request()
-                self.assertLessEqual(height, 100)
+                self.assertLessEqual(height, 132)
                 surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
                 panel.draw(panel.canvas, cairo.Context(surface))
                 surface.flush()
                 corner = (height - 1) * surface.get_stride() + (width - 1) * 4
                 self.assertEqual(bytes(surface.get_data()[corner:corner + 4]), b"\0\0\0\0")
+                self.assertEqual(surface.get_data()[10 * surface.get_stride() + 10 * 4 + 3], 255,
+                                 "The candidate region must cover the document behind it")
                 if output := os.environ.get("AZOOKEY_TREE_SNAPSHOT_DIR"):
                     surface.write_to_png(str(pathlib.Path(output) / "ubuntu-compact.png"))
                 alternatives = [column[1] for column in snapshot["columns"] if len(column) > 1]

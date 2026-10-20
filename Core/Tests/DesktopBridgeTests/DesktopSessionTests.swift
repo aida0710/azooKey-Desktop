@@ -26,6 +26,9 @@ import Testing
     let candidate = try #require(snapshot.candidates.first { $0.index == index })
     #expect(candidate.text == snapshot.preedit)
     #expect(!snapshot.showCandidateIndex)
+    let kana = try #require(snapshot.candidates.first { $0.text == "ワタシハニホンゴヲベンキョウシテイマス" })
+    #expect(kana.comparisonGroup == candidate.comparisonGroup,
+            "Input-count and surface-count representations of the same consumed span must compete")
     let committed = session.select(candidateIndex: index, submit: true, expectedGeneration: snapshot.generation)
     #expect(committed.commits == [candidate.text])
     #expect(committed.preedit.isEmpty)

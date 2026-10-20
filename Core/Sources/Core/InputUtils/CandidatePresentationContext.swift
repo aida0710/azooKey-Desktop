@@ -13,9 +13,12 @@ public struct CandidatePresentationContext: Sendable {
 public struct CandidatePresentation: Sendable {
     public var candidate: Candidate
     public var displayContext: CandidatePresentationContext
+    /// Canonical input span, independent of upstream input/surface count units.
+    public var consumedInputCount: Int?
 
-    public init(candidate: Candidate, displayContext: CandidatePresentationContext = .init()) {
+    public init(candidate: Candidate, displayContext: CandidatePresentationContext = .init(), consumedInputCount: Int? = nil) {
         self.candidate = candidate
         self.displayContext = displayContext
+        self.consumedInputCount = consumedInputCount
     }
 }

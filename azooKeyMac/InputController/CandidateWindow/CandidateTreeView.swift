@@ -7,6 +7,30 @@ final class CandidateTreePanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+/// IMK character indices are UTF-16 offsets relative to the inline session.
+/// Reject wrapped, vertical, missing, or non-increasing client rectangles.
+struct CandidateDocumentGeometry {
+    let anchor: CGPoint
+    let widths: [CGFloat]
+
+    init?(words: [String], preedit: String, rectAtOffset: (Int) -> NSRect) {
+        guard !words.isEmpty, words.count <= 64, words.joined() == preedit else {
+            return nil
+        }
+        var offsets = [0]
+        for word in words { offsets.append(offsets.last! + word.utf16.count) }
+        let rects = offsets.map(rectAtOffset)
+        guard let first = rects.first, first.height > 0,
+              rects.allSatisfy({ $0.minX.isFinite && $0.minY.isFinite && abs($0.minY - first.minY) <= 1 && abs($0.height - first.height) <= 1 }) else { return nil }
+        let widths = zip(rects, rects.dropFirst()).map { $1.minX - $0.minX }
+        guard widths.allSatisfy({ $0 >= 6 && $0 < 4000 }) else {
+            return nil
+        }
+        self.anchor = CGPoint(x: first.minX - 12, y: first.minY)
+        self.widths = widths
+    }
+}
+
 /// A projection of complete, real candidates. Rendering never emits input events.
 @MainActor
 final class CandidateTreeView: NSView {
@@ -24,6 +48,8 @@ final class CandidateTreeView: NSView {
     private var rebuilding = false
     private var displayedColumns: [[Int]] = []
     private var layoutShowsNumbers = false
+    private var documentWidths: [CGFloat]?
+    private var scores: [Int: Int] = [:]
     private(set) var preferredSize = NSSize(width: 80, height: 46)
 
     override init(frame: NSRect) {
@@ -53,9 +79,11 @@ final class CandidateTreeView: NSView {
 
     @objc private func viewportChanged() { updateVisibleControls() }
 
-    func update(entries: [CandidateTree.Entry], selectionIndex: Int?, numbers: [Int: String] = [:]) {
+    func update(entries: [CandidateTree.Entry], selectionIndex: Int?, numbers: [Int: String] = [:],
+                documentWidths: [CGFloat]? = nil) {
         let updatedTree = CandidateTree(entries: entries)
-        let changed = updatedTree != tree
+        let changed = updatedTree != tree || self.documentWidths != documentWidths
+        self.documentWidths = documentWidths
         tree = updatedTree
         numberLabels = numbers
         selection.synchronize(tree: tree, candidateIndex: selectionIndex)
@@ -108,31 +136,36 @@ final class CandidateTreeView: NSView {
         displayedColumns = tree.compactColumns(candidateIndex: selection.selectedCandidateIndex)
         layoutShowsNumbers = !numberLabels.isEmpty
         var widths: [Int: CGFloat] = [:]
+        let aligned = documentWidths?.count == displayedColumns.count
+        let rowPitch: CGFloat = aligned && layoutShowsNumbers ? 54 : 42
         for (depth, column) in displayedColumns.enumerated() {
             for (row, id) in column.enumerated() {
                 rows[id] = CGFloat(row)
-                let textWidth = (tree.nodes[id].token.text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13)]).width
-                widths[depth] = max(widths[depth] ?? 24, min(160, textWidth + 12))
             }
+            guard let chosen = column.first else { continue }
+            let textWidth = (tree.nodes[chosen].token.text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)]).width
+            widths[depth] = aligned ? documentWidths?[depth] : max(24, min(160, textWidth + 12))
         }
         var xPositions: [Int: CGFloat] = [:]
         var x: CGFloat = 12
         for depth in widths.keys.sorted() {
             xPositions[depth] = x
-            x += (widths[depth] ?? 24) + (layoutShowsNumbers ? 22 : 12)
+            x += (widths[depth] ?? 24) + (aligned ? 0 : (layoutShowsNumbers ? 22 : 12))
         }
         let rowCount = displayedColumns.map(\.count).max() ?? 0
-        let contentSize = NSSize(width: max(60, x), height: max(32, CGFloat(rowCount) * 30 + 6))
+        let contentSize = NSSize(width: max(60, x), height: max(44, CGFloat(rowCount) * rowPitch + 6))
         canvas.frame = NSRect(origin: .zero, size: contentSize)
-        preferredSize = NSSize(width: min(760, contentSize.width), height: contentSize.height)
+        preferredSize = NSSize(width: aligned ? contentSize.width : min(760, contentSize.width), height: contentSize.height)
         canvas.edges = []
         for id in displayedColumns.flatMap({ $0 }) {
             let node = tree.nodes[id]
-            let frame = NSRect(x: xPositions[node.depth] ?? 12, y: (rows[id] ?? 0) * 30 + 6,
+            let frame = NSRect(x: xPositions[node.depth] ?? 12, y: (rows[id] ?? 0) * rowPitch + 6,
                                width: widths[node.depth] ?? 24, height: 24)
             nodeFrames[node.id] = frame
             for index in node.terminalCandidateIndices {
-                terminalFrames[index] = NSRect(x: frame.maxX + 1, y: frame.minY + 2, width: 20, height: 20)
+                terminalFrames[index] = aligned
+                    ? NSRect(x: frame.maxX - 12, y: frame.maxY + 12, width: 12, height: 10)
+                    : NSRect(x: frame.maxX + 1, y: frame.minY + 2, width: 20, height: 20)
             }
         }
         for id in displayedColumns.flatMap({ $0 }) {
@@ -198,9 +231,12 @@ final class CandidateTreeView: NSView {
             let token = tree.nodes[id].token
             button.title = token.text
             button.toolTip = token.reading.isEmpty ? token.text : "\(token.text)（\(token.reading)）"
+            button.relativeScore = scores[id]
+            button.toolTip! += scores[id].map { "\n相対スコア \($0)（取得候補内の評価。正解の確率ではありません）" } ?? "\n比較可能なスコアなし"
             button.setAccessibilityLabel(button.toolTip)
             button.highlightedPath = path.contains(id)
             button.focusedNode = selection.focusedNodeID == id
+            button.documentAligned = documentWidths?.count == displayedColumns.count
             button.needsDisplay = true
         }
         for (index, button) in terminalButtons {
@@ -208,12 +244,16 @@ final class CandidateTreeView: NSView {
             let title = numberLabels[index] ?? "↵"
             if button.title != title { button.title = title }
             button.highlightedPath = selection.selectedCandidateIndex == index
+            button.compactBadge = documentWidths?.count == displayedColumns.count
             button.needsDisplay = true
         }
     }
 
     private func refreshSelection() {
         if displayedColumns != tree.compactColumns(candidateIndex: selection.selectedCandidateIndex) || layoutShowsNumbers != !numberLabels.isEmpty { rebuild() }
+        scores = tree.relativeScores(candidateIndex: selection.selectedCandidateIndex)
+        canvas.scores = scores
+        canvas.nodeFrames = nodeFrames
         canvas.selectedPath = Set(displayedColumns.compactMap(\.first))
         canvas.needsDisplay = true
         if let id = selection.focusedNodeID, let frame = nodeFrames[id] {
@@ -233,11 +273,15 @@ private final class TreeCanvas: NSView {
     struct Edge { var nodeID: Int; var from: NSPoint; var to: NSPoint }
     var edges: [Edge] = []
     var selectedPath: Set<Int> = []
+    var scores: [Int: Int] = [:]
+    var nodeFrames: [Int: NSRect] = [:]
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.withAlphaComponent(1).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
         for edge in edges {
             let selected = selectedPath.contains(edge.nodeID)
-            (selected ? NSColor(red: 0.25, green: 0.45, blue: 0.8, alpha: 1) : NSColor.gray.withAlphaComponent(0.5)).setStroke()
+            (selected ? TreeButton.scoreColor(scores[edge.nodeID]) : NSColor.gray.withAlphaComponent(0.5)).setStroke()
             let path = NSBezierPath()
             path.lineWidth = selected ? 2 : 0.75
             path.move(to: edge.from)
@@ -247,6 +291,14 @@ private final class TreeCanvas: NSView {
         }
         NSColor.secondaryLabelColor.setFill()
         NSBezierPath(ovalIn: NSRect(x: 1, y: 15, width: 6, height: 6)).fill()
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        for (id, frame) in nodeFrames {
+            let label = scores[id].map(String.init) ?? "—"
+            (label as NSString).draw(in: NSRect(x: frame.minX, y: frame.maxY, width: frame.width, height: 13),
+                                    withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: min(9, frame.width / (CGFloat(label.count) * 0.65)), weight: .regular),
+                                                     .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style])
+        }
     }
 }
 
@@ -256,21 +308,30 @@ private final class TreeButton: NSButton {
     var reading = ""
     var highlightedPath = false
     var focusedNode = false
+    var documentAligned = false
+    var relativeScore: Int?
+    var compactBadge = false
     override var acceptsFirstResponder: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override init(frame: NSRect) {
         super.init(frame: frame)
         isBordered = false
-        font = .systemFont(ofSize: 13)
+        font = .systemFont(ofSize: 12)
         target = self
         action = #selector(activate)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     @objc private func activate() { clicked?(false) }
     override func mouseDown(with event: NSEvent) { clicked?(event.clickCount > 1) }
+    static func scoreColor(_ score: Int?) -> NSColor {
+        if let score, score < 75 {
+            return NSColor(red: 0.83, green: 0.39, blue: 0.06, alpha: 1)
+        }
+        return NSColor(red: 0.25, green: 0.45, blue: 0.8, alpha: 1)
+    }
     override func draw(_ dirtyRect: NSRect) {
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 4, yRadius: 4)
-        (highlightedPath ? NSColor(red: 0.25, green: 0.45, blue: 0.8, alpha: 1) : NSColor.controlBackgroundColor.withAlphaComponent(0.5)).setFill()
+        (highlightedPath ? Self.scoreColor(relativeScore) : NSColor.controlBackgroundColor.withAlphaComponent(1)).setFill()
         shape.fill()
         if focusedNode {
             NSColor.white.withAlphaComponent(0.9).setStroke()
@@ -281,11 +342,17 @@ private final class TreeButton: NSButton {
             underline.stroke()
         }
         let style = NSMutableParagraphStyle()
-        style.alignment = .center
+        style.alignment = documentAligned ? .left : .center
         style.lineBreakMode = .byTruncatingTail
-        let textFont = font ?? NSFont.systemFont(ofSize: 13)
+        let inset: CGFloat = compactBadge ? 1 : (documentAligned ? 2 : 4)
+        var textFont = compactBadge ? NSFont.monospacedDigitSystemFont(ofSize: 7, weight: .medium) : (font ?? NSFont.systemFont(ofSize: 12))
+        for _ in 0..<12 {
+            let textWidth = (title as NSString).size(withAttributes: [.font: textFont]).width
+            if textWidth <= bounds.width - inset * 2 || textFont.pointSize <= 8 { break }
+            textFont = NSFont.systemFont(ofSize: max(8, min(textFont.pointSize - 0.25, textFont.pointSize * (bounds.width - inset * 2) / max(1, textWidth))))
+        }
         let height = textFont.ascender - textFont.descender + 2
-        (title as NSString).draw(in: NSRect(x: 4, y: (bounds.height - height) / 2, width: bounds.width - 8, height: height),
+        (title as NSString).draw(in: NSRect(x: inset, y: (bounds.height - height) / 2, width: bounds.width - inset * 2, height: height),
                                 withAttributes: [.font: textFont, .foregroundColor: highlightedPath ? NSColor.white : NSColor.labelColor,
                                                  .paragraphStyle: style])
     }

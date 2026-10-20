@@ -9,6 +9,8 @@ struct DesktopSnapshot: Encodable {
         let text: String
         let tokens: [Token]
         let annotation: String?
+        let score: Double?
+        let comparisonGroup: Int?
     }
     struct Node: Encodable {
         let id: Int
@@ -18,6 +20,7 @@ struct DesktopSnapshot: Encodable {
         let children: [Int]
         let terminals: [Int]
         let depth: Int
+        let relativeScore: Int?
     }
     var consumed = true
     var preedit = ""
@@ -390,16 +393,21 @@ final class DesktopSession: SegmentManagerDelegate {
         result.candidates = segments.makeCandidatePresentations(candidates).enumerated().map { index, presentation in
             .init(index: index, text: presentation.candidate.text,
                   tokens: presentation.candidate.data.map { .init(text: $0.word, reading: $0.ruby) },
-                  annotation: presentation.displayContext.annotationText)
+                  annotation: presentation.displayContext.annotationText,
+                  score: presentation.candidate.value.isFinite ? Double(presentation.candidate.value) : nil,
+                  comparisonGroup: presentation.consumedInputCount)
         }
         let nextTree = CandidateTree(entries: result.candidates.map {
-            .init(text: $0.text, tokens: $0.tokens.map { .init(text: $0.text, reading: $0.reading) }, candidateIndex: $0.index)
+            .init(text: $0.text, tokens: $0.tokens.map { .init(text: $0.text, reading: $0.reading) },
+                  candidateIndex: $0.index, score: $0.score, comparisonGroup: $0.comparisonGroup)
         })
         if nextTree != tree { generation += 1; tree = nextTree }
         treeSelection.synchronize(tree: tree, candidateIndex: result.selection)
         result.generation = generation
+        let relativeScores = tree.relativeScores(candidateIndex: result.selection)
         result.nodes = tree.nodes.map { .init(id: $0.id, text: $0.token.text, reading: $0.token.reading,
-                                             parent: $0.parentID, children: $0.children, terminals: $0.terminalCandidateIndices, depth: $0.depth) }
+                                             parent: $0.parentID, children: $0.children, terminals: $0.terminalCandidateIndices,
+                                             depth: $0.depth, relativeScore: relativeScores[$0.id]) }
         result.columns = tree.compactColumns(candidateIndex: result.selection)
         result.selectedPath = result.columns.compactMap(\.first)
         result.focusedNode = treeSelection.focusedNodeID

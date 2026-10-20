@@ -1,3 +1,5 @@
+import Foundation
+
 /// A display projection of real converter candidates, not a new conversion lattice.
 /// Every node retains the indices of the original candidates that pass through it.
 public struct CandidateTree: Sendable, Equatable {
@@ -15,11 +17,15 @@ public struct CandidateTree: Sendable, Equatable {
         public var text: String
         public var tokens: [Token]
         public var candidateIndex: Int
+        public var score: Double?
+        public var comparisonGroup: Int?
 
-        public init(text: String, tokens: [Token], candidateIndex: Int) {
+        public init(text: String, tokens: [Token], candidateIndex: Int, score: Double? = nil, comparisonGroup: Int? = nil) {
             self.text = text
             self.tokens = tokens
             self.candidateIndex = candidateIndex
+            self.score = score?.isFinite == true ? score : nil
+            self.comparisonGroup = comparisonGroup
         }
 
         fileprivate var displayTokens: [Token] {
@@ -46,12 +52,40 @@ public struct CandidateTree: Sendable, Equatable {
     public private(set) var nodes: [Node] = []
     public private(set) var roots: [Int] = []
     public private(set) var paths: [Int: [Int]] = [:]
+    private var entries: [Entry] = []
 
     public init(entries: [Entry]) {
+        // Kana-only fallback sentences can reuse real dictionary reading
+        // boundaries. Never guess a segmentation for learned kanji phrases.
+        var readingSegments: [String: [Token]] = [:]
+        for entry in entries {
+            let tokens = entry.displayTokens
+            if tokens.count > 1, tokens.allSatisfy({ !$0.reading.isEmpty }) {
+                let reading = Self.katakana(tokens.map(\.reading).joined())
+                if readingSegments[reading] == nil { readingSegments[reading] = tokens }
+            }
+        }
         for entry in entries where entry.candidateIndex >= 0 && self.paths[entry.candidateIndex] == nil {
+            self.entries.append(entry)
             var parentID: Int?
             var path: [Int] = []
-            for token in entry.displayTokens {
+            var tokens = entry.displayTokens
+            let reading = Self.katakana(tokens.map(\.reading).joined())
+            if tokens.count == 1, !reading.isEmpty, Self.katakana(entry.text) == reading,
+               let segments = readingSegments[reading],
+               // Swift String equality folds canonical Unicode equivalents;
+               // scalar slicing must also agree on the actual representation.
+               Array(Self.katakana(entry.text).unicodeScalars) == Array(Self.katakana(segments.map(\.reading).joined()).unicodeScalars) {
+                let scalars = Array(entry.text.unicodeScalars)
+                var offset = 0
+                tokens = segments.map { segment in
+                    let length = segment.reading.unicodeScalars.count
+                    defer { offset += length }
+                    return Token(text: String(String.UnicodeScalarView(scalars[offset..<(offset + length)])),
+                                 reading: segment.reading)
+                }
+            }
+            for token in tokens {
                 let siblings = parentID.map { self.nodes[$0].children } ?? self.roots
                 let id: Int
                 if let existing = siblings.first(where: { self.nodes[$0].token == token }) {
@@ -74,6 +108,49 @@ public struct CandidateTree: Sendable, Equatable {
             }
             self.paths[entry.candidateIndex] = path
         }
+    }
+
+    private static func katakana(_ value: String) -> String {
+        String(String.UnicodeScalarView(value.unicodeScalars.map {
+            (0x3041...0x3096).contains($0.value) ? UnicodeScalar($0.value + 0x60)! : $0
+        }))
+    }
+
+    /// Softmax of returned converter evaluations, conditional on the parent.
+    /// This is a relative score (0...100), NOT a calibrated probability.
+    /// Only equal complete readings compete. Hidden siblings count; duplicate
+    /// surfaces, first-clause results, and unavailable evaluations do not inflate it.
+    public func relativeScores(candidateIndex: Int?) -> [Int: Int] {
+        guard let selected = entries.first(where: { $0.candidateIndex == candidateIndex }) else {
+            return [:]
+        }
+        let reading = Self.katakana(selected.displayTokens.map(\.reading).joined())
+        guard !reading.isEmpty else {
+            return [:]
+        }
+        var unique: [String: Entry] = [:]
+        for entry in entries where entry.score != nil
+            && entry.comparisonGroup == selected.comparisonGroup
+            && Self.katakana(entry.displayTokens.map(\.reading).joined()) == reading {
+            if let prior = unique[entry.text], prior.score! >= entry.score! { continue }
+            unique[entry.text] = entry
+        }
+        guard let maximum = unique.values.compactMap(\.score).max() else {
+            return [:]
+        }
+        var masses: [Int: Double] = [:]
+        var total = 0.0
+        for entry in unique.values {
+            let weight = exp(entry.score! - maximum)
+            total += weight
+            for id in paths[entry.candidateIndex] ?? [] { masses[id, default: 0] += weight }
+        }
+        var result: [Int: Int] = [:]
+        for (id, mass) in masses {
+            let denominator = nodes[id].parentID.map { masses[$0] ?? 0 } ?? total
+            if denominator > 0 { result[id] = min(100, max(0, Int((100 * mass / denominator).rounded()))) }
+        }
+        return result
     }
 
     public func preferredCandidate(at nodeID: Int, preserving candidateIndex: Int?) -> Int? {

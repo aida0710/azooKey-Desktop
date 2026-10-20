@@ -1,8 +1,90 @@
 import Core
+import Foundation
 import Testing
 
 private func treeToken(_ text: String, _ reading: String = "") -> CandidateTree.Token {
     .init(text: text, reading: reading)
+}
+
+@Test func candidateTreeScoresAreConditionalRelativeWeights() {
+    let tree = CandidateTree(entries: [
+        .init(text: "候補を選択", tokens: [treeToken("候補を", "コウホヲ"), treeToken("選択", "センタク")], candidateIndex: 0, score: log(69)),
+        .init(text: "候補を洗濯", tokens: [treeToken("候補を", "コウホヲ"), treeToken("洗濯", "センタク")], candidateIndex: 1, score: log(27)),
+        .init(text: "候補をせんたく", tokens: [treeToken("候補を", "コウホヲ"), treeToken("せんたく", "センタク")], candidateIndex: 2, score: log(4)),
+        // A first-clause result must not swamp complete-sentence scores.
+        .init(text: "候補を", tokens: [treeToken("候補を", "コウホヲ")], candidateIndex: 3, score: 999)
+    ])
+    let scores = tree.relativeScores(candidateIndex: 0)
+    #expect(scores[tree.paths[0]![0]] == 100)
+    #expect(scores[tree.paths[0]![1]] == 69)
+    #expect(scores[tree.paths[1]![1]] == 27)
+    #expect(scores[tree.paths[2]![1]] == 4)
+}
+
+@Test func candidateTreeScoresIgnoreDuplicatesInvalidValuesAndOtherReadings() {
+    let tree = CandidateTree(entries: [
+        .init(text: "選択", tokens: [treeToken("選択", "センタク")], candidateIndex: 0, score: 10000),
+        .init(text: "洗濯", tokens: [treeToken("洗濯", "センタク")], candidateIndex: 1, score: 10000),
+        .init(text: "選択", tokens: [treeToken("選択", "センタク")], candidateIndex: 2, score: 10000),
+        .init(text: "せんたく", tokens: [treeToken("せんたく", "センタク")], candidateIndex: 3, score: .nan),
+        .init(text: "先", tokens: [treeToken("先", "セン")], candidateIndex: 4, score: .infinity),
+        .init(text: "別", tokens: [treeToken("別", "ベツ")], candidateIndex: 5, score: 10001)
+    ])
+    let scores = tree.relativeScores(candidateIndex: 0)
+    #expect(scores[tree.paths[0]![0]] == 50)
+    #expect(scores[tree.paths[1]![0]] == 50)
+    #expect(scores[tree.paths[3]![0]] == nil)
+    #expect(scores[tree.paths[5]![0]] == nil)
+    #expect(tree.relativeScores(candidateIndex: nil).isEmpty)
+}
+
+@Test func candidateTreeDoesNotCompareSameReadingWithDifferentConsumedInput() {
+    let tree = CandidateTree(entries: [
+        .init(text: "選択", tokens: [treeToken("選択", "センタク")], candidateIndex: 0, score: 0, comparisonGroup: 0),
+        .init(text: "洗濯", tokens: [treeToken("洗濯", "センタク")], candidateIndex: 1, score: 0, comparisonGroup: 0),
+        .init(text: "せんたく", tokens: [treeToken("せんたく", "センタク")], candidateIndex: 2, score: 1000, comparisonGroup: 1)
+    ])
+    let scores = tree.relativeScores(candidateIndex: 0)
+    #expect(scores[tree.paths[0]![0]] == 50)
+    #expect(scores[tree.paths[1]![0]] == 50)
+    #expect(scores[tree.paths[2]![0]] == nil)
+}
+
+@Test func candidateTreeScoresIncludeHiddenAlternativesAndDoNotInventMissingScores() {
+    let entries: [CandidateTree.Entry] = (0..<4).map {
+        .init(text: "候補\($0)", tokens: [treeToken("候補\($0)", "コウホ")], candidateIndex: $0, score: -10000)
+    }
+    let tree = CandidateTree(entries: entries)
+    #expect(tree.compactColumns(candidateIndex: 0).first?.count == 3)
+    #expect(Set(tree.relativeScores(candidateIndex: 0).values) == [25])
+    let unscored = CandidateTree(entries: [.init(text: "語", tokens: [], candidateIndex: 0)])
+    #expect(unscored.relativeScores(candidateIndex: 0).isEmpty)
+}
+
+@Test func candidateTreeSplitsKanaFallbackUsingRealReadingBoundaries() {
+    let tree = CandidateTree(entries: [
+        .init(text: "このように候補", tokens: [treeToken("このように", "コノヨウニ"), treeToken("候補", "コウホ")], candidateIndex: 0),
+        .init(text: "コノヨウニコウホ", tokens: [treeToken("コノヨウニコウホ", "コノヨウニコウホ")], candidateIndex: 1),
+        .init(text: "このようにこうほ", tokens: [treeToken("このようにこうほ", "コノヨウニコウホ")], candidateIndex: 2),
+        .init(text: "学習済み文", tokens: [treeToken("学習済み文", "コノヨウニコウホ")], candidateIndex: 3)
+    ])
+    #expect(tree.paths[1]!.map { tree.nodes[$0].token.text } == ["コノヨウニ", "コウホ"])
+    #expect(tree.paths[2]!.map { tree.nodes[$0].token.text } == ["このように", "こうほ"])
+    #expect(tree.paths[3]!.count == 1)
+    for (index, text) in [(0, "このように候補"), (1, "コノヨウニコウホ"), (2, "このようにこうほ"), (3, "学習済み文")] {
+        #expect(tree.paths[index]!.map { tree.nodes[$0].token.text }.joined() == text)
+        #expect(tree.preferredCandidate(at: tree.paths[index]!.last!, preserving: index) == index)
+    }
+}
+
+@Test func candidateTreeKeepsCanonicalEquivalentKanaIntact() {
+    for (reading, text) in [("カ\u{3099}", "ガナ"), ("ガ", "カ\u{3099}ナ")] {
+        let tree = CandidateTree(entries: [
+            .init(text: "画名", tokens: [treeToken("画", reading), treeToken("名", "ナ")], candidateIndex: 0),
+            .init(text: text, tokens: [treeToken(text, text)], candidateIndex: 1)
+        ])
+        #expect(tree.paths[1]!.map { tree.nodes[$0].token.text }.joined().unicodeScalars.elementsEqual(text.unicodeScalars))
+    }
 }
 
 @Test func candidateTreeCompactColumnsKeepRealSelectedPathAndBoundAlternatives() {

@@ -98,10 +98,14 @@ public final class SegmentsManager {
     public func makeCandidatePresentations(_ candidates: [Candidate]) -> [CandidatePresentation] {
         let additionalPresentations = self.additionalCandidatePresentationsForSelectionIndex
         return candidates.indices.map { index in
+            var remaining = self.composingText
+            remaining.prefixComplete(composingCount: candidates[index].composingCount)
+            let consumed = self.composingText.input.count - remaining.input.count
             if index < additionalPresentations.count {
-                return .init(candidate: candidates[index], displayContext: additionalPresentations[index].displayContext)
+                return .init(candidate: candidates[index], displayContext: additionalPresentations[index].displayContext,
+                             consumedInputCount: consumed)
             }
-            return .init(candidate: candidates[index])
+            return .init(candidate: candidates[index], consumedInputCount: consumed)
         }
     }
 
