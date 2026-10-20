@@ -10,6 +10,9 @@ INPUT_COMMAND_FIELDS = frozenset(("preedit", "commits", "cursor", "consumed", "i
 LEARNING_MODES = frozenset(("inputAndOutput", "onlyOutput", "nothing"))
 # The Swift development transport uses the same opaque identifier limit.
 IDENTIFIER_BYTES = 512
+# Match DesktopCandidateLimits without evicting receipts that suppress learning.
+MAX_CONTEXTS = 64
+MAX_COMPLETIONS_PER_CONTEXT = 1024
 
 
 @dataclass(frozen=True)
