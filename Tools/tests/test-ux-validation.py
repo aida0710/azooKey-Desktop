@@ -493,12 +493,18 @@ class ValidationLedgerTests(unittest.TestCase):
         self.assertEqual(inspection["counts"]["pass"], 792)
 
     def test_shared_video_evidence_is_read_once_per_check_and_changes_are_rechecked(self):
+        # macOS temporary paths can contain /var -> /private/var. Exercise
+        # the same canonicalization through an explicit alias on every host.
+        alias = self.directory / "evidence-alias.log"
+        alias.symlink_to(self.evidence)
+        self.evidence = alias
         self.complete_matrix_fixture()
         original_open = Path.open
         evidence_reads = []
+        evidence_path = self.evidence.resolve()
 
         def track_evidence_reads(path, *arguments, **keywords):
-            if path.resolve() == self.evidence and arguments and arguments[0] == "rb":
+            if path.resolve() == evidence_path and arguments and arguments[0] == "rb":
                 evidence_reads.append(path)
             return original_open(path, *arguments, **keywords)
 
