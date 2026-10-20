@@ -78,7 +78,7 @@ final class AISuggestionInputTests: XCTestCase {
     private var controller: azooKeyMacInputController!
     private var client: FakeTextInput!
     private var sender: DeferredAIClient!
-    private var server: IMKServer?
+    private var serverFixture: InputMethodTestServer?
     private var directory: URL!
     private var restoreSettings: (() -> Void)!
 
@@ -106,15 +106,12 @@ final class AISuggestionInputTests: XCTestCase {
         )
         client = FakeTextInput()
         sender = DeferredAIClient()
-        // XCTest has no input-method Info.plist. Supply the controller class
-        // explicitly so IMKInputController receives an initialized server.
-        server = try XCTUnwrap(IMKServer(
-            name: "azookey-tests-\(UUID().uuidString)",
-            controllerClass: azooKeyMacInputController.self, delegateClass: nil
-        ))
-        controller = azooKeyMacInputController(
-            server: server, delegate: nil, client: client, segmentsManager: manager
+        serverFixture = try InputMethodTestServer(
+            directoryURL: directory, controllerClass: azooKeyMacInputController.self
         )
+        controller = try XCTUnwrap(azooKeyMacInputController(
+            server: serverFixture?.server, delegate: nil, client: client, segmentsManager: manager
+        ))
         let deferredSender = sender!
         controller.aiSuggestionSession.sendRequest = { request in try await deferredSender.send(request) }
     }
@@ -122,7 +119,7 @@ final class AISuggestionInputTests: XCTestCase {
     override func tearDown() {
         controller?.cancelReplaceSuggestion()
         controller = nil
-        server = nil
+        serverFixture = nil
         restoreSettings?()
         if let directory {
             try? FileManager.default.removeItem(at: directory)
