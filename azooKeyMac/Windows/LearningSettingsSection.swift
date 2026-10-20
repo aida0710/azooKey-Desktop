@@ -19,7 +19,7 @@ struct LearningSettingsSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if let resetMessage {
-                Text(resetMessage)
+                AccessibleStatusMessage(text: resetMessage)
                     .foregroundColor(resetFailed ? .red : .primary)
             }
             Button(Localization.text("learning.reset.action")) {

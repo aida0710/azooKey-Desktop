@@ -5,12 +5,12 @@ import SwiftUI
 /// キーボードショートカットを記録するためのビュー
 struct KeyboardShortcutRecorder: NSViewRepresentable {
     @Binding var shortcut: Core.KeyboardShortcut
-    var placeholder: String = "ショートカットを入力..."
+    var accessibilityName: String = Localization.text("ai.shortcut")
 
     func makeNSView(context: Context) -> ShortcutRecorderView {
         let view = ShortcutRecorderView()
         view.shortcut = shortcut
-        view.placeholder = placeholder
+        view.setAccessibilityLabel(accessibilityName)
         view.onShortcutChanged = { newShortcut in
             shortcut = newShortcut
         }
@@ -18,6 +18,7 @@ struct KeyboardShortcutRecorder: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: ShortcutRecorderView, context: Context) {
+        nsView.setAccessibilityLabel(accessibilityName)
         if nsView.shortcut != shortcut {
             nsView.shortcut = shortcut
         }
@@ -29,14 +30,15 @@ class ShortcutRecorderView: NSView {
     var shortcut: Core.KeyboardShortcut = .defaultTransformShortcut {
         didSet {
             needsDisplay = true
+            publishValue()
         }
     }
-    var placeholder: String = "ショートカットを入力..."
     var onShortcutChanged: ((Core.KeyboardShortcut) -> Void)?
 
     private var isRecording = false {
         didSet {
             needsDisplay = true
+            publishValue()
         }
     }
 
@@ -55,6 +57,11 @@ class ShortcutRecorderView: NSView {
         layer?.cornerRadius = 4
         layer?.borderWidth = 1
         layer?.borderColor = NSColor.separatorColor.cgColor
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(Localization.text("ai.shortcut"))
+        setAccessibilityValue(shortcut.displayString)
+        setAccessibilityHelp(Localization.text("shortcut.help"))
     }
 
     override var acceptsFirstResponder: Bool {
@@ -62,8 +69,11 @@ class ShortcutRecorderView: NSView {
     }
 
     override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else {
+            return false
+        }
         isRecording = true
-        return super.becomeFirstResponder()
+        return true
     }
 
     override func resignFirstResponder() -> Bool {
@@ -75,9 +85,29 @@ class ShortcutRecorderView: NSView {
         window?.makeFirstResponder(self)
     }
 
+    override func accessibilityPerformPress() -> Bool {
+        window?.makeFirstResponder(self) ?? false
+    }
+
+    private func publishValue() {
+        let state = isRecording ? "、" + Localization.text("shortcut.recording") : ""
+        setAccessibilityValue(shortcut.displayString + state)
+        NSAccessibility.post(element: self, notification: .valueChanged)
+    }
+
     override func keyDown(with event: NSEvent) {
         guard isRecording else {
             super.keyDown(with: event)
+            return
+        }
+
+        // Tab remains navigation, including Shift+Tab, while recording.
+        if event.keyCode == 48 {
+            if event.modifierFlags.contains(.shift) {
+                window?.selectPreviousKeyView(self)
+            } else {
+                window?.selectNextKeyView(self)
+            }
             return
         }
 
@@ -127,7 +157,7 @@ class ShortcutRecorderView: NSView {
         let textColor: NSColor
 
         if isRecording {
-            text = placeholder
+            text = Localization.text("shortcut.recording")
             textColor = .secondaryLabelColor
         } else {
             text = shortcut.displayString

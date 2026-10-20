@@ -35,8 +35,8 @@ extension azooKeyMacInputController {
     }
 
     private enum TransformMenuTitle {
-        static let normal = "いい感じ変換"
-        static let noBackend = "いい感じ変換（無効/バックエンドなし）"
+        static var normal: String { Localization.text("ai.title") }
+        static var noBackend: String { Localization.text("ai.disabled") }
     }
 
     @MainActor @objc func performTransformSelectedText(_ sender: Any) {

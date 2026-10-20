@@ -13,9 +13,6 @@ struct ConfigWindow: View {
     @ConfigState private var optionDirectFullWidthInput = Config.OptionDirectFullWidthInput()
     @ConfigState private var zenzaiProfile = Config.ZenzaiProfile()
     @ConfigState private var zenzaiPersonalizationLevel = Config.ZenzaiPersonalizationLevel()
-    @ConfigState private var openAiApiKey = Config.OpenAiApiKey()
-    @ConfigState private var openAiModelName = Config.OpenAiModelName()
-    @ConfigState private var openAiApiEndpoint = Config.OpenAiApiEndpoint()
     @ConfigState private var inferenceLimit = Config.ZenzaiInferenceLimit()
     @ConfigState private var debugWindow = Config.DebugWindow()
     @ConfigState private var debugPredictiveTyping = Config.DebugPredictiveTyping()
@@ -23,42 +20,21 @@ struct ConfigWindow: View {
     @ConfigState private var userDictionary = Config.UserDictionary()
     @ConfigState private var systemUserDictionary = Config.SystemUserDictionary()
     @ConfigState private var keyboardLayout = Config.KeyboardLayout()
-    @ConfigState private var aiBackend = Config.AIBackendPreference()
-    @ConfigState private var includeContextInAITransform = Config.IncludeContextInAITransform()
 
-    @State private var selectedTab: Tab = Config.SetupGuideSeen().value ? .basic : .support
+    @State private var selectedTab: Tab = Config.SetupGuideSeen().value ? .input : .support
     @State private var zenzaiProfileHelpPopover = false
     @State private var zenzaiInferenceLimitHelpPopover = false
-    @State private var openAiApiKeyPopover = false
-    @State private var connectionTestInProgress = false
     @State private var showingRomajiTableEditor = false
-    @State private var connectionTestResult: String?
     @State private var systemUserDictionaryUpdateMessage: SystemUserDictionaryUpdateMessage?
     @State private var showingImportedDictionaryResetConfirmation = false
-    @State private var foundationModelsAvailability: FoundationModelsAvailability?
-    @State private var availabilityCheckDone = false
     @State private var debugTypoCorrectionState: DebugTypoCorrectionState = .notDownloaded
     @State private var debugTypoCorrectionDownloadInProgress = false
     @State private var debugTypoCorrectionErrorMessage: String?
 
     private enum Tab: String, CaseIterable, Hashable {
-        case basic = "基本"
-        case customize = "カスタマイズ"
-        case advanced = "詳細設定"
-        case support
+        case input, conversion, dictionary, ai, support
 
-        var title: String {
-            self == .support ? Localization.text("support.title") : rawValue
-        }
-
-        var icon: String {
-            switch self {
-            case .basic: return "star"
-            case .customize: return "slider.horizontal.3"
-            case .advanced: return "gearshape.2"
-            case .support: return "questionmark.circle"
-            }
-        }
+        var title: String { Localization.text("settings.page." + rawValue) }
     }
 
     private enum SystemUserDictionaryUpdateMessage {
@@ -194,64 +170,6 @@ struct ConfigWindow: View {
         }
     }
 
-    private func getErrorMessage(for error: OpenAIError) -> String {
-        switch error {
-        case .invalidURL:
-            return "エラー: 無効なURL形式です"
-        case .noServerResponse:
-            return "エラー: サーバーから応答がありません"
-        case .invalidResponseStatus(let code, let body):
-            return getHTTPErrorMessage(code: code, body: body)
-        case .parseError(let message):
-            return "エラー: レスポンス解析失敗 - \(message)"
-        case .invalidResponseStructure:
-            return "エラー: 予期しないレスポンス形式"
-        }
-    }
-
-    private func getHTTPErrorMessage(code: Int, body: String) -> String {
-        switch code {
-        case 401:
-            return "エラー: APIキーが無効です"
-        case 403:
-            return "エラー: アクセスが拒否されました"
-        case 404:
-            return "エラー: エンドポイントが見つかりません"
-        case 429:
-            return "エラー: レート制限に達しました"
-        case 500...599:
-            return "エラー: サーバーエラー (コード: \(code))"
-        default:
-            return "エラー: HTTPステータス \(code)\n詳細: \(body.prefix(100))..."
-        }
-    }
-
-    func testConnection() async {
-        connectionTestInProgress = true
-        connectionTestResult = nil
-
-        do {
-            let testRequest = OpenAIRequest(
-                prompt: "テスト",
-                target: "",
-                modelName: openAiModelName.value.isEmpty ? Config.OpenAiModelName.default : openAiModelName.value
-            )
-            _ = try await OpenAIClient.sendRequest(
-                testRequest,
-                apiKey: openAiApiKey.value,
-                apiEndpoint: openAiApiEndpoint.value
-            )
-
-            connectionTestResult = "接続成功"
-        } catch let error as OpenAIError {
-            connectionTestResult = getErrorMessage(for: error)
-        } catch {
-            connectionTestResult = "エラー: \(error.localizedDescription)"
-        }
-
-        connectionTestInProgress = false
-    }
-
     @ViewBuilder
     private func helpButton(helpContent: LocalizedStringKey, isPresented: Binding<Bool>) -> some View {
         if #available(macOS 14, *) {
@@ -267,64 +185,12 @@ struct ConfigWindow: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // カスタムタブバー
-            HStack(spacing: 4) {
-                ForEach(Tab.allCases, id: \.self) { tab in
-                    Button(
-                        action: {
-                            selectedTab = tab
-                        },
-                        label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: tab.icon)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(selectedTab == tab ? Color(nsColor: .controlAccentColor) : Color(nsColor: .secondaryLabelColor))
-                                Text(tab.title)
-                                    .font(.system(size: 11, weight: selectedTab == tab ? .medium : .regular))
-                                    .foregroundColor(selectedTab == tab ? Color(nsColor: .labelColor) : Color(nsColor: .secondaryLabelColor))
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(selectedTab == tab ? Color(nsColor: .controlBackgroundColor) : Color.clear)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .strokeBorder(
-                                        selectedTab == tab ? Color(nsColor: .separatorColor).opacity(0.5) : Color.clear,
-                                        lineWidth: 0.5
-                                    )
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 6))
-                        }
-                    )
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(8)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(nsColor: .unemphasizedSelectedContentBackgroundColor).opacity(0.3))
-            )
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-
-            Divider()
-
-            // コンテンツエリア（選択されたタブのみ表示）
-            Group {
-                if selectedTab == .basic {
-                    basicTabView
-                } else if selectedTab == .customize {
-                    customizeTabView
-                } else if selectedTab == .support {
-                    SupportSettingsView()
-                } else {
-                    advancedTabView
-                }
-            }
+        TabView(selection: $selectedTab) {
+            inputTabView.tabItem { Text(Tab.input.title) }.tag(Tab.input)
+            conversionTabView.tabItem { Text(Tab.conversion.title) }.tag(Tab.conversion)
+            dictionaryTabView.tabItem { Text(Tab.dictionary.title) }.tag(Tab.dictionary)
+            AISettingsView().tabItem { Text(Tab.ai.title) }.tag(Tab.ai)
+            SupportSettingsView().tabItem { Text(Tab.support.title) }.tag(Tab.support)
         }
         .frame(width: 600, height: 500)
         .sheet(isPresented: $showingRomajiTableEditor) {
@@ -339,191 +205,9 @@ struct ConfigWindow: View {
         }
     }
 
-    // MARK: - 基本タブ
+    // MARK: - 入力
     @ViewBuilder
-    private var basicTabView: some View {
-        Form {
-            Section {
-                VStack(alignment: .leading) {
-                    Picker("いい感じ変換", selection: $aiBackend) {
-                        Text("オフ").tag(Config.AIBackendPreference.Value.off)
-
-                        if let availability = foundationModelsAvailability, availability.isAvailable {
-                            Text("Foundation Models").tag(Config.AIBackendPreference.Value.foundationModels)
-                        }
-
-                        Text("OpenAI API").tag(Config.AIBackendPreference.Value.openAI)
-                    }
-                    .onAppear {
-                        if !availabilityCheckDone {
-                            foundationModelsAvailability = FoundationModelsClientCompat.checkAvailability()
-                            availabilityCheckDone = true
-
-                            let hasSetAIBackend = UserDefaults.standard.bool(forKey: "hasSetAIBackendManually")
-                            if !hasSetAIBackend,
-                               aiBackend.value == .off,
-                               let availability = foundationModelsAvailability,
-                               availability.isAvailable {
-                                aiBackend.value = .foundationModels
-                                UserDefaults.standard.set(true, forKey: "hasSetAIBackendManually")
-                            }
-
-                            if aiBackend.value == .foundationModels,
-                               let availability = foundationModelsAvailability,
-                               !availability.isAvailable {
-                                aiBackend.value = .off
-                            }
-                        }
-                    }
-                    .onChange(of: aiBackend.value) { _ in
-                        UserDefaults.standard.set(true, forKey: "hasSetAIBackendManually")
-                    }
-                }
-
-                Text(Localization.text("ai.scope.processing"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if aiBackend.value != .off {
-                    Toggle(Localization.text("ai.scope.include-context"), isOn: $includeContextInAITransform)
-                    if let configuration = AIRequestConfiguration.current() {
-                        Text("\(Localization.text("ai.scope.destination")): \(configuration.destinationLabel)")
-                            .font(.caption)
-                            .textSelection(.enabled)
-                    }
-                }
-
-                if aiBackend.value == .openAI {
-                    HStack {
-                        SecureField("APIキー", text: $openAiApiKey, prompt: Text("例:sk-xxxxxxxxxxx"))
-                        helpButton(
-                            helpContent: LocalizedStringKey(Localization.text("ai.scope.api-key")),
-                            isPresented: $openAiApiKeyPopover
-                        )
-                    }
-                    TextField("モデル名", text: $openAiModelName, prompt: Text("例: gpt-4o-mini"))
-                    TextField("エンドポイント", text: $openAiApiEndpoint, prompt: Text("例: https://api.openai.com/v1/chat/completions"))
-                        .help("例: https://api.openai.com/v1/chat/completions\nGemini: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")
-
-                    HStack {
-                        Button("接続テスト") {
-                            Task {
-                                await testConnection()
-                            }
-                        }
-                        .disabled(connectionTestInProgress || openAiApiKey.value.isEmpty)
-
-                        if connectionTestInProgress {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        }
-                    }
-
-                    if let result = connectionTestResult {
-                        Text(result)
-                            .foregroundColor(result.contains("成功") ? .green : .red)
-                            .font(.caption)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            } header: {
-                Label("いい感じ変換", systemImage: "sparkles")
-            }
-
-            Section {
-                LabeledContent {
-                    HStack {
-                        Text("\(self.userDictionary.value.items.count)件のアイテム")
-                        Button("編集") {
-                            (NSApplication.shared.delegate as? AppDelegate)!.openUserDictionaryEditorWindow()
-                        }
-                    }
-                } label: {
-                    Text("azooKeyユーザ辞書")
-                }
-                LabeledContent {
-                    HStack {
-                        switch self.systemUserDictionaryUpdateMessage {
-                        case .none:
-                            if let updated = self.systemUserDictionary.value.lastUpdate {
-                                let date = updated.formatted(date: .omitted, time: .omitted)
-                                Text("最終更新: \(date) / \(self.systemUserDictionary.value.items.count)件のアイテム")
-                            } else {
-                                Text("未設定")
-                            }
-                        case .error(let error):
-                            Text("読み込みエラー: \(error.localizedDescription)")
-                        case .successfulUpdate:
-                            Text("読み込みに成功しました / \(self.systemUserDictionary.value.items.count)件のアイテム")
-                        }
-                        Button("読み込む") {
-                            do {
-                                let systemUserDictionaryEntries = try SystemUserDictionaryHelper.fetchEntries()
-                                self.systemUserDictionary.value.items = systemUserDictionaryEntries.map {
-                                    .init(word: $0.phrase, reading: $0.shortcut)
-                                }
-                                self.systemUserDictionary.value.lastUpdate = .now
-                                self.systemUserDictionaryUpdateMessage = .successfulUpdate
-                                self.exportUserDictionary()
-                            } catch {
-                                self.systemUserDictionaryUpdateMessage = .error(error)
-                            }
-                        }
-                        Button(Localization.text("dictionary.imported.reset.action")) {
-                            showingImportedDictionaryResetConfirmation = true
-                        }
-                        .confirmationDialog(
-                            Localization.text("dictionary.imported.reset.title"),
-                            isPresented: $showingImportedDictionaryResetConfirmation, titleVisibility: .visible
-                        ) {
-                            Button(Localization.text("dictionary.imported.reset.confirm"), role: .destructive) {
-                                self.systemUserDictionary.value.lastUpdate = nil
-                                self.systemUserDictionary.value.items = []
-                                self.systemUserDictionaryUpdateMessage = nil
-                                self.exportUserDictionary()
-                            }
-                            Button(Localization.text("settings.cancel"), role: .cancel) {}
-                        } message: {
-                            Text(Localization.text("dictionary.imported.reset.explanation"))
-                        }
-                    }
-                } label: {
-                    Text("システムのユーザ辞書")
-                }
-            } header: {
-                Label("ユーザ辞書", systemImage: "book.closed")
-            }
-
-            Section {
-                Toggle("ライブ変換を有効化", isOn: $liveConversion)
-                Toggle("変換候補を木構造で表示", isOn: $treeCandidates)
-                Picker(Localization.text("candidate.textSize"), selection: $candidateTextSize) {
-                    Text(Localization.text("candidate.textSize.standard")).tag(Config.CandidateTextSize.Value.standard)
-                    Text(Localization.text("candidate.textSize.large")).tag(Config.CandidateTextSize.Value.large)
-                }
-                HStack {
-                    TextField("変換プロフィール", text: $zenzaiProfile, prompt: Text("例：田中太郎/高校生"))
-                    helpButton(
-                        helpContent: """
-                    Zenzaiはあなたのプロフィールを考慮した変換を行うことができます。
-                    名前や仕事、趣味などを入力すると、それに合わせた変換が自動で推薦されます。
-                    （実験的な機能のため、精度が不十分な場合があります）
-                    """,
-                        isPresented: $zenzaiProfileHelpPopover
-                    )
-                }
-            } header: {
-                Label("変換設定", systemImage: "brain")
-            }
-        }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-    }
-
-    // MARK: - カスタマイズタブ
-    @ViewBuilder
-    private var customizeTabView: some View {
+    private var inputTabView: some View {
         Form {
             Section {
                 Toggle("円記号の代わりにバックスラッシュを入力", isOn: $typeBackSlash)
@@ -538,8 +222,6 @@ struct ConfigWindow: View {
             } header: {
                 Label("入力オプション", systemImage: "character.cursor.ibeam")
             }
-
-            LearningSettingsSection()
 
             Section {
                 Picker("入力方式", selection: $inputStyle) {
@@ -579,22 +261,19 @@ struct ConfigWindow: View {
         .scrollContentBackground(.hidden)
     }
 
-    // MARK: - 詳細設定タブ
-    @ViewBuilder
-    private var advancedTabView: some View {
+    private var conversionTabView: some View {
         Form {
             Section {
-                HStack {
-                    TextField("変換プロフィール", text: $zenzaiProfile, prompt: Text("例：田中太郎/高校生"))
-                    helpButton(
-                        helpContent: """
-                    Zenzaiはあなたのプロフィールを考慮した変換を行うことができます。
-                    名前や仕事、趣味などを入力すると、それに合わせた変換が自動で推薦されます。
-                    （実験的な機能のため、精度が不十分な場合があります）
-                    """,
-                        isPresented: $zenzaiProfileHelpPopover
-                    )
+                Toggle("ライブ変換を有効化", isOn: $liveConversion)
+                Toggle("変換候補を木構造で表示", isOn: $treeCandidates)
+                Picker(Localization.text("candidate.textSize"), selection: $candidateTextSize) {
+                    Text(Localization.text("candidate.textSize.standard")).tag(Config.CandidateTextSize.Value.standard)
+                    Text(Localization.text("candidate.textSize.large")).tag(Config.CandidateTextSize.Value.large)
                 }
+            } header: {
+                Label("変換設定", systemImage: "brain")
+            }
+            Section {
                 HStack {
                     TextField(
                         "Zenzaiの推論上限",
@@ -675,12 +354,6 @@ struct ConfigWindow: View {
                         self.debugTypoCorrectionErrorMessage = nil
                     }
                 }
-                Picker("パーソナライズ", selection: $zenzaiPersonalizationLevel) {
-                    Text("オフ").tag(Config.ZenzaiPersonalizationLevel.Value.off)
-                    Text("弱く").tag(Config.ZenzaiPersonalizationLevel.Value.soft)
-                    Text("普通").tag(Config.ZenzaiPersonalizationLevel.Value.normal)
-                    Text("強く").tag(Config.ZenzaiPersonalizationLevel.Value.hard)
-                }
                 LabeledContent("アプリデータ") {
                     HStack {
                         Button("Finderで開く") {
@@ -695,6 +368,103 @@ struct ConfigWindow: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
     }
+
+    private var dictionaryTabView: some View {
+        Form {
+            Section {
+                LabeledContent {
+                    HStack {
+                        Text("\(self.userDictionary.value.items.count)件のアイテム")
+                        Button("編集") {
+                            (NSApplication.shared.delegate as? AppDelegate)!.openUserDictionaryEditorWindow()
+                        }
+                    }
+                } label: {
+                    Text("azooKeyユーザ辞書")
+                }
+                LabeledContent {
+                    HStack {
+                        switch self.systemUserDictionaryUpdateMessage {
+                        case .none:
+                            if let updated = self.systemUserDictionary.value.lastUpdate {
+                                let date = updated.formatted(date: .omitted, time: .omitted)
+                                Text("最終更新: \(date) / \(self.systemUserDictionary.value.items.count)件のアイテム")
+                            } else {
+                                Text("未設定")
+                            }
+                        case .error(let error):
+                            Text("読み込みエラー: \(error.localizedDescription)")
+                        case .successfulUpdate:
+                            Text("読み込みに成功しました / \(self.systemUserDictionary.value.items.count)件のアイテム")
+                        }
+                        Button("読み込む") {
+                            do {
+                                let systemUserDictionaryEntries = try SystemUserDictionaryHelper.fetchEntries()
+                                self.systemUserDictionary.value.items = systemUserDictionaryEntries.map {
+                                    .init(word: $0.phrase, reading: $0.shortcut)
+                                }
+                                self.systemUserDictionary.value.lastUpdate = .now
+                                self.systemUserDictionaryUpdateMessage = .successfulUpdate
+                                self.exportUserDictionary()
+                            } catch {
+                                self.systemUserDictionaryUpdateMessage = .error(error)
+                            }
+                        }
+                        Button(Localization.text("dictionary.imported.reset.action")) {
+                            showingImportedDictionaryResetConfirmation = true
+                        }
+                        .confirmationDialog(
+                            Localization.text("dictionary.imported.reset.title"),
+                            isPresented: $showingImportedDictionaryResetConfirmation, titleVisibility: .visible
+                        ) {
+                            Button(Localization.text("dictionary.imported.reset.confirm"), role: .destructive) {
+                                self.systemUserDictionary.value.lastUpdate = nil
+                                self.systemUserDictionary.value.items = []
+                                self.systemUserDictionaryUpdateMessage = nil
+                                self.exportUserDictionary()
+                            }
+                            Button(Localization.text("settings.cancel"), role: .cancel) {}
+                        } message: {
+                            Text(Localization.text("dictionary.imported.reset.explanation"))
+                        }
+                    }
+                } label: {
+                    Text("システムのユーザ辞書")
+                }
+            } header: {
+                Label("ユーザ辞書", systemImage: "book.closed")
+            }
+
+            LearningSettingsSection()
+
+            Section {
+                HStack {
+                    TextField(Localization.text("settings.profile"), text: $zenzaiProfile, prompt: Text("例：田中太郎/高校生"))
+                    helpButton(
+                        helpContent: """
+                    Zenzaiはあなたのプロフィールを考慮した変換を行うことができます。
+                    名前や仕事、趣味などを入力すると、それに合わせた変換が自動で推薦されます。
+                    （実験的な機能のため、精度が不十分な場合があります）
+                    """,
+                        isPresented: $zenzaiProfileHelpPopover
+                    )
+                }
+                Picker(Localization.text("settings.personalization"), selection: $zenzaiPersonalizationLevel) {
+                    Text("オフ").tag(Config.ZenzaiPersonalizationLevel.Value.off)
+                    Text("弱く").tag(Config.ZenzaiPersonalizationLevel.Value.soft)
+                    Text("普通").tag(Config.ZenzaiPersonalizationLevel.Value.normal)
+                    Text("強く").tag(Config.ZenzaiPersonalizationLevel.Value.hard)
+                }
+                Text(Localization.text("settings.personalization.explanation"))
+                    .font(.callout)
+            } header: {
+                Text(Localization.text("settings.personalization"))
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+    }
+
 }
 
 #Preview {

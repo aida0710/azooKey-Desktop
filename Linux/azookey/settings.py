@@ -7,8 +7,8 @@ from .bridge import Bridge
 from .prompts import parse_shortcut, shortcut_text
 from .personalization import import_model
 from .i18n import text as message
-from .learning_settings import learning_choices
-from .support_page import SupportPage
+from .labeled_controls import label_control, StatusMessage
+from .settings_pages import populate_settings_pages
 from .settings_store import SettingsStore, config_path
 from .settings_schema import input_defaults, validate_settings
 from .settings_recovery import SettingsRecoveryBar, confirm_restore
@@ -51,60 +51,14 @@ class SettingsWindow(Gtk.Window):
             box.pack_start(self.recovery_bar, False, False, 0)
         book = Gtk.Notebook()
         box.pack_start(book, True, True, 0)
-        basic = self.page(book, "入力・変換")
-        for key, label in [("tree", "木構造の候補ウィンドウ"), ("live", "ライブ変換"),
-                           ("halfSpace", "スペースを半角にする"), ("backslash", "円記号の代わりにバックスラッシュ"),
-                           ("optionDirect", "Altキーで全角英数を直接入力")]:
-            button = Gtk.CheckButton(label=label, active=self.values[key])
-            basic.pack_start(button, False, False, 0)
-            self.widgets[key] = button
-        self.combo(basic, "candidateTextSize", message("candidate.textSize"),
-                   [("standard", message("candidate.textSize.standard")), ("large", message("candidate.textSize.large"))])
-        self.combo(basic, "inputStyle", "入力配列", [("default", "ローマ字"), ("defaultAZIK", "AZIK"), ("defaultKanaJIS", "かな JIS"), ("defaultKanaUS", "かな US"), ("custom", "カスタム")])
-        self.combo(basic, "learning", message("learning.title"), learning_choices())
-        basic.pack_start(Gtk.Label(label=message("learning.retention"), xalign=0, wrap=True), False, False, 0)
-        self.combo(basic, "punctuation", "句読点", [(1, "、。"), (2, "，。"), (3, "、．"), (4, "，．")])
-        self.combo(basic, "personalization", "個人化", [("off", "オフ"), ("soft", "弱"), ("normal", "標準"), ("hard", "強")])
-        personal = Gtk.Button(label="Tunerの個人化モデルを読み込む…")
-        personal.connect("clicked", self.import_personalization)
-        basic.pack_start(personal, False, False, 0)
-        self.entry(basic, "profile", "変換プロファイル")
-        self.entry(basic, "inferenceLimit", "推論回数 (1–100)")
-        reset = Gtk.Button(label=message("learning.reset.action"))
-        reset.connect("clicked", self.reset_learning)
-        basic.pack_start(reset, False, False, 0)
-        dictionary = self.page(book, "辞書・入力表")
-        dictionary.pack_start(Gtk.Label(label="ユーザー辞書：1行ごとに「読み<Tab>単語<Tab>ヒント」", xalign=0), False, False, 0)
-        text = "\n".join("\t".join([item["reading"], item["word"], item.get("hint") or ""]) for item in self.values["userDictionary"]["items"])
-        self.dictionary = self.text_area(dictionary, text)
-        dictionary.pack_start(Gtk.Label(label="カスタム入力表（TSV）", xalign=0), False, False, 0)
-        self.custom_table = self.text_area(dictionary, self.values["customTable"])
-        ai = self.page(book, "AI・詳細")
-        for key, label in [("aiEnabled", "OpenAI互換APIを使用"), ("includeContext", "AI変換に周辺テキストを含める"),
-                           ("predictiveTyping", "予測入力（開発中）"), ("typoCorrection", "入力訂正（開発中）"), ("debug", "デバッグ候補")]:
-            widget = Gtk.CheckButton(label=label, active=self.values[key])
-            ai.pack_start(widget, False, False, 0)
-            self.widgets[key] = widget
-        self.entry(ai, "aiModel", "モデル")
-        self.entry(ai, "aiEndpoint", "エンドポイント")
-        ai.pack_start(Gtk.Label(label="いい感じ変換のショートカット", xalign=0), False, False, 0)
-        self.transform_shortcut = Gtk.Entry(text=shortcut_text(self.values["transformShortcut"]))
-        ai.pack_start(self.transform_shortcut, False, False, 0)
-        self.api_key = Gtk.Entry(visibility=False, placeholder_text="APIキー（空欄なら変更しません）")
-        ai.pack_start(self.api_key, False, False, 0)
-        ai.pack_start(Gtk.Label(label="APIキーはデスクトップのキーリングへ保存します。", xalign=0), False, False, 0)
-        download = Gtk.Button(label="入力訂正モデルをダウンロード")
-        download.connect("clicked", self.download_weights)
-        ai.pack_start(download, False, False, 0)
-        support = self.page(book, message("support.title"))
-        support.pack_start(SupportPage(lambda: self.values), True, True, 0)
+        populate_settings_pages(self, book)
         if first_setup:
             support_index = book.get_n_pages() - 1
             book.get_nth_page(support_index).show_all()
             book.set_current_page(support_index)
-        self.message = Gtk.Label(xalign=0, wrap=True)
+        self.message = StatusMessage()
         box.pack_start(self.message, False, False, 0)
-        save = Gtk.Button(label="保存")
+        save = Gtk.Button(label=message("settings.save"))
         save.connect("clicked", self.save)
         box.pack_start(save, False, False, 0)
         self.connect("destroy", self.destroyed)
@@ -232,9 +186,9 @@ class SettingsWindow(Gtk.Window):
         book.append_page(scroller, Gtk.Label(label=title))
         return box
 
-    def combo(self, parent, key, label, choices):
-        parent.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
+    def combo(self, parent, key, *, label, choices):
         combo = Gtk.ComboBoxText()
+        label_control(parent, combo, label)
         for value, title in choices:
             combo.append(str(value), title)
         combo.set_active_id(str(self.values[key]))
@@ -242,14 +196,15 @@ class SettingsWindow(Gtk.Window):
         self.widgets[key] = combo
 
     def entry(self, parent, key, label):
-        parent.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
         entry = Gtk.Entry(text=str(self.values[key]))
+        label_control(parent, entry, label)
         parent.pack_start(entry, False, False, 0)
         self.widgets[key] = entry
 
     @staticmethod
-    def text_area(parent, text):
+    def text_area(parent, text, title):
         view = Gtk.TextView(monospace=True)
+        label_control(parent, view, title)
         view.get_buffer().set_text(text)
         scroller = Gtk.ScrolledWindow(min_content_height=140)
         scroller.add(view)
@@ -285,7 +240,7 @@ class SettingsWindow(Gtk.Window):
             values["customTable"] = self.text(self.custom_table)
             values["transformShortcut"] = parse_shortcut(self.transform_shortcut.get_text())
             if values["transformShortcut"] is None:
-                raise ValueError("いい感じ変換のショートカットを指定してください。")
+                raise ValueError(message("ai.shortcut.required"))
             saved = self.apply_settings(values)
             self.message.set_text(message("settings.backup_warning" if saved.backup_warning else "settings.saved"))
             if self.api_key.get_text():

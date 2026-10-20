@@ -26,6 +26,7 @@ final class PromptInputWindow: NSWindow {
             defer: false
         )
 
+        self.title = Localization.text("ai.title")
         self.level = .floating
         self.isReleasedWhenClosed = false
         self.backgroundColor = NSColor.clear
