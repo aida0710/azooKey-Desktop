@@ -25,6 +25,16 @@ export function resolveCursorAnchor({engineLocation, shellLocation, relative, wi
     return {location: [0, 0, 0, 0], source: 'unavailable', permitsWordAlignment: false};
 }
 
+export function candidateAvailableHeight({cursor, bounds}) {
+    if (!validCursorLocation(cursor)) return bounds.height;
+    const bottom = bounds.y + bounds.height;
+    const caretTop = Math.max(bounds.y, Math.min(cursor[1], bottom));
+    const caretBottom = Math.max(bounds.y, Math.min(cursor[1] + cursor[3], bottom));
+    // A wide dictionary can reach under the caret after horizontal clamping.
+    // Keep even the expanded entry in the larger vertical space beside it.
+    return Math.floor(Math.max(caretTop - bounds.y, bottom - caretBottom));
+}
+
 export function candidatePlacement({cursor, bounds, contentWidth, contentHeight,
     detailHeight, aligned, preferredSide = 'below', maximumWidth = MAXIMUM_COMPACT_WIDTH}) {
     // Keep details legible for a one-character candidate while bounding long rows.
@@ -32,7 +42,7 @@ export function candidatePlacement({cursor, bounds, contentWidth, contentHeight,
     const requiredWidth = Math.max(minimumWidth, contentWidth);
     const width = Math.min(bounds.width,
         aligned ? requiredWidth : Math.min(maximumWidth, requiredWidth));
-    const treeHeight = Math.max(1, Math.min(contentHeight, bounds.height - detailHeight));
+    const treeHeight = Math.max(0, Math.min(contentHeight, bounds.height - detailHeight));
     const height = Math.min(bounds.height, treeHeight + detailHeight);
     const desiredX = cursor[0] - (aligned ? 12 : 0);
     const fitsBelow = cursor[1] + cursor[3] + height <= bounds.y + bounds.height;

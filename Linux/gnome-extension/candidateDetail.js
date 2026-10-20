@@ -3,7 +3,7 @@ import Gio from 'gi://Gio';
 import Pango from 'gi://Pango';
 import {attachCandidateAction} from './candidateAccessibility.js';
 import {messages} from './candidateMessages.js';
-import {createWrappingLabel} from './candidateText.js';
+import {createWrappingLabel, candidateLineHeight} from './candidateText.js';
 
 // Secondary controls use less padding but retain their action target height.
 const DETAILS_INSET = 8;
@@ -11,6 +11,8 @@ const DETAILS_INSET = 8;
 const DETAILS_BORDER_WIDTH = 1;
 // Only the first short meaning is visible before the user opens the full entry.
 const DEFINITION_SUMMARY_CHARACTERS = 96;
+// Keep the word heading and one actual meaning line readable before scrolling.
+const MINIMUM_DEFINITION_LINES = 2;
 const WORDNET_URL = 'https://bond-lab.github.io/wnja/index.ja.html';
 
 export class CandidateDetail {
@@ -89,7 +91,8 @@ export class CandidateDetail {
         const headerHeight = Math.ceil(this._header.get_preferred_height(contentWidth)[1]);
         const maximumPixelHeight = Math.max(0, Math.floor(maximumHeight));
         const availablePixelHeight = Math.max(0, Math.floor(availableHeight));
-        const heightBudget = Math.min(availablePixelHeight, maximumPixelHeight);
+        const heightBudget = Math.max(headerHeight + candidateLineHeight(fontSize, this.actor) * MINIMUM_DEFINITION_LINES,
+            Math.min(availablePixelHeight, maximumPixelHeight));
         const contentBudget = Math.max(0, heightBudget - headerHeight);
         // Both the short meaning and full entry scroll within the right column;
         // opening the dictionary never consumes rows from the candidate list.

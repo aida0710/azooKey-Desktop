@@ -2,13 +2,15 @@ import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import St from 'gi://St';
 import {messages} from './candidateMessages.js';
-import {createWrappingLabel} from './candidateText.js';
+import {createWrappingLabel, candidateLineHeight} from './candidateText.js';
 import {attachCandidateAction} from './candidateAccessibility.js';
 
 // Reduce row whitespace while keeping a 44px target for single-line candidates.
 const ROW_VERTICAL_INSET = 5;
 const ROW_HORIZONTAL_INSET = 8;
 const MINIMUM_CONTENT_HEIGHT = 32;
+// The row border is part of both the visible target and its reserved height.
+const ROW_BORDER_WIDTH = 1;
 
 export class CandidateNavigation {
     constructor({select, changed, preview}) {
@@ -33,6 +35,11 @@ export class CandidateNavigation {
         this._scroll.set_child(this._rows);
         this.actor.add_child(this._scroll);
         this._scroll.get_vadjustment().connect('notify::page-size', () => this._revealSelection());
+    }
+
+    minimumRowHeight({fontSize}) {
+        return Math.max(MINIMUM_CONTENT_HEIGHT, candidateLineHeight(fontSize, this.actor)) +
+            ROW_VERTICAL_INSET * 2 + ROW_BORDER_WIDTH * 2;
     }
 
     _replaceHeaderButtons() {
@@ -219,7 +226,7 @@ export class CandidateNavigation {
             const background = button.checked ? palette.selection : palette.surface;
             button.set_style(`background-color: ${background}; color: ${foreground};
                 background-gradient-direction: none; box-shadow: none;
-                border: 1px solid ${button.checked ? palette.text : palette.border}; border-radius: 8px;
+                border: ${ROW_BORDER_WIDTH}px solid ${button.checked ? palette.text : palette.border}; border-radius: 8px;
                 padding: ${ROW_VERTICAL_INSET}px ${ROW_HORIZONTAL_INSET}px;
                 min-height: ${MINIMUM_CONTENT_HEIGHT}px; min-width: 0;`);
         }

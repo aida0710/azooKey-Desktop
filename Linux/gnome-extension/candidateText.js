@@ -9,3 +9,14 @@ export function createWrappingLabel(properties) {
     label.clutter_text.set_ellipsize(Pango.EllipsizeMode.NONE);
     return label;
 }
+
+// Inherit the visible actor's stage and theme before reserving a Japanese text row.
+export function candidateLineHeight(fontSize, measurementParent) {
+    const label = new St.Label({text: 'あ', style: `font-size: ${fontSize}px;`});
+    try {
+        measurementParent.add_child(label);
+        return Math.ceil(label.get_preferred_height(-1)[1]);
+    } finally {
+        label.destroy();
+    }
+}
