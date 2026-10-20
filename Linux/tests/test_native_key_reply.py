@@ -11,6 +11,10 @@ from azookey.keymap import translate
 from azookey.native_key_reply import NativeKeyReply
 
 
+# F9 and F10 can commit either all input or only the selected segment.
+ROMAN_CONVERSION_KEYS = (0xFFC6, 0xFFC7)
+
+
 class ManualWorker:
     def __init__(self):
         self.requests = []
@@ -62,6 +66,41 @@ class NativeKeyReplyTests(unittest.TestCase):
         reply.finish(False)
         self.input.cancel()
         self.assertEqual(len(self.effects), 2)
+
+    def test_roman_conversion_returns_the_original_home_only_after_the_full_commit(self):
+        for keyval in ROMAN_CONVERSION_KEYS:
+            with self.subTest(keyval=keyval):
+                self.setUp()
+                self.input.snapshot = {"inputState": "selecting", "preedit": "日本語"}
+                self.key(keyval)
+                self.assertTrue(self.input.pending_native_key(translate(0xFF50, 4)))
+                reply = self.key(0xFF50, 4, deferred=True)
+                self.assertEqual(self.effects, [])
+                self.worker.respond(0, {
+                    "inputState": "none", "preedit": "", "commits": ["nihongo"], "consumed": True,
+                })
+                self.assertEqual([effect[0] for effect in self.effects], ["render", "reply"])
+                self.assertEqual(self.effects[-1], ("reply", 0xFF50, False))
+                reply.finish(False)
+                self.assertEqual(len(self.effects), 2)
+
+    def test_partial_roman_conversion_keeps_home_in_core_until_its_actual_reply(self):
+        for keyval in ROMAN_CONVERSION_KEYS:
+            with self.subTest(keyval=keyval):
+                self.setUp()
+                self.input.snapshot = {"inputState": "selecting", "preedit": "日本語です"}
+                self.key(keyval)
+                self.assertTrue(self.input.pending_native_key(translate(0xFF50, 4)))
+                self.key(0xFF50, 4, deferred=True)
+                self.worker.respond(0, {
+                    "inputState": "composing", "preedit": "です", "commits": ["nihongo"], "consumed": True,
+                })
+                self.assertEqual([effect[0] for effect in self.effects], ["render"])
+                self.worker.respond(1, {
+                    "inputState": "composing", "preedit": "です", "consumed": True,
+                })
+                self.assertEqual(self.effects[-1], ("reply", 0xFF50, True))
+                self.assertFalse(any(effect[0] == "forward" for effect in self.effects))
 
     def test_pending_english_keys_keep_literal_preedit_for_focus_recovery(self):
         self.key(0xFF22)
@@ -178,6 +217,7 @@ class NativeKeyEngineFailureTests(unittest.TestCase):
     def test_reconversion_replay_keeps_a_native_key_whose_original_call_already_completed(self):
         forwarded = []
         engine = SimpleNamespace(
+            destroyed=False, private=False, focused=True, native_key_reply=None,
             do_process_key_event=lambda *_: False,
             forward_key_event=lambda *key: forwarded.append(key),
         )
@@ -192,14 +232,19 @@ class NativeKeyEngineFailureTests(unittest.TestCase):
         reply = NativeKeyReply(lambda consumed: effects.append(("reply", consumed)))
         def reload_settings():
             raise ValueError("synthetic settings failure")
+        def recover_pending(*, key, key_reply):
+            effects.append(("recover",))
+            self.assertEqual(key, (0xFF50, 102, 4))
+            key_reply(False)
         engine = SimpleNamespace(
             native_key_passthrough=False, native_key_reply=reply,
             private=False, focused=True, selected_text="", sensitive=False,
             transformation=SimpleNamespace(input_changed=lambda: None),
             ai_review=SimpleNamespace(confirmation=None, key=lambda _: False),
-            reconversion=SimpleNamespace(process=lambda *_: False),
+            reconversion=SimpleNamespace(process=lambda *_, **__: False),
             input=SimpleNamespace(pending=[object()], recovering=False, is_resetting=False,
-                                  recover_pending=lambda: effects.append(("recover",))),
+                                  recover_pending=recover_pending),
+            defer_native_key=lambda _key: reply.defer(),
             reload_settings=reload_settings,
             forward_key_event=lambda *key: effects.append(("forward", key)),
         )

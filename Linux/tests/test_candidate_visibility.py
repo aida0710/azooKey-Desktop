@@ -4,7 +4,7 @@ import pathlib
 import sys
 import unittest
 import weakref
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -85,6 +85,9 @@ class CandidateVisibilityTests(unittest.TestCase):
             reconversion=mock.Mock(), anchor=mock.Mock(), input=mock.Mock(),
             clear_reconversion=mock.Mock(), commit_text=mock.Mock(),
             forward_key_event=mock.Mock(),
+        )
+        self.engine.prepare_composition_recovery = MethodType(
+            Engine.prepare_composition_recovery, self.engine,
         )
         self.engine.reconversion.take_recovery.return_value = ("", [])
 

@@ -2,6 +2,8 @@
 MESSAGES = {
     "undo_menu": "直前の確定を取り消す（Ctrl+Shift+Backspace）",
     "selection_menu": "選択した文字を再変換（Ctrl+Shift+R）",
+    "confirm_undo": "Enterで直前の確定を取り消す / Escで取消",
+    "confirm_selection": "Enterで選択した文字を再変換 / Escで取消",
     "reading_input": "読みを入力: {reading}　Enterで再変換 / Escで取消",
     "private_input": "保護された入力では再変換できません",
     "replacement_unavailable": "この入力先では範囲の置換を確認できません",
