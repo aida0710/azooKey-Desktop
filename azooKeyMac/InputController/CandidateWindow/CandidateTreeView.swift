@@ -221,7 +221,9 @@ final class CandidateTreeView: NSView {
             // The chosen word moves to the top row. Commit on the first click
             // so a second click cannot hit a different word at the old position.
             button.clicked = { [weak self, weak button] _ in
-                guard let self, let button, self.nodeButtons[node.id] === button else { return }
+                guard let self, let button, self.nodeButtons[node.id] === button else {
+                    return
+                }
                 self.selectNode(node.id, submit: true)
             }
             canvas.addSubview(button)
@@ -233,12 +235,18 @@ final class CandidateTreeView: NSView {
             terminal.toolTip = "候補 \(index + 1) を確定"
             terminal.setAccessibilityLabel(terminal.toolTip)
             terminal.clicked = { [weak self, weak terminal] _ in
-                guard let self, let terminal, self.terminalButtons[index] === terminal else { return }
+                guard let self, let terminal, self.terminalButtons[index] === terminal else {
+                    return
+                }
                 self.submit(candidateIndex: index)
             }
             canvas.addSubview(terminal)
             terminalButtons[index] = terminal
         }
+        refreshControlAppearance()
+    }
+
+    private func refreshControlAppearance() {
         let path = Set(displayedColumns.compactMap(\.first))
         for (id, button) in nodeButtons {
             if let frame = nodeFrames[id] { button.frame = frame }
