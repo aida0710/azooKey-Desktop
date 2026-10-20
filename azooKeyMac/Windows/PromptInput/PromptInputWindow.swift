@@ -16,6 +16,7 @@ final class PromptInputWindow: NSWindow {
     private var applyCallback: ((String) -> Void)?
     private var isTextFieldCurrentlyFocused: Bool = false
     private var request: PromptInputRequest?
+    private var requestIdentifier = UUID()
     private var previousApp: NSRunningApplication?
 
     init() {
@@ -57,26 +58,29 @@ final class PromptInputWindow: NSWindow {
         guard let request else {
             return
         }
+        let requestIdentifier = self.requestIdentifier
         let contentView = PromptInputView(
             initialPrompt: request.initialPrompt,
             requestConfiguration: request.configuration,
             targetText: request.targetText,
-            onSubmit: { [weak self] prompt in
-                self?.completion?(prompt)
-                self?.close()
-            },
             onPreview: { [weak self] prompt, includeContext, callback in
-                self?.previewCallback?(prompt, includeContext, callback)
+                guard let self, self.isCurrentRequest(requestIdentifier) else {
+                    callback(.failure(.targetChanged))
+                    return
+                }
+                self.previewCallback?(prompt, includeContext, callback)
             },
-            onApply: { [weak self] transformedText in
-                self?.applyCallback?(transformedText)
+            onApply: { [weak self] text, prompt in
+                self?.finish(prompt: prompt, textToApply: text, requestIdentifier: requestIdentifier)
             },
             onCancel: { [weak self] in
-                self?.completion?(nil)
-                self?.close()
+                self?.finish(prompt: nil, requestIdentifier: requestIdentifier)
             },
             onPreviewModeChanged: { [weak self] isPreviewMode in
-                self?.resizeWindowToContent(isPreviewMode: isPreviewMode)
+                guard let self, self.isCurrentRequest(requestIdentifier) else {
+                    return
+                }
+                self.resizeWindowToContent(isPreviewMode: isPreviewMode)
             }
         )
 
@@ -97,6 +101,7 @@ final class PromptInputWindow: NSWindow {
         self.applyCallback = onApply
         self.completion = completion
         self.request = request
+        self.requestIdentifier = UUID()
         let frontmostApp = NSWorkspace.shared.frontmostApplication
         if let frontmostApp, frontmostApp.processIdentifier != NSRunningApplication.current.processIdentifier {
             self.previousApp = frontmostApp
@@ -174,24 +179,34 @@ final class PromptInputWindow: NSWindow {
     }
 
     override func close() {
-        // Call completion handler to reset flags before closing
-        if let completion = self.completion {
-            completion(nil)
-        }
+        finish(prompt: nil)
+    }
 
-        // Restore focus to the previous application
-        if let previousApp = self.previousApp {
-            DispatchQueue.main.async {
-                previousApp.activate(options: [])
-            }
-        }
+    private func isCurrentRequest(_ identifier: UUID) -> Bool {
+        request != nil && requestIdentifier == identifier
+    }
 
-        super.close()
+    private func finish(prompt: String?, textToApply: String? = nil, requestIdentifier: UUID? = nil) {
+        guard requestIdentifier.map(isCurrentRequest) ?? true else {
+            return
+        }
+        let completion = self.completion
+        let apply = self.applyCallback
+        let previousApp = self.previousApp
+        // Clear callbacks before closing so reentrant close notifications finish once.
         self.completion = nil
         self.previewCallback = nil
         self.applyCallback = nil
+        self.previousApp = nil
         self.request = nil
+        super.close()
         self.contentView = nil
+        completion?(prompt)
+        if let textToApply {
+            apply?(textToApply)
+        } else if let previousApp {
+            previousApp.activate(options: [])
+        }
     }
 
     override var canBecomeKey: Bool {
@@ -210,7 +225,6 @@ final class PromptInputWindow: NSWindow {
         // Handle navigation keys at window level
         if event.keyCode == 53 { // Escape key
             // Send escape event to SwiftUI view and close window
-            completion?(nil)
             close()
         } else if event.keyCode == 126 { // Up arrow key
             // Only handle up arrow if not in text field (CustomTextField handles it directly)

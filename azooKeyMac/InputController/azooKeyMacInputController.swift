@@ -36,6 +36,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
     var promptInputWindow: PromptInputWindow
     var isPromptWindowVisible: Bool = false
+    var selectedTextTransformTarget: SelectedTextReplacement?
 
     // ダブルタップ検出用
     private var lastKey: (time: TimeInterval, code: UInt16) = (0, 0)
@@ -191,10 +192,16 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         self.candidatesWindow.orderOut(nil)
         self.candidatesViewController.hide()
         self.hidePredictionWindow()
+        if let client = sender as? IMKTextInput {
+            MacSelectedTextTransformSession.shared.activate(client: client)
+        }
     }
 
     @MainActor
     override func deactivateServer(_ sender: Any!) {
+        if let client = sender as? IMKTextInput {
+            MacSelectedTextTransformSession.shared.deactivate(client: client)
+        }
         self.reconversionClient.clear()
         self.reconversionStatusPanel.orderOut(nil)
         self.cancelReplaceSuggestion()
