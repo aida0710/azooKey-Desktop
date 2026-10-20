@@ -39,16 +39,22 @@ AZOOKEY_BRIDGE=/path/to/azookey-desktop-bridge \
   dbus-run-session -- xvfb-run -a bash Tools/tests/linux-desktop.sh
 
 AZOOKEY_BRIDGE=/path/to/azookey-desktop-bridge \
-  python3 Tools/measure-linux-input.py --samples 10
+  python3 Tools/measure-linux-input.py --samples 10 --source-commit "$BUILD_COMMIT"
 AZOOKEY_BRIDGE=/path/to/zenzai-bridge AZOOKEY_RESOURCES=/path/to/verified-models \
-  python3 Tools/measure-linux-input.py --samples 10 --zenzai
+  python3 Tools/measure-linux-input.py --samples 10 --zenzai --source-commit "$BUILD_COMMIT"
 ```
 
 遅延試験は固定の模擬入力だけを使う。入力順序、Enter連打、Escape、2つの入力欄、reset、無応答、kill後の次の入力、設定読込失敗、カーソル編集を実IBusで検査する。設定と学習先、D-Bus、Xvfbは試験ごとに隔離する。
 
 ソース試験では[IBusのcomponent検索パス](https://manpages.ubuntu.com/manpages/noble/man1/ibus.1.html)を空の一時フォルダーに限定し、addressファイルとキャッシュも隔離する。これにより、先に導入したパッケージがソースの登録前に自動起動する競合を防ぐ。試験後は実サービスのPIDが起動したソースプロセスと一致することを検査し、実行パスとSHA256を記録する。`AZOOKEY_INSTALLED_TEST=1`による配布物の試験では、導入済みcomponentを使う。
 
-計測スクリプトは短文7文字と長文94文字を各10回、新しいプロセスで入力する。初期化、最初のキー、最初の文、同じ文の再入力についてp50/p95/maxをJSONで出す。ここで初回とはプロセスの初回であり、OSのページキャッシュを消した条件ではない。測定値はbridge往復時間で、画面描画完了までの時間ではない。Zenzai測定は`zenzaiLoaded`を検査し、辞書変換だけで成功としない。
+`BUILD_COMMIT`には配布物の`build-info.txt`に記録された40桁のcommitを指定する。計測スクリプトはライブ変換ON/OFFそれぞれで、短文と長文を各10回、新しいプロセスで入力する。`--live on`または`--live off`で片方だけを再現できる。初期化、最初のキー、文字入力、Spaceによる変換、Enterによる確定を分け、p50/p95/p99/maxと元の要求ごとの時間をJSONで出す。ライブ変換OFFの最初のSpaceは候補一覧を開かず変換文をpreviewするため、候補描画要求とは呼ばない。Spaceの後のEnterが部分候補を確定した場合は、残りもEnterで確定し、追加の要求を記録する。残りをresetで捨てて全文確定と見なさない。
+
+各プロセスで最初の固定文、同じ文の再入力、別の固定文の順に測る。同文再入力は変換キャッシュの効果を含むため、一般的な継続使用の速度とは分けて読む。ここで初回とは新しいプロセスの初回であり、OSのページキャッシュを消した条件ではない。初期化はプロセス生成から最初の設定適用応答まで、各キーは`Bridge.request`の呼出しからJSON応答の読込完了までを測る。実行ファイル・計測コード・モデル・固定文のSHA256と設定を残す。OS、CPU、資源制限、ビルド種別は同じ証跡フォルダーへ別途記録する。
+
+`measurement_scope`は`bridge-roundtrip`で、キー受付、preedit表示、候補描画の完了時間ではない。[リリース検証台帳](ux-validation.md)の`input-to-ui`測定として登録しない。通常辞書の測定ではモデル指定を除き、両モードで全キーの`zenzaiLoaded`が指定と一致することを確認する。学習と外部AIは無効、ツリー表示と相対スコアは有効に固定する。設定未反映、変換候補なし、確定の停滞、変換器再起動は失敗として止める。
+
+p50は中央値、p95とp99はnearest-rank法で求める。小標本ではp99が最大値と一致するため、必ず`samples`の件数とともに読む。文字入力とSpace/Enterを合算した`all_keys`は補助値であり、操作別の比較には各集計を使う。元の要求時間には入力本文や候補本文を含めない。
 
 2026-10-20のUbuntu 24.04 amd64 VM・2 vCPUで、AI候補後の編集を含む35キーを検査した。250 ms遅延時の受付はp50 1.285 ms、p95 2.443 ms、最大3.362 ms、2秒遅延時はp50 1.124 ms、p95 3.011 ms、最大3.052 msだった。
 
