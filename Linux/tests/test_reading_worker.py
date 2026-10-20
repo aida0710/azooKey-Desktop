@@ -87,7 +87,7 @@ class ReadingWorkerTests(unittest.TestCase):
     def test_rejected_actions_and_other_contexts_do_not_discard_the_active_reading(self):
         self.assertEqual(self.type("nihongo")["preedit"], "にほんご")
         before = self.key(0xFF51)
-        rejected = self.key(0x20)
+        rejected = self.key(0xFF09)
         self.assertEqual(rejected["error"], "unsupported_reading_action")
         self.assertFalse(rejected["consumed"])
         for field in ("reading", "preedit", "cursor", "generation", "inputState"):
