@@ -159,6 +159,9 @@ class ReconversionCoordinator:
         self.delete(replacement["offset"], replacement["count"])
 
     def surrounding_changed(self):
+        if self.phase == "confirming":
+            self._validate_confirmation(self.epoch)
+            return
         if self.phase != "deleting":
             return
         current = self.context()
@@ -166,13 +169,15 @@ class ReconversionCoordinator:
             self._stop_timeout()
             self.phase = "confirming"
             # From this acknowledgement onward the original text exists as
-            # visible preedit, so ordinary focus/error recovery preserves it.
+            # visible preedit. Recovery is safe only while its target matches.
             original = self.replacement["text"]
+            epoch = self.epoch
             self.inputs.publish({
                 "preedit": original, "cursor": len(original), "reading": original,
                 "readingCursor": len(original), "inputState": "composing",
             })
-            epoch = self.epoch
+            if not self._validate_confirmation(epoch):
+                return
             self.inputs.submit(
                 "confirm-reconversion",
                 payload={"reconversionToken": self.replacement["token"], "reconversionContext": current},
@@ -182,17 +187,39 @@ class ReconversionCoordinator:
             self._fail("changed_context")
 
     def _confirmed(self, epoch, snapshot):
-        if epoch != self.epoch:
+        if not self._validate_confirmation(epoch):
             return
         if snapshot.get("reconversionError") or snapshot.get("error"):
             self.status(message(snapshot.get("reconversionError", "replacement_unavailable")))
             self.inputs.recover_pending()
             return
         self.inputs.publish(snapshot)
+        if not self._validate_confirmation(epoch):
+            return
         self.phase = None
         self.source = self.expected = self.replacement = None
         self.status("")
         self._drain()
+
+    def _validate_confirmation(self, epoch):
+        if epoch != self.epoch or self.phase != "confirming":
+            return False
+        if same_document(self.expected, self.context()):
+            return True
+        self.cancel()
+        self.inputs.cancel()
+        self.inputs.recover("")
+        self.status(message("changed_context"))
+        return False
+
+    def take_recovery(self, text):
+        """Consume recovery text and buffered keys only for the same target."""
+        changed = self.phase == "confirming" and not same_document(self.expected, self.context())
+        queued = self.cancel()
+        if changed:
+            self.status(message("changed_context"))
+            return "", deque()
+        return text, queued
 
     def _drain(self):
         while self.queued and self.phase in (None, "reading"):
