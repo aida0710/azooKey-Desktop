@@ -52,7 +52,8 @@ struct DesktopDictionaryExchangeBridgeTests {
         #expect(replies[0]["dictionaryExchangeError"] as? String == "unsupportedVersion")
         #expect(replies[1]["dictionaryExchangeError"] as? String == "importFailed")
         let encoded = try JSONSerialization.data(withJSONObject: replies)
-        #expect(!String(decoding: encoded, as: UTF8.self).contains("PRIVATE_SOURCE"))
+        let json = try #require(String(data: encoded, encoding: .utf8))
+        #expect(!json.contains("PRIVATE_SOURCE"))
         #expect(replies.allSatisfy { $0["dictionaryImportItems"] == nil })
     }
 
