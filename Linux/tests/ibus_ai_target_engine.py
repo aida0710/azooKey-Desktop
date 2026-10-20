@@ -19,6 +19,11 @@ class AITargetFixtureEngine(engine_module.Engine):
     __gtype_name__ = "AzooKeyAITargetFixtureEngine"
     dialog_owner = None
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hold_ai_reply = False
+        self.held_ai_reply = None
+
     def do_destroy(self):
         print(json.dumps({"event": "engine-destroy", "engine": self.context_id}), flush=True)
         super().do_destroy()
@@ -37,8 +42,15 @@ class AITargetFixtureEngine(engine_module.Engine):
 
     def start_ai(self, snapshot, scope, *, prompt=None, completion=None):
         # The provider is the only replacement for product behavior. No API
-        # key is read and no network request is made.
-        GLib.idle_add(lambda: completion("変更済み") or GLib.SOURCE_REMOVE)
+        # key is read and no network request is made. Product completion still
+        # verifies the captured bridge generation and input focus epoch.
+        self.ai_pending = True
+        reply = (["変更済み"], snapshot.get("generation", -1), snapshot.get("reading", ""),
+                 completion, self.input.generation, self.input.cancelled)
+        if self.hold_ai_reply:
+            self.held_ai_reply = reply
+        else:
+            GLib.idle_add(self.finish_ai, *reply)
 
     def do_process_key_event(self, keyval, keycode, state):
         # IBus may construct one Engine per input context. Real GTK button
@@ -55,6 +67,13 @@ class AITargetFixtureEngine(engine_module.Engine):
                 owner.transformation.dialog.response(Gtk.ResponseType.OK)
         elif keyval == Gdk.KEY_F9:
             owner.transformation.close()
+        elif keyval == Gdk.KEY_F5:
+            owner.hold_ai_reply = True
+        elif keyval == Gdk.KEY_F6:
+            reply, owner.held_ai_reply = owner.held_ai_reply, None
+            owner.hold_ai_reply = False
+            if reply:
+                GLib.idle_add(owner.finish_ai, *reply)
         elif keyval == Gdk.KEY_F7:
             dialog = owner.transformation.dialog
             if dialog:
@@ -77,6 +96,9 @@ class AITargetFixtureEngine(engine_module.Engine):
                 "can_apply": bool(dialog and dialog.get_widget_for_response(Gtk.ResponseType.OK).get_sensitive()),
                 "can_copy": bool(dialog and dialog.copy_button.get_sensitive()),
                 "pending": owner.transformation.pending is not None,
+                "ai_reply_held": owner.held_ai_reply is not None,
+                "ai_input_epoch_changed": bool(owner.held_ai_reply
+                                               and owner.held_ai_reply[-1] is not owner.input.cancelled),
             }
             self.update_auxiliary_text(IBus.Text.new_from_string(json.dumps(status)), True)
         else:

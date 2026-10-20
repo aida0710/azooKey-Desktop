@@ -12,6 +12,11 @@ class AITransformationPreview:
         return self._pending_revision is not None
 
     @property
+    def pending_revision(self):
+        """Let the owning session reject callbacks from an edited prompt."""
+        return self._pending_revision
+
+    @property
     def applicable_text(self):
         return None if self.is_loading else self._text
 

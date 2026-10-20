@@ -22,6 +22,7 @@ class SelectedTextTransformation:
         self.dialog = None
         self.active = False
         self.revision = object()
+        self.request_revision = None
         self.target = None
         self.pending = None
         self.verifying = False
@@ -54,8 +55,8 @@ class SelectedTextTransformation:
             if accessible and selection == self.engine.current_transform_selection():
                 self.target = TransformationTarget(selection, accessible)
             self.dialog = PromptDialog(
-                lambda prompt, selected_scope, finish: self.engine.start_ai(
-                    snapshot, selected_scope, prompt=prompt, completion=finish),
+                lambda prompt, selected_scope, finish: self.request_preview(
+                    snapshot, scope=selected_scope, prompt=prompt, finish=finish),
                 initial_prompt, scope=scope, on_context_changed=self.engine.save_ai_context,
             )
             self.dialog.set_modal(True)
@@ -70,6 +71,25 @@ class SelectedTextTransformation:
             captured(None)
         else:
             self.inspect(selection, captured)
+
+    def request_preview(self, snapshot, *, scope, prompt, finish):
+        revision, dialog = self.revision, self.dialog
+        prompt_revision = dialog.preview.pending_revision
+        request_revision = self.request_revision = object()
+
+        def completed(text, *, input_context_unchanged=True):
+            if (not self.active or revision is not self.revision or dialog is not self.dialog
+                    or request_revision is not self.request_revision
+                    or prompt_revision is None or prompt_revision != dialog.preview.pending_revision):
+                return
+            self.request_revision = None
+            if not input_context_unchanged:
+                # A reply must not bring the prompt in front of another editor.
+                self.discard_target()
+                dialog.set_target_available(False)
+            finish(text)
+
+        self.engine.start_ai(snapshot, scope, prompt=prompt, completion=completed)
 
     @staticmethod
     def inspect(selection, completion):
@@ -190,12 +210,15 @@ class SelectedTextTransformation:
         else:
             self.reject()
 
-    def reject(self):
+    def discard_target(self):
         self.cancel_timeout()
         self.finish_opening_focus()
         self.target = self.pending = None
         self.dismissal_from_dialog = False
         self.verifying = False
+
+    def reject(self):
+        self.discard_target()
         if self.dialog:
             self.dialog.set_target_available(False)
             self.dialog.show_all()
@@ -209,6 +232,7 @@ class SelectedTextTransformation:
 
     def close(self):
         self.revision = object()
+        self.request_revision = None
         self.cancel_timeout()
         self.finish_opening_focus()
         self.active = False
