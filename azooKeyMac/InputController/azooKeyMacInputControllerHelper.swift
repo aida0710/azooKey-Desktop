@@ -15,7 +15,10 @@ extension azooKeyMacInputController {
         self.appMenu.addItem(self.transformSelectedTextMenuItem)
         self.appMenu.addItem(NSMenuItem.separator())
         self.appMenu.addItem(NSMenuItem(title: "設定…", action: #selector(self.openConfigWindow(_:)), keyEquivalent: ""))
-        self.appMenu.addItem(NSMenuItem(title: "View on GitHub…", action: #selector(self.openGitHubRepository(_:)), keyEquivalent: ""))
+        self.appMenu.addItem(NSMenuItem(title: Localization.text("support.title"), action: #selector(self.openSupportWindow(_:)), keyEquivalent: ""))
+        self.appMenu.addItem(NSMenuItem(title: Localization.text("support.issues"), action: #selector(self.openIssueReport(_:)), keyEquivalent: ""))
+        self.appMenu.addItem(NSMenuItem(title: Localization.text("support.releases"), action: #selector(self.openReleases(_:)), keyEquivalent: ""))
+        self.appMenu.addItem(NSMenuItem(title: Localization.text("support.upstream"), action: #selector(self.openUpstreamRepository(_:)), keyEquivalent: ""))
         self.updateTransformSelectedTextMenuItemEnabledState()
     }
 
@@ -93,11 +96,20 @@ extension azooKeyMacInputController {
         self.transformSelectedTextMenuItem.title = aiBackendEnabled ? TransformMenuTitle.normal : TransformMenuTitle.noBackend
     }
 
-    @objc func openGitHubRepository(_ sender: Any) {
-        guard let url = URL(string: "https://github.com/azooKey/azooKey-Desktop") else {
-            return
-        }
-        NSWorkspace.shared.open(url)
+    @objc func openIssueReport(_ sender: Any) {
+        NSWorkspace.shared.open(SupportLinks.issues)
+    }
+
+    @objc func openReleases(_ sender: Any) {
+        NSWorkspace.shared.open(SupportLinks.releases)
+    }
+
+    @objc func openUpstreamRepository(_ sender: Any) {
+        NSWorkspace.shared.open(SupportLinks.upstream)
+    }
+
+    @objc func openSupportWindow(_ sender: Any) {
+        (NSApplication.shared.delegate as? AppDelegate)?.openSupportWindow()
     }
 
     @objc func openConfigWindow(_ sender: Any) {
