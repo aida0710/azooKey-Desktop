@@ -23,7 +23,7 @@ jobs:
             xcodebuild -version
             xcrun swift --version
           } | tee build/nstextview-selection/source-and-sdk.log
-      - name: Observe seven cases in separate native processes
+      - name: Observe nine cases in separate native processes
         run: |
           python3 - <<'PYTHON'
           from pathlib import Path
@@ -34,6 +34,7 @@ jobs:
           for scenario in (
               "sentinel-both", "sentinel-location", "preview-then-clear",
               "commit-then-empty", "selected-range", "unicode-range", "sentinel-at-zero",
+              "valid-preview-then-clear", "valid-commit-then-empty",
           ):
               with (directory / f"{scenario}.log").open("w") as output:
                   completed = subprocess.run(

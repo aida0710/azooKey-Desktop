@@ -79,6 +79,15 @@ case "commit-then-empty":
     try commit("日本語", step: "commit")
     try mark("", selection: noSelection, step: "empty-refresh")
     try mark("あ", selection: NSRange(location: 1, length: 0), step: "next-input")
+case "valid-preview-then-clear":
+    try mark("日本語", selection: NSRange(location: 3, length: 0), step: "conversion")
+    try mark("にほんご", selection: NSRange(location: 4, length: 0), step: "preview")
+    try mark("", selection: NSRange(location: 0, length: 0), step: "clear")
+    try mark("あ", selection: NSRange(location: 1, length: 0), step: "next-input")
+case "valid-commit-then-empty":
+    try commit("日本語", step: "commit")
+    try mark("", selection: NSRange(location: 0, length: 0), step: "empty-refresh")
+    try mark("あ", selection: NSRange(location: 1, length: 0), step: "next-input")
 case "selected-range":
     try mark("にほんご", selection: NSRange(location: 1, length: 2), step: "selection")
 case "unicode-range":
