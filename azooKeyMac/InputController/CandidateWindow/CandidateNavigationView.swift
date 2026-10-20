@@ -4,7 +4,7 @@ import Core
 @MainActor
 private final class CandidateNavigationButton: NSButton {
     var activate: (() -> Void)?
-    var preview: (() -> Void)?
+    var preview: ((Bool) -> Void)?
     var selected = false
     override var acceptsFirstResponder: Bool { false }
     override func isAccessibilitySelected() -> Bool { selected }
@@ -19,7 +19,8 @@ private final class CandidateNavigationButton: NSButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func mouseDown(with event: NSEvent) { performClick(nil) }
     @objc private func invoke() { activate?() }
-    override func mouseEntered(with event: NSEvent) { preview?() }
+    override func mouseEntered(with event: NSEvent) { preview?(true) }
+    override func mouseExited(with event: NSEvent) { preview?(false) }
 
     override func updateTrackingAreas() {
         trackingAreas.forEach(removeTrackingArea)
@@ -39,7 +40,7 @@ private final class CandidateListDocument: NSView {
 final class CandidateNavigationView: NSView {
     var onSelection: ((Int, Bool) -> Void)?
     var onExpansion: (() -> Void)?
-    var onPreview: ((String) -> Void)?
+    var onPreview: ((Int, NSButton, Bool) -> Void)?
     private let status = NSTextField(labelWithString: "")
     private let toggle = CandidateNavigationButton()
     private let previous = CandidateNavigationButton()
@@ -80,6 +81,10 @@ final class CandidateNavigationView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func isCurrentCandidateButton(_ button: NSButton, candidateIndex: Int) -> Bool {
+        expanded && zip(rows, page.items).contains { row, item in row === button && item.index == candidateIndex }
+    }
 
     func update(page: CandidatePage, numbers: [Int: String], fontSize: CGFloat) {
         isHidden = page.totalCount == 0
@@ -127,11 +132,11 @@ final class CandidateNavigationView: NSView {
                 }
                 self.onSelection?(item.index, true)
             }
-            button.preview = { [weak self, weak button] in
+            button.preview = { [weak self, weak button] hovered in
                 guard let self, let button, self.expanded, self.rows.contains(button) else {
                     return
                 }
-                self.onPreview?(item.detailDescription)
+                self.onPreview?(item.index, button, hovered)
             }
             document.addSubview(button)
             return button
