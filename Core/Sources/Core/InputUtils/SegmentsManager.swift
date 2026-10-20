@@ -666,7 +666,7 @@ public final class SegmentsManager {
         let conversionTarget = self.conversionRangeEnd.map { self.composingText.prefix(toReadingPosition: $0) }
             ?? self.composingText
         var conversionResults = self.withConverter { converter in
-            converter.requestCandidates(
+            ConverterLearningConfiguration.requestCandidates(
                 conversionTarget,
                 options: options(
                     leftSideContext: leftSideContext,
@@ -674,7 +674,8 @@ public final class SegmentsManager {
                     requestRichCandidates: requestRichCandidates,
                     requireJapanesePrediction: Config.DebugPredictiveTyping().value ? .manualMix : .disabled,
                     requireEnglishPrediction: Config.DebugPredictiveTyping().value ? .manualMix : .disabled
-                )
+                ),
+                converter: converter
             )
         }
         if self.conversionRangeEnd != nil {
@@ -1184,7 +1185,7 @@ public final class SegmentsManager {
         composingText.insertAtCursorPosition(reading, inputStyle: .direct)
 
         let result = self.withConverter { converter in
-            converter.requestCandidates(
+            ConverterLearningConfiguration.requestCandidates(
                 composingText,
                 options: options(
                     leftSideContext: leftSideContext,
@@ -1192,7 +1193,8 @@ public final class SegmentsManager {
                     requestRichCandidates: false,
                     requireJapanesePrediction: .disabled,
                     requireEnglishPrediction: .disabled
-                )
+                ),
+                converter: converter
             )
         }
         return result.mainResults.first?.text
