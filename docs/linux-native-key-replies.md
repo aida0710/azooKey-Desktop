@@ -36,7 +36,9 @@ F9/F10 は全文または一部の入力を確定する。後続の Home 等を�
 - Muhenkan → Shift+A → Left → Shift+B の順序と本文 BA。
 - Enter → Control press → Home press/release → Control release の順序。確定後に Home を返し、ForwardKeyEvent は出さない。
 - 待機中の focus-out / Reset / 変換器無応答と停止で、元欄の一度だけ回収・別欄への挿入なし・応答の一度だけ完了。
-- 独立した GetEngine 呼出しの応答時間。これは保留キー自身の応答時間と区別する。
+- 独立した GetEngine 呼出しによる IBus daemon の応答時間。これは Engine 自身の処理ループや保留キーの応答時間とは区別する。
+
+既存の `ibus_async_integration.py` は、キーの応答を待つ間に Engine プロセスの `RendererStatus` を呼び、処理ループが100ms以内に応答することを検査する。元のキーは入力順序を守るために変換完了まで待つ場合があり、その完了時間は別に記録する。GTK の同期入力による画面側の待ち時間は、この検査だけでは判断しない。GI callback 内の失敗は呼出元へ伝え、重複した完了通知を標準エラー出力だけで済ませない。
 
 `ibus_native_toolkits.py` は別プロセスの GTK4 / Qt の実入力欄へ XTest キーを送る。日本語モードの未確定表示とロード済み IBus module を陽性対照とし、元文書・カーソル・native 挿入イベント・UI timer を保存する。IBus GTK4 module、PyQt6、Xvfb、libXtst を備えた専用環境で実行する。
 
