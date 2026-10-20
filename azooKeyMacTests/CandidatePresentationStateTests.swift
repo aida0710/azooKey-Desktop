@@ -118,4 +118,36 @@ final class CandidatePresentationStateTests: XCTestCase {
             })
         }
     }
+
+    func testDisclosureActionsFromAnOldCandidateGenerationOrInputModeCannotToggleTheCurrentView() throws {
+        let view = CandidateActionsView(frame: .zero)
+        var treeToggles = 0
+        var detailToggles = 0
+        view.onTreeToggle = { treeToggles += 1 }
+        view.onDetailsToggle = { detailToggles += 1 }
+        view.update(candidateIndex: 7, generation: 1, treeExpanded: false, detailsExpanded: false,
+                    enterConfirmsCandidate: false)
+        let oldButtons = descendants(in: view).compactMap { $0 as? NSButton }.filter {
+            $0.accessibilityIdentifier() != "candidate-confirm"
+        }
+        view.update(candidateIndex: 7, generation: 2, treeExpanded: false, detailsExpanded: false,
+                    enterConfirmsCandidate: false)
+        oldButtons.forEach { $0.performClick(nil) }
+        XCTAssertEqual(treeToggles, 0)
+        XCTAssertEqual(detailToggles, 0)
+
+        let composingButtons = descendants(in: view).compactMap { $0 as? NSButton }.filter {
+            $0.accessibilityIdentifier() != "candidate-confirm"
+        }
+        view.update(candidateIndex: 7, generation: 2, treeExpanded: false, detailsExpanded: false,
+                    enterConfirmsCandidate: true)
+        composingButtons.forEach { $0.performClick(nil) }
+        XCTAssertEqual(treeToggles, 0)
+        XCTAssertEqual(detailToggles, 0)
+        descendants(in: view).compactMap { $0 as? NSButton }.filter {
+            $0.accessibilityIdentifier() != "candidate-confirm"
+        }.forEach { $0.performClick(nil) }
+        XCTAssertEqual(treeToggles, 1)
+        XCTAssertEqual(detailToggles, 1)
+    }
 }

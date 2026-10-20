@@ -7,8 +7,8 @@ final class CandidateActionsView: NSView {
     var onTreeToggle: (() -> Void)?
     var onDetailsToggle: (() -> Void)?
     var onSubmit: ((Int) -> Void)?
-    private let treeToggle = CandidatePresentationButton()
-    private let detailsToggle = CandidatePresentationButton()
+    private var treeToggle = CandidatePresentationButton()
+    private var detailsToggle = CandidatePresentationButton()
     private var confirm = CandidatePresentationButton()
     private var candidateIndex: Int?
     private var generation: UInt = 0
@@ -29,10 +29,7 @@ final class CandidateActionsView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        addSubview(treeToggle)
-        addSubview(detailsToggle)
-        treeToggle.activate = { [weak self] in self?.onTreeToggle?() }
-        detailsToggle.activate = { [weak self] in self?.onDetailsToggle?() }
+        installDisclosureButtons()
         installConfirmButton()
     }
 
@@ -40,6 +37,10 @@ final class CandidateActionsView: NSView {
 
     func update(candidateIndex: Int?, generation: UInt, treeExpanded: Bool, detailsExpanded: Bool,
                 enterConfirmsCandidate: Bool) {
+        if self.generation != generation || self.enterConfirmsCandidate != enterConfirmsCandidate {
+            // Queued disclosure actions must not change a later candidate generation's presentation.
+            installDisclosureButtons()
+        }
         if self.candidateIndex != candidateIndex || self.generation != generation ||
             self.enterConfirmsCandidate != enterConfirmsCandidate {
             self.candidateIndex = candidateIndex
@@ -57,6 +58,34 @@ final class CandidateActionsView: NSView {
         treeToggle.setAccessibilityValue(treeExpanded)
         detailsToggle.setAccessibilityValue(detailsExpanded)
         needsLayout = true
+    }
+
+    private func installDisclosureButtons() {
+        for button in [treeToggle, detailsToggle] {
+            button.activate = nil
+            button.isEnabled = false
+            button.removeFromSuperview()
+        }
+        let treeButton = CandidatePresentationButton()
+        let detailsButton = CandidatePresentationButton()
+        treeToggle = treeButton
+        detailsToggle = detailsButton
+        treeButton.setAccessibilityIdentifier("candidate-tree-toggle")
+        detailsButton.setAccessibilityIdentifier("candidate-details-toggle")
+        treeButton.activate = { [weak self, weak treeButton] in
+            guard let self, let treeButton, self.treeToggle === treeButton else {
+                return
+            }
+            self.onTreeToggle?()
+        }
+        detailsButton.activate = { [weak self, weak detailsButton] in
+            guard let self, let detailsButton, self.detailsToggle === detailsButton else {
+                return
+            }
+            self.onDetailsToggle?()
+        }
+        addSubview(treeButton)
+        addSubview(detailsButton)
     }
 
     private func installConfirmButton() {
