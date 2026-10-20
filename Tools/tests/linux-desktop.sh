@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 TEST_DATA="$(mktemp -d)"
 export AZOOKEY_DATA_DIR="$TEST_DATA/data"
+export XDG_CONFIG_HOME="$TEST_DATA/config"
 export GDK_BACKEND=x11
 export NO_AT_BRIDGE=1
 ibus-daemon --xim --panel=disable --config=disable > "$TEST_DATA/engine.log" 2>&1 &
