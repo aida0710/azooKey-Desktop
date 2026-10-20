@@ -8,7 +8,7 @@ export class CandidateDetail {
             can_focus: false,
             hscrollbar_policy: St.PolicyType.NEVER,
             vscrollbar_policy: St.PolicyType.AUTOMATIC,
-            style: 'background-color: #202124; padding: 8px;',
+            style: 'padding: 8px;',
         });
         const content = new St.BoxLayout({vertical: true});
         this.label = new St.Label({accessible_name: messages.detail});
@@ -21,11 +21,15 @@ export class CandidateDetail {
 
     update({text, fontSize, width}) {
         this.label.set_width(Math.max(1, width - 16));
-        this.label.set_style(`font-size: ${fontSize}px; color: #eeeeef;`);
+        this.label.set_style(`font-size: ${fontSize}px;`);
         if (text !== this.label.text) {
             this.label.text = text;
             this.actor.get_vadjustment().value = 0;
         }
+    }
+
+    applyPalette(palette) {
+        this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text}; padding: 8px;`);
     }
 
     scrollPage(forward) {

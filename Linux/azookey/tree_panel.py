@@ -7,6 +7,7 @@ from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo
 
 from .candidate_accessibility import CandidateAction
 from .candidate_detail import CandidateDetail
+from .candidate_theme import CandidateTheme, score_role
 from .i18n import text as message
 
 
@@ -31,9 +32,6 @@ class TreePanel(Gtk.Window):
             .azookey-tree .candidate-action {
                 background: transparent; border: none; box-shadow: none;
                 padding: 0; min-width: 0; min-height: 0;
-            }
-            .azookey-tree .candidate-detail, .azookey-tree .candidate-detail viewport {
-                background: @theme_base_color; border: none;
             }
         """)
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
@@ -66,10 +64,16 @@ class TreePanel(Gtk.Window):
         self.connect("destroy", self.cancel_scroll)
         self.connect("hide", self.clear_placement)
         self.connect("size-allocate", lambda *_: self.position() if self.get_visible() else None)
+        self.theme = CandidateTheme(self, changed=self.refresh_appearance)
+        self.refresh_appearance()
 
     def clear_placement(self, *_args):
         self.placement_side = None
         self.layout_diagnostics = {}
+
+    def refresh_appearance(self):
+        self.details.apply_palette(self.theme.palette)
+        self.canvas.queue_draw()
 
     def cancel_scroll(self, *_args):
         if self.scroll_idle:
@@ -261,9 +265,7 @@ class TreePanel(Gtk.Window):
         context.set_source_rgba(0, 0, 0, 0)
         context.paint()
         context.set_operator(cairo.OPERATOR_OVER)
-        foreground = self.get_style_context().get_color(Gtk.StateFlags.NORMAL)
-        found, base = self.get_style_context().lookup_color("theme_base_color")
-        background = (base.red, base.green, base.blue) if found else (0.97, 0.97, 0.98)
+        background = self.theme.rgb("background")
         canvas_width, canvas_height = self.canvas.get_size_request()
         context.set_source_rgb(*background)
         context.new_sub_path()
@@ -281,45 +283,54 @@ class TreePanel(Gtk.Window):
             x1, y1, width, height = frames.get(node.get("parent"), (4, 18, 0, 0))
             x2, y2, _, h2 = frames[node["id"]]
             start, end = (x1 + width, y1 + height / 2), (x2, y2 + h2 / 2)
-            context.set_source_rgba(*(self.score_color(scores.get(node["id"])) if node["id"] in selected else (0.5, 0.5, 0.55, 0.55)))
-            context.set_line_width(2 if node["id"] in selected else 0.75)
+            active = node["id"] in selected
+            context.set_source_rgb(*self.theme.rgb("text" if active else "border"))
+            context.set_line_width(3 if active else 1)
+            context.set_dash([] if active else [2, 3])
             middle = (start[0] + end[0]) / 2
             context.move_to(*start)
             context.curve_to(middle, start[1], middle, end[1], *end)
             context.stroke()
-        context.set_source_rgb(0.5, 0.5, 0.55)
+        context.set_dash([])
+        context.set_source_rgb(*self.theme.rgb("text"))
         context.arc(4, 18, 3, 0, 6.2832)
         context.fill()
         for kind, index, x, y, width, height, text, reading in self.rectangles:
             active = index in selected if kind == "node" else index == self.snapshot.get("selection")
-            context.set_source_rgba(*(self.score_color(scores.get(index)) if active else (*background, 1)))
+            context.set_source_rgb(*self.theme.rgb("selection" if active else "surface"))
             radius = 4
             context.new_sub_path()
             for cx, cy, start in ((x + width - radius, y + radius, -1.5708), (x + width - radius, y + height - radius, 0),
                                   (x + radius, y + height - radius, 1.5708), (x + radius, y + radius, 3.1416)):
                 context.arc(cx, cy, radius, start, start + 1.5708)
             context.close_path()
-            context.fill()
+            context.fill_preserve()
+            if active:
+                context.set_source_rgb(*self.theme.rgb("text"))
+                context.set_line_width(3 if self.theme.high_contrast else 2)
+                context.stroke()
+            else:
+                context.new_path()
             if kind == "node" and index == self.snapshot.get("focusedNode"):
-                context.set_source_rgba(1, 1, 1, 0.9)
-                context.set_line_width(1.5)
+                context.set_source_rgb(*self.theme.rgb("selectionText" if active else "text"))
+                context.set_line_width(2)
                 context.move_to(x + 6, y + height - 4)
                 context.line_to(x + width - 6, y + height - 4)
                 context.stroke()
-            color = (1, 1, 1) if active else (foreground.red, foreground.green, foreground.blue)
+            color = self.theme.rgb("selectionText" if active else "text")
             inset = 2 if self.aligned else 4
             size = self.font_size if kind == "node" else max(14, self.font_size - 4)
             self.text(context, text, x + inset, y, width - inset * 2, size, color, self.aligned, height)
             if kind == "node":
                 score = scores.get(index)
-                self.text(context, str(score) if score is not None else "—",
-                          x, y + height, width, 12, (foreground.red, foreground.green, foreground.blue),
-                          False, 16)
+                label = str(score) if score is not None else "—"
+                badge_width = min(width, max(22, self.measure(label, font_size=12) + 6))
+                left = x + (width - badge_width) / 2
+                context.set_source_rgb(*self.theme.rgb(score_role(score)))
+                context.rectangle(left, y + height, badge_width, 16)
+                context.fill()
+                self.text(context, label, left, y + height, badge_width, 12, self.theme.rgb("scoreText"), False, 16)
         return False
-
-    @staticmethod
-    def score_color(score):
-        return (0.83, 0.39, 0.06, 1) if score is not None and score < 75 else (0.25, 0.45, 0.8, 1)
 
     @staticmethod
     def fitted_layout(context, text, width, size):

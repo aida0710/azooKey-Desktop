@@ -322,6 +322,23 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertEqual(buttons(in: view).map(\.title), ["更新"])
     }
 
+    func testChangingAppearancePreservesCandidateActionsAndNeverSubmitsText() {
+        let view = CandidateTreeView()
+        var submitted: [Int] = []
+        view.onCandidateSubmitted = { submitted.append($0) }
+        view.update(entries: entries, selectionIndex: 0)
+        let original = Set(buttons(in: view).map(ObjectIdentifier.init))
+        for appearance in [NSAppearance.Name.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua] {
+            view.appearance = NSAppearance(named: appearance)
+            view.layoutSubtreeIfNeeded()
+            XCTAssertEqual(Set(buttons(in: view).map(ObjectIdentifier.init)), original)
+            XCTAssertFalse(buttons(in: view).contains { $0.acceptsFirstResponder })
+            XCTAssertEqual(submitted, [])
+        }
+        buttons(in: view).first { $0.title == "画" }?.performClick(nil)
+        XCTAssertEqual(submitted, [1])
+    }
+
     func testDuplicateCandidateNumbersDoNotOverlap() {
         let view = CandidateTreeView()
         view.update(entries: [
@@ -354,7 +371,10 @@ final class CandidateTreeViewTests: XCTestCase {
         view.update(entries: fixture, selectionIndex: 0)
         view.setFrameSize(view.preferredSize)
         view.layoutSubtreeIfNeeded()
-        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+        for (name, appearance) in [
+            ("light", NSAppearance.Name.aqua), ("dark", .darkAqua),
+            ("highContrastLight", .accessibilityHighContrastAqua), ("highContrastDark", .accessibilityHighContrastDarkAqua)
+        ] {
             view.appearance = NSAppearance(named: appearance)
             let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
             view.cacheDisplay(in: view.bounds, to: bitmap)
