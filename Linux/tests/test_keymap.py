@@ -9,6 +9,22 @@ class KeymapTests(unittest.TestCase):
     def test_release_is_not_inserted(self):
         self.assertIsNone(translate(ord("a"), 1 << 30))
 
+    def test_physical_modifier_presses_and_releases_do_not_edit_composition(self):
+        keyvals = {
+            "Shift_L": 0xFFE1, "Shift_R": 0xFFE2,
+            "Control_L": 0xFFE3, "Control_R": 0xFFE4,
+            "Caps_Lock": 0xFFE5, "Shift_Lock": 0xFFE6,
+            "Meta_L": 0xFFE7, "Meta_R": 0xFFE8,
+            "Alt_L": 0xFFE9, "Alt_R": 0xFFEA,
+            "Super_L": 0xFFEB, "Super_R": 0xFFEC,
+            "Hyper_L": 0xFFED, "Hyper_R": 0xFFEE,
+            "Num_Lock": 0xFF7F, "ISO_Level3_Shift": 0xFE03, "ISO_Level5_Shift": 0xFE11,
+        }
+        for name, keyval in keyvals.items():
+            for state in (0, 1, 4, 8, 1 << 6, 1 << 30):
+                with self.subTest(key=name, state=state):
+                    self.assertIsNone(translate(keyval, state, 0))
+
     def test_physical_navigation_and_modifiers(self):
         self.assertEqual(translate(0xFF51, 1)["keyCode"], 123)
         self.assertEqual(translate(0xFF51, 1)["modifierFlags"], 1)
