@@ -44,6 +44,13 @@ final class MacReconversionSession {
         return .init(checkpoint: checkpoint, context: context, client: ObjectIdentifier(client))
     }
 
+    func commitText(_ text: String, client: IMKTextInput) {
+        // A committed reconversion must not be restored into the next marked text,
+        // even when its history cannot be recorded. Retire it before client reentry.
+        originalText = nil
+        client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+    }
+
     func rememberCommit(_ source: CommitSource?, manager: SegmentsManager, client: IMKTextInput) {
         guard manager.isEmpty, let source, source.client == ObjectIdentifier(client),
               let current = context(of: client), current.selected.isEmpty,
@@ -58,7 +65,6 @@ final class MacReconversionSession {
         }
         session.recordCommit(text, checkpoint: source.checkpoint, context: source.context)
         clientIdentity = source.client
-        originalText = nil
     }
 
     func prepare(undo: Bool, client: IMKTextInput, reading: String?) throws -> ReconversionSession.Replacement {
