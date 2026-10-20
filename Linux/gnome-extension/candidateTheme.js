@@ -1,6 +1,9 @@
 import Gio from 'gi://Gio';
 import {PALETTES} from './candidatePaletteData.js';
 
+// Retain the existing visual split without changing the conditional score.
+const RELATIVE_SCORE_COLOR_SPLIT = 75;
+
 export function appearanceName({colorScheme, themeName, highContrast}) {
     const theme = themeName.toLowerCase();
     const dark = colorScheme === 'prefer-dark' ||
@@ -12,7 +15,7 @@ export function appearanceName({colorScheme, themeName, highContrast}) {
 export function scoreRole(score) {
     if (!Number.isFinite(score)) return 'scoreUnknown';
     // The score remains conditional and relative; retain the existing threshold.
-    return score < 75 ? 'scoreLow' : 'scoreHigh';
+    return score < RELATIVE_SCORE_COLOR_SPLIT ? 'scoreLow' : 'scoreHigh';
 }
 
 export class CandidateTheme {
