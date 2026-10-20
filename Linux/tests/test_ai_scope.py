@@ -67,6 +67,33 @@ class AIScopeTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
 class AIScopeDialogTests(unittest.TestCase):
+    def test_enter_while_generating_and_old_replies_cannot_apply_stale_text(self):
+        from azookey.prompt_dialog import PromptDialog
+        from gi.repository import Gtk
+        requests = []
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": directory}):
+            dialog = PromptDialog(lambda *arguments: requests.append(arguments), "最初の指示",
+                                  scope=scope_fixture(), on_context_changed=lambda _: True)
+            try:
+                dialog.entry.emit("activate")
+                dialog.entry.emit("activate")
+                self.assertEqual(len(requests), 1, "pending Enter must not send another request")
+                dialog.entry.set_text("新しい指示")
+                dialog.entry.emit("activate")
+                self.assertEqual(len(requests), 2)
+                requests[0][2]("古い本文")
+                self.assertIsNone(dialog.result)
+                self.assertFalse(dialog.preview_button.get_sensitive())
+                requests[1][2]("新しい本文")
+                self.assertEqual(dialog.result, "新しい本文")
+                dialog.entry.emit("activate")
+                self.assertIsNone(dialog.result, "regeneration immediately invalidates the old preview")
+                self.assertFalse(dialog.get_widget_for_response(Gtk.ResponseType.OK).get_sensitive())
+                requests[2][2](None)
+                self.assertIsNone(dialog.result)
+            finally:
+                dialog.destroy()
+
     def test_physical_control_key_keeps_review_until_the_send_chord_arrives(self):
         from azookey.engine import Engine
         from azookey.ai_review import AISuggestionReview

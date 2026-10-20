@@ -1,6 +1,7 @@
 import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
+from .ai_preview import AITransformationPreview
 from .ai_scope_view import AIRequestScopeView
 from .i18n import text as message
 from .prompts import PromptHistory, parse_shortcut, shortcut_text
@@ -16,9 +17,8 @@ class PromptDialog(Gtk.Dialog):
         self.add_buttons("キャンセル", Gtk.ResponseType.CANCEL, "適用", Gtk.ResponseType.OK)
         self.set_response_sensitive(Gtk.ResponseType.OK, False)
         self.history = PromptHistory()
-        self.result = None
+        self.preview = AITransformationPreview()
         self.closed = False
-        self.revision = 0
         self.connect("destroy", self.destroyed)
         box = self.get_content_area()
         box.set_spacing(10)
@@ -55,11 +55,21 @@ class PromptDialog(Gtk.Dialog):
 
     def destroyed(self, _dialog):
         self.closed = True
+        self.preview.invalidate()
+
+    @property
+    def result(self):
+        return self.preview.applicable_text
 
     def invalidate(self, _entry):
-        self.revision += 1
-        self.result = None
+        had_preview = self.preview.is_loading or self.preview.applicable_text is not None
+        self.preview.invalidate()
+        self.text.get_buffer().set_text("")
         self.set_response_sensitive(Gtk.ResponseType.OK, False)
+        self.preview_button.set_sensitive(True)
+        self.scope_view.context.set_sensitive(True)
+        if had_preview:
+            self.message.set_text(message("ai.scope.changed"))
 
     def scope_changed(self, scope):
         self.invalidate(None)
@@ -77,29 +87,25 @@ class PromptDialog(Gtk.Dialog):
 
     def generate(self, preview):
         prompt = self.entry.get_text().strip()
-        if not prompt:
+        if not prompt or self.preview.is_loading:
             return
         try:
             self.history.save(prompt, self.pin.get_active(), parse_shortcut(self.shortcut.get_text()))
         except (ValueError, OSError) as error:
             self.message.set_text(str(error))
             return
-        self.revision += 1
-        revision = self.revision
+        revision = self.preview.begin()
+        self.text.get_buffer().set_text("")
         self.preview_button.set_sensitive(False)
         self.scope_view.context.set_sensitive(False)
         self.set_response_sensitive(Gtk.ResponseType.OK, False)
         self.message.set_text("生成中…")
 
         def finish(text):
-            if self.closed:
+            if self.closed or not self.preview.complete(revision, text):
                 return
             self.preview_button.set_sensitive(True)
             self.scope_view.context.set_sensitive(True)
-            if revision != self.revision:
-                self.message.set_text(message("ai.scope.changed"))
-                return
-            self.result = text
             self.text.get_buffer().set_text(text or "")
             self.set_response_sensitive(Gtk.ResponseType.OK, bool(text))
             self.message.set_text("内容を確認して適用してください。" if text else "生成できませんでした。AI設定を確認してください。")
