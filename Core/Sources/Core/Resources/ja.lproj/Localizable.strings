@@ -1,3 +1,4 @@
 "ai.suggestion.loading" = "AI 候補を取得中… 入力は続けられます";
 "ai.suggestion.empty" = "AI 候補がありません。入力はそのまま続けられます";
 "ai.suggestion.failed" = "AI 変換に失敗しました。入力はそのまま続けられます";
+"candidate.focused" = "操作対象";

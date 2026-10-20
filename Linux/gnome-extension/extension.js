@@ -10,6 +10,7 @@ const PATH = '/org/azookey/Tree';
 
 export default class AzooKeyTreeExtension extends Extension {
     enable() {
+        this._buttons = new Map();
         this._popup = new St.ScrollView({
             reactive: true, can_focus: false,
             hscrollbar_policy: St.PolicyType.AUTOMATIC,
@@ -49,8 +50,25 @@ export default class AzooKeyTreeExtension extends Extension {
 
     _render(data) {
         const nodes = data.nodes ?? [];
-        if (!nodes.length) { this._popup.hide(); return; }
-        this._canvas.destroy_all_children();
+        const candidateIdentity = JSON.stringify([data.contextId, data.reading, data.candidates,
+            nodes.map(({relativeScore, ...node}) => node)]);
+        if (candidateIdentity !== this._candidateIdentity) {
+            for (const widget of this._buttons.values()) widget.destroy();
+            this._buttons.clear();
+            this._candidateIdentity = candidateIdentity;
+        }
+        if (!nodes.length) {
+            this._popup.hide();
+            this._canvas.destroy_all_children();
+            this._buttons.clear();
+            return;
+        }
+        // Keep AT objects when the same candidate remains visible.
+        const retained = new Set(this._buttons.values());
+        for (const child of this._canvas.get_children()) {
+            if (!retained.has(child)) child.destroy();
+        }
+        const visibleButtons = new Set();
         const byId = new Map(nodes.map(node => [node.id, node]));
         const columns = data.columns ?? [];
         if (!columns.length) { this._popup.hide(); return; }
@@ -117,8 +135,32 @@ export default class AzooKeyTreeExtension extends Extension {
         }
         const button = (operation, index, label, x, y, w, h, active, focused, accessibleName, score) => {
             const compactBadge = operation === 'select' && aligned;
-            const widget = new St.Button({can_focus: false, reactive: true, accessible_name: accessibleName,
-                style: `color: ${active ? '#ffffff' : '#eeeeef'}; background-color: ${active ? scoreColor(score) : '#24252b'}; border: none; border-bottom: ${compactBadge ? '0' : (focused ? '2px solid #ffffff' : '2px solid transparent')}; border-radius: 4px; padding: ${compactBadge ? 0 : 2}px; font-size: 12px;`});
+            const identity = JSON.stringify([operation, index, accessibleName]);
+            let widget = this._buttons.get(identity);
+            if (!widget) {
+                widget = new St.Button({can_focus: false, reactive: true, accessible_name: accessibleName});
+                widget.connect('button-press-event', () => {
+                    widget._pressedSelection = widget._selection;
+                    return Clutter.EVENT_PROPAGATE;
+                });
+                widget.connect_after('button-release-event', () => {
+                    widget._pressedSelection = null;
+                    return Clutter.EVENT_PROPAGATE;
+                });
+                // StButton's native activation also serves assistive technology.
+                widget.connect('clicked', () => {
+                    const selection = widget._pressedSelection ?? widget._selection;
+                    widget._pressedSelection = null;
+                    if (this._buttons.get(identity) === widget && this._popup.visible)
+                        this._call('Select', selection);
+                });
+                this._canvas.add_child(widget);
+                this._buttons.set(identity, widget);
+            }
+            visibleButtons.add(identity);
+            widget._selection = new GLib.Variant('(sibis)', [operation, index, true, data.generation, data.contextId]);
+            widget.set_checked(active);
+            widget.set_style(`color: ${active ? '#ffffff' : '#eeeeef'}; background-color: ${active ? scoreColor(score) : '#24252b'}; border: none; border-bottom: ${compactBadge ? '0' : (focused ? '2px solid #ffffff' : '2px solid transparent')}; border-radius: 4px; padding: ${compactBadge ? 0 : 2}px; font-size: 12px;`);
             const captions = new St.BoxLayout({vertical: true, y_align: Clutter.ActorAlign.CENTER});
             const caption = new St.Label({text: label, x_align: aligned ? Clutter.ActorAlign.START : Clutter.ActorAlign.CENTER});
             let size = operation === 'select' ? (aligned ? 7 : 11) : fontSize;
@@ -133,13 +175,7 @@ export default class AzooKeyTreeExtension extends Extension {
             widget.set_child(captions);
             widget.set_position(x, y);
             widget.set_size(w, h);
-            widget.connect('button-press-event', (_actor, event) => {
-                if (event.get_button() !== 1) return Clutter.EVENT_PROPAGATE;
-                const submit = true;
-                this._call('Select', new GLib.Variant('(sibis)', [operation, index, submit, data.generation, data.contextId]));
-                return Clutter.EVENT_STOP;
-            });
-            this._canvas.add_child(widget);
+            this._canvas.set_child_above_sibling(widget, null);
         };
         for (const [id, frame] of frames) {
             const node = byId.get(id);
@@ -147,7 +183,7 @@ export default class AzooKeyTreeExtension extends Extension {
             const detail = Number.isFinite(score)
                 ? `相対スコア ${score}（取得候補内の評価。正解の確率ではありません）` : '比較可能なスコアなし';
             button('node', id, node.text, frame.x, frame.y, frame.width, frame.height,
-                selected.has(id), id === data.focusedNode, `${node.text} ${node.reading} ${detail}`, score);
+                selected.has(id), id === data.focusedNode, `${node.text} ${node.reading}`, score);
             const scoreText = Number.isFinite(score) ? String(score) : '—';
             const scoreLabel = new St.Label({text: scoreText, accessible_name: detail,
                 style: `color: #a9a9b0; font-size: ${Math.min(9, frame.width / (scoreText.length * 0.65))}px;`,
@@ -163,6 +199,12 @@ export default class AzooKeyTreeExtension extends Extension {
                         aligned ? frame.y + frame.height + 12 : frame.y + 2, aligned ? 12 : 20, aligned ? 10 : 20,
                         index === data.selection, false, `候補 ${index + 1} を確定`);
                 }
+            }
+        }
+        for (const [identity, widget] of this._buttons) {
+            if (!visibleButtons.has(identity)) {
+                widget.destroy();
+                this._buttons.delete(identity);
             }
         }
         let [x, y, , cursorHeight] = data.location ?? [0, 0, 0, 0];
@@ -209,6 +251,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._scrollIdle = 0;
         this._focusKey = null;
         this._popup?.destroy();
+        this._buttons?.clear();
         this._popup = null;
     }
 }
