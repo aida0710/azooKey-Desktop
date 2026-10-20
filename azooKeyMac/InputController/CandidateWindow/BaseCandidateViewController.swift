@@ -183,7 +183,10 @@ class BaseCandidateViewController: NSViewController {
         window.isOpaque = false
     }
 
-    func updateCandidatePresentations(_ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint) {
+    func updateCandidatePresentations(
+        _ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint,
+        enterConfirmsCandidate _: Bool = false
+    ) {
         tableView.rowHeight = Config.CandidateTextSize().value.pointSize + 14
         self.candidates = candidates
         self.currentSelectedRow = selectionIndex ?? -1

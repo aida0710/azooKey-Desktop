@@ -120,7 +120,8 @@ extension azooKeyMacInputController {
         segmentsManager.requestSelectingSuggestionRow(0)
         inputState = .replaceSuggestion
         replaceSuggestionsViewController.updateCandidatePresentations(
-            candidates.map { .init(candidate: $0) }, selectionIndex: 0, cursorLocation: getCursorLocation()
+            candidates.map { .init(candidate: $0) }, selectionIndex: 0, cursorLocation: getCursorLocation(),
+            enterConfirmsCandidate: inputState.enterConfirmsCandidate
         )
         aiSuggestionStatusPanel.orderOut(nil)
         replaceSuggestionWindow.orderFront(nil)
@@ -132,7 +133,9 @@ extension azooKeyMacInputController {
     @MainActor
     func clearReplaceSuggestionCandidates() {
         segmentsManager.setReplaceSuggestions([])
-        replaceSuggestionsViewController.updateCandidatePresentations([], selectionIndex: nil, cursorLocation: .zero)
+        replaceSuggestionsViewController.updateCandidatePresentations(
+            [], selectionIndex: nil, cursorLocation: .zero, enterConfirmsCandidate: false
+        )
         replaceSuggestionWindow.orderOut(nil)
     }
 
