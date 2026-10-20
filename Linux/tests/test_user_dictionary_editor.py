@@ -10,15 +10,14 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from azookey.user_dictionary_model import DictionarySaveError, DictionaryValidationIssue
-from test_user_dictionary_model import ENTRY_ID, original_entries
+from test_user_dictionary_model import ENTRY_ID, OTHER_ID, original_entries
 
 
 # Bound missing-callback failures without adding sleeps to production behavior.
 CALLBACK_DEADLINE_SECONDS = 5
 
 
-@unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
-class UserDictionaryEditorTests(unittest.TestCase):
+class DictionaryEditorTestSupport:
     def setUp(self):
         from gi.repository import GLib
         from azookey.user_dictionary_editor import UserDictionaryEditor
@@ -62,6 +61,9 @@ class UserDictionaryEditorTests(unittest.TestCase):
             if not expired.is_set():
                 self.GLib.source_remove(deadline)
 
+
+@unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
+class UserDictionaryEditorTests(DictionaryEditorTestSupport, unittest.TestCase):
     def test_add_then_cancel_or_close_never_persists_an_empty_entry(self):
         for close in ("cancel", "close"):
             with self.subTest(close=close):
@@ -230,6 +232,91 @@ class UserDictionaryEditorTests(unittest.TestCase):
         self.assertIn("50行目の読み", editor.issue_label.get_text())
         self.assertNotIn("1行目", editor.issue_label.get_text())
         self.assertLess(editor.get_allocated_height(), 800)
+
+    def test_filtered_and_sorted_edit_and_delete_target_the_original_uuid(self):
+        third_id = "32345678-ABCD-1234-ABCD-123456789ABC"
+        self.source = [
+            {"id": ENTRY_ID, "word": "さくら", "reading": "さくら", "hint": "対象外"},
+            {"id": OTHER_ID, "word": "あおぞら", "reading": "あおぞら", "hint": "共通TAG"},
+            {"id": third_id, "word": "かえで", "reading": "かえで", "hint": "共通TAG"},
+        ]
+        before = copy.deepcopy(self.source)
+        editor = self.create_editor()
+        editor.search_entry.set_text("共通tag")
+        word_column = editor.tree.get_column(0)
+        word_column.clicked()
+        self.assertEqual([row[0] for row in editor.sorted_rows], [OTHER_ID, third_id])
+        word_column.clicked()
+        self.assertEqual([row[0] for row in editor.sorted_rows], [third_id, OTHER_ID])
+        from gi.repository import Gtk
+
+        editor.tree.get_selection().select_path(Gtk.TreePath.new_from_indices([1]))
+        editor.fields["word"].set_text("あおぞら編集")
+        self.assertEqual(editor.model.entry(OTHER_ID)["word"], "あおぞら編集")
+        self.assertEqual(editor.model.entry(ENTRY_ID), before[0])
+        editor.remove_button.clicked()
+        self.assertEqual([entry["id"] for entry in editor.model.entries], [ENTRY_ID, third_id])
+        self.assertEqual([row[0] for row in editor.sorted_rows], [third_id])
+        self.assertEqual(self.source, before)
+        editor.cancel_button.clicked()
+        self.assertEqual(editor.model.entries, before)
+
+    def test_editing_a_filtered_row_out_of_view_keeps_the_form_bound_to_its_uuid(self):
+        self.source = [
+            {"id": ENTRY_ID, "word": "共通甲", "reading": "こう", "hint": ""},
+            {"id": OTHER_ID, "word": "共通乙", "reading": "おつ", "hint": ""},
+        ]
+        before = copy.deepcopy(self.source)
+        editor = self.create_editor()
+        editor.search_entry.set_text("共通")
+        editor.fields["word"].set_text("変更後")
+        self.assertEqual([row[0] for row in editor.filtered_rows], [OTHER_ID])
+        self.assertIn("編集中の項目は検索条件に一致していません", editor.filter_label.get_text())
+        editor.fields["word"].set_text("続けて編集")
+        editor.hint.get_buffer().set_text("下書きの補足")
+        self.assertEqual(editor.model.entry(ENTRY_ID)["word"], "続けて編集")
+        self.assertEqual(editor.model.entry(ENTRY_ID)["hint"], "下書きの補足")
+        self.assertEqual(editor.model.entry(OTHER_ID), before[1])
+        editor.remove_button.clicked()
+        self.assertEqual(editor.model.entries, before[1:])
+        self.assertEqual(editor.fields["word"].get_text(), "共通乙")
+        self.assertEqual(self.source, before)
+
+    def test_empty_search_results_allow_add_and_reset_sort_restores_registration_order(self):
+        self.source = original_entries() + [
+            {"id": OTHER_ID, "word": "あ", "reading": "あ", "hint": ""},
+        ]
+        editor = self.create_editor()
+        editor.tree.get_column(0).clicked()
+        self.assertEqual([row[0] for row in editor.sorted_rows], [OTHER_ID, ENTRY_ID])
+        editor.reset_sort_button.clicked()
+        self.assertEqual([row[0] for row in editor.sorted_rows], [ENTRY_ID, OTHER_ID])
+        editor.search_entry.set_text("該当なし")
+        self.assertEqual(len(editor.filtered_rows), 0)
+        self.assertFalse(editor.form.get_sensitive())
+        self.assertFalse(editor.remove_button.get_sensitive())
+        editor.add_button.clicked()
+        self.assertEqual(editor.search_entry.get_text(), "")
+        self.assertEqual(len(editor.filtered_rows), 3)
+        added_id = editor.model.entries[-1]["id"]
+        editor.fields["word"].set_text("新規")
+        self.assertEqual(editor.model.entry(added_id)["word"], "新規")
+        self.assertEqual(editor.model.entry(ENTRY_ID), self.source[0])
+
+    def test_sorting_during_typing_keeps_the_same_entry_selected(self):
+        self.source = original_entries() + [
+            {"id": OTHER_ID, "word": "か", "reading": "か", "hint": ""},
+        ]
+        editor = self.create_editor()
+        editor.tree.get_column(0).clicked()
+        editor.fields["word"].set_text("あ")
+        self.assertEqual([row[0] for row in editor.sorted_rows], [ENTRY_ID, OTHER_ID])
+        editor.fields["word"].set_text("さ")
+        self.assertEqual([row[0] for row in editor.sorted_rows], [OTHER_ID, ENTRY_ID])
+        editor.fields["word"].set_text("さらに")
+        self.assertEqual(editor.model.entry(ENTRY_ID)["word"], "さらに")
+        self.assertEqual(editor.model.entry(OTHER_ID), self.source[1])
+        self.assertNotIn("検索条件に一致していません", editor.filter_label.get_text())
 
 
 if __name__ == "__main__":
