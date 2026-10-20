@@ -273,6 +273,10 @@ final class CandidateTreeView: NSView {
             canvas.addSubview(terminal)
             terminalButtons[index] = terminal
         }
+        refreshControlAppearance()
+    }
+
+    private func refreshControlAppearance() {
         let path = Set(displayedColumns.compactMap(\.first))
         for (id, button) in nodeButtons {
             if let frame = nodeFrames[id] { button.frame = frame }
