@@ -2,7 +2,13 @@ import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import St from 'gi://St';
 import {messages} from './candidateMessages.js';
+import {createWrappingLabel} from './candidateText.js';
 import {attachCandidateAction} from './candidateAccessibility.js';
+
+// Reduce row whitespace while keeping a 44px target for single-line candidates.
+const ROW_VERTICAL_INSET = 5;
+const ROW_HORIZONTAL_INSET = 8;
+const MINIMUM_CONTENT_HEIGHT = 32;
 
 export class CandidateNavigation {
     constructor({select, changed, preview}) {
@@ -11,7 +17,7 @@ export class CandidateNavigation {
         this._preview = preview;
         this.hoveredItem = null;
         this._hoveredButton = null;
-        this.expanded = false;
+        this.expanded = true;
         this.actor = new St.BoxLayout({vertical: true, can_focus: false});
         this._header = new St.BoxLayout();
         this._status = new St.Label({x_expand: true, y_align: Clutter.ActorAlign.CENTER});
@@ -19,11 +25,14 @@ export class CandidateNavigation {
         this._header.add_child(this._status);
         this._replaceHeaderButtons();
         this.actor.add_child(this._header);
+        this._hint = new St.Label({text: messages.selectHint});
+        this.actor.add_child(this._hint);
         this._scroll = new St.ScrollView({can_focus: false,
             hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC});
         this._rows = new St.BoxLayout({vertical: true});
         this._scroll.set_child(this._rows);
         this.actor.add_child(this._scroll);
+        this._scroll.get_vadjustment().connect('notify::page-size', () => this._revealSelection());
     }
 
     _replaceHeaderButtons() {
@@ -61,7 +70,7 @@ export class CandidateNavigation {
         return button;
     }
 
-    update(snapshot, {fontSize, listHeight}) {
+    update(snapshot, {fontSize, listHeight, width = 400, palette}) {
         const page = snapshot.candidatePage;
         this.actor.visible = (page?.totalCount ?? 0) > 0;
         if (!this.actor.visible) {
@@ -103,12 +112,23 @@ export class CandidateNavigation {
                     if (this.expanded && this._identity === identity && source.get_parent() === this._rows)
                         this._select(source._pressedAction ?? source._selection);
                 });
-                const prefix = snapshot.showCandidateIndex ? `${offset + 1}. ` : '';
-                const label = new St.Label({text: prefix + item.text, x_expand: true,
+                const row = new St.BoxLayout();
+                if (snapshot.showCandidateIndex) {
+                    const number = new St.Label({text: String(offset + 1), y_align: Clutter.ActorAlign.START,
+                        style: `font-size: ${Math.max(12, fontSize - 4)}px; padding: 3px 8px 0 0;`});
+                    row.add_child(number);
+                }
+                const label = createWrappingLabel({text: item.text, x_expand: true,
                     x_align: Clutter.ActorAlign.START, style: `font-size: ${fontSize}px;`});
-                button.set_child(label);
+                button._candidateLabel = label;
+                button.connect('notify::allocation', () => this._revealSelection());
+                row.add_child(label);
+                button._selectionMark = new St.Label({text: '', y_align: Clutter.ActorAlign.START});
+                button._selectionMark.set_width(24);
+                row.add_child(button._selectionMark);
+                button.set_child(row);
                 button.accessible_name = [item.text, item.reading].filter(Boolean).join('\n');
-                button.get_accessible().accessible_description = item.detailDescription ?? '';
+                button.get_accessible().accessible_description = [messages.select, item.detailDescription].filter(Boolean).join('\n');
                 button.connect('notify::hover', () => {
                     if (this._identity !== identity || button.get_parent() !== this._rows) return;
                     if (button.hover && this.expanded) {
@@ -126,24 +146,61 @@ export class CandidateNavigation {
         }
         for (const [offset, button] of this._rows.get_children().entries()) {
             const item = page.items[offset];
-            button._selection = action(item.index, true);
-            button.set_checked(item.index === snapshot.selection);
+            button._selection = action(item.index, false);
+            button._candidateLabel.set_width(Math.max(1, width - (snapshot.showCandidateIndex ? 84 : 52)));
+            const selected = item.index === snapshot.selection;
+            button.set_checked(selected);
+            button._selectionMark.text = selected ? '✓' : '';
+            button.accessible_name = [item.text, item.reading, selected ? messages.selected : null].filter(Boolean).join('\n');
         }
-        const rowHeight = fontSize + 16;
-        const height = Math.min(listHeight, page.items.length * rowHeight);
+        const revealIdentity = JSON.stringify([snapshot.contextId, page.start, snapshot.selection]);
+        if (revealIdentity !== this._revealIdentity) {
+            this._revealIdentity = revealIdentity;
+            this._revealPending = true;
+        }
+        this._hint.set_style(`font-size: ${Math.max(12, fontSize - 4)}px; padding: 3px 8px;`);
+        if (palette) this.applyPalette(palette);
+        const height = Math.min(listHeight, this._rows.get_preferred_height(width)[1]);
         this._scroll.height = height;
         this._scroll.visible = this.expanded;
-        return Math.max(36, fontSize + 16) + (this.expanded ? height : 0);
+        this._revealSelection();
+        return this._header.get_preferred_height(width)[1] + this._hint.get_preferred_height(width)[1] +
+            (this.expanded ? height : 0);
+    }
+
+    _revealSelection() {
+        if (!this.expanded || !this._revealPending) return;
+        const selected = this._rows.get_children().find(button => button.checked);
+        const adjustment = this._scroll.get_vadjustment();
+        if (!selected || !(selected.height > 0) || !(adjustment.page_size > 0)) return;
+        let offset = adjustment.value;
+        if (selected.y < offset || selected.height > adjustment.page_size) offset = selected.y;
+        else if (selected.y + selected.height > offset + adjustment.page_size)
+            offset = selected.y + selected.height - adjustment.page_size;
+        adjustment.value = Math.max(0, Math.min(offset, adjustment.upper - adjustment.page_size));
+        this._revealPending = false;
     }
 
     collapse() {
         this.expanded = false;
-        this._clearPreview();
         this._scroll.hide();
-        this._replaceHeaderButtons();
+        this.retire();
+    }
+
+    reset() {
+        this.expanded = true;
+        this.retire();
+    }
+
+    retire({preserveViewport = false} = {}) {
+        this._clearPreview();
+        for (const button of [this._toggle, this._previous, this._next]) button?.destroy();
+        this._toggle = this._previous = this._next = null;
         this._actionIdentity = null;
         this._identity = null;
         this._pageIdentity = null;
+        if (!preserveViewport) this._revealIdentity = null;
+        this._revealPending = false;
         this._rows.destroy_all_children();
     }
 
@@ -157,12 +214,14 @@ export class CandidateNavigation {
 
     applyPalette(palette) {
         this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text};`);
-        for (const button of [this._toggle, this._previous, this._next, ...this._rows.get_children()]) {
+        for (const button of [this._toggle, this._previous, this._next, ...this._rows.get_children()].filter(Boolean)) {
             const foreground = button.checked ? palette.selectionText : palette.text;
             const background = button.checked ? palette.selection : palette.surface;
             button.set_style(`background-color: ${background}; color: ${foreground};
                 background-gradient-direction: none; box-shadow: none;
-                border: 1px solid ${palette.border}; padding: 4px 6px; min-height: 0; min-width: 0;`);
+                border: 1px solid ${button.checked ? palette.text : palette.border}; border-radius: 8px;
+                padding: ${ROW_VERTICAL_INSET}px ${ROW_HORIZONTAL_INSET}px;
+                min-height: ${MINIMUM_CONTENT_HEIGHT}px; min-width: 0;`);
         }
     }
 }

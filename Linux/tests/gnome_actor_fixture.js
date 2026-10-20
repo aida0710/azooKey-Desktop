@@ -12,7 +12,11 @@ export class Actor {
         Object.assign(this, {visible: true, reactive: true}, properties);
         this.children = [];
         this.signals = new Map();
-        this.clutter_text = {set_attributes() {}};
+        this.clutter_text = {set_attributes() {},
+            set_line_wrap: value => { this.wrap = value; },
+            set_line_wrap_mode: value => { this.wrapMode = value; },
+            set_ellipsize: value => { this.ellipsize = value; }};
+        this.adjustment = {value: 0, lower: 0, upper: 600, page_size: 160, connect() {}};
         this.accessible = {
             add_action: (_name, _description, _key, callback) => {
                 this.action = () => callback(this.accessible);
@@ -47,6 +51,9 @@ export class Actor {
     set_style(style) { this.style = style; }
     set_checked(checked) { this.checked = checked; }
     get_preferred_width() { return [40, 80]; }
+    get_preferred_height() { return [24, Math.max(36, this.children.length * 44)]; }
+    get_vadjustment() { return this.adjustment; }
+    get_hadjustment() { return this.adjustment; }
     queue_repaint() {}
     set_child_above_sibling() {}
     hide() { this.visible = false; }
@@ -60,6 +67,17 @@ export class Actor {
         this.parent = null;
     }
     destroy_all_children() { for (const child of [...this.children]) child.destroy(); }
+}
+
+// BoxLayout implements StScrollable; labels and ordinary widgets do not.
+export class ScrollableActor extends Actor {}
+
+export class ScrollViewActor extends Actor {
+    set_child(child) {
+        if (!(child instanceof ScrollableActor))
+            throw new TypeError('St.ScrollView child must implement St.Scrollable');
+        super.set_child(child);
+    }
 }
 
 export function loadShellClass({fileName, imports, className}) {
