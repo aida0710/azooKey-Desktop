@@ -57,10 +57,11 @@ class CandidateNavigation(Gtk.Box):
         return button
 
     def apply_palette(self, palette):
+        # Keep the list in the same contrast mode as the immediately redrawn tree.
         self.palette_css.load_from_data((
             f".candidate-navigation, .candidate-navigation viewport {{"
             f"background-color: {palette['background']}; color: {palette['text']}; }}"
-            f".candidate-navigation button {{ background-image: none; box-shadow: none;"
+            f".candidate-navigation button {{ background-image: none; box-shadow: none; transition-property: none;"
             f"background-color: {palette['surface']}; color: {palette['text']};"
             f"border: 1px solid {palette['border']}; }}"
             f".candidate-navigation button:selected {{ background-color: {palette['selection']};"
