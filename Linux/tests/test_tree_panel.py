@@ -49,7 +49,7 @@ class TreePanelTests(unittest.TestCase):
         finally:
             panel.destroy()
 
-    def test_real_conversion_compact_rendering_and_single_click_commit(self):
+    def test_real_conversion_selects_a_word_then_confirms_the_chosen_sentence_once(self):
         import cairo
         from gi.repository import GLib
         from azookey.bridge import Bridge
@@ -70,13 +70,16 @@ class TreePanelTests(unittest.TestCase):
                 submitted = []
 
                 def choose(operation, index, submit):
-                    self.assertTrue(submit, "Moving alternatives must commit on the first click")
+                    nonlocal snapshot
                     response = bridge.request(operation, **{"node" if operation == "node" else "index": index},
                                               generation=snapshot["generation"], submit=submit)
                     submitted.extend(response["commits"])
+                    snapshot = response
+                    panel.update(snapshot)
 
                 panel = TreePanel(choose)
                 panel.update(snapshot)
+                panel.disclosure_actions["tree"].clicked()
                 context = GLib.MainContext.default()
                 while context.pending():
                     context.iteration(False)
@@ -98,8 +101,11 @@ class TreePanelTests(unittest.TestCase):
                 self.assertTrue(alternatives)
                 rect = words[alternatives[0]]
                 self.assertTrue(panel.click(None, types.SimpleNamespace(button=1, x=rect[2] + 4, y=rect[3] + 4)))
+                self.assertEqual(submitted, [])
+                candidates = [candidate["text"] for candidate in snapshot["candidates"]]
+                panel.navigation.confirm.clicked()
                 self.assertEqual(len(submitted), 1)
-                self.assertIn(submitted[0], [candidate["text"] for candidate in snapshot["candidates"]])
+                self.assertIn(submitted[0], candidates)
             finally:
                 if panel:
                     panel.destroy()

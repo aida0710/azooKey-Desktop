@@ -48,7 +48,6 @@ class CandidateNavigationTests(unittest.TestCase):
 
     def test_pointer_reaches_last_candidate_without_expanding_hundreds_of_rows(self):
         self.assertIn("1 / 500", self.navigation.status.get_text())
-        self.navigation.toggle.clicked()
         for _ in range(56):
             if not self.navigation.next.get_sensitive():
                 break
@@ -57,14 +56,16 @@ class CandidateNavigationTests(unittest.TestCase):
         self.assertFalse(self.navigation.next.get_sensitive())
         self.assertIn("496 / 500", self.navigation.status.get_text())
         last = self.navigation.row_buttons[-1]
-        self.assertEqual(last.get_child().get_text(), "5. 候補499")
+        self.assertEqual(last.text_label.get_text(), "候補499")
+        self.assertEqual(last.number_label.get_text(), "5")
         self.assertFalse(last.get_can_focus())
         last.clicked()
+        self.assertEqual(self.actions[-1], ("select", 499, False))
+        self.navigation.confirm.clicked()
         self.assertEqual(self.actions[-1], ("select", 499, True))
         self.assertEqual(sum(submit for _, _, submit in self.actions), 1)
 
     def test_removed_row_and_old_press_cannot_confirm_a_new_context(self):
-        self.navigation.toggle.clicked()
         old = self.navigation.row_buttons[0]
         self.navigation.update(self.snapshot("new-context"), font_size=18, list_height=160)
         old.clicked()
@@ -75,10 +76,9 @@ class CandidateNavigationTests(unittest.TestCase):
         self.assertEqual(self.actions, [])
         current.pressed_token = None
         current.clicked()
-        self.assertEqual(self.actions, [("select", 0, True)])
+        self.assertEqual(self.actions, [("select", 0, False)])
 
     def test_selection_change_keeps_accessible_rows_and_rejects_an_old_press(self):
-        self.navigation.toggle.clicked()
         first = self.navigation.row_buttons[0]
         second = self.navigation.row_buttons[1]
         first.pressed_token = first.activation_token
@@ -92,7 +92,6 @@ class CandidateNavigationTests(unittest.TestCase):
         self.assertEqual(self.actions, [])
 
     def test_list_can_close_without_committing_and_reading_is_accessible(self):
-        self.navigation.toggle.clicked()
         first = self.navigation.row_buttons[0]
         self.assertIn("コウホ0", first.get_accessible().get_name())
         self.assertIn("確定予定", first.get_accessible().get_description())
@@ -102,16 +101,15 @@ class CandidateNavigationTests(unittest.TestCase):
         self.assertEqual(self.actions, [])
 
     def test_disabling_number_shortcuts_removes_prefixes_without_changing_pointer_actions(self):
-        self.navigation.toggle.clicked()
-        self.assertEqual(self.navigation.row_buttons[0].get_child().get_text(), "1. 候補0")
+        self.assertEqual(self.navigation.row_buttons[0].number_label.get_text(), "1")
         old = self.navigation.row_buttons[0]
         self.navigation.update({**self.snapshot(), "showCandidateIndex": False}, font_size=18, list_height=160)
-        self.assertEqual([button.get_child().get_text() for button in self.navigation.row_buttons],
+        self.assertEqual([button.text_label.get_text() for button in self.navigation.row_buttons],
                          [f"候補{index}" for index in range(9)])
         old.clicked()
         self.assertEqual(self.actions, [])
         self.navigation.row_buttons[1].clicked()
-        self.assertEqual(self.actions, [("select", 1, True)])
+        self.assertEqual(self.actions, [("select", 1, False)])
 
 
 if __name__ == "__main__":

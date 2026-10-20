@@ -45,10 +45,9 @@ class CandidateSuggestionTests(unittest.TestCase):
         for _ in range(2):
             snapshot = bridge.request("key", event=translate(ord(" "), 0))
         panel.update(snapshot)
-        panel.navigation.toggle.clicked()
         self.assertTrue(snapshot["showCandidateIndex"])
         self.assertTrue(any(rectangle[0] == "select" for rectangle in panel.rectangles))
-        self.assertTrue(panel.navigation.row_buttons[0].get_child().get_text().startswith("1. "))
+        self.assertEqual(panel.navigation.row_buttons[0].number_label.get_text(), "1")
 
         original_reading = snapshot["reading"]
         suggestions = [f"AI提案{index}" for index in range(12)]
@@ -58,10 +57,10 @@ class CandidateSuggestionTests(unittest.TestCase):
         self.assertEqual(snapshot["inputState"], "replaceSuggestion")
         self.assertFalse(snapshot["showCandidateIndex"])
         self.assertFalse(any(rectangle[0] == "select" for rectangle in panel.rectangles))
-        self.assertEqual([button.get_child().get_text() for button in panel.navigation.row_buttons], suggestions[:9])
+        self.assertEqual([button.text_label.get_text() for button in panel.navigation.row_buttons], suggestions[:9])
         panel.navigation.next.clicked()
         self.assertEqual(panel.snapshot["candidatePage"]["start"], 9)
-        self.assertEqual([button.get_child().get_text() for button in panel.navigation.row_buttons], suggestions[9:])
+        self.assertEqual([button.text_label.get_text() for button in panel.navigation.row_buttons], suggestions[9:])
         self.assertEqual(commits, [])
         self.assertIs(document.get_focus(), entry)
         self.assertFalse(panel.get_accept_focus())
@@ -75,6 +74,8 @@ class CandidateSuggestionTests(unittest.TestCase):
                                   reading=typed["reading"], generation=typed["generation"])
         panel.update(snapshot)
         panel.navigation.row_buttons[1].clicked()
+        self.assertEqual(commits, [])
+        panel.navigation.confirm.clicked()
         self.assertEqual(commits, [suggestions[1]])
         self.assertEqual(panel.snapshot["reading"], "")
         self.assertIs(document.get_focus(), entry)
