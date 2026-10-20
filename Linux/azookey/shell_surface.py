@@ -9,6 +9,7 @@ PATH = "/org/azookey/Tree"
 XML = """<node><interface name="org.azookey.Tree">
   <method name="ResetLearning"><arg type="b" direction="out"/></method>
   <method name="DescribeLayout"><arg type="s" direction="out"/></method>
+  <method name="RendererStatus"><arg type="b" direction="out"/></method>
   <method name="SetRenderer"><arg type="b" direction="in"/></method>
   <method name="Select"><arg type="s" direction="in"/><arg type="i" direction="in"/>
     <arg type="b" direction="in"/><arg type="i" direction="in"/><arg type="s" direction="in"/></method>
@@ -37,6 +38,9 @@ class ShellSurface:
             engine = self.engine() if self.engine else None
             description = engine.panel.layout_diagnostics if engine and engine.focused else {}
             invocation.return_value(GLib.Variant("(s)", (json.dumps(description),)))
+            return
+        if name == "RendererStatus":
+            invocation.return_value(GLib.Variant("(b)", (self.renderer is not None,)))
             return
         if name == "ResetLearning":
             AsyncBridge.reset_shared_learning(

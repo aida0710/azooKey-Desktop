@@ -19,12 +19,14 @@ brew update
 brew upgrade --cask aida0710/tap/azookey-tree
 ```
 
-導入後、システム設定の「キーボード → 入力ソース」にazooKeyを追加します。表示されない場合はmacOSへの再ログインが必要です。公式azooKeyとは同じ入力方式IDのため同時に導入できません。ATOKは削除しません。
+導入後、システム設定の「キーボード → 入力ソース」にazooKeyを追加します。表示されない場合はmacOSへの再ログインが必要です。設定画面はメニューバーの入力メニューから「設定…」で開きます。公式azooKeyとは同じ入力方式IDのため同時に導入できません。ATOKは削除しません。
 
 Releaseには通常Mac用の `arm64.zip` と、macOS VM向けCPU専用の `arm64-cpu.zip` を用意しています。Ubuntu 24.04にはCPUに合う `arm64.deb` または `amd64.deb` を使ってください。
 
 - [対応範囲・検証状況](docs/platform-support.md)
 - [Ubuntuでの導入・設定](docs/ubuntu.md)
+- [初回導入・更新・復旧・問題報告](docs/setup-and-recovery.md)
+- [履歴学習の設定と削除対象](docs/learning-settings.md)
 - [Docker・macOS/Ubuntu VMのテスト手順](docs/vm-testing.md)
 - [上流の定期同期・独自リリース・Homebrew](docs/tree-maintenance.md)
 
@@ -83,6 +85,7 @@ GitHub Sponsorsをご利用ください。
   * ユーザ辞書機能
   * 個人最適化システム「[Tuner](https://github.com/azooKey/Tuner)」との連携機能
 * LLMによる「いい感じ変換」機能
+  * [AI に渡す本文と送信先](docs/ai-send-scope.md)
 * ライブ変換
 * AZIKのネイティブサポート
 

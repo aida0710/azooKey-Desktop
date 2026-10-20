@@ -44,7 +44,7 @@ class InputCoordinator:
         self.remove_timeout = remove_timeout
         self.timeout_source = None
 
-    def submit(self, operation, *, payload=None, key=None, completion=None):
+    def submit(self, operation, *, payload=None, key=None, completion=None, persist=None):
         if self.recovering and key is not None:
             self.forward(*key)
             return
@@ -56,7 +56,7 @@ class InputCoordinator:
             return
         self.worker.submit(Request(
             operation, {**pending.payload, "context": self.context},
-            lambda reply: self._complete(epoch, pending, reply), cancelled=pending.cancelled,
+            lambda reply: self._complete(epoch, pending, reply), cancelled=pending.cancelled, persist=persist,
         ))
         if self.timeout_source is None:
             self._watch_progress()

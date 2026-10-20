@@ -12,10 +12,10 @@ extension Notification.Name {
 
 final class PromptInputWindow: NSWindow {
     private var completion: ((String?) -> Void)?
-    private var previewCallback: ((String, @escaping (String) -> Void) -> Void)?
+    private var previewCallback: ((String, Bool, @escaping (Result<String, TransformationPreviewError>) -> Void) -> Void)?
     private var applyCallback: ((String) -> Void)?
     private var isTextFieldCurrentlyFocused: Bool = false
-    private var initialPrompt: String?
+    private var request: PromptInputRequest?
     private var previousApp: NSRunningApplication?
 
     init() {
@@ -26,6 +26,7 @@ final class PromptInputWindow: NSWindow {
             defer: false
         )
 
+        self.title = Localization.text("ai.title")
         self.level = .floating
         self.isReleasedWhenClosed = false
         self.backgroundColor = NSColor.clear
@@ -54,14 +55,19 @@ final class PromptInputWindow: NSWindow {
     }
 
     private func setupUI() {
+        guard let request else {
+            return
+        }
         let contentView = PromptInputView(
-            initialPrompt: initialPrompt,
+            initialPrompt: request.initialPrompt,
+            requestConfiguration: request.configuration,
+            targetText: request.targetText,
             onSubmit: { [weak self] prompt in
                 self?.completion?(prompt)
                 self?.close()
             },
-            onPreview: { [weak self] prompt, _, callback in
-                self?.previewCallback?(prompt, callback)
+            onPreview: { [weak self] prompt, includeContext, callback in
+                self?.previewCallback?(prompt, includeContext, callback)
             },
             onApply: { [weak self] transformedText in
                 self?.applyCallback?(transformedText)
@@ -83,15 +89,15 @@ final class PromptInputWindow: NSWindow {
 
     func showPromptInput(
         at cursorLocation: NSPoint,
-        initialPrompt: String? = nil,
-        onPreview: @escaping (String, @escaping (String) -> Void) -> Void,
+        request: PromptInputRequest,
+        onPreview: @escaping (String, Bool, @escaping (Result<String, TransformationPreviewError>) -> Void) -> Void,
         onApply: @escaping (String) -> Void,
         completion: @escaping (String?) -> Void
     ) {
         self.previewCallback = onPreview
         self.applyCallback = onApply
         self.completion = completion
-        self.initialPrompt = initialPrompt
+        self.request = request
         let frontmostApp = NSWorkspace.shared.frontmostApplication
         if let frontmostApp, frontmostApp.processIdentifier != NSRunningApplication.current.processIdentifier {
             self.previousApp = frontmostApp
@@ -123,13 +129,14 @@ final class PromptInputWindow: NSWindow {
         let historyHeight: CGFloat = isPreviewMode ? 0 : 200  // More space for 10 items when not in preview mode
         let buttonHeight: CGFloat = 36  // Compact button row
         let containerPadding: CGFloat = 16  // Reduced padding
+        let scopeHeight: CGFloat = 150  // Destination, scrollable target and history explanation.
 
         let previewHeight: CGFloat = isPreviewMode ? 90 : 0  // Compact preview
 
-        let totalHeight = headerHeight + textFieldHeight + historyHeight + buttonHeight + previewHeight + containerPadding
+        let totalHeight = headerHeight + textFieldHeight + historyHeight + buttonHeight + previewHeight + containerPadding + scopeHeight
 
         var currentFrame = self.frame
-        let newSize = NSSize(width: 360, height: totalHeight)
+        let newSize = NSSize(width: 460, height: totalHeight)
 
         // Adjust origin to keep the window in the same relative position
         currentFrame.origin.y += (currentFrame.size.height - newSize.height)
@@ -184,6 +191,8 @@ final class PromptInputWindow: NSWindow {
         self.completion = nil
         self.previewCallback = nil
         self.applyCallback = nil
+        self.request = nil
+        self.contentView = nil
     }
 
     override var canBecomeKey: Bool {

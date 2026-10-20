@@ -6,6 +6,7 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import IBus, Gtk
 from azookey.engine import Engine
 from azookey.async_bridge import AsyncBridge
+from azookey.support_diagnostics import component_version
 
 
 def main():
@@ -25,7 +26,7 @@ def main():
     if arguments.ibus:
         bus.request_name("org.freedesktop.IBus.AzooKeyTree", 0)
     else:
-        component = IBus.Component.new("org.freedesktop.IBus.AzooKeyTree", "azooKey Tree", "0.1.0", "MIT", "azooKey contributors", "https://github.com/aida0710/azooKey-Desktop", "", "")
+        component = IBus.Component.new("org.freedesktop.IBus.AzooKeyTree", "azooKey Tree", component_version(), "MIT", "azooKey contributors", "https://github.com/aida0710/azooKey-Desktop", "", "")
         component.add_engine(IBus.EngineDesc.new("azookey-tree", "azooKey Tree", "Japanese input with candidate paths", "ja", "MIT", "azooKey contributors", "", "default"))
         bus.register_component(component)
     try:
