@@ -222,7 +222,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         }
         let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
         if let client = sender as? IMKTextInput {
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(text, client: client)
         }
         self.inputState = .none
         self.refreshMarkedText()
@@ -325,7 +325,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             inputState: inputState,
             typeBackSlash: Config.TypeBackSlash().value
            ) {
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(text, client: client)
             return true
         }
 
@@ -478,23 +478,23 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             let inputStyle: InputStyle = self.inputLanguage == .english ? .direct : self.inputStyle
             self.segmentsManager.insertAtCursorPosition(pieces: pieces, inputStyle: inputStyle)
         case .insertWithoutMarkedText(let string):
-            client.insertText(string, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(string, client: client)
         case .editSegment(let count):
             self.segmentsManager.editSegment(count: count)
         case .moveCompositionCursor(let movement):
             self.segmentsManager.moveCompositionCursor(movement)
         case .commitMarkedText:
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(text, client: client)
         case .commitMarkedTextAndAppendToMarkedText(let string):
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(text, client: client)
             // 英語モードの場合は.directでローマ字変換せずそのまま入力
             let inputStyle: InputStyle = self.inputLanguage == .english ? .direct : self.inputStyle
             self.segmentsManager.insertAtCursorPosition(string, inputStyle: inputStyle)
         case .commitMarkedTextAndAppendPieceToMarkedText(let pieces):
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(text, client: client)
             // 英語モードの場合は.directでローマ字変換せずそのまま入力
             let inputStyle: InputStyle = self.inputLanguage == .english ? .direct : self.inputStyle
             self.segmentsManager.insertAtCursorPosition(pieces: pieces, inputStyle: inputStyle)
@@ -547,7 +547,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.switchInputLanguage(language, client: client)
         case .commitMarkedTextAndSelectInputLanguage(let language):
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(text, client: client)
             self.switchInputLanguage(language, client: client)
         // PredictiveSuggestion
         case .requestPredictiveSuggestion:
@@ -587,7 +587,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .submitUnicodeInput(let codePoint):
             if let scalar = UInt32(codePoint, radix: 16), let unicodeScalar = Unicode.Scalar(scalar) {
                 let character = String(Character(unicodeScalar))
-                client.insertText(character, replacementRange: NSRange(location: NSNotFound, length: 0))
+                self.reconversionClient.commitText(character, client: client)
             }
         case .cancelUnicodeInput:
             // 状態遷移は clientActionCallback で行われるので、ここでは何もしない
@@ -598,7 +598,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             // 残りのテキストがあればひらがなのまま確定
             if !self.segmentsManager.isEmpty {
                 let text = self.segmentsManager.convertTarget
-                client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+                self.reconversionClient.commitText(text, client: client)
                 self.segmentsManager.stopComposition()
             }
         // MARK: 特殊ケース
@@ -890,7 +890,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             let commitSource = self.reconversionClient.captureCommit(from: self.segmentsManager, client: client)
             // インサートを行う前にコンテキストを取得する
             let cleanLeftSideContext = self.segmentsManager.getCleanLeftSideContext(maxCount: 30)
-            client.insertText(candidate.text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(candidate.text, client: client)
             // アプリケーションサポートのディレクトリを準備しておく
             self.segmentsManager.prefixCandidateCommited(candidate, leftSideContext: cleanLeftSideContext ?? "")
             self.reconversionClient.rememberCommit(commitSource, manager: self.segmentsManager, client: client)
