@@ -46,6 +46,8 @@ AZOOKEY_BRIDGE=/path/to/zenzai-bridge AZOOKEY_RESOURCES=/path/to/verified-models
 
 遅延試験は固定の模擬入力だけを使う。入力順序、Enter連打、Escape、2つの入力欄、reset、無応答、kill後の次の入力、設定読込失敗、カーソル編集を実IBusで検査する。設定と学習先、D-Bus、Xvfbは試験ごとに隔離する。
 
+ソース試験では[IBusのcomponent検索パス](https://manpages.ubuntu.com/manpages/noble/man1/ibus.1.html)を空の一時フォルダーに限定し、addressファイルとキャッシュも隔離する。これにより、先に導入したパッケージがソースの登録前に自動起動する競合を防ぐ。試験後は実サービスのPIDが起動したソースプロセスと一致することを検査し、実行パスとSHA256を記録する。`AZOOKEY_INSTALLED_TEST=1`による配布物の試験では、導入済みcomponentを使う。
+
 計測スクリプトは短文7文字と長文94文字を各10回、新しいプロセスで入力する。初期化、最初のキー、最初の文、同じ文の再入力についてp50/p95/maxをJSONで出す。ここで初回とはプロセスの初回であり、OSのページキャッシュを消した条件ではない。測定値はbridge往復時間で、画面描画完了までの時間ではない。Zenzai測定は`zenzaiLoaded`を検査し、辞書変換だけで成功としない。
 
 2026-10-20のUbuntu 24.04 amd64 VM・2 vCPUで、AI候補後の編集を含む35キーを検査した。250 ms遅延時の受付はp50 1.285 ms、p95 2.443 ms、最大3.362 ms、2秒遅延時はp50 1.124 ms、p95 3.011 ms、最大3.052 msだった。
