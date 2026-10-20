@@ -8,6 +8,11 @@
 "candidate.textSize.large" = "大きい";
 "candidate.detailKeys" = "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール";
 "candidate.preview.commit" = "確定予定: %@";
+"candidate.position" = "変換候補 %@ / %@";
+"candidate.openList" = "一覧";
+"candidate.closeList" = "閉じる";
+"candidate.previousPage" = "前へ";
+"candidate.nextPage" = "次へ";
 "candidate.preview.scope" = "確定する読み: %@";
 "candidate.preview.remaining" = "残る読み: %@";
 "candidate.preview.following" = "この語の後続: %@";

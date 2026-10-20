@@ -8,6 +8,11 @@
 "candidate.textSize.large" = "Large";
 "candidate.detailKeys" = "Arrow keys show details; PageUp / PageDown scroll the details";
 "candidate.preview.commit" = "Will commit: %@";
+"candidate.position" = "Candidates %@ / %@";
+"candidate.openList" = "List";
+"candidate.closeList" = "Close";
+"candidate.previousPage" = "Previous";
+"candidate.nextPage" = "Next";
 "candidate.preview.scope" = "Reading to commit: %@";
 "candidate.preview.remaining" = "Reading left to edit: %@";
 "candidate.preview.following" = "Following text: %@";

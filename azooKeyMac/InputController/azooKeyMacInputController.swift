@@ -493,7 +493,10 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .selectNextCandidate:
             self.segmentsManager.requestSelectingNextCandidate()
         case .selectNumberCandidate(let num):
-            self.segmentsManager.requestSelectingRow(self.candidatesViewController.getNumberCandidate(num: num))
+            guard let index = self.candidatesViewController.getNumberCandidate(num: num) else {
+                return true
+            }
+            self.segmentsManager.requestSelectingRow(index)
             self.submitSelectedCandidate()
             self.segmentsManager.requestResettingSelection()
         case .submitHiraganaCandidate:

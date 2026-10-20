@@ -7,6 +7,7 @@ from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo
 
 from .candidate_accessibility import CandidateAction
 from .candidate_detail import CandidateDetail
+from .candidate_navigation import CandidateNavigation
 from .i18n import text as message
 
 
@@ -44,6 +45,8 @@ class TreePanel(Gtk.Window):
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.navigation = CandidateNavigation(select, lambda: self.update(self.snapshot), self.show_candidate_details)
+        self.content.pack_start(self.navigation, False, False, 0)
         self.content.pack_start(self.scroll, True, True, 0)
         self.details = CandidateDetail()
         self.content.pack_start(self.details, False, False, 0)
@@ -68,6 +71,7 @@ class TreePanel(Gtk.Window):
         self.connect("size-allocate", lambda *_: self.position() if self.get_visible() else None)
 
     def clear_placement(self, *_args):
+        self.navigation.collapse()
         self.placement_side = None
         self.layout_diagnostics = {}
 
@@ -140,7 +144,10 @@ class TreePanel(Gtk.Window):
             return
         # Keep a useful detail line below even for a one-character candidate.
         popup_width = int(min(max(320, width), 760 if not aligned else max(320, width), area.width) + 0.5)
-        popup_height = min(420, height, max(1, area.height - CandidateDetail.MAXIMUM_HEIGHT))
+        list_height = min(CandidateNavigation.MAXIMUM_LIST_HEIGHT, area.height // 3)
+        self.navigation.update(snapshot, font_size=self.font_size, list_height=list_height)
+        navigation_height = self.navigation.get_preferred_height()[1]
+        popup_height = min(420, height, max(1, area.height - CandidateDetail.MAXIMUM_HEIGHT - navigation_height))
         self.scroll.set_min_content_width(popup_width)
         self.scroll.set_min_content_height(popup_height)
         self.resize(popup_width, popup_height)
@@ -211,6 +218,11 @@ class TreePanel(Gtk.Window):
             content += "\n" + node["previewDescription"]
         width = self.scroll.get_min_content_width()
         self.details.update(content + "\n" + message("candidate.detailKeys"), font_size=self.font_size, width=width)
+        return False
+
+    def show_candidate_details(self, item):
+        content = item.get("detailDescription", item["text"])
+        self.details.update(content, font_size=self.font_size, width=self.scroll.get_min_content_width())
         return False
 
     def scroll_details(self, forward):

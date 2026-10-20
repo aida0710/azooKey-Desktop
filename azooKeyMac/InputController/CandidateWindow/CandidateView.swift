@@ -40,6 +40,12 @@ class CandidatesViewController: BaseCandidateViewController {
         treeView.onSelectionChanged = { [weak self] row in
             self?.updateSelection(to: row)
         }
+        treeView.onLayoutChanged = { [weak self] in
+            guard let self, let cursor = self.lastCursorLocation else {
+                return
+            }
+            self.resizeWindowToFitContent(cursorLocation: cursor)
+        }
         treeView.onCandidateSubmitted = { [weak self] row in
             guard let self, self.candidates.indices.contains(row) else {
                 return
@@ -139,7 +145,10 @@ class CandidatesViewController: BaseCandidateViewController {
     }
 
     override internal func updateSelectionCallback(_ row: Int, notifySelectionChange: Bool) {
-        if !self.showedRows.contains(row) {
+        if usesTree {
+            let start = max(0, row) / CandidatePage.size * CandidatePage.size
+            showedRows = start...(start + CandidatePage.size - 1)
+        } else if !self.showedRows.contains(row) {
             if row < self.showedRows.lowerBound {
                 self.showedRows = row...(row + 8)
             } else {
@@ -199,8 +208,11 @@ class CandidatesViewController: BaseCandidateViewController {
         }
     }
 
-    func getNumberCandidate(num: Int) -> Int {
+    func getNumberCandidate(num: Int) -> Int? {
         let nextRow = self.showedRows.lowerBound + num - 1
+        guard (1...CandidatePage.size).contains(num), candidates.indices.contains(nextRow) else {
+            return nil
+        }
         return nextRow
     }
 

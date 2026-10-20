@@ -7,5 +7,10 @@
   "candidate.textSize": "候補の文字サイズ",
   "candidate.textSize.standard": "標準",
   "candidate.textSize.large": "大きい",
-  "candidate.detailKeys": "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール"
+  "candidate.detailKeys": "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール",
+  "candidate.position": "変換候補 {position} / {total}",
+  "candidate.openList": "一覧",
+  "candidate.closeList": "閉じる",
+  "candidate.previousPage": "前へ",
+  "candidate.nextPage": "次へ"
 }

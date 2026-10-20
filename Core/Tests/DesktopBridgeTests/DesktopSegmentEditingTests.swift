@@ -84,6 +84,38 @@ import Testing
         }
     }
 
+    @Test func pageNavigationAndNumberKeysConfirmTheSameRealCandidate() throws {
+        try withSession(liveConversion: false, treeCandidates: true) { session in
+            var snapshot = try beginSelecting(session)
+            #expect(snapshot.candidatePage.totalCount == snapshot.candidates.count)
+            let next = try #require(snapshot.candidatePage.nextIndex)
+            snapshot = session.select(candidateIndex: next, submit: false, expectedGeneration: snapshot.generation)
+            #expect(snapshot.candidatePage.position == next + 1)
+            #expect(snapshot.candidatePage.start == snapshot.pageStart)
+            let second = try #require(snapshot.candidatePage.items.dropFirst().first)
+            let committed = session.key(.init(modifierFlags: [], characters: "2",
+                                               charactersIgnoringModifiers: "2", keyCode: 19))
+            #expect(committed.commits == [second.text])
+            #expect(second.index == snapshot.pageStart + 1)
+        }
+    }
+
+    @Test func unavailableNumberOnTheLastPagePreservesSelectionAndInputState() throws {
+        try withSession(liveConversion: false, treeCandidates: true) { session in
+            var snapshot = try beginSelecting(session)
+            let last = try #require(snapshot.candidates.last)
+            snapshot = session.select(candidateIndex: last.index, submit: false, expectedGeneration: snapshot.generation)
+            #expect(snapshot.candidatePage.items.count < CandidatePage.size, "The fixture needs a partial last page")
+            let unchanged = session.key(.init(modifierFlags: [], characters: "9",
+                                               charactersIgnoringModifiers: "9", keyCode: 25))
+            #expect(unchanged.commits.isEmpty)
+            #expect(unchanged.selection == snapshot.selection)
+            #expect(unchanged.inputState == snapshot.inputState)
+            #expect(unchanged.preedit == snapshot.preedit)
+            #expect(unchanged.candidatePage == snapshot.candidatePage)
+        }
+    }
+
     @Test func previewAndCommitUseTheSameCandidateAndLeaveTheShownReading() throws {
         try withSession(liveConversion: false, treeCandidates: true) { session in
             var snapshot = try beginSelecting(session)
