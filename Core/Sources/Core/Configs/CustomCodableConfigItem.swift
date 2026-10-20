@@ -40,12 +40,14 @@ extension CustomCodableConfigItem {
 }
 
 extension Config {
-    /// ライブ変換を有効化する設定
+    /// 学習データの更新と変換への反映を選ぶ設定
     public struct Learning: CustomCodableConfigItem {
-        public enum Value: String, Codable, Equatable, Hashable, Sendable {
+        public enum Value: String, Codable, Equatable, Hashable, Sendable, CaseIterable {
             case inputAndOutput
             case onlyOutput
             case nothing
+
+            public var labelKey: String { "learning.mode.\(rawValue)" }
 
             public var learningType: LearningType {
                 switch self {

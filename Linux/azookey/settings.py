@@ -10,6 +10,7 @@ from .bridge import Bridge
 from .prompts import parse_shortcut, shortcut_text
 from .personalization import import_model
 from .i18n import text as message
+from .learning_settings import learning_choices
 
 
 def config_path():
@@ -57,7 +58,8 @@ class SettingsWindow(Gtk.Window):
         self.combo(basic, "candidateTextSize", message("candidate.textSize"),
                    [("standard", message("candidate.textSize.standard")), ("large", message("candidate.textSize.large"))])
         self.combo(basic, "inputStyle", "入力配列", [("default", "ローマ字"), ("defaultAZIK", "AZIK"), ("defaultKanaJIS", "かな JIS"), ("defaultKanaUS", "かな US"), ("custom", "カスタム")])
-        self.combo(basic, "learning", "学習", [("inputAndOutput", "入力と変換結果"), ("onlyOutput", "変換結果のみ"), ("nothing", "しない")])
+        self.combo(basic, "learning", message("learning.title"), learning_choices())
+        basic.pack_start(Gtk.Label(label=message("learning.retention"), xalign=0, wrap=True), False, False, 0)
         self.combo(basic, "punctuation", "句読点", [(1, "、。"), (2, "，。"), (3, "、．"), (4, "，．")])
         self.combo(basic, "personalization", "個人化", [("off", "オフ"), ("soft", "弱"), ("normal", "標準"), ("hard", "強")])
         personal = Gtk.Button(label="Tunerの個人化モデルを読み込む…")
@@ -65,7 +67,7 @@ class SettingsWindow(Gtk.Window):
         basic.pack_start(personal, False, False, 0)
         self.entry(basic, "profile", "変換プロファイル")
         self.entry(basic, "inferenceLimit", "推論回数 (1–100)")
-        reset = Gtk.Button(label="学習をリセット…")
+        reset = Gtk.Button(label=message("learning.reset.action"))
         reset.connect("clicked", self.reset_learning)
         basic.pack_start(reset, False, False, 0)
         dictionary = self.page(book, "辞書・入力表")
@@ -105,8 +107,11 @@ class SettingsWindow(Gtk.Window):
 
     def reset_learning(self, _button):
         dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
-                                   buttons=Gtk.ButtonsType.OK_CANCEL, text="学習データをリセットしますか？")
-        dialog.format_secondary_text("ユーザー辞書は保持します。学習結果は元に戻せません。")
+                                   buttons=Gtk.ButtonsType.NONE, text=message("learning.reset.title"))
+        dialog.add_buttons(message("settings.cancel"), Gtk.ResponseType.CANCEL,
+                           message("learning.reset.confirm"), Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.CANCEL)
+        dialog.format_secondary_text(message("learning.reset.explanation"))
         response = dialog.run()
         dialog.destroy()
         if response == Gtk.ResponseType.OK:
@@ -119,7 +124,7 @@ class SettingsWindow(Gtk.Window):
                 success = False
             if not success:
                 success = not self.bridge.request("reset-learning").get("error")
-            self.message.set_text("学習をリセットしました。" if success else "リセットに失敗しました。")
+            self.message.set_text(message("learning.reset.completed" if success else "learning.reset.failed"))
 
     def import_personalization(self, _button):
         dialog = Gtk.FileChooserDialog(title="lm_*.marisa の4ファイルがあるフォルダーを選択", transient_for=self,

@@ -129,6 +129,59 @@ class BridgeIntegrationTests(unittest.TestCase):
         finally:
             self.bridge.request("configure", settings=original)
 
+    @unittest.skipUnless(sys.platform == "linux", "isolated learning data")
+    def test_stopping_learning_updates_keeps_existing_results_and_disabling_use_keeps_saved_data(self):
+        original = self.bridge.request("settings")["settings"]
+        # Compare only the learning policy, independently of neural model ranking.
+        environment = dict(os.environ)
+        environment.pop("AZOOKEY_RESOURCES", None)
+        self.bridge.close()
+        self.bridge = Bridge(environment=environment)
+
+        def candidates_for(reading):
+            self.bridge.request("reset")
+            for character in reading:
+                self.bridge.request("key", event=translate(ord(character), 0))
+            self.bridge.request("key", event=translate(32, 0))
+            return self.bridge.request("key", event=translate(32, 0))
+
+        def commit_candidate(snapshot, word):
+            candidate = next(item for item in snapshot["candidates"] if item["text"] == word)
+            self.bridge.request("select", index=candidate["index"], generation=snapshot["generation"], submit=True)
+
+        def stored_memory():
+            directory = pathlib.Path(self.directory.name) / "memory"
+            return {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()}
+
+        try:
+            settings = {**original, "live": False, "learning": "inputAndOutput"}
+            self.bridge.request("configure", settings=settings)
+            baseline = candidates_for("kyou")
+            baseline_rank = [item["text"] for item in baseline["candidates"]].index("京")
+            commit_candidate(baseline, "京")
+            self.bridge.close()
+            learned_memory = stored_memory()
+            self.assertTrue(learned_memory, "the fixture must save actual converter learning")
+
+            for mode in ("onlyOutput", "nothing", "onlyOutput"):
+                with self.subTest(mode=mode):
+                    self.bridge = Bridge(environment=environment)
+                    self.bridge.request("configure", settings={**settings, "learning": mode})
+                    snapshot = candidates_for("kyou")
+                    rank = [item["text"] for item in snapshot["candidates"]].index("京")
+                    if mode == "onlyOutput":
+                        self.assertLess(rank, baseline_rank, "existing learning must still affect conversion")
+                    else:
+                        self.assertEqual(rank, baseline_rank, "disabled learning must not affect conversion")
+                    # Both modes stop updates, including commits of a different word.
+                    commit_candidate(candidates_for("nihongo"), "日本語")
+                    self.bridge.close()
+                    self.assertEqual(stored_memory(), learned_memory, "stopping learning must not update or delete saved data")
+        finally:
+            self.bridge.close()
+            self.bridge = Bridge()
+            self.bridge.request("configure", settings=original)
+
     @unittest.skipUnless(sys.platform == "linux" and os.environ.get("AZOOKEY_RESOURCES"), "verified MARISA model fixture")
     def test_personalization_import_and_off_apply_to_the_existing_session(self):
         original = self.bridge.request("settings")["settings"]

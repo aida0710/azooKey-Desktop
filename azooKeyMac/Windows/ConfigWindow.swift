@@ -16,7 +16,6 @@ struct ConfigWindow: View {
     @ConfigState private var openAiApiKey = Config.OpenAiApiKey()
     @ConfigState private var openAiModelName = Config.OpenAiModelName()
     @ConfigState private var openAiApiEndpoint = Config.OpenAiApiEndpoint()
-    @ConfigState private var learning = Config.Learning()
     @ConfigState private var inferenceLimit = Config.ZenzaiInferenceLimit()
     @ConfigState private var debugWindow = Config.DebugWindow()
     @ConfigState private var debugPredictiveTyping = Config.DebugPredictiveTyping()
@@ -34,8 +33,7 @@ struct ConfigWindow: View {
     @State private var showingRomajiTableEditor = false
     @State private var connectionTestResult: String?
     @State private var systemUserDictionaryUpdateMessage: SystemUserDictionaryUpdateMessage?
-    @State private var showingLearningResetConfirmation = false
-    @State private var learningResetMessage: LearningResetMessage?
+    @State private var showingImportedDictionaryResetConfirmation = false
     @State private var foundationModelsAvailability: FoundationModelsAvailability?
     @State private var availabilityCheckDone = false
     @State private var debugTypoCorrectionState: DebugTypoCorrectionState = .notDownloaded
@@ -54,11 +52,6 @@ struct ConfigWindow: View {
             case .advanced: return "gearshape.2"
             }
         }
-    }
-
-    private enum LearningResetMessage {
-        case success
-        case error(String)
     }
 
     private enum SystemUserDictionaryUpdateMessage {
@@ -250,31 +243,6 @@ struct ConfigWindow: View {
         }
 
         connectionTestInProgress = false
-    }
-
-    @MainActor
-    private func resetLearningData() {
-        guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else {
-            learningResetMessage = .error("学習データのリセットに失敗しました")
-            Task {
-                try? await Task.sleep(for: .seconds(30))
-                if case .error = learningResetMessage {
-                    learningResetMessage = nil
-                }
-            }
-            return
-        }
-
-        appDelegate.kanaKanjiConverter.resetMemory()
-        learningResetMessage = .success
-
-        // 10秒後にメッセージを消す
-        Task {
-            try? await Task.sleep(for: .seconds(10))
-            if case .success = learningResetMessage {
-                learningResetMessage = nil
-            }
-        }
     }
 
     @ViewBuilder
@@ -480,11 +448,22 @@ struct ConfigWindow: View {
                                 self.systemUserDictionaryUpdateMessage = .error(error)
                             }
                         }
-                        Button("リセット") {
-                            self.systemUserDictionary.value.lastUpdate = nil
-                            self.systemUserDictionary.value.items = []
-                            self.systemUserDictionaryUpdateMessage = nil
-                            self.exportUserDictionary()
+                        Button(Localization.text("dictionary.imported.reset.action")) {
+                            showingImportedDictionaryResetConfirmation = true
+                        }
+                        .confirmationDialog(
+                            Localization.text("dictionary.imported.reset.title"),
+                            isPresented: $showingImportedDictionaryResetConfirmation, titleVisibility: .visible
+                        ) {
+                            Button(Localization.text("dictionary.imported.reset.confirm"), role: .destructive) {
+                                self.systemUserDictionary.value.lastUpdate = nil
+                                self.systemUserDictionary.value.items = []
+                                self.systemUserDictionaryUpdateMessage = nil
+                                self.exportUserDictionary()
+                            }
+                            Button(Localization.text("settings.cancel"), role: .cancel) {}
+                        } message: {
+                            Text(Localization.text("dictionary.imported.reset.explanation"))
                         }
                     }
                 } label: {
@@ -538,45 +517,7 @@ struct ConfigWindow: View {
                 Label("入力オプション", systemImage: "character.cursor.ibeam")
             }
 
-            Section {
-                Picker("履歴学習", selection: $learning) {
-                    Text("学習する").tag(Config.Learning.Value.inputAndOutput)
-                    Text("学習を停止").tag(Config.Learning.Value.onlyOutput)
-                    Text("学習を無視").tag(Config.Learning.Value.nothing)
-                }
-                LabeledContent {
-                    HStack {
-                        switch learningResetMessage {
-                        case .none:
-                            EmptyView()
-                        case .success:
-                            Text("履歴学習データをリセットしました")
-                                .foregroundColor(.green)
-                        case .error(let message):
-                            Text("エラー: \(message)")
-                                .foregroundColor(.red)
-                        }
-                        Spacer()
-                        Button("リセット") {
-                            showingLearningResetConfirmation = true
-                        }
-                        .confirmationDialog(
-                            "履歴学習データをリセットしますか？",
-                            isPresented: $showingLearningResetConfirmation,
-                            titleVisibility: .visible
-                        ) {
-                            Button("リセット", role: .destructive) {
-                                resetLearningData()
-                            }
-                            Button("キャンセル", role: .cancel) {}
-                        }
-                    }
-                } label: {
-                    Text("履歴学習データ")
-                }
-            } header: {
-                Label("学習", systemImage: "memorychip")
-            }
+            LearningSettingsSection()
 
             Section {
                 Picker("入力方式", selection: $inputStyle) {

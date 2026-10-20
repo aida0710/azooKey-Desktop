@@ -7,5 +7,17 @@
   "candidate.textSize": "候補の文字サイズ",
   "candidate.textSize.standard": "標準",
   "candidate.textSize.large": "大きい",
-  "candidate.detailKeys": "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール"
+  "candidate.detailKeys": "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール",
+  "learning.title": "履歴学習",
+  "learning.mode.inputAndOutput": "学習して利用する",
+  "learning.mode.onlyOutput": "新しい学習を停止し、これまでの学習を利用する",
+  "learning.mode.nothing": "学習データを利用しない",
+  "learning.retention": "「学習データを利用しない」では新しい学習も保存しません。設定の変更だけでは、蓄積済みの学習データは削除されません。",
+  "learning.reset.action": "履歴学習データを削除…",
+  "learning.reset.title": "履歴学習データを削除しますか？",
+  "learning.reset.confirm": "履歴学習データを削除",
+  "learning.reset.explanation": "履歴学習データだけを削除します。ユーザー辞書と取り込んだ辞書、個人化モデル、設定は残ります。この削除は取り消せません。",
+  "learning.reset.completed": "履歴学習データを削除しました。",
+  "learning.reset.failed": "履歴学習データを削除できませんでした。",
+  "settings.cancel": "取消"
 }
