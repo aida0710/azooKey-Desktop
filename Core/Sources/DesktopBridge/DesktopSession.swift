@@ -45,6 +45,7 @@ struct DesktopSnapshot: Encodable {
     var inputState = "none"
     var prediction: String?
     var pageStart = 0
+    var candidatePage = CandidatePage(entries: [], selectionIndex: nil)
     var showCandidateIndex = false
     var candidateTextSize = Config.CandidateTextSize().value
     var zenzaiLoaded = false
@@ -303,11 +304,12 @@ final class DesktopSession: SegmentManagerDelegate {
         case .selectNextCandidate: segments.requestSelectingNextCandidate()
         case .selectNumberCandidate(let number):
             let index = pageStart + number - 1
-            if currentCandidates.indices.contains(index) {
-                segments.requestSelectingRow(index)
-                commitSelected(into: &result.commits)
-                segments.requestResettingSelection()
+            guard currentCandidates.indices.contains(index) else {
+                return snapshot()
             }
+            segments.requestSelectingRow(index)
+            commitSelected(into: &result.commits)
+            segments.requestResettingSelection()
         case .submitHiraganaCandidate:
             commit(segments.getModifiedRubyCandidate(inputState: state) { $0.toHiragana() }, into: &result.commits)
         case .submitKatakanaCandidate:
@@ -427,7 +429,12 @@ final class DesktopSession: SegmentManagerDelegate {
             pageStart = (index / 9) * 9
         } else { pageStart = 0 }
         result.pageStart = pageStart
-        result.showCandidateIndex = state == .selecting || state == .replaceSuggestion
+        result.candidatePage = CandidatePage(
+            entries: presentations.enumerated().map { $0.element.treeEntry(index: $0.offset) },
+            selectionIndex: result.selection, pageStart: pageStart)
+        // AI suggestions keep number keys as reading input, so only ordinary
+        // candidate selection can advertise numeric shortcuts.
+        result.showCandidateIndex = state == .selecting
         return result
     }
 }

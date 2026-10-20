@@ -9,6 +9,7 @@ import {messages} from './candidateMessages.js';
 import {candidatePlacement} from './candidatePlacement.js';
 import {ShellCursor} from './shellCursor.js';
 import {LayoutDiagnostics} from './layoutDiagnostics.js';
+import {CandidateNavigation} from './candidateNavigation.js';
 
 const NAME = 'org.azookey.Tree';
 const PATH = '/org/azookey/Tree';
@@ -17,6 +18,14 @@ export default class AzooKeyTreeExtension extends Extension {
     enable() {
         this._buttons = new Map();
         this._popup = new St.BoxLayout({vertical: true, can_focus: false});
+        this._navigation = new CandidateNavigation({
+            select: selection => { if (selection) this._call('Select', selection); },
+            changed: () => { if (this._lastSnapshot) this._render(this._lastSnapshot); },
+            preview: item => {
+                if (this._detailState) this._details.update({...this._detailState, text: item.detailDescription});
+            },
+        });
+        this._popup.add_child(this._navigation.actor);
         this._treeScroll = new St.ScrollView({
             reactive: true, can_focus: false,
             hscrollbar_policy: St.PolicyType.AUTOMATIC,
@@ -45,6 +54,7 @@ export default class AzooKeyTreeExtension extends Extension {
                     this._lastSnapshot = null;
                     this._placementSide = null;
                     this._layoutDiagnostics.clear();
+                    this._navigation.collapse();
                 }
                 if (signal === 'ScrollDetails' && this._popup.visible)
                     this._details.scrollPage(parameters.deepUnpack()[0]);
@@ -81,6 +91,7 @@ export default class AzooKeyTreeExtension extends Extension {
             this._candidateIdentity = candidateIdentity;
         }
         if (!nodes.length) {
+            this._navigation.collapse();
             this._popup.hide();
             this._layoutDiagnostics.clear();
             this._canvas.destroy_all_children();
@@ -96,6 +107,7 @@ export default class AzooKeyTreeExtension extends Extension {
         const byId = new Map(nodes.map(node => [node.id, node]));
         const columns = data.columns ?? [];
         if (!columns.length) {
+            this._navigation.collapse();
             this._popup.hide();
             this._layoutDiagnostics.clear();
             return;
@@ -251,8 +263,10 @@ export default class AzooKeyTreeExtension extends Extension {
         const index = monitorIndex >= 0 ? monitorIndex : Main.layoutManager.primaryIndex;
         const bounds = global.workspace_manager.get_active_workspace().get_work_area_for_monitor(index);
         const detailHeight = Math.min(160, bounds.height / 3);
+        const navigationHeight = this._navigation.update(data,
+            {fontSize, listHeight: Math.min(240, bounds.height / 3)});
         const placement = candidatePlacement({cursor: anchor.location, bounds,
-            contentWidth: width, contentHeight: height, detailHeight, aligned,
+            contentWidth: width, contentHeight: height, detailHeight: detailHeight + navigationHeight, aligned,
             preferredSide: this._placementSide});
         if (aligned && !placement.permitsAlignment) {
             this._render({...data, wordGeometry: null, layoutReason: 'outside-workarea'});
@@ -262,6 +276,7 @@ export default class AzooKeyTreeExtension extends Extension {
         // Reserve a bounded detail area, leaving the source document visible.
         const {width: popupWidth, height: popupHeight, treeHeight} = placement;
         this._treeScroll.set_size(popupWidth, treeHeight);
+        this._navigation.actor.set_size(popupWidth, navigationHeight);
         this._details.actor.set_size(popupWidth, detailHeight);
         this._popup.set_size(popupWidth, popupHeight);
         this._detailState = {nodes: byId, fontSize, width: popupWidth};

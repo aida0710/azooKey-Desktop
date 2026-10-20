@@ -12,10 +12,12 @@ final class CandidateTreePanel: NSPanel {
 final class CandidateTreeView: NSView {
     var onSelectionChanged: ((Int) -> Void)?
     var onCandidateSubmitted: ((Int) -> Void)?
+    var onLayoutChanged: (() -> Void)?
     private var tree = CandidateTree(entries: [])
     private var selection = CandidateTreeSelection(tree: CandidateTree(entries: []), candidateIndex: nil)
     private let scrollView = NSScrollView()
     private let details = CandidateDetailView(frame: .zero)
+    private let navigation = CandidateNavigationView(frame: .zero)
     private let canvas = TreeCanvas()
     private var nodeButtons: [Int: TreeButton] = [:]
     private var terminalButtons: [Int: TreeButton] = [:]
@@ -34,7 +36,10 @@ final class CandidateTreeView: NSView {
     private let minimumDetailWidth = CandidateDetailView.minimumWidth
     var hasDocumentAlignment: Bool { documentWidths != nil }
     private var detailHeight: CGFloat { textSize == .large ? CandidateDetailView.maximumHeight : 112 }
-    private(set) var preferredSize = NSSize(width: 80, height: 46)
+    private var treePreferredSize = NSSize(width: 80, height: 46)
+    var preferredSize: NSSize {
+        NSSize(width: treePreferredSize.width, height: treePreferredSize.height + navigation.preferredHeight)
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -50,6 +55,29 @@ final class CandidateTreeView: NSView {
                                                name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         addSubview(scrollView)
         addSubview(details)
+        addSubview(navigation)
+        navigation.onSelection = { [weak self] index, submit in
+            guard let self else {
+                return
+            }
+            if submit {
+                self.submit(candidateIndex: index)
+            } else {
+                self.selection.synchronize(tree: self.tree, candidateIndex: index)
+                self.refreshSelection()
+                self.onSelectionChanged?(index)
+            }
+        }
+        navigation.onExpansion = { [weak self] in
+            self?.needsLayout = true
+            self?.onLayoutChanged?()
+        }
+        navigation.onPreview = { [weak self] text in
+            guard let self else {
+                return
+            }
+            self.details.update(text: text, fontSize: self.textSize.pointSize)
+        }
         setAccessibilityLabel("木構造の変換候補")
     }
 
@@ -60,7 +88,11 @@ final class CandidateTreeView: NSView {
         super.layout()
         let height = min(detailHeight, bounds.height)
         details.frame = NSRect(x: 0, y: 0, width: bounds.width, height: height)
-        scrollView.frame = NSRect(x: 0, y: height, width: bounds.width, height: max(0, bounds.height - height))
+        let navigationHeight = min(navigation.preferredHeight, max(0, bounds.height - height))
+        navigation.frame = NSRect(x: 0, y: bounds.height - navigationHeight,
+                                  width: bounds.width, height: navigationHeight)
+        scrollView.frame = NSRect(x: 0, y: height, width: bounds.width,
+                                  height: max(0, bounds.height - height - navigationHeight))
         updateVisibleControls()
     }
 
@@ -88,6 +120,8 @@ final class CandidateTreeView: NSView {
         textSize = size
         tree = updatedTree
         numberLabels = numbers
+        navigation.update(page: CandidatePage(entries: entries, selectionIndex: selectionIndex, pageStart: numbers.keys.min()),
+                          numbers: numbers, fontSize: size.pointSize)
         selection.synchronize(tree: tree, candidateIndex: selectionIndex)
         if changed {
             rebuild()
@@ -167,8 +201,8 @@ final class CandidateTreeView: NSView {
         let rowCount = displayedColumns.map(\.count).max() ?? 0
         let contentSize = NSSize(width: max(60, x), height: max(44, CGFloat(rowCount) * rowPitch + 6))
         canvas.frame = NSRect(origin: .zero, size: contentSize)
-        preferredSize = NSSize(width: max(minimumDetailWidth, aligned ? contentSize.width : min(760, contentSize.width)),
-                               height: contentSize.height + detailHeight)
+        treePreferredSize = NSSize(width: max(minimumDetailWidth, aligned ? contentSize.width : min(760, contentSize.width)),
+                                  height: contentSize.height + detailHeight)
         canvas.edges = []
         for id in displayedColumns.flatMap({ $0 }) {
             let node = tree.nodes[id]

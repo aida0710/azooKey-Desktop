@@ -84,6 +84,71 @@ import Testing
         }
     }
 
+    @Test func pageNavigationAndNumberKeysConfirmTheSameRealCandidate() throws {
+        try withSession(liveConversion: false, treeCandidates: true) { session in
+            var snapshot = try beginSelecting(session)
+            #expect(snapshot.showCandidateIndex)
+            #expect(snapshot.candidatePage.totalCount == snapshot.candidates.count)
+            let next = try #require(snapshot.candidatePage.nextIndex)
+            snapshot = session.select(candidateIndex: next, submit: false, expectedGeneration: snapshot.generation)
+            #expect(snapshot.candidatePage.position == next + 1)
+            #expect(snapshot.candidatePage.start == snapshot.pageStart)
+            let second = try #require(snapshot.candidatePage.items.dropFirst().first)
+            let committed = session.key(.init(modifierFlags: [], characters: "2",
+                                               charactersIgnoringModifiers: "2", keyCode: 19))
+            #expect(committed.commits == [second.text])
+            #expect(second.index == snapshot.pageStart + 1)
+        }
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func aiSuggestionsHideNumberShortcutsAndKeepDigitsInTheOriginalReading(live: Bool, tree: Bool) throws {
+        try withSession(liveConversion: live, treeCandidates: tree) { session in
+            var snapshot = try beginSelecting(session)
+            #expect(snapshot.showCandidateIndex)
+            let originalReading = snapshot.reading
+            let suggestions = (0..<12).map { "AI提案\($0)" }
+            snapshot = session.applySuggestions(
+                suggestions, reading: originalReading, expectedGeneration: snapshot.generation)
+            #expect(snapshot.inputState == "replaceSuggestion")
+            #expect(!snapshot.showCandidateIndex)
+            let next = try #require(snapshot.candidatePage.nextIndex)
+            snapshot = session.select(candidateIndex: next, submit: false, expectedGeneration: snapshot.generation)
+            #expect(snapshot.candidatePage.start == next)
+            #expect(snapshot.preedit == suggestions[next])
+            #expect(!snapshot.showCandidateIndex)
+
+            let typed = session.key(.init(modifierFlags: [], characters: "1",
+                                          charactersIgnoringModifiers: "1", keyCode: 18))
+            #expect(typed.reading == originalReading + "1")
+            #expect(typed.inputState == "composing")
+            #expect(typed.commits.isEmpty)
+            #expect(!typed.showCandidateIndex)
+
+            snapshot = session.applySuggestions(
+                suggestions, reading: typed.reading, expectedGeneration: typed.generation)
+            let selected = session.select(candidateIndex: next + 1, submit: true, expectedGeneration: snapshot.generation)
+            #expect(selected.commits == [suggestions[next + 1]])
+            #expect(selected.reading.isEmpty)
+        }
+    }
+
+    @Test func unavailableNumberOnTheLastPagePreservesSelectionAndInputState() throws {
+        try withSession(liveConversion: false, treeCandidates: true) { session in
+            var snapshot = try beginSelecting(session)
+            let last = try #require(snapshot.candidates.last)
+            snapshot = session.select(candidateIndex: last.index, submit: false, expectedGeneration: snapshot.generation)
+            #expect(snapshot.candidatePage.items.count < CandidatePage.size, "The fixture needs a partial last page")
+            let unchanged = session.key(.init(modifierFlags: [], characters: "9",
+                                               charactersIgnoringModifiers: "9", keyCode: 25))
+            #expect(unchanged.commits.isEmpty)
+            #expect(unchanged.selection == snapshot.selection)
+            #expect(unchanged.inputState == snapshot.inputState)
+            #expect(unchanged.preedit == snapshot.preedit)
+            #expect(unchanged.candidatePage == snapshot.candidatePage)
+        }
+    }
+
     @Test func previewAndCommitUseTheSameCandidateAndLeaveTheShownReading() throws {
         try withSession(liveConversion: false, treeCandidates: true) { session in
             var snapshot = try beginSelecting(session)

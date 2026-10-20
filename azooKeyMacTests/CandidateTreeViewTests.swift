@@ -7,7 +7,7 @@ import XCTest
 final class CandidateTreeViewTests: XCTestCase {
     private func buttons(in view: NSView) -> [NSButton] {
         view.subviews.flatMap { child in
-            (child as? NSButton).map { [$0] } ?? buttons(in: child)
+            child.isHidden ? [] : ((child as? NSButton).map { [$0] } ?? buttons(in: child))
         }
     }
 
@@ -173,7 +173,7 @@ final class CandidateTreeViewTests: XCTestCase {
         let visible = buttons(in: view)
         XCTAssertLessThanOrEqual(view.preferredSize.height, 320, "Keep a compact tree plus a bounded detail area")
         XCTAssertLessThanOrEqual(view.preferredSize.width, 320, "Short words only need the detail area's minimum width")
-        XCTAssertLessThanOrEqual(visible.count, 4, "Show the path and two alternatives at each word")
+        XCTAssertLessThanOrEqual(visible.count, 5, "Show the compact path and one list control")
         let first = visible.first { $0.title == "日本語" }
         let second = visible.first { $0.title == "候補0" }
         XCTAssertNotNil(first)
