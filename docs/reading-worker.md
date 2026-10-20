@@ -77,3 +77,9 @@ transport の上限は `DesktopWorkerProtocolLimits` にまとめています。
 Swift と実 JSONL で、旧世代・旧焦点・close/open ABA、別欄、private、部分確定、候補停止、不正要求後の継続を検査します。消費範囲の負例には明示した合成候補を使います。`AZOOKEY_CANDIDATE_BRIDGE` を指定した追加試験は別の実 candidate process を使い、実候補の retain ACK → 採用 → 選択 → 確定 → complete を往復します。候補 process を SIGSTOP した間も、読み側の編集・確定が完了することを検査します。
 
 frontend coordinator、通常製品入口への切替、一般設定同期、予測・AI・再変換、ライブ変換 ON は未接続です。実アプリの key-to-paint、IBus / GTK / Qt / Wayland の応答性や、P1 #17 全体の受入を、この protocol 単体の成功で満たしたとは扱いません。
+
+## 全量設定の同期
+
+読み・候補の `configure-settings` は [worker設定契約](worker-settings.md) を共有します。両方の世代・revision・適用値・カスタム表hashが一致した後だけ候補を要求します。読み側だけが先に設定ACKを返した場合も、候補側の一致確認前に候補を採用してはいけません。
+
+`settings` は `kind=acknowledgement` で現在の全量設定を返します。`hello`、`settings`、`configure-settings` 成功時だけ設定契約の追加欄を持ち、入力・候補・通常の制御ACK・エラー応答へ設定本文を重複して入れません。全量契約開始後の `learning-revision` は `full_settings_required` で拒否します。上記の学習単独操作は旧単独fixtureに限られ、一般設定との混用はできません。

@@ -8,6 +8,7 @@ struct DesktopReadingWorker {
     private var contexts: [String: DesktopReadingContext] = [:]
     private var focusedContext: String?
     private var focusEpoch = 0
+    private var appliedSettings: DesktopWorkerSettingsRuntime?
 
     mutating func process(_ request: DesktopReadingWorkerRequest) throws -> DesktopReadingWorkerResponse {
         let encoded = try JSONEncoder().encode(request)
@@ -15,7 +16,12 @@ struct DesktopReadingWorker {
         // Direct Swift calls and JSONL enforce the same operation-specific payload shape.
         _ = try JSONDecoder().decode(DesktopReadingWorkerRequest.self, from: encoded)
         var next = self
-        let response = try next.apply(request)
+        let response: DesktopReadingWorkerResponse
+        if let appliedSettings {
+            response = try appliedSettings.perform { try next.apply(request) }
+        } else {
+            response = try next.apply(request)
+        }
         guard try JSONEncoder().encode(response).count <= DesktopWorkerProtocolLimits.jsonBytes else {
             throw DesktopReadingProtocolFailure.requestLimit
         }
@@ -26,6 +32,7 @@ struct DesktopReadingWorker {
     func rejected(_ error: Error) -> DesktopReadingWorkerResponse {
         var response = response(.error)
         switch error {
+        case let failure as DesktopWorkerSettingsFailure: response.error = failure.rawValue
         case let failure as DesktopReadingProtocolFailure: response.error = failure.rawValue
         case let failure as DesktopReadingSession.Failure: response.error = failure.rawValue
         case DesktopReadingCandidates.Failure.staleRequest: response.error = "stale_candidate_request"
@@ -39,12 +46,14 @@ struct DesktopReadingWorker {
     private mutating func apply(_ request: DesktopReadingWorkerRequest) throws -> DesktopReadingWorkerResponse {
         switch request.operation {
         case "hello":
-            var reply = response(.process)
+            var reply = settingsResponse(.process)
             reply.limits = ["jsonBytes": DesktopWorkerProtocolLimits.jsonBytes,
                             "identifierBytes": DesktopWorkerProtocolLimits.identifierBytes,
                             "contextBytes": DesktopWorkerProtocolLimits.contextBytes,
                             "contexts": DesktopWorkerProtocolLimits.contexts]
             return reply
+        case "settings": return settingsResponse(.acknowledgement)
+        case "configure-settings": return try configureSettings(request)
         case "open": return try open(request)
         case "learning-revision": return try updateLearning(request)
         default: return try applyToContext(request)
@@ -58,7 +67,9 @@ struct DesktopReadingWorker {
         guard contexts[name] == nil else { throw DesktopReadingProtocolFailure.contextAlreadyOpen }
         guard contexts.count < DesktopWorkerProtocolLimits.contexts else { throw DesktopReadingProtocolFailure.requestLimit }
         let reference = try nextReference(context: name)
-        contexts[name] = DesktopReadingContext(reference: reference)
+        var context = DesktopReadingContext(reference: reference)
+        if let appliedSettings { context.configureSettings(appliedSettings) }
+        contexts[name] = context
         return response(.acknowledgement, reference: reference)
     }
 
@@ -106,8 +117,27 @@ struct DesktopReadingWorker {
         return context
     }
 
+    private mutating func configureSettings(_ request: DesktopReadingWorkerRequest) throws -> DesktopReadingWorkerResponse {
+        try validateProcess(DesktopReadingProtocolValidation.required(request.readingProcessGeneration))
+        let revision = try DesktopReadingProtocolValidation.required(request.settingsRevision)
+        let settings = try DesktopReadingProtocolValidation.required(request.settings)
+        guard try DesktopWorkerSettingsRuntime.isChange(settings, revision: revision,
+                                                        currentRevision: settingsRevision, current: appliedSettings) else {
+            return settingsResponse(.acknowledgement)
+        }
+        guard focusedContext == nil, contexts.values.allSatisfy({ $0.session.canConfigureSettings }) else {
+            throw DesktopWorkerSettingsFailure.settingsBusy
+        }
+        let prepared = try DesktopWorkerSettingsRuntime(settings)
+        for name in Array(contexts.keys) { contexts[name]?.configureSettings(prepared) }
+        appliedSettings = prepared
+        settingsRevision = revision
+        return settingsResponse(.acknowledgement)
+    }
+
     private mutating func updateLearning(_ request: DesktopReadingWorkerRequest) throws -> DesktopReadingWorkerResponse {
         try validateProcess(DesktopReadingProtocolValidation.required(request.readingProcessGeneration))
+        guard appliedSettings == nil else { throw DesktopWorkerSettingsFailure.fullSettingsRequired }
         let revision = try DesktopReadingProtocolValidation.required(request.settingsRevision)
         guard revision >= 0 else { throw DesktopReadingProtocolFailure.invalidRequest }
         guard revision > settingsRevision else { throw DesktopReadingProtocolFailure.staleSettings }
@@ -132,5 +162,14 @@ struct DesktopReadingWorker {
     ) -> DesktopReadingWorkerResponse {
         .init(kind: kind, readingProcessGeneration: readingProcessGeneration,
               settingsRevision: settingsRevision, reference: reference)
+    }
+
+    private func settingsResponse(_ kind: DesktopReadingWorkerResponse.Kind) -> DesktopReadingWorkerResponse {
+        var reply = response(kind)
+        reply.settingsContract = DesktopWorkerSettingsRuntime.contract
+        reply.settings = appliedSettings?.settings
+        reply.customInputTableRevisions = appliedSettings?.customInputTableRevisions ?? [:]
+        reply.unsupportedFeatures = DesktopWorkerSettingsRuntime.unsupportedFeatures
+        return reply
     }
 }

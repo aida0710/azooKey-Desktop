@@ -33,9 +33,12 @@ struct DesktopReadingWorkerRequest: Codable {
     var retainedReference: DesktopCandidateBatchReference?
     var selection: DesktopCandidateSelection?
     var settingsRevision: Int?
+    var settings: DesktopWorkerSettings?
 
     private static let payloadFields: [String: Set<String>] = [
         "hello": [],
+        "settings": [],
+        "configure-settings": ["readingProcessGeneration", "settingsRevision", "settings"],
         "open": ["readingProcessGeneration", "context"],
         "focus-in": ["reference", "surroundings"],
         "focus-out": ["reference", "submit"],
@@ -59,7 +62,7 @@ struct DesktopReadingWorkerRequest: Codable {
 extension DesktopReadingWorkerRequest {
     private enum CodingKeys: String, CodingKey {
         case operation, readingProcessGeneration, context, reference, surroundings, event, submit, doubleTap
-        case candidateWorkerGeneration, batch, retainedReference, selection, settingsRevision
+        case candidateWorkerGeneration, batch, retainedReference, selection, settingsRevision, settings
     }
 
     init(from decoder: any Decoder) throws {
@@ -88,7 +91,8 @@ extension DesktopReadingWorkerRequest {
                   batch: try values.decodeIfPresent(DesktopCandidateBatch.self, forKey: .batch),
                   retainedReference: try values.decodeIfPresent(DesktopCandidateBatchReference.self, forKey: .retainedReference),
                   selection: try values.decodeIfPresent(DesktopCandidateSelection.self, forKey: .selection),
-                  settingsRevision: try values.decodeIfPresent(Int.self, forKey: .settingsRevision))
+                  settingsRevision: try values.decodeIfPresent(Int.self, forKey: .settingsRevision),
+                  settings: try values.decodeIfPresent(DesktopWorkerSettings.self, forKey: .settings))
     }
 }
 
@@ -104,5 +108,9 @@ struct DesktopReadingWorkerResponse: Encodable {
     var candidateRequest: DesktopCandidateRequest?
     var candidateReference: DesktopCandidateBatchReference?
     var limits: [String: Int]?
+    var settingsContract: String?
+    var settings: DesktopWorkerSettings?
+    var customInputTableRevisions: [String: String]?
+    var unsupportedFeatures: [String]?
     var error: String?
 }

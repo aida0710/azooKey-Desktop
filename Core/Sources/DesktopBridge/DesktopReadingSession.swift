@@ -20,10 +20,26 @@ struct DesktopReadingSession {
     private var candidateCompletions: [DesktopCandidateCompletion] = []
     // A pending preview/selection keeps the visible reading until another explicit input.
     private var pendingConversionState: InputState?
-    private let japaneseInputStyle: InputStyle
+    private var japaneseInputStyle: InputStyle
+    private var customInputTableRevisions: [String: String] = [:]
 
     init(inputStyle: InputStyle = .mapped(id: .defaultRomanToKana)) {
         japaneseInputStyle = inputStyle
+    }
+
+    var canConfigureSettings: Bool { composition.isEmpty && state == .none }
+
+    mutating func configureSettings(_ runtime: DesktopWorkerSettingsRuntime) {
+        japaneseInputStyle = runtime.inputStyle
+        customInputTableRevisions = runtime.customInputTableRevisions
+        candidates = .init(customInputTableRevisions: runtime.customInputTableRevisions)
+        candidateContext = nil
+        candidateCompletions = []
+        pendingConversionState = nil
+    }
+
+    func compositionSnapshot() throws -> CompositionSnapshot {
+        try .capture(composition, registeredCustomTables: customInputTableRevisions)
     }
 
     private var inputStyle: InputStyle {
@@ -40,9 +56,9 @@ struct DesktopReadingSession {
         // Unsupported actions must leave the entire formal state available for the coordinator.
         var next = self
         next.candidateCompletions = []
-        let previous = try candidateContext.map { _ in try CompositionSnapshot.capture(composition).encoded() }
+        let previous = try candidateContext.map { _ in try compositionSnapshot().encoded() }
         var response = try next.applyKey(event)
-        if let previous, try CompositionSnapshot.capture(next.composition).encoded() != previous {
+        if let previous, try next.compositionSnapshot().encoded() != previous {
             next.compositionRevision += 1
             next.candidates.invalidate()
             next.candidateContext = next.candidateContext.map { next.currentContext($0) }
@@ -312,9 +328,9 @@ struct DesktopReadingSession {
     private mutating func beginConversion(state requestedState: InputState) throws -> DesktopSnapshot {
         let nextState = pendingConversionState == .selecting ? .selecting : requestedState
         if pendingConversionState == nil {
-            let previous = try CompositionSnapshot.capture(composition).encoded()
+            let previous = try compositionSnapshot().encoded()
             composition.insertCompositionSeparator(inputStyle: inputStyle)
-            if try CompositionSnapshot.capture(composition).encoded() != previous {
+            if try compositionSnapshot().encoded() != previous {
                 candidates.invalidate()
             }
         }

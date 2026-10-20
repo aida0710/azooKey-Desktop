@@ -11,7 +11,8 @@ final class DesktopCandidateWorker {
     private let directory: URL
     private let resources: URL?
     private let useZenzai: Bool
-    private let customInputTableRevisions: [String: String]
+    private var customInputTableRevisions: [String: String]
+    private var appliedSettings: DesktopWorkerSettingsRuntime?
     private var sessions: [String: DesktopCandidateSession] = [:]
 
     init(directory: URL, resources: URL? = nil, useZenzai: Bool = false) throws {
@@ -32,6 +33,13 @@ final class DesktopCandidateWorker {
     }
 
     func process(_ message: DesktopCandidateWorkerRequest) throws -> DesktopCandidateWorkerResponse {
+        if let appliedSettings {
+            return try appliedSettings.perform { try apply(message) }
+        }
+        return try apply(message)
+    }
+
+    private func apply(_ message: DesktopCandidateWorkerRequest) throws -> DesktopCandidateWorkerResponse {
         var response = snapshot()
         response.authority = message.authority
         switch message.operation {
@@ -52,6 +60,9 @@ final class DesktopCandidateWorker {
             try validateWorker(completion.workerGeneration)
             guard let session = sessions[completion.authority.context] else { throw DesktopCandidateFailure.unknownBatch }
             response.completion = try session.complete(completion, settingsRevision: settingsRevision)
+        case "configure-settings":
+            try configureSettings(message)
+            response = settingsSnapshot()
         case "configure-learning":
             try configureLearning(DesktopCandidateValidation.required(message.learning),
                                   revision: DesktopCandidateValidation.required(message.settingsRevision),
@@ -62,7 +73,7 @@ final class DesktopCandidateWorker {
                       readingProcessGeneration: DesktopCandidateValidation.required(message.readingProcessGeneration),
                       workerGeneration: DesktopCandidateValidation.required(message.workerGeneration))
         case "settings":
-            break
+            response = settingsSnapshot()
         default:
             throw DesktopCandidateFailure.unsupportedOperation
         }
@@ -72,7 +83,8 @@ final class DesktopCandidateWorker {
     func rejected(_ error: Error, authority: CandidateRequestAuthority? = nil) -> DesktopCandidateWorkerResponse {
         var response = snapshot()
         if let authority, (try? DesktopCandidateValidation.authority(authority)) != nil { response.authority = authority }
-        response.error = (error as? DesktopCandidateFailure)?.rawValue ?? "invalid_candidate_snapshot"
+        response.error = (error as? DesktopWorkerSettingsFailure)?.rawValue ??
+            (error as? DesktopCandidateFailure)?.rawValue ?? "invalid_candidate_snapshot"
         return response
     }
 
@@ -101,8 +113,33 @@ final class DesktopCandidateWorker {
         return batch
     }
 
+    private func configureSettings(_ message: DesktopCandidateWorkerRequest) throws {
+        try validateWorker(DesktopCandidateValidation.required(message.workerGeneration))
+        let revision = try DesktopCandidateValidation.required(message.settingsRevision)
+        let settings = try DesktopCandidateValidation.required(message.settings)
+        guard message.request == nil, message.reference == nil, message.completion == nil,
+              message.learning == nil, message.context == nil, message.readingProcessGeneration == nil else {
+            throw DesktopWorkerSettingsFailure.invalidSettings
+        }
+        guard try DesktopWorkerSettingsRuntime.isChange(settings, revision: revision,
+                                                        currentRevision: settingsRevision, current: appliedSettings) else {
+            return
+        }
+        guard sessions.isEmpty else { throw DesktopWorkerSettingsFailure.settingsBusy }
+        let prepared = try DesktopWorkerSettingsRuntime(settings)
+        converter.commitUpdateLearningData()
+        prepared.perform {
+            ConverterLearningConfiguration.apply(learningType: settings.learning.learningType, converter: converter,
+                                                 memoryDirectoryURL: directory.appendingPathComponent("memory"))
+        }
+        appliedSettings = prepared
+        customInputTableRevisions = prepared.customInputTableRevisions
+        settingsRevision = revision
+    }
+
     private func configureLearning(_ learning: Config.Learning.Value, revision: Int, generation: String) throws {
         try validateWorker(generation)
+        guard appliedSettings == nil else { throw DesktopWorkerSettingsFailure.fullSettingsRequired }
         guard revision >= 0 else { throw DesktopCandidateFailure.invalidRequest }
         if revision == settingsRevision, learning == Config.Learning().value {
             return
@@ -141,6 +178,15 @@ final class DesktopCandidateWorker {
 
     private func snapshot() -> DesktopCandidateWorkerResponse {
         .init(workerGeneration: workerGeneration, settingsRevision: settingsRevision,
-              learning: Config.Learning().value, customInputTableRevisions: customInputTableRevisions)
+              learning: appliedSettings?.settings.learning ?? Config.Learning().value,
+              customInputTableRevisions: customInputTableRevisions)
+    }
+
+    private func settingsSnapshot() -> DesktopCandidateWorkerResponse {
+        var response = snapshot()
+        response.settingsContract = DesktopWorkerSettingsRuntime.contract
+        response.settings = appliedSettings?.settings
+        response.unsupportedFeatures = DesktopWorkerSettingsRuntime.unsupportedFeatures
+        return response
     }
 }

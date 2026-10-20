@@ -11,6 +11,11 @@ struct DesktopReadingContext {
 
     init(reference: DesktopReadingContextReference) { self.reference = reference }
 
+    mutating func configureSettings(_ runtime: DesktopWorkerSettingsRuntime) {
+        session.configureSettings(runtime)
+        candidateWorkerGeneration = nil
+    }
+
     mutating func process(_ request: DesktopReadingWorkerRequest, settingsRevision: Int) throws -> DesktopReadingWorkerResponse {
         var response = DesktopReadingWorkerResponse(
             kind: ["key", "reset", "focus-out", "select"].contains(request.operation) ? .input : .acknowledgement,
@@ -53,7 +58,7 @@ struct DesktopReadingContext {
         }
         if let snapshot = response.snapshot {
             // Apply bounds before the first candidate request, too. The outer worker applies the change atomically.
-            _ = try CompositionSnapshot.capture(session.composition).encoded()
+            _ = try session.compositionSnapshot().encoded()
             surroundings = surroundings.appending(snapshot.commits)
         }
         return response

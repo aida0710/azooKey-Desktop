@@ -38,6 +38,12 @@ struct DesktopReadingCandidates {
         let index: Int
     }
 
+    private let customInputTableRevisions: [String: String]
+
+    init(customInputTableRevisions: [String: String] = [:]) {
+        self.customInputTableRevisions = customInputTableRevisions
+    }
+
     private var pending: Pending?
     private var available: Accepted?
     private var selection: Selection?
@@ -70,7 +76,7 @@ struct DesktopReadingCandidates {
         guard !context.context.isEmpty, !context.readingProcessGeneration.isEmpty,
               context.focusEpoch >= 0, context.compositionRevision >= 0,
               context.settingsRevision >= 0 else { throw Failure.invalidContext }
-        let snapshot = try CompositionSnapshot.capture(composition)
+        let snapshot = try CompositionSnapshot.capture(composition, registeredCustomTables: customInputTableRevisions)
         let request = DesktopCandidateRequest(
             authority: context.authority(requestID: UUID().uuidString),
             composition: snapshot, leftContext: context.leftContext,
@@ -90,7 +96,7 @@ struct DesktopReadingCandidates {
         guard let pending, batch.authority == pending.request.authority,
               context == pending.context else { throw Failure.staleRequest }
         guard selection == nil else { throw Failure.selectionActive }
-        try Self.verifyComposition(composition, encodedComposition: pending.encodedComposition)
+        try verifyComposition(composition, encodedComposition: pending.encodedComposition)
         guard try JSONEncoder().encode(batch).count <= CompositionSnapshotLimits.jsonByteCount else {
             throw CompositionSnapshotError.limitExceeded("candidateBatch")
         }
@@ -118,7 +124,7 @@ struct DesktopReadingCandidates {
               let index = available.batch.candidates.firstIndex(where: { $0.candidateID == choice.candidateID }) else {
             throw Failure.unavailableCandidate
         }
-        try Self.verifyComposition(composition, encodedComposition: available.encodedComposition)
+        try verifyComposition(composition, encodedComposition: available.encodedComposition)
         selection = .init(accepted: available, index: index)
     }
 
@@ -128,7 +134,7 @@ struct DesktopReadingCandidates {
         guard let selection, context == selection.accepted.context else {
             throw Failure.unavailableCandidate
         }
-        try Self.verifyComposition(composition, encodedComposition: selection.accepted.encodedComposition)
+        try verifyComposition(composition, encodedComposition: selection.accepted.encodedComposition)
         let batch = selection.accepted.batch
         let candidate = batch.candidates[selection.index]
         let consumption = selection.accepted.consumption[selection.index]
@@ -169,8 +175,8 @@ struct DesktopReadingCandidates {
         selection = nil
     }
 
-    private static func verifyComposition(_ composition: CompositionState, encodedComposition: Data) throws {
-        guard try CompositionSnapshot.capture(composition).encoded() == encodedComposition else {
+    private func verifyComposition(_ composition: CompositionState, encodedComposition: Data) throws {
+        guard try CompositionSnapshot.capture(composition, registeredCustomTables: customInputTableRevisions).encoded() == encodedComposition else {
             throw Failure.changedComposition
         }
     }
