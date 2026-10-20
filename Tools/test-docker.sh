@@ -25,4 +25,4 @@ fi
 "$DOCKER" run --rm --init --cpus=4 --memory=8g \
     --mount type=volume,source=azookey-tree-core-build,target=/workspace/Core/.build \
     --mount type=volume,source=azookey-tree-spm-cache,target=/root/.cache/org.swift.swiftpm \
-    "${EXTRA[@]}" "$IMAGE" "$@"
+    ${EXTRA[@]+"${EXTRA[@]}"} "$IMAGE" "$@"
