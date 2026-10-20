@@ -374,15 +374,7 @@ final class DesktopSession: SegmentManagerDelegate {
         result.personalizationConfigured = segments.hasPersonalizationConfiguration
         result.reading = segments.convertTarget
         result.readingCursor = unicodeScalarOffset(in: result.reading, utf16Offset: segments.readingCursorUTF16Offset)
-        result.inputState = switch state {
-        case .none: "none"
-        case .composing: "composing"
-        case .previewing: "previewing"
-        case .selecting: "selecting"
-        case .replaceSuggestion: "replaceSuggestion"
-        case .unicodeInput: "unicodeInput"
-        case .attachDiacritic: "attachDiacritic"
-        }
+        result.inputState = state.bridgeName
         if state == .composing {
             result.prediction = SegmentsManager.preferredPredictionCandidates(
                 typoCorrectionCandidates: segments.requestTypoCorrectionPredictionCandidates(),
@@ -430,5 +422,19 @@ final class DesktopSession: SegmentManagerDelegate {
         result.pageStart = pageStart
         result.showCandidateIndex = state == .selecting || state == .replaceSuggestion
         return result
+    }
+}
+
+private extension InputState {
+    var bridgeName: String {
+        switch self {
+        case .none: "none"
+        case .composing: "composing"
+        case .previewing: "previewing"
+        case .selecting: "selecting"
+        case .replaceSuggestion: "replaceSuggestion"
+        case .unicodeInput: "unicodeInput"
+        case .attachDiacritic: "attachDiacritic"
+        }
     }
 }
