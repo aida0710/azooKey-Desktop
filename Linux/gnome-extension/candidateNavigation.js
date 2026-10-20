@@ -192,14 +192,14 @@ export class CandidateNavigation {
         this.retire();
     }
 
-    retire() {
+    retire({preserveViewport = false} = {}) {
         this._clearPreview();
         for (const button of [this._toggle, this._previous, this._next]) button?.destroy();
         this._toggle = this._previous = this._next = null;
         this._actionIdentity = null;
         this._identity = null;
         this._pageIdentity = null;
-        this._revealIdentity = null;
+        if (!preserveViewport) this._revealIdentity = null;
         this._revealPending = false;
         this._rows.destroy_all_children();
     }
