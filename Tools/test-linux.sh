@@ -16,4 +16,5 @@ python3 -m unittest discover -s Linux/tests -v
 dbus-run-session -- xvfb-run -a python3 -m unittest Linux.tests.test_ai_scope -v
 xvfb-run -a python3 Linux/tests/test_tree_panel.py -v
 dbus-run-session -- xvfb-run -a bash Tools/tests/linux-desktop.sh
+dbus-run-session -- xvfb-run -a env AZOOKEY_IBUS_TEST=Linux/tests/ibus_composition_editing.py bash Tools/tests/linux-desktop.sh
 bash Tools/tests/linux-async.sh

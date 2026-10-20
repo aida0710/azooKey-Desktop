@@ -420,7 +420,7 @@ struct ConfigWindow: View {
                     HStack {
                         SecureField("APIキー", text: $openAiApiKey, prompt: Text("例:sk-xxxxxxxxxxx"))
                         helpButton(
-                            helpContent: Localization.text("ai.scope.api-key"),
+                            helpContent: LocalizedStringKey(Localization.text("ai.scope.api-key")),
                             isPresented: $openAiApiKeyPopover
                         )
                     }

@@ -443,7 +443,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .showCandidateWindow:
             self.segmentsManager.requestSetCandidateWindowState(visible: true)
         case .hideCandidateWindow:
-            self.segmentsManager.requestSetCandidateWindowState(visible: false)
+            self.segmentsManager.cancelCandidateSelection()
         case .enterFirstCandidatePreviewMode:
             self.segmentsManager.insertCompositionSeparator(inputStyle: self.inputStyle, skipUpdate: false)
             self.segmentsManager.requestSetCandidateWindowState(visible: false)
@@ -462,6 +462,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             client.insertText(string, replacementRange: NSRange(location: NSNotFound, length: 0))
         case .editSegment(let count):
             self.segmentsManager.editSegment(count: count)
+        case .moveCompositionCursor(let movement):
+            self.segmentsManager.moveCompositionCursor(movement)
         case .commitMarkedText:
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
             client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -481,6 +483,9 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.submitSelectedCandidate()
         case .removeLastMarkedText:
             self.segmentsManager.deleteBackwardFromCursorPosition()
+            self.segmentsManager.requestResettingSelection()
+        case .removeNextMarkedText:
+            self.segmentsManager.deleteForwardFromCursorPosition()
             self.segmentsManager.requestResettingSelection()
         case .selectPrevCandidate:
             self.segmentsManager.requestSelectingPrevCandidate()
@@ -503,11 +508,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 $0.toKatakana().applyingTransform(.fullwidthToHalfwidth, reverse: false)!
             })
         case .submitFullWidthRomanCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate {
+            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate(inputState: self.inputState) {
                 $0.applyingTransform(.fullwidthToHalfwidth, reverse: true)!
             })
         case .submitHalfWidthRomanCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate {
+            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate(inputState: self.inputState) {
                 $0.applyingTransform(.fullwidthToHalfwidth, reverse: false)!
             })
         case .enableDebugWindow:

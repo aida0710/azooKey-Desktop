@@ -99,8 +99,10 @@ wait_for(lambda: len(committed) == count + 1, "reset did not recover preedit")
 # https://ibus.github.io/docs/ibus-1.5/IBusEngine.html#ibus-engine-update-preedit-text-with-mode
 # Escape is the explicit cancellation path; Reset must not commit a second time.
 assert len(committed) == count + 1, "IBus reset must recover preedit exactly once after a crash"
+preedit_count = len(preedits)
 context.process_key_event(ord("a"), 0, 0)
-wait_for(lambda: preedits and preedits[-1] == "あ", "fresh converter did not acknowledge the composition")
+wait_for(lambda: len(preedits) > preedit_count and preedits[-1] == "あ",
+         "fresh converter did not acknowledge the composition")
 visible = preedits[-1]
 assert visible
 crash_converter(connection, "azookey-desktop-bridge")
