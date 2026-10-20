@@ -15,7 +15,7 @@ def settings_fixture():
         ("tree", "live", "halfSpace", "backslash", "optionDirect", "aiEnabled", "includeContext",
          "predictiveTyping", "typoCorrection", "debug"), False,
     )
-    defaults.update(candidateTextSize="standard", inputStyle="default", learning="inputAndOutput",
+    defaults.update(candidateTextSize="standard", showRelativeScores=True, inputStyle="default", learning="inputAndOutput",
                     punctuation=1, personalization="off", profile="", inferenceLimit=10,
                     userDictionary={"items": []}, customTable="", aiModel="fixture",
                     aiEndpoint="https://example.invalid", transformShortcut=None)
