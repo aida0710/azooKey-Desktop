@@ -8,7 +8,8 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from azookey.user_dictionary_model import (
-    DictionarySaveError, DictionaryValidationIssue, UserDictionaryModel, save_dictionary,
+    DictionarySaveError, DictionaryValidationIssue, UserDictionaryModel,
+    matches_dictionary_query, save_dictionary,
 )
 
 
@@ -158,6 +159,22 @@ class UserDictionaryModelTests(unittest.TestCase):
         self.model.remove(ENTRY_ID)
         self.assertTrue(self.save_draft().saved)
         self.assertEqual(self.saved[0], entries[1:])
+
+    def test_search_matches_word_reading_and_multiline_hint_without_changing_text(self):
+        self.model.update(ENTRY_ID, word="AzooKey試験", reading="しけん", hint="1行目\n共通TAG\t補足")
+        entry = self.model.entry(ENTRY_ID)
+        for query in ("", "azookey", "試験", "しけん", "共通tag", "\t補足"):
+            with self.subTest(query=query):
+                self.assertTrue(matches_dictionary_query(entry, query))
+        self.assertFalse(matches_dictionary_query(entry, "存在しない語"))
+        self.assertEqual(self.model.entry(ENTRY_ID), entry)
+        self.assertEqual(self.source, original_entries())
+
+    def test_search_allows_missing_hints_and_does_not_normalize_readings_for_validation(self):
+        entry = {"word": "試験", "reading": "シケン", "hint": None}
+        self.assertTrue(matches_dictionary_query(entry, "シケン"))
+        self.assertFalse(matches_dictionary_query(entry, "しけん"))
+        self.assertFalse(matches_dictionary_query(entry, "None"))
 
 
 if __name__ == "__main__":

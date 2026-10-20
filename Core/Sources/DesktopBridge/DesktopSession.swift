@@ -40,6 +40,10 @@ struct DesktopSnapshot: Encodable {
     var dictionaryIssues: [UserDictionaryValidation.Issue]?
     var dictionarySaved: Bool?
     var dictionarySaveError: String?
+    var dictionaryImportPreview: UserDictionaryImportPreview.Preview?
+    var dictionaryImportItems: [Config.UserDictionaryEntry]?
+    var dictionaryExportJSON: String?
+    var dictionaryExchangeError: String?
     var reading = ""
     var readingCursor = 0
     var inputState = "none"

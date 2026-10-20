@@ -31,7 +31,7 @@ enum DesktopDictionaryController {
             }
             return await Self.save(items: items, stagedPath: path, memoryDirectoryURL: memoryDirectoryURL, converter: converter)
         default:
-            return nil
+            return try await DesktopDictionaryExchangeController.response(to: request)
         }
     }
 

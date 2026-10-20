@@ -25,6 +25,22 @@ struct UserDictionaryEditorWindow: View {
             HStack {
                 Text(String(format: UserDictionaryMessages.text("countFormat"), model.entries.count))
                 Spacer()
+                Button(UserDictionaryMessages.text("import")) {
+                    Task {
+                        await model.prepareImport {
+                            try await UserDictionaryFilePanels.previewImport(existing: $0, window: dictionaryWindow)
+                        }
+                    }
+                }
+                .disabled(!model.canEditEntries)
+                Button(UserDictionaryMessages.text("export")) {
+                    Task {
+                        await model.export {
+                            try await UserDictionaryFilePanels.export($0, window: dictionaryWindow)
+                        }
+                    }
+                }
+                .disabled(!model.canEditEntries)
                 Button {
                     model.beginAdding()
                 } label: {
@@ -32,9 +48,11 @@ struct UserDictionaryEditorWindow: View {
                 }
                 .disabled(!model.canAdd)
             }
-            if model.entries.count >= UserDictionaryEditorModel.entryLimit {
-                Text(String(format: UserDictionaryMessages.text("limitFormat"), UserDictionaryEditorModel.entryLimit))
-                    .font(.caption)
+            HStack {
+                TextField(UserDictionaryMessages.text("search"), text: $model.searchText)
+                    .textFieldStyle(.roundedBorder)
+                Text(String(format: UserDictionaryMessages.text("visibleCountFormat"), model.visibleEntries.count))
+                    .foregroundStyle(.secondary)
             }
             entriesTable
             if model.draft != nil {
@@ -46,24 +64,39 @@ struct UserDictionaryEditorWindow: View {
                     ProgressView().controlSize(.small)
                     Text(UserDictionaryMessages.text("saving"))
                 }
+                if let operation = model.fileOperation {
+                    ProgressView().controlSize(.small)
+                    Text(UserDictionaryMessages.text(operation == .importing ? "importing" : "exporting"))
+                }
                 Spacer()
                 Button(UserDictionaryMessages.text("cancel")) {
                     model.cancelChanges()
-                    (NSApplication.shared.delegate as? AppDelegate)?.userDictionaryEditorWindow?.close()
+                    dictionaryWindow?.close()
                 }
-                .disabled(model.isSaving)
+                .disabled(!model.canClose)
                 Button(UserDictionaryMessages.text("save")) {
                     Task { await model.save() }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(model.isSaving || model.needsRecovery || (!model.hasUnsavedChanges && model.draft == nil))
+                .disabled(!model.canClose || model.needsRecovery || (!model.hasUnsavedChanges && model.draft == nil))
             }
         }
         .padding()
         .frame(minWidth: Self.minimumWindowWidth, minHeight: Self.minimumWindowHeight)
         .background(UserDictionaryWindowGuard(
-            canClose: { !model.isSaving }, onClose: { model.cancelChanges() }
+            canClose: { model.canClose }, onClose: { model.cancelChanges() }
         ))
+        .sheet(isPresented: Binding(
+            get: { model.importPreview != nil },
+            set: { if !$0 { model.cancelImport() } }
+        )) {
+            if let preview = model.importPreview {
+                UserDictionaryImportPreviewView(
+                    preview: preview, canApply: model.canApplyImport,
+                    cancel: model.cancelImport, apply: model.applyImport
+                )
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
             if isDictionaryWindow(notification.object) {
                 model.refreshIfUnchanged(Config.UserDictionary().value.items)
@@ -72,7 +105,7 @@ struct UserDictionaryEditorWindow: View {
     }
 
     private var entriesTable: some View {
-        Table(model.entries) {
+        Table(model.visibleEntries, sortOrder: $model.sortOrder) {
             TableColumn("") { item in
                 HStack {
                     Button {
@@ -95,7 +128,7 @@ struct UserDictionaryEditorWindow: View {
             TableColumn(UserDictionaryMessages.text("reading"), value: \.reading)
             TableColumn(UserDictionaryMessages.text("hint"), value: \.nonNullHint)
         }
-        .disabled(model.isSaving || model.needsRecovery || model.draft != nil)
+        .disabled(!model.canEditEntries)
     }
 
     private var editorForm: some View {
@@ -107,7 +140,7 @@ struct UserDictionaryEditorWindow: View {
                 model.cancelEditing()
             }
         }
-        .disabled(model.isSaving || model.needsRecovery)
+        .disabled(model.isBusy || model.needsRecovery)
     }
 
     @ViewBuilder
@@ -130,32 +163,30 @@ struct UserDictionaryEditorWindow: View {
         if model.didSave {
             Text(UserDictionaryMessages.text("saved")).foregroundStyle(.secondary)
         }
+        if model.didExport {
+            Text(UserDictionaryMessages.text("exported")).foregroundStyle(.secondary)
+        }
     }
 
     private func issueMessage(_ issue: UserDictionaryValidation.Issue) -> String {
-        let key: String
-        switch (issue.field, issue.reason) {
-        case (.word, .empty): key = "emptyWord"
-        case (.reading, .empty): key = "emptyReading"
-        case (.word, .controlCharacter): key = "controlWord"
-        case (.reading, .controlCharacter): key = "controlReading"
-        default: key = "unsupportedReading"
-        }
         let field = UserDictionaryMessages.text(issue.field.rawValue)
-        let reason = UserDictionaryMessages.text(key)
-        if let index = model.entries.firstIndex(where: { $0.id == issue.rowID }) {
-            return String(format: UserDictionaryMessages.text("rowIssueFormat"), index + 1, field, reason)
-        }
-        if model.draft?.id == issue.rowID {
-            return String(format: UserDictionaryMessages.text("rowIssueFormat"), model.entries.count + 1, field, reason)
+        let reason = UserDictionaryExchangeFeedback.validationReason(issue)
+        let item = model.draft?.id == issue.rowID ? model.draft : model.entries.first { $0.id == issue.rowID }
+        if let item {
+            return String(
+                format: UserDictionaryMessages.text("entryIssueFormat"), item.word, item.reading, field, reason
+            )
         }
         let word = Config.SystemUserDictionary().value.items.first { $0.id == issue.rowID }?.word ?? ""
         return String(format: UserDictionaryMessages.text("systemIssueFormat"), word, field, reason)
     }
 
+    private var dictionaryWindow: NSWindow? {
+        (NSApplication.shared.delegate as? AppDelegate)?.userDictionaryEditorWindow
+    }
+
     private func isDictionaryWindow(_ object: Any?) -> Bool {
-        guard let window = object as? NSWindow,
-              let dictionaryWindow = (NSApplication.shared.delegate as? AppDelegate)?.userDictionaryEditorWindow else {
+        guard let window = object as? NSWindow, let dictionaryWindow else {
             return false
         }
         return window === dictionaryWindow
