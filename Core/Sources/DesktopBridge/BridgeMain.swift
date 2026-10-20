@@ -25,6 +25,8 @@ struct BridgeRequest: Decodable {
     var privateInput: Bool?
     var context: String?
     var doubleTap: Bool?
+    var items: [Config.UserDictionaryEntry]?
+    var stagedSettingsPath: String?
 }
 
 @main
@@ -50,6 +52,8 @@ struct BridgeMain {
         let environment = ProcessInfo.processInfo.environment
         let dataPath = environment["AZOOKEY_DATA_DIR"] ??
             (environment["XDG_DATA_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share").path) + "/azookey-tree"
+        let memoryDirectoryURL = URL(fileURLWithPath: dataPath, isDirectory: true)
+            .appendingPathComponent("memory", isDirectory: true)
         let resources = environment["AZOOKEY_RESOURCES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
         let zenzai = resources.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("ggml-model-Q5_K_M.gguf").path) } ?? false
         let converter = KanaKanjiConverter.withDefaultDictionary()
@@ -63,6 +67,12 @@ struct BridgeMain {
                 // preference can turn the shared converter's learning off.
                 if request.privateInput == true || request.operation == "configure" {
                     converter.commitUpdateLearningData()
+                }
+                if let response = try await DesktopDictionaryController.response(
+                    to: request, memoryDirectoryURL: memoryDirectoryURL, converter: converter
+                ) {
+                    try Self.write(response, to: output)
+                    continue
                 }
                 let context = request.context ?? "default"
                 let session: DesktopSession
@@ -88,13 +98,13 @@ struct BridgeMain {
                     response = session.selectNode(node, submit: request.submit ?? false, expectedGeneration: generation)
                 case "reset": response = session.reset(commit: request.submit ?? false)
                 case "snapshot": response = session.snapshot()
-                case "settings":
-                    response = DesktopSnapshot()
-                    response.settings = DesktopSettings()
                 case "configure":
                     guard let settings = request.settings else { throw ProtocolError.invalidRequest }
+                    try await DesktopDictionaryController.applyDictionary(
+                        settings.userDictionary.items, memoryDirectoryURL: memoryDirectoryURL, converter: converter
+                    )
                     try settings.apply()
-                    for item in sessions.values { try item.reloadSettings() }
+                    for item in sessions.values { try item.reloadSettings(rebuildDictionary: false) }
                     response = session.snapshot()
                 case "close":
                     session.close()
@@ -131,10 +141,14 @@ struct BridgeMain {
                 response.consumed = false
                 response.error = "invalid_request"
             }
-            var data = try JSONEncoder().encode(response)
-            data.append(0x0a)
-            try output.write(contentsOf: data)
+            try Self.write(response, to: output)
         }
+    }
+
+    private static func write(_ response: DesktopSnapshot, to output: FileHandle) throws {
+        var encoded = try JSONEncoder().encode(response)
+        encoded.append(0x0a)
+        try output.write(contentsOf: encoded)
     }
     enum ProtocolError: Error { case invalidRequest }
 }
