@@ -3,11 +3,14 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 
 from . import candidate_protocol as candidates
+from . import worker_settings
 
 
 REFERENCE_FIELDS = frozenset(("context", "readingProcessGeneration", "focusEpoch"))
-RESPONSE_FIELDS = frozenset(("kind", "readingProcessGeneration", "settingsRevision", "reference",
-                             "nextReference", "snapshot", "candidateRequest", "candidateReference", "limits", "error"))
+RESPONSE_FIELDS = frozenset((
+    "kind", "readingProcessGeneration", "settingsRevision", "reference",
+    "nextReference", "snapshot", "candidateRequest", "candidateReference", "limits", "error",
+)) | worker_settings.ACKNOWLEDGEMENT_FIELDS
 INPUT_OPERATIONS = frozenset(("key", "select", "reset", "focus-out"))
 RESPONSE_KINDS = {"hello": "process", "prepare-candidates": "candidates",
                   **{operation: "input" for operation in INPUT_OPERATIONS}}
@@ -102,6 +105,12 @@ def response(value, operation, payload):
     permitted = {"kind", "readingProcessGeneration", "settingsRevision"}
     if operation == "hello":
         permitted.add("limits")
+    if operation in ("hello", "settings", "configure-settings"):
+        if "settingsContract" in value or operation != "hello":
+            settings = worker_settings.acknowledgement(value, expected=payload.get("settings"))
+            permitted.update(settings)
+        if operation == "configure-settings" and value["settingsRevision"] != payload["settingsRevision"]:
+            raise ValueError("reading settings acknowledgement changed revision")
     elif operation == "learning-revision":
         if value["settingsRevision"] != payload["settingsRevision"]:
             raise ValueError("reading settings acknowledgement changed revision")

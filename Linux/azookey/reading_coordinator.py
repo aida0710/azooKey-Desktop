@@ -9,6 +9,8 @@ from . import candidate_protocol as candidate_protocol
 from . import reading_protocol as protocol
 from .candidate_coordinator import CandidateCoordinator
 from .reading_transport import ReadingTransport
+from .reading_settings import ReadingSettingsAgreement
+from .worker_settings import validated_settings
 
 
 LOGGER = logging.getLogger(__name__)
@@ -48,7 +50,8 @@ class OwnedReadingOperation:
 
 class ReadingCoordinator:
     def __init__(self, dispatch, *, publish_input, publish_candidates, notify,
-                 environment=None, reader_factory=None, candidate_factory=None):
+                 environment=None, reader_factory=None, candidate_factory=None, settings=None):
+        initial_settings = validated_settings(settings) if settings is not None else None
         self.publish_input = publish_input
         self.publish_candidates = publish_candidates
         self.notify = notify
@@ -63,11 +66,15 @@ class ReadingCoordinator:
         self._candidate_settings = None
         self._candidate_settings_pending = True
         self._changing_settings = False
+        self._settings_agreement = None
+        self._candidate_settings_reply = None
         self._contexts = {}
         self._planned_focus = None
         self._pending = deque()
         self._active = None
         self._publishing = None
+        if initial_settings is not None:
+            self.configure_settings(initial_settings, 0)
         self.transport.submit("hello", {}, self._hello)
         self.candidates.settings(self._candidate_ready)
 
@@ -95,7 +102,7 @@ class ReadingCoordinator:
 
     def focus_in(self, context, surroundings, callback=None):
         state = self._context(context)
-        if self._changing_settings or self._planned_focus is not None:
+        if (self._changing_settings and self._settings_agreement is None) or self._planned_focus is not None:
             raise ValueError("reading focus requires completed settings and retired previous focus")
         if (not isinstance(surroundings, dict) or set(surroundings) != {"leftContext", "rightContext", "privateInput"}
                 or any(not isinstance(surroundings[name], str) for name in ("leftContext", "rightContext"))
@@ -205,7 +212,7 @@ class ReadingCoordinator:
     def _payload(self, operation):
         if operation.operation == "open":
             return {"readingProcessGeneration": self._generation, "context": operation.context.name}
-        if operation.operation == "learning-revision":
+        if operation.operation in ("learning-revision", "configure-settings"):
             return {**operation.payload, "readingProcessGeneration": self._generation}
         state = operation.context
         if self._contexts.get(state.name) is not state or state.reference is None:
@@ -277,6 +284,9 @@ class ReadingCoordinator:
             self._prepared(operation, response)
         elif name == "adopt-candidates":
             self._adopted(operation, response)
+        elif name == "configure-settings":
+            self._changing_settings = False
+            self._settings_agreement.confirm_reading(response)
         if name == "focus-out":
             state.reference = response["nextReference"]
             state.active = False
@@ -358,6 +368,10 @@ class ReadingCoordinator:
     def _candidate_ready(self, reply):
         if self._closed or self._broken:
             return
+        self._candidate_settings_reply = reply
+        if self._settings_agreement is not None:
+            self._settings_agreement.observed_candidate(reply)
+            return
         self._candidate_settings_pending = False
         generation, epoch = self.candidates.transport.identity
         if reply.error or (reply.worker_generation, reply.transport_epoch) != (generation, epoch):
@@ -409,6 +423,11 @@ class ReadingCoordinator:
     def _prepare_wanted(self):
         if self._changing_settings:
             return
+        if self._settings_agreement is not None:
+            generation = self._settings_agreement.ensure_candidate_settings()
+            if generation is not None:
+                self._prepare_candidate_requests(generation)
+            return
         if (self._candidate_settings is not None
                 and self._candidate_settings["workerGeneration"] != self.candidates.transport.identity[0]):
             self._candidate_settings = None
@@ -417,12 +436,15 @@ class ReadingCoordinator:
                 self._candidate_settings_pending = True
                 self.candidates.settings(self._candidate_ready)
             return
+        self._prepare_candidate_requests(self._candidate_settings["workerGeneration"])
+
+    def _prepare_candidate_requests(self, worker_generation):
         for state in self._contexts.values():
             if state.active and state.wanted is not None:
                 sequence, state.wanted = state.wanted, None
                 if sequence != state.sequence:
                     continue
-                payload = {"candidateWorkerGeneration": self._candidate_settings["workerGeneration"]}
+                payload = {"candidateWorkerGeneration": worker_generation}
                 self._enqueue(OwnedReadingOperation("prepare-candidates", state, payload,
                                                    sequence=sequence, owner=state.planned_owner))
                 return
@@ -455,6 +477,8 @@ class ReadingCoordinator:
             self._enqueue(OwnedReadingOperation("candidate-worker-stopped", operation.context,
                                                 deepcopy(operation.payload), owner=operation.owner))
             self._candidate_settings = None
+            if self._settings_agreement is not None:
+                self._settings_agreement.invalidate_candidate()
             return
         payload = {"batch": reply.batch, "retainedReference": candidate_protocol.reference(reply.batch)}
         self._enqueue(OwnedReadingOperation("adopt-candidates", operation.context, payload,
@@ -492,6 +516,8 @@ class ReadingCoordinator:
 
     def configure_learning(self, learning, revision, callback=None):
         self._owner()
+        if self._settings_agreement is not None:
+            raise ValueError("full worker settings are required")
         if not isinstance(learning, str) or learning not in candidate_protocol.LEARNING_MODES:
             raise ValueError("invalid reading learning preference")
         if (self._changing_settings or self._planned_focus is not None or self._active is not None or self._pending
@@ -504,6 +530,34 @@ class ReadingCoordinator:
                                             worker_generation=self._candidate_settings["workerGeneration"],
                                             callback=lambda reply: self._configured(reply, learning=learning,
                                                                                      revision=revision, callback=callback))
+
+    def configure_settings(self, settings, revision, callback=None):
+        self._owner()
+        values = validated_settings(settings)
+        candidate_protocol.revision(revision)
+        if (self._changing_settings or self._planned_focus is not None or self._active is not None
+                or self._pending or any(state.active for state in self._contexts.values())
+                or self._settings_agreement is not None and self._settings_agreement.pending):
+            raise ValueError("reading settings require inactive contexts and completed operations")
+        if revision < self._settings_revision:
+            raise ValueError("reading settings revision cannot move backwards")
+        if self._settings_agreement is None:
+            self._settings_agreement = ReadingSettingsAgreement(
+                self.candidates, ready=self._pump, notify=self._notice,
+                is_closed=lambda: self._closed or self._broken, initial_reply=self._candidate_settings_reply,
+            )
+        previous = self._settings_agreement.reader
+        if previous is not None and revision == previous["settingsRevision"] and values != previous["settings"]:
+            raise ValueError("changed worker settings require a new revision")
+        self._settings_agreement.begin_configuration()
+        self._changing_settings = True
+        self._enqueue(OwnedReadingOperation("configure-settings", None,
+                                           {"settings": values, "settingsRevision": revision}, callback=callback))
+
+    def retry_candidate_settings(self):
+        self._owner()
+        if self._settings_agreement is not None:
+            self._settings_agreement.retry_candidate()
 
     def _configured(self, reply, *, learning, revision, callback):
         if self._closed or self._broken:
@@ -526,7 +580,7 @@ class ReadingCoordinator:
         self._callback(callback, response)
 
     def _reject(self, operation, error):
-        if operation.operation == "learning-revision":
+        if operation.operation in ("learning-revision", "configure-settings"):
             self._fail_all("reading_settings_unconfirmed", operation, "rejected")
             return
         if operation.operation == "adopt-candidates":

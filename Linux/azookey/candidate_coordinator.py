@@ -4,6 +4,7 @@ import threading
 
 from . import candidate_protocol as protocol
 from .candidate_transport import CandidateTransport
+from .worker_settings import validated_settings
 
 
 class CandidateCoordinator:
@@ -192,6 +193,12 @@ class CandidateCoordinator:
         if callback is not None:
             callback(reply)
         return False
+
+    def configure_settings(self, settings, revision, *, worker_generation, callback):
+        self._owner()
+        payload = {"settings": validated_settings(settings), "settingsRevision": protocol.revision(revision),
+                   "workerGeneration": protocol.identifier(worker_generation)}
+        self.transport.submit("configure-settings", payload, lambda reply: self._control_finished(callback, reply))
 
     def close_context(self, context, reading_process_generation, callback=None):
         self._owner()

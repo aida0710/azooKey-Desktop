@@ -171,7 +171,7 @@ class CandidateTransport:
             return self._reply(error=response["error"])
         if pending.operation == "complete":
             return self._reply(completion=protocol.completion_receipt(response, payload["completion"]))
-        if pending.operation in ("settings", "configure-learning"):
+        if pending.operation in ("settings", "configure-learning", "configure-settings"):
             return self._reply(settings=protocol.settings_response(response))
         return self._reply()
 
