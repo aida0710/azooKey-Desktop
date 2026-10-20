@@ -145,6 +145,11 @@ struct DesktopReadingSession {
         candidates.workerUnavailable()
     }
 
+    func candidateView() throws -> DesktopCandidateView? {
+        try candidates.view(options: .init(showRelativeScores: Config.ShowRelativeScores().value,
+                                           showCandidateIndex: state == .selecting))
+    }
+
     mutating func updateLearningRevision(_ revision: Int) throws {
         guard revision >= 0 else { throw DesktopReadingCandidates.Failure.changedSettings }
         // A global learning change also reaches contexts that have not requested candidates yet.

@@ -19,10 +19,13 @@ struct DesktopReadingWorkerFixture {
     }
 
     mutating func key(_ code: UInt16 = 0, text: String? = nil) throws -> DesktopSnapshot {
-        let response = try worker.process(.init(
+        try #require(keyResponse(code, text: text).snapshot)
+    }
+
+    mutating func keyResponse(_ code: UInt16 = 0, text: String? = nil) throws -> DesktopReadingWorkerResponse {
+        try worker.process(.init(
             operation: "key", reference: reference,
             event: .init(modifierFlags: [], characters: text, charactersIgnoringModifiers: text, keyCode: code)))
-        return try #require(response.snapshot)
     }
 
     mutating func snapshot() throws -> DesktopSnapshot {
