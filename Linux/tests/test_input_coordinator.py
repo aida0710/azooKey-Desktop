@@ -230,14 +230,21 @@ class InputCoordinatorTests(unittest.TestCase):
     def test_acknowledged_english_mode_delivers_native_edits_without_waiting_for_converter(self):
         self.coordinator.snapshot = {"language": "english", "inputState": "none"}
         for keyval in (ord("a"), 0xFF51, ord("b")):
-            self.coordinator.submit("key", payload={"event": translate(keyval, 0)}, key=(keyval, 38, 0))
+            self.coordinator.submit(
+                "key", payload={"event": translate(keyval, 0)}, key=(keyval, 38, 0),
+                key_reply=lambda consumed, keyval=keyval: self.effects.append(("reply", (keyval, consumed))),
+            )
         self.assertEqual([effect[1][0] for effect in self.effects], [ord("a"), 0xFF51, ord("b")])
         self.assertEqual(self.worker.requests, [])
         self.assertEqual(self.previews, [])
 
     def test_mode_reply_returns_queued_native_edits_in_order_without_partial_projection(self):
         for keyval in (0xFF22, ord("a"), 0xFF51, ord("b")):
-            self.coordinator.submit("key", payload={"event": translate(keyval, 0)}, key=(keyval, 38, 0))
+            reply = None if keyval == 0xFF22 else (
+                lambda consumed, keyval=keyval: self.effects.append(("reply", (keyval, consumed)))
+            )
+            self.coordinator.submit("key", payload={"event": translate(keyval, 0)}, key=(keyval, 38, 0),
+                                    key_reply=reply)
         self.assertEqual(self.previews[-1], ("ba", 1))
         self.worker.respond(0, {"language": "english", "inputState": "none", "preedit": "", "consumed": True})
         self.assertEqual([effect[1][0] for effect in self.effects[1:]], [ord("a"), 0xFF51, ord("b")])

@@ -11,6 +11,8 @@ from gi.repository import Atk, IBus, Gdk, GLib, Gtk
 from .bridge import Bridge
 from .async_bridge import AsyncBridge
 from .input_coordinator import InputCoordinator
+from .input_preview import is_native_key
+from .native_key_reply import NativeKeyReply
 from .keymap import translate
 from .tree_panel import TreePanel
 from .candidate_announcements import CandidateAnnouncements
@@ -69,6 +71,8 @@ class Engine(IBus.Engine):
             recover=self.recover_composition, preview=self.preview_pending,
             schedule_timeout=GLib.timeout_add, remove_timeout=GLib.source_remove,
         )
+        self.native_key_reply = None
+        self.native_key_passthrough = False
         self.ai_review = AISuggestionReview(
             current_state=self.ai_review_state, send=self.start_ai, save_context=self.save_ai_context,
         )
@@ -76,7 +80,7 @@ class Engine(IBus.Engine):
         self.reconversion = ReconversionCoordinator(
             self.input, context=self.current_reconversion_context,
             delete=self.delete_surrounding_text, status=self.show_reconversion_status,
-            replay=self.do_process_key_event, forward=self.forward_key_event,
+            replay=self.replay_key_event, forward=self.forward_key_event,
             schedule_timeout=GLib.timeout_add, remove_timeout=GLib.source_remove,
         )
         self.input.submit("settings", completion=self.load_settings)
@@ -158,8 +162,19 @@ class Engine(IBus.Engine):
         self.input.submit(operation, payload={
             "leftContext": self.left, "rightContext": self.right, "privateInput": self.sensitive,
             "reconversionContext": self.current_reconversion_context(), **values,
-        }, key=original_key)
+        }, key=original_key, key_reply=self.defer_native_key(original_key))
         return True
+
+    def defer_native_key(self, original_key):
+        if original_key is not None and self.native_key_reply:
+            return self.native_key_reply.defer()
+        return None
+
+    def replay_key_event(self, *key):
+        # Reconversion already replied True to these calls. A later False
+        # therefore needs the existing replay path rather than being ignored.
+        if not self.do_process_key_event(*key):
+            self.forward_key_event(*key)
 
     def current_reconversion_context(self):
         if not self.focused or self.sensitive or not self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT:
@@ -209,7 +224,41 @@ class Engine(IBus.Engine):
         self.panel.suspend()
         self.hide_lookup_table()
 
+    def do_service_method_call(self, connection, sender, object_path, interface,
+                               method, parameters, invocation):
+        arguments = (connection, sender, object_path, interface, method, parameters, invocation)
+        if (method == "ProcessKeyEvent" and interface == "org.freedesktop.IBus.Engine"
+                and connection == self.get_connection()):
+            keyval, _keycode, state = parameters.unpack()
+            event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
+            if (any(pending.key_reply for pending in self.input.pending)
+                    or self.input.pending_native_key(event)):
+                reply = NativeKeyReply(lambda consumed: self.finish_native_key(consumed, arguments))
+                previous, self.native_key_reply = self.native_key_reply, reply
+                try:
+                    consumed = self.emit("process-key-event", keyval, _keycode, state)
+                    if not reply.deferred:
+                        reply.finish(consumed)
+                finally:
+                    self.native_key_reply = previous
+                return
+        IBus.Engine.do_service_method_call(self, *arguments)
+
+    def finish_native_key(self, consumed, arguments):
+        if consumed:
+            arguments[-1].return_value(GLib.Variant("(b)", (True,)))
+            return
+        # Reuse IBus's public method dispatcher so its extension filter and
+        # original invocation reply are preserved for an unhandled event.
+        previous, self.native_key_passthrough = self.native_key_passthrough, True
+        try:
+            IBus.Engine.do_service_method_call(self, *arguments)
+        finally:
+            self.native_key_passthrough = previous
+
     def do_process_key_event(self, keyval, keycode, state):
+        if self.native_key_passthrough:
+            return False
         event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
         if self.private or not self.focused or self.input.recovering:
             return False
@@ -229,11 +278,14 @@ class Engine(IBus.Engine):
         if self.reconversion.process(event, original_key):
             return True
         if event is None:
-            if not self.input.pending:
-                return False
-            self.input.submit(None, key=original_key)
-            return True
+            # Modifier changes and releases do not edit text. Their original
+            # native events need no synthetic ForwardKeyEvent reconstruction.
+            if self.native_key_reply and self.input.pending:
+                self.input.submit(None, key=original_key, key_reply=self.defer_native_key(original_key))
+                return True
+            return False
         try:
+            input_was_pending = bool(self.input.pending) or self.input.is_resetting
             self.reload_settings()
             double_tap = False
             if event["keyCode"] in (102, 104):
@@ -254,9 +306,14 @@ class Engine(IBus.Engine):
                 if double_tap:
                     self.prompt("english" if event["keyCode"] == 102 else "japanese")
                     return True
+            if not input_was_pending and is_native_key(event, self.input.snapshot):
+                return False
             return self.request("key", event=event, doubleTap=double_tap, original_key=original_key)
         except (OSError, RuntimeError, ValueError):
             self.input.recover_pending()
+            if self.native_key_reply:
+                self.native_key_reply.finish(False)
+                return True
             # Returning False here can let synchronous clients apply this key
             # before the queued forward-key-event signals for earlier keys.
             self.forward_key_event(*original_key)
