@@ -257,22 +257,10 @@ final class DesktopSession: SegmentManagerDelegate {
     }
 
     func resetLearning() throws {
-        // The upstream LearningConfig has no public initializer. A separate,
-        // non-learning conversion session initializes its storage URL through
-        // the public API without touching any application's composition.
-        let maintenance = converter.createSession()
-        defer { converter.removeSession(maintenance) }
-        try converter.withSession(maintenance) {
-            var probe = ComposingText()
-            probe.insertAtCursorPosition("あ", inputStyle: .direct)
-            _ = converter.requestCandidates(probe, options: .init(
-                requireJapanesePrediction: .disabled, requireEnglishPrediction: .disabled,
-                keyboardLanguage: .ja_JP,
-                learningType: .nothing, memoryDirectoryURL: segments.azooKeyMemoryDir,
-                sharedContainerURL: CompiledUserDictionaryStore.directoryURL(memoryDirectoryURL: segments.azooKeyMemoryDir),
-                textReplacer: .empty, specialCandidateProviders: [], zenzaiMode: .off, metadata: nil))
-            converter.resetMemory()
-        }
+        ConverterLearningConfiguration.apply(
+            learningType: .nothing, converter: converter, memoryDirectoryURL: segments.azooKeyMemoryDir
+        )
+        converter.resetMemory()
         guard !FileManager.default.fileExists(atPath: segments.azooKeyMemoryDir.appendingPathComponent("memory.louds").path) else {
             throw BridgeMain.ProtocolError.invalidRequest
         }
