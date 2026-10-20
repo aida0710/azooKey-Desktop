@@ -65,6 +65,8 @@ import Testing
                 #expect(snapshot.preedit == selected.text + String(reading.suffix(removedCount)))
                 #expect(snapshot.cursor == selected.text.unicodeScalars.count)
                 #expect(snapshot.candidates.allSatisfy { $0.comparisonGroup == consumedCount })
+                #expect(selected.commitScope?.remainingReading == String(reading.suffix(removedCount)))
+                #expect(selected.commitScope?.consumedReading == String(reading.dropLast(removedCount)))
                 previousConsumedCount = consumedCount
             }
 
@@ -79,6 +81,18 @@ import Testing
             }
 
             #expect(previousConsumedCount == initialSelected.comparisonGroup)
+        }
+    }
+
+    @Test func previewAndCommitUseTheSameCandidateAndLeaveTheShownReading() throws {
+        try withSession(liveConversion: false, treeCandidates: true) { session in
+            var snapshot = try beginSelecting(session)
+            _ = try selectWholeCandidate(session, from: snapshot)
+            snapshot = session.key(key(123, shift: true))
+            let preview = try #require(snapshot.nodes.first { $0.id == snapshot.focusedNode }?.preview)
+            let confirmed = session.select(candidateIndex: preview.candidateIndex, submit: true, expectedGeneration: snapshot.generation)
+            #expect(confirmed.commits == [preview.text])
+            #expect(confirmed.reading == preview.scope?.remainingReading)
         }
     }
 

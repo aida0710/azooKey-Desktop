@@ -7,3 +7,9 @@
 "candidate.textSize.standard" = "Standard";
 "candidate.textSize.large" = "Large";
 "candidate.detailKeys" = "Arrow keys show details; PageUp / PageDown scroll the details";
+"candidate.preview.commit" = "Will commit: %@";
+"candidate.preview.scope" = "Reading to commit: %@";
+"candidate.preview.remaining" = "Reading left to edit: %@";
+"candidate.preview.following" = "Following text: %@";
+"candidate.preview.changedFollowing" = "Following text changes: %@ → %@";
+"candidate.preview.empty" = "none";
