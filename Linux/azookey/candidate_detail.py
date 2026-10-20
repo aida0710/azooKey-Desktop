@@ -13,6 +13,7 @@ class CandidateDetail(Gtk.ScrolledWindow):
     MAXIMUM_HEIGHT = 160
     HORIZONTAL_MARGIN = 8  # Keep wrapped text aligned with the compact candidate list.
     VERTICAL_MARGIN = 4  # Separate adjacent text without making the popup taller.
+    MINIMUM_SCROLL_STEP = 1  # Still advance when the viewport is shorter than one line.
 
     def __init__(self, *, minimum_height=80, maximum_height=MAXIMUM_HEIGHT):
         super().__init__()
@@ -54,6 +55,12 @@ class CandidateDetail(Gtk.ScrolledWindow):
 
     def scroll_page(self, forward):
         adjustment = self.get_vadjustment()
-        step = max(1, adjustment.get_page_size() - 16)
+        layout = self.label.get_layout()
+        # A whole line of overlap makes clipped boundary text readable on the next page.
+        overlap = max(
+            layout.get_line_readonly(index).get_pixel_extents()[1].height
+            for index in range(layout.get_line_count())
+        )
+        step = max(self.MINIMUM_SCROLL_STEP, adjustment.get_page_size() - overlap)
         limit = max(0, adjustment.get_upper() - adjustment.get_page_size())
         adjustment.set_value(max(0, min(limit, adjustment.get_value() + (step if forward else -step))))
