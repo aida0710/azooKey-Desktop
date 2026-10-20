@@ -102,6 +102,8 @@ GTK は `insert-text`、Qt は `input-method` の `commit`、Chromium は `input
 
 全 AI ダイアログと設定画面を閉じ、未応答要求を解放または期限切れまで観測してから復旧します。本文・焦点・イベントの最終観測を保存し、復旧中は他のキー操作を止めます。`restore` は専用 VM の入力方式を一時的に US 英数へ切り替え、配布物の engine / bridge だけを停止します。停止は [pidfd](https://docs.python.org/3/library/os.html#os.pidfd_open) で同じプロセスを参照し、終了通知を待ちます。開いた設定画面や別 source の engine があれば拒否します。
 
+実行元はsession busの`org.azookey.Tree`から確認します。[D-Busの接続PID取得](https://dbus.freedesktop.org/doc/dbus-specification.html#bus-messages-get-connection-unix-process-id)を使い、取得前後で所有者が変わっていないことと、配布物のentrypointであることを照合します。IBusの専用busはこのPID取得APIに対応していません。稼働中のazooKeyを特定できなければ停止せず、US英数へ切替済みでazooKeyも終了済みの場合だけ、所有者なしでも復旧を再開できます。
+
 次に、退避した設定を配布物の Core に適用し、三つの JSON を元の bytes と存在状態へ戻します。復元前には、現在の `XDG_CONFIG_HOME` に対応する保存先と manifest の保存先も照合します。異なる場合は、IME の停止や Core への送信を始めません。元ファイルが部分 JSON でも完全な JSON に置き換えたままにはしません。
 
 ```bash

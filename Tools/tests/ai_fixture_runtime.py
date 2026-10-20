@@ -4,6 +4,7 @@ from ai_fixture_processes import installed_processes, require_stopped, stop_inst
 
 ENGINE_NAME = "azookey-tree"
 COMPONENT_NAME = "org.freedesktop.IBus.AzooKeyTree"
+ENGINE_SERVICE = "org.azookey.Tree"
 FALLBACK_ENGINE = "xkb:us::eng"
 # Deadlines bound a missing signal; they are never a successful completion gate.
 ACK_TIMEOUT_MS = 10000
@@ -15,6 +16,7 @@ class InstalledRuntime:
         gi.require_version("IBus", "1.0")
         from gi.repository import Gio, GLib, IBus
         self.Gio, self.GLib, self.IBus = Gio, GLib, IBus
+        self.session_connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         IBus.init()
         self.bus = IBus.Bus()
         if not self.bus.is_connected():
@@ -24,23 +26,37 @@ class InstalledRuntime:
         self.labels = []
         self.commits = []
 
-    def component_pid(self):
-        if not self.bus.name_has_owner(COMPONENT_NAME):
-            return None
-        reply = self.bus.get_connection().call_sync(
+    def session_bus_value(self, method, name, reply_type):
+        reply = self.session_connection.call_sync(
             "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
-            "GetConnectionUnixProcessID", self.GLib.Variant("(s)", (COMPONENT_NAME,)),
-            self.GLib.VariantType.new("(u)"), self.Gio.DBusCallFlags.NONE, ACK_TIMEOUT_MS, None,
+            method, self.GLib.Variant("(s)", (name,)),
+            self.GLib.VariantType.new(reply_type), self.Gio.DBusCallFlags.NONE, ACK_TIMEOUT_MS, None,
         )
         return reply.unpack()[0]
 
+    def engine_pid(self):
+        # IBus's private bus lacks GetConnectionUnixProcessID. The same engine
+        # owns the candidate service on the desktop's full session bus.
+        if not self.session_bus_value("NameHasOwner", ENGINE_SERVICE, "(b)"):
+            return None
+        owner = self.session_bus_value("GetNameOwner", ENGINE_SERVICE, "(s)")
+        process_id = self.session_bus_value("GetConnectionUnixProcessID", owner, "(u)")
+        if self.session_bus_value("GetNameOwner", ENGINE_SERVICE, "(s)") != owner:
+            raise RuntimeError("The engine service changed owner during process identification")
+        return process_id
+
     def stop(self):
-        owner = self.component_pid()
-        if owner is not None and installed_processes(self.installed_root).get(owner) != "engine":
-            raise RuntimeError("IBus is using a different engine source; it was not stopped")
         engine = self.bus.get_global_engine()
         if engine is None or engine.get_name() not in (ENGINE_NAME, FALLBACK_ENGINE):
             raise RuntimeError("The current engine is outside this AI trial")
+        owner = self.engine_pid()
+        registered = self.bus.name_has_owner(COMPONENT_NAME)
+        if engine.get_name() == ENGINE_NAME and (owner is None or not registered):
+            raise RuntimeError("The active azooKey engine could not be identified; it was not stopped")
+        if registered and owner is None:
+            raise RuntimeError("The IBus component has no identifiable engine process; it was not stopped")
+        if owner is not None and installed_processes(self.installed_root).get(owner) != "engine":
+            raise RuntimeError("IBus is using a different engine source; it was not stopped")
         if not self.bus.set_global_engine(FALLBACK_ENGINE):
             raise RuntimeError("IBus did not acknowledge switching away from azooKey")
         stopped = stop_installed_processes(self.installed_root)
@@ -49,7 +65,7 @@ class InstalledRuntime:
 
     def require_stopped(self):
         require_stopped(self.installed_root)
-        if self.component_pid() is not None:
+        if self.engine_pid() is not None or self.bus.name_has_owner(COMPONENT_NAME):
             raise RuntimeError("The installed IBus component restarted during restoration")
 
     def restart(self):
@@ -66,7 +82,7 @@ class InstalledRuntime:
             ACK_TIMEOUT_MS, None,
         )
         self.barrier()
-        owner = self.component_pid()
+        owner = self.engine_pid()
         if installed_processes(self.installed_root).get(owner) != "engine":
             raise RuntimeError("The restarted engine is not the installed package")
         return {"restartedEnginePID": owner, "startupAcknowledgements": list(self.labels)}
