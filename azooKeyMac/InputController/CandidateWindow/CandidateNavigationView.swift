@@ -94,6 +94,7 @@ final class CandidateNavigationView: NSView {
         if rebuild { rebuildRows() }
         for (offset, button) in rows.enumerated() {
             button.selected = page.position == page.start + offset + 1
+            button.state = button.selected ? .on : .off
         }
         for (button, index) in [(previous, page.previousIndex), (next, page.nextIndex)] {
             button.isEnabled = index != nil
@@ -112,6 +113,7 @@ final class CandidateNavigationView: NSView {
         rows.forEach { $0.removeFromSuperview() }
         rows = page.items.map { item in
             let button = CandidateNavigationButton()
+            button.setButtonType(.pushOnPushOff)
             button.title = numbers[item.index].map { "\($0). \(item.text)" } ?? item.text
             button.font = .systemFont(ofSize: fontSize)
             button.alignment = .left

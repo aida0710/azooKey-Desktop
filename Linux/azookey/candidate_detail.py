@@ -26,6 +26,17 @@ class CandidateDetail(Gtk.ScrolledWindow):
         self.label.get_accessible().set_name(message("candidate.detail"))
         self.add(self.label)
         self.displayed_text = ""
+        self.palette_css = Gtk.CssProvider()
+        for widget in (self, self.get_child(), self.label):
+            widget.get_style_context().add_provider(self.palette_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+
+    def apply_palette(self, palette):
+        # A wildcard background also paints GTK's undershoot nodes on top of
+        # the scrolled text. Color only the viewport and its actual label.
+        self.palette_css.load_from_data((
+            f"scrolledwindow.candidate-detail, viewport {{ background-color: {palette['background']}; border: none; }}"
+            f"label {{ color: {palette['text']}; }}"
+        ).encode())
 
     def update(self, text, *, font_size, width):
         attributes = Pango.AttrList()

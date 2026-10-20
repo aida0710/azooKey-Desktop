@@ -16,6 +16,14 @@ class CandidateNavigation(Gtk.Box):
     def __init__(self, select, changed, preview):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.set_no_show_all(True)
+        self.get_style_context().add_class("candidate-navigation")
+        self.palette_css = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_screen(
+            self.get_screen(), self.palette_css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+        )
+        self.connect("destroy", lambda *_: Gtk.StyleContext.remove_provider_for_screen(
+            self.get_screen(), self.palette_css,
+        ))
         self.select = select
         self.changed = changed
         self.preview = preview
@@ -48,6 +56,18 @@ class CandidateNavigation(Gtk.Box):
         button.get_style_context().remove_class("candidate-action")
         return button
 
+    def apply_palette(self, palette):
+        self.palette_css.load_from_data((
+            f".candidate-navigation, .candidate-navigation viewport {{"
+            f"background-color: {palette['background']}; color: {palette['text']}; }}"
+            f".candidate-navigation button {{ background-image: none; box-shadow: none;"
+            f"background-color: {palette['surface']}; color: {palette['text']};"
+            f"border: 1px solid {palette['border']}; }}"
+            f".candidate-navigation button:selected {{ background-color: {palette['selection']};"
+            f"color: {palette['selectionText']}; border-color: {palette['text']}; }}"
+            f".candidate-navigation label {{ color: inherit; }}"
+        ).encode())
+
     def update(self, snapshot, *, font_size, list_height):
         self.page = snapshot.get("candidatePage", {})
         self.token = (snapshot.get("contextId"), snapshot.get("generation"), snapshot.get("selection"))
@@ -77,6 +97,10 @@ class CandidateNavigation(Gtk.Box):
             name = item["text"] + (f'（{item["reading"]}）' if item.get("reading") else "")
             button.update_accessibility(name, selected=item["index"] == snapshot.get("selection"),
                                         description=item.get("detailDescription", message("candidate.confirm")))
+            if button.selected:
+                button.set_state_flags(Gtk.StateFlags.SELECTED, False)
+            else:
+                button.unset_state_flags(Gtk.StateFlags.SELECTED)
         self.scroll.set_min_content_height(min(list_height, len(self.row_buttons) * (round(font_size) + 16)))
         self.rows.show_all()
         self.header.show_all()

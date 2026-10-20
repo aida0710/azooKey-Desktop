@@ -102,4 +102,15 @@ export class CandidateNavigation {
         this.expanded = false;
         this._scroll.hide();
     }
+
+    applyPalette(palette) {
+        this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text};`);
+        for (const button of [this._toggle, this._previous, this._next, ...this._rows.get_children()]) {
+            const foreground = button.checked ? palette.selectionText : palette.text;
+            const background = button.checked ? palette.selection : palette.surface;
+            button.set_style(`background-color: ${background}; color: ${foreground};
+                background-gradient-direction: none; box-shadow: none;
+                border: 1px solid ${palette.border}; padding: 4px 6px; min-height: 0; min-width: 0;`);
+        }
+    }
 }
