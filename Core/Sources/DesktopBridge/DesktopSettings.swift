@@ -28,8 +28,8 @@ struct DesktopSettings: Codable {
     var customTable = CustomInputTableStore.load() ?? ""
 
     func apply() throws {
-        guard (1...100).contains(inferenceLimit), profile.count <= 4096,
-              ["http", "https"].contains(URL(string: aiEndpoint)?.scheme ?? "") else {
+        try DesktopSettingsValidation.conversion(inferenceLimit: inferenceLimit, profile: profile)
+        guard ["http", "https"].contains(URL(string: aiEndpoint)?.scheme ?? "") else {
             throw BridgeMain.ProtocolError.invalidRequest
         }
         guard !transformShortcut.key.isEmpty, transformShortcut.modifiers.rawValue & ~15 == 0,

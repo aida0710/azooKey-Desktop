@@ -44,3 +44,9 @@ completionのauthorityは計算時のものを保ち、別fieldの `settingsRevi
 上限は1processあたり64context、1contextあたり採用済み8batch＋最新の未採用1batch、request ID 16,384件、完了receipt 1,024件です。IDは512 bytes、左右文脈はそれぞれ16 KiB、入力JSON全体は4 MiBまで。上限では明示エラーを返し、保持済み候補を勝手に再利用・追い出しません。制限超過でも読み側の正式入力は保持します。これらは開発用transportだけの上限です。
 
 読み側の採用・焦点/世代検査、入力中の候補表示、Spaceでの正式separator挿入、候補確定の実入力欄反映、実IPC遅延/クラッシュからの回復は別の統合段階です。Mac実IME・VoiceOver・GTK/Qt/Waylandの応答性はこのworker単体で合格とは判断しません。
+
+## 全量設定の同期
+
+`configure-settings` の要求は `workerGeneration`、`settingsRevision`、`settings` を持ちます。[worker設定契約](worker-settings.md) の19項目を全量適用し、`settings` と同じ適用値ACKを返します。通常入口の `DesktopSettings.apply()` や辞書transactionを呼ぶ操作ではありません。
+
+変更には全contextの `close` が必要です。単なる `release` では確定receiptが残るため、設定変更を許可しません。同revision・同payloadの再送だけは、保持中の候補を壊さず再ACKできます。全量契約開始後の `configure-learning` は `full_settings_required` で拒否します。candidate再生成後は新世代へ確認済みの全量設定を送り、ACKが一致するまで候補を要求しません。不明な学習完了通知は再送しません。

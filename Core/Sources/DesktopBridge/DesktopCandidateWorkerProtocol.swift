@@ -11,6 +11,7 @@ struct DesktopCandidateWorkerRequest: Decodable {
     var learning: Config.Learning.Value?
     var context: String?
     var readingProcessGeneration: String?
+    var settings: DesktopWorkerSettings?
 
     var authority: CandidateRequestAuthority? {
         switch operation {
@@ -31,5 +32,33 @@ struct DesktopCandidateWorkerResponse: Encodable {
     var reference: DesktopCandidateBatchReference?
     var learning: Config.Learning.Value?
     var customInputTableRevisions: [String: String]?
+    var settingsContract: String?
+    var settings: DesktopWorkerSettings?
+    var unsupportedFeatures: [String]?
     var error: String?
+}
+
+extension DesktopCandidateWorkerRequest {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case operation, request, reference, completion, workerGeneration, settingsRevision, learning
+        case context, readingProcessGeneration, settings
+    }
+
+    init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        let operation = try fields.decode(String.self, forKey: .operation)
+        if operation == "configure-settings" {
+            try DesktopReadingProtocolValidation.keys(decoder, allowed: ["operation", "workerGeneration", "settingsRevision", "settings"])
+        }
+        self.init(operation: operation,
+                  request: try fields.decodeIfPresent(DesktopCandidateRequest.self, forKey: .request),
+                  reference: try fields.decodeIfPresent(DesktopCandidateBatchReference.self, forKey: .reference),
+                  completion: try fields.decodeIfPresent(DesktopCandidateCompletion.self, forKey: .completion),
+                  workerGeneration: try fields.decodeIfPresent(String.self, forKey: .workerGeneration),
+                  settingsRevision: try fields.decodeIfPresent(Int.self, forKey: .settingsRevision),
+                  learning: try fields.decodeIfPresent(Config.Learning.Value.self, forKey: .learning),
+                  context: try fields.decodeIfPresent(String.self, forKey: .context),
+                  readingProcessGeneration: try fields.decodeIfPresent(String.self, forKey: .readingProcessGeneration),
+                  settings: try fields.decodeIfPresent(DesktopWorkerSettings.self, forKey: .settings))
+    }
 }

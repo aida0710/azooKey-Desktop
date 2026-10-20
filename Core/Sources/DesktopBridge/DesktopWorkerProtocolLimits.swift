@@ -3,6 +3,8 @@ import Core
 /// Shared development-transport bounds; ordinary input does not use this protocol.
 enum DesktopWorkerProtocolLimits {
     static let jsonBytes = CompositionSnapshotLimits.jsonByteCount
+    // Leave room for the envelope and the applied-value ACK around a full settings payload.
+    static let settingsBytes = jsonBytes / 2
     static let identifierBytes = 512
     static let contextBytes = 16 * 1024
     static let contexts = 64
