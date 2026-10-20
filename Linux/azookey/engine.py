@@ -6,12 +6,14 @@ import uuid
 import gi
 gi.require_version("IBus", "1.0")
 gi.require_version("Gtk", "3.0")
-from gi.repository import IBus, Gdk, GLib, Gtk
+gi.require_version("Atk", "1.0")
+from gi.repository import Atk, IBus, Gdk, GLib, Gtk
 from .bridge import Bridge
 from .async_bridge import AsyncBridge
 from .input_coordinator import InputCoordinator
 from .keymap import translate
 from .tree_panel import TreePanel
+from .candidate_announcements import CandidateAnnouncements
 from .preedit_anchor import PreeditAnchor
 from .settings import read_key
 from .settings_store import SettingsStore
@@ -35,6 +37,9 @@ class Engine(IBus.Engine):
         self.context_id = str(uuid.uuid4())
         self.bridge = AsyncBridge.acquire(GLib.idle_add)
         self.panel = TreePanel(self.choose)
+        self.lookup_announcements = CandidateAnnouncements(
+            lambda announcement: self.panel.get_accessible().emit("notification", announcement, Atk.Live.POLITE),
+        )
         self.anchor = PreeditAnchor(self.panel.measure)
         self.snapshot = {}
         self.private = False
@@ -165,6 +170,7 @@ class Engine(IBus.Engine):
         self.show_reconversion_status("")
 
     def recover_composition(self, text=""):
+        self.lookup_announcements.reset()
         self.ai_review.cancel()
         queued = self.reconversion.cancel()
         self.pending_settings_stamp = None
@@ -320,6 +326,7 @@ class Engine(IBus.Engine):
             self.reconversion.start(undo=name == "undo-commit")
 
     def do_focus_out(self):
+        self.lookup_announcements.reset()
         self.ai_review.cancel()
         self.focused = False
         self.clear_reconversion()
@@ -407,12 +414,15 @@ class Engine(IBus.Engine):
         is_wayland = "Wayland" in type(Gdk.Display.get_default()).__name__
         shell_tree = self.focused and self.settings.get("tree", True) and surface().show(self, snapshot, self.panel.location)
         if shell_tree:
+            self.lookup_announcements.reset()
             self.panel.hide()
             self.hide_lookup_table()
         elif is_wayland or not self.settings.get("tree", True):
             self.panel.hide()
             self.update_lookup_table(self.table, bool(snapshot.get("candidates")))
+            self.lookup_announcements.update(snapshot)
         else:
+            self.lookup_announcements.reset()
             self.hide_lookup_table()
             self.panel.update(snapshot)
         if snapshot.get("request") in ("replace", "predict", "prompt"):

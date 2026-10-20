@@ -1,3 +1,4 @@
+import Atk from 'gi://Atk';
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -12,6 +13,7 @@ import {ShellCursor} from './shellCursor.js';
 import {LayoutDiagnostics} from './layoutDiagnostics.js';
 import {CandidateNavigation} from './candidateNavigation.js';
 import {CandidateTheme} from './candidateTheme.js';
+import {attachCandidateAction, CandidateAnnouncements} from './candidateAccessibility.js';
 import {addScoreBadge, SCORE_LINE_HEIGHT} from './candidateScore.js';
 
 const NAME = 'org.azookey.Tree';
@@ -23,6 +25,8 @@ export default class AzooKeyTreeExtension extends Extension {
         this._buttons = new Map();
         this._hoveredAction = null;
         this._popup = new St.BoxLayout({vertical: true, can_focus: false});
+        this._announcements = new CandidateAnnouncements(announcement =>
+            this._popup.get_accessible().emit('notification', announcement, Atk.Live.POLITE));
         this._navigation = new CandidateNavigation({
             select: selection => { if (selection) this._call('Select', selection); },
             changed: () => { if (this._lastSnapshot) this._render(this._lastSnapshot); },
@@ -58,12 +62,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._subscription = Gio.DBus.session.signal_subscribe(NAME, NAME, null, PATH, null,
             Gio.DBusSignalFlags.NONE, (_connection, _sender, _path, _interface, signal, parameters) => {
                 if (signal === 'Hide') {
-                    this._hoveredAction = null;
-                    this._popup.hide();
-                    this._lastSnapshot = null;
-                    this._placementSide = null;
-                    this._layoutDiagnostics.clear();
-                    this._navigation.collapse();
+                    this._hideCandidates();
                 }
                 if (signal === 'ScrollDetails' && this._popup.visible)
                     this._details.scrollPage(parameters.deepUnpack()[0]);
@@ -71,14 +70,34 @@ export default class AzooKeyTreeExtension extends Extension {
                     try { this._render(JSON.parse(parameters.deepUnpack()[0])); }
                     catch (error) {
                         console.error('azooKey candidate rendering failed', error);
-                        this._popup.hide();
+                        this._hideCandidates();
                         this._call('SetRenderer', new GLib.Variant('(b)', [false]));
                     }
                 }
             });
         this._watch = Gio.bus_watch_name(Gio.BusType.SESSION, NAME, Gio.BusNameWatcherFlags.NONE,
             () => this._call('SetRenderer', new GLib.Variant('(b)', [true])),
-            () => this._popup.hide());
+            () => this._hideCandidates());
+    }
+
+    _clearButtons() {
+        const retired = [...this._buttons.values()];
+        // Destroying an actor may emit hover changes; it no longer owns the target.
+        this._buttons.clear();
+        for (const widget of retired) widget.destroy();
+        this._actionIdentity = null;
+    }
+
+    _hideCandidates() {
+        this._hoveredAction = null;
+        this._candidateIdentity = null;
+        this._announcements.reset();
+        this._popup.hide();
+        this._lastSnapshot = null;
+        this._placementSide = null;
+        this._layoutDiagnostics.clear();
+        this._navigation.collapse();
+        this._clearButtons();
     }
 
     _call(method, parameters) {
@@ -99,19 +118,19 @@ export default class AzooKeyTreeExtension extends Extension {
             nodes.map(({relativeScore, scorePresentation, preview, previewDescription, ...node}) => node)]);
         if (candidateIdentity !== this._candidateIdentity) {
             this._hoveredAction = null;
-            for (const widget of this._buttons.values()) widget.destroy();
-            this._buttons.clear();
             this._candidateIdentity = candidateIdentity;
         }
+        const actionIdentity = JSON.stringify([candidateIdentity, data.generation, data.selection]);
+        if (actionIdentity !== this._actionIdentity) {
+            this._clearButtons();
+            this._actionIdentity = actionIdentity;
+        }
         if (!nodes.length) {
-            this._navigation.collapse();
-            this._popup.hide();
-            this._layoutDiagnostics.clear();
+            this._hideCandidates();
             this._canvas.destroy_all_children();
-            this._buttons.clear();
             return;
         }
-        // Keep AT objects when the same candidate remains visible.
+        // Geometry/theme updates keep AT objects with the same action target.
         const retained = new Set(this._buttons.values());
         for (const child of this._canvas.get_children()) {
             if (!retained.has(child)) child.destroy();
@@ -120,9 +139,7 @@ export default class AzooKeyTreeExtension extends Extension {
         const byId = new Map(nodes.map(node => [node.id, node]));
         const columns = data.columns ?? [];
         if (!columns.length) {
-            this._navigation.collapse();
-            this._popup.hide();
-            this._layoutDiagnostics.clear();
+            this._hideCandidates();
             return;
         }
         const frames = new Map();
@@ -193,11 +210,12 @@ export default class AzooKeyTreeExtension extends Extension {
                 lines.queue_repaint();
             }
         }
-        const button = ({operation, index, label, frame, active, focused, accessibleName}) => {
+        const button = ({operation, index, label, frame, active, focused, accessibleName, description = ''}) => {
             const identity = JSON.stringify([operation, index]);
             let widget = this._buttons.get(identity);
             if (!widget) {
                 widget = new St.Button({can_focus: false, reactive: true, track_hover: true, accessible_name: accessibleName});
+                attachCandidateAction(widget);
                 widget.connect('button-press-event', () => {
                     widget._pressedSelection = widget._selection;
                     return Clutter.EVENT_PROPAGATE;
@@ -206,7 +224,6 @@ export default class AzooKeyTreeExtension extends Extension {
                     widget._pressedSelection = null;
                     return Clutter.EVENT_PROPAGATE;
                 });
-                // StButton's native activation also serves assistive technology.
                 widget.connect('clicked', () => {
                     const selection = widget._pressedSelection ?? widget._selection;
                     widget._pressedSelection = null;
@@ -223,6 +240,7 @@ export default class AzooKeyTreeExtension extends Extension {
                 this._buttons.set(identity, widget);
             }
             widget.accessible_name = accessibleName;
+            widget.get_accessible().accessible_description = description;
             visibleButtons.add(identity);
             widget._selection = new GLib.Variant('(sibis)', [operation, index, true, data.generation, data.contextId]);
             widget.set_checked(active);
@@ -250,11 +268,11 @@ export default class AzooKeyTreeExtension extends Extension {
         for (const [id, frame] of frames) {
             const node = byId.get(id);
             const presentation = data.showRelativeScores ? node.scorePresentation : null;
-            const accessibleName = [node.text, node.reading, node.previewDescription, presentation?.detailDescription]
-                .filter(Boolean).join('\n');
+            const accessibleName = [node.text, node.reading].filter(Boolean).join('\n');
+            const description = [node.previewDescription, presentation?.detailDescription].filter(Boolean).join('\n');
             button({operation: 'node', index: id, label: node.text, frame,
                 active: selected.has(id), focused: id === data.focusedNode,
-                accessibleName});
+                accessibleName, description});
             if (presentation) addScoreBadge(this._canvas, {node, frame, palette});
             const index = node.terminals.includes(data.selection) ? data.selection : node.terminals[0];
             if (data.showCandidateIndex && index !== undefined) {
@@ -306,6 +324,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._layoutDiagnostics.update({source: anchor.source, aligned, reason: alignmentReason,
             cursor: anchor.location, bounds, placement});
         this._popup.show();
+        this._announcements.update(data);
         const focus = frames.get(data.focusedNode);
         const focusKey = `${data.contextId}:${data.generation}:${data.selection}:${data.focusedNode}`;
         if (focus && focusKey !== this._focusKey) {
@@ -373,6 +392,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._layoutDiagnostics?.destroy();
         this._layoutDiagnostics = null;
         this._lastSnapshot = null;
+        this._announcements.reset();
         this._theme?.destroy();
         this._theme = null;
         this._popup?.destroy();

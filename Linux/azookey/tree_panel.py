@@ -2,10 +2,12 @@ import gi
 import cairo
 import json
 gi.require_version("Gtk", "3.0")
+gi.require_version("Atk", "1.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo
+from gi.repository import Atk, Gtk, Gdk, GLib, Pango, PangoCairo
 
 from .candidate_accessibility import CandidateAction
+from .candidate_announcements import CandidateAnnouncements
 from .candidate_detail import CandidateDetail
 from .candidate_navigation import CandidateNavigation
 from .candidate_theme import CandidateTheme
@@ -42,6 +44,9 @@ class TreePanel(Gtk.Window):
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.select = select
         self.snapshot = {}
+        self.announcements = CandidateAnnouncements(
+            lambda announcement: self.get_accessible().emit("notification", announcement, Atk.Live.POLITE),
+        )
         self.candidate_identity = None
         self.rectangles = []
         self.scroll = Gtk.ScrolledWindow()
@@ -77,6 +82,7 @@ class TreePanel(Gtk.Window):
 
     def clear_placement(self, *_args):
         self.hovered_action = None
+        self.announcements.reset()
         self.navigation.collapse()
         self.placement_side = None
         self.layout_diagnostics = {}
@@ -166,6 +172,7 @@ class TreePanel(Gtk.Window):
         self.update_actions()
         self.refresh_details()
         self.show_all()
+        self.announcements.update(snapshot)
         self.position()
         self.canvas.queue_draw()
         focus = by_id.get(snapshot.get("focusedNode"))
