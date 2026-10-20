@@ -28,7 +28,8 @@ class TreePanelTests(unittest.TestCase):
             snapshot = {
                 "nodes": [
                     {"id": 0, "text": "このように", "reading": "", "parent": None, "terminals": []},
-                    {"id": 1, "text": "確率的に", "reading": "", "parent": 0, "terminals": [0]},
+                    {"id": 1, "text": "確率的に", "reading": "", "parent": 0, "terminals": [0],
+                     "preview": {"candidateIndex": 0}},
                     {"id": 2, "text": "このようにかくりつてきに", "reading": "", "parent": None, "terminals": [1]},
                 ],
                 "columns": [[0, 2], [1]], "selectedPath": [0, 1], "showRelativeScores": True,
@@ -41,15 +42,16 @@ class TreePanelTests(unittest.TestCase):
             self.assertLessEqual(words[2][4], 75, "Long alternatives must not cover the next word")
             panel.update({**snapshot, "showCandidateIndex": True})
             word = next(r for r in panel.rectangles if r[:2] == ("node", 1))
-            number = next(r for r in panel.rectangles if r[:2] == ("select", 0))
-            self.assertGreaterEqual(number[3], word[3] + word[5] + 12)
+            self.assertEqual(panel.candidate_numbers[1], 1)
+            self.assertFalse(any(rectangle[0] == "select" for rectangle in panel.rectangles))
+            self.assertGreaterEqual(word[5], 44)
             panel.location = (2, 100, 1, 20)
             panel.update(snapshot)
             self.assertFalse(panel.aligned, "Screen-edge clamping must not pretend to retain document coordinates")
         finally:
             panel.destroy()
 
-    def test_real_conversion_compact_rendering_and_single_click_commit(self):
+    def test_real_conversion_selects_a_word_then_confirms_the_chosen_sentence_once(self):
         import cairo
         from gi.repository import GLib
         from azookey.bridge import Bridge
@@ -70,13 +72,16 @@ class TreePanelTests(unittest.TestCase):
                 submitted = []
 
                 def choose(operation, index, submit):
-                    self.assertTrue(submit, "Moving alternatives must commit on the first click")
+                    nonlocal snapshot
                     response = bridge.request(operation, **{"node" if operation == "node" else "index": index},
                                               generation=snapshot["generation"], submit=submit)
                     submitted.extend(response["commits"])
+                    snapshot = response
+                    panel.update(snapshot)
 
                 panel = TreePanel(choose)
                 panel.update(snapshot)
+                self.assertTrue(panel.scroll.get_visible())
                 context = GLib.MainContext.default()
                 while context.pending():
                     context.iteration(False)
@@ -84,7 +89,7 @@ class TreePanelTests(unittest.TestCase):
                 self.assertLessEqual(len(words), len(snapshot["columns"]) * 3)
                 self.assertEqual({words[column[0]][3] for column in snapshot["columns"]}, {6})
                 width, height = panel.canvas.get_size_request()
-                self.assertLessEqual(height, 200)
+                self.assertLessEqual(height, 260)
                 surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
                 panel.draw(panel.canvas, cairo.Context(surface))
                 surface.flush()
@@ -98,8 +103,68 @@ class TreePanelTests(unittest.TestCase):
                 self.assertTrue(alternatives)
                 rect = words[alternatives[0]]
                 self.assertTrue(panel.click(None, types.SimpleNamespace(button=1, x=rect[2] + 4, y=rect[3] + 4)))
+                self.assertEqual(submitted, [])
+                candidates = [candidate["text"] for candidate in snapshot["candidates"]]
+                panel.navigation.confirm.clicked()
                 self.assertEqual(len(submitted), 1)
-                self.assertIn(submitted[0], [candidate["text"] for candidate in snapshot["candidates"]])
+                self.assertIn(submitted[0], candidates)
+            finally:
+                if panel:
+                    panel.destroy()
+                bridge.request("configure", settings=original_settings)
+                bridge.close()
+                if previous is None:
+                    os.environ.pop("AZOOKEY_DATA_DIR", None)
+                else:
+                    os.environ["AZOOKEY_DATA_DIR"] = previous
+
+    def test_composing_enter_commits_reading_while_candidate_button_explicitly_commits_the_preview(self):
+        from azookey.bridge import Bridge
+        from azookey.keymap import translate
+        from azookey.tree_panel import TreePanel
+
+        previous = os.environ.get("AZOOKEY_DATA_DIR")
+        with tempfile.TemporaryDirectory() as directory:
+            os.environ["AZOOKEY_DATA_DIR"] = directory
+            bridge = Bridge()
+            panel = None
+            original_settings = bridge.request("settings")["settings"]
+            commits = []
+            try:
+                # Compare two confirmation paths without the first commit changing the second candidate's rank.
+                bridge.request("configure", settings={**original_settings, "tree": True, "live": False, "learning": "nothing"})
+
+                def type_reading():
+                    bridge.request("reset", submit=False)
+                    for character in "nihongo":
+                        snapshot = bridge.request("key", event=translate(ord(character), 0))
+                    self.assertEqual(snapshot["inputState"], "composing")
+                    self.assertEqual(snapshot["preedit"], "にほんご")
+                    return snapshot
+
+                snapshot = type_reading()
+                selected_candidate = next(candidate["text"] for candidate in snapshot["candidates"]
+                                          if candidate["index"] == snapshot["selection"])
+                entered = bridge.request("key", event=translate(0xFF0D, 0))
+                self.assertEqual(entered["commits"], ["にほんご"])
+                snapshot = type_reading()
+                self.assertEqual(next(candidate["text"] for candidate in snapshot["candidates"]
+                                      if candidate["index"] == snapshot["selection"]), selected_candidate)
+
+                def choose(operation, index, submit):
+                    nonlocal snapshot
+                    snapshot = bridge.request(operation, index=index, generation=snapshot["generation"], submit=submit)
+                    commits.extend(snapshot["commits"])
+                    panel.update(snapshot)
+
+                panel = TreePanel(choose)
+                panel.update(snapshot)
+                self.assertEqual(panel.composition_title.get_text(), "候補のプレビュー")
+                self.assertEqual(panel.composition.displayed_text, selected_candidate)
+                self.assertEqual(panel.navigation.confirm.get_label(), "この候補を確定")
+                panel.navigation.confirm.clicked()
+                self.assertEqual(commits, [selected_candidate])
+                self.assertEqual(snapshot["preedit"], "")
             finally:
                 if panel:
                     panel.destroy()

@@ -11,19 +11,23 @@ from .i18n import text as message
 class CandidateDetail(Gtk.ScrolledWindow):
     # Keeps the tree and the source document visible beside long dictionary entries.
     MAXIMUM_HEIGHT = 160
+    HORIZONTAL_MARGIN = 8  # Keep wrapped text aligned with the compact candidate list.
+    VERTICAL_MARGIN = 4  # Separate adjacent text without making the popup taller.
 
-    def __init__(self):
+    def __init__(self, *, minimum_height=80, maximum_height=MAXIMUM_HEIGHT):
         super().__init__()
         self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.set_can_focus(False)
         self.get_style_context().add_class("candidate-detail")
-        self.set_min_content_height(80)
-        self.set_max_content_height(self.MAXIMUM_HEIGHT)
+        self.set_min_content_height(minimum_height)
+        self.set_max_content_height(maximum_height)
         self.set_propagate_natural_height(True)
-        self.label = Gtk.Label(xalign=0, yalign=0, wrap=True, margin=8)
+        self.label = Gtk.Label(xalign=0, yalign=0, wrap=True,
+                               margin_start=self.HORIZONTAL_MARGIN, margin_end=self.HORIZONTAL_MARGIN,
+                               margin_top=self.VERTICAL_MARGIN, margin_bottom=self.VERTICAL_MARGIN)
         self.label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.label.set_selectable(False)
-        self.label.get_accessible().set_name(message("candidate.detail"))
+        self.get_accessible().set_name(message("candidate.detail"))
         self.add(self.label)
         self.displayed_text = ""
         self.palette_css = Gtk.CssProvider()
@@ -42,7 +46,7 @@ class CandidateDetail(Gtk.ScrolledWindow):
         attributes = Pango.AttrList()
         attributes.insert(Pango.attr_size_new_absolute(int(font_size * Pango.SCALE)))
         self.label.set_attributes(attributes)
-        self.label.set_size_request(max(1, width - 16), -1)
+        self.label.set_size_request(max(1, width - 2 * self.HORIZONTAL_MARGIN), -1)
         self.label.set_text(text)
         if text != self.displayed_text:
             self.displayed_text = text

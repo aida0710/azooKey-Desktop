@@ -70,7 +70,7 @@ class CandidateDetailTests(unittest.TestCase):
         self.assertNotIn("語", str(description))
         self.assertEqual(self.commits, [])
 
-    def test_number_targets_do_not_overlap_and_scaled_digits_fit(self):
+    def test_number_badges_fit_inside_nodes_at_the_configured_text_scales(self):
         from gi.repository import Pango
 
         settings = self.panel.get_settings()
@@ -89,23 +89,31 @@ class CandidateDetailTests(unittest.TestCase):
         import cairo
 
         self.panel.update({
-            **self.snapshot, "columns": [[0], [1]], "showCandidateIndex": True,
+            **self.snapshot, "nodes": [{**node, "preview": {"candidateIndex": node["id"]}}
+                                       for node in self.snapshot["nodes"]],
+            "columns": [[0], [1]], "showCandidateIndex": True,
             "candidateTextSize": size, "wordGeometry": {"widths": [column_width] * 2},
         })
         self.flush()
-        numbers = [item for item in self.panel.rectangles if item[0] == "select"]
-        self.assertEqual(len(numbers), 2)
-        self.assertLessEqual(numbers[0][2] + numbers[0][4], numbers[1][2])
+        words = [item for item in self.panel.rectangles if item[0] == "node"]
+        self.assertEqual(self.panel.candidate_numbers, {0: 1, 1: 2})
+        self.assertFalse(any(item[0] == "select" for item in self.panel.rectangles))
+        self.assertLessEqual(words[0][2] + words[0][4], words[1][2])
         context = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1))
-        for _, _, _, _, width, height, number, _ in numbers:
-            layout = self.panel.fitted_layout(context, number, width - 4, max(14, self.panel.font_size - 4))
+        for _, index, _, _, width, height, *_ in words:
+            self.assertGreaterEqual(width, 44)
+            self.assertGreaterEqual(height, 44)
+            number = str(self.panel.candidate_numbers[index])
+            layout = self.panel.fitted_layout(context, number, width - 12, self.panel.number_font_size)
             ink, logical = layout.get_pixel_extents()
-            top = (height - logical.height) / 2 + ink.y
+            top = height - self.panel.number_height + (self.panel.number_height - logical.height) / 2 + ink.y
             self.assertGreaterEqual(top, 0)
             self.assertLessEqual(top + ink.height, height)
+            self.assertFalse(layout.is_ellipsized())
 
     def test_keyboard_can_scroll_all_of_a_long_candidate(self):
         self.panel.update({**self.snapshot, "focusedNode": 1})
+        self.panel.disclosure_actions["details"].clicked()
         self.flush()
         adjustment = self.panel.details.get_vadjustment()
         self.assertGreater(adjustment.get_upper(), adjustment.get_page_size())
@@ -125,6 +133,7 @@ class CandidateDetailTests(unittest.TestCase):
         preview = "確定予定: 日本画鑑賞\n確定する読み: にほんがかんしょう\n後続の変更: 入力 → 鑑賞\n全角英数"
         self.snapshot["nodes"][1]["previewDescription"] = preview
         self.panel.update(self.snapshot)
+        self.panel.disclosure_actions["tree"].clicked()
         self.panel.show_details(1)
         self.assertIn(preview, self.panel.details.displayed_text)
         self.assertIn(preview, self.panel.actions[("node", 1)].get_accessible().get_description())
@@ -142,8 +151,10 @@ class CandidateDetailTests(unittest.TestCase):
             "columns": [[0], [1]], "selectedPath": [0, 1], "showCandidateIndex": True,
             "nodes": [
                 {"id": 0, "text": "日本語", "reading": "ニホンゴ", "terminals": [0],
+                 "preview": {"candidateIndex": selection},
                  "previewDescription": full if selection == 1 else alternative},
                 {"id": 1, "text": "入力", "reading": "ニュウリョク", "terminals": [1, 2],
+                 "preview": {"candidateIndex": selection},
                  "previewDescription": full if selection == 1 else alternative},
             ],
             "candidatePage": {"start": 0, "position": selection + 1, "totalCount": 3, "items": [
@@ -155,7 +166,7 @@ class CandidateDetailTests(unittest.TestCase):
             ]},
         }
 
-    def test_hovering_a_number_previews_its_partial_candidate_and_commits_it_once(self):
+    def test_node_badge_keeps_node_preview_while_the_sentence_list_exposes_the_partial_candidate(self):
         from copy import deepcopy
         from gi.repository import Gdk
 
@@ -163,34 +174,42 @@ class CandidateDetailTests(unittest.TestCase):
         partial, full = [item["detailDescription"] for item in snapshot["candidatePage"]["items"][:2]]
         original = deepcopy(snapshot)
         self.panel.update(snapshot)
+        self.panel.disclosure_actions["tree"].clicked()
         word = self.panel.actions[("node", 0)]
-        number = self.panel.actions[("select", 0)]
+        partial_row = self.panel.navigation.row_buttons[0]
+        self.assertNotIn(("select", 0), self.panel.actions)
+        self.assertEqual(self.panel.candidate_numbers[0], 2)
         entered = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
         word.emit("enter-notify-event", entered)
         self.assertIn(full, self.panel.details.displayed_text)
-        number.emit("enter-notify-event", entered)
+        partial_row.emit("enter-notify-event", entered)
         self.assertIn(partial, self.panel.details.displayed_text)
         self.assertNotIn("全文の注釈", self.panel.details.displayed_text)
-        self.assertIn(partial, number.get_accessible().get_description())
+        self.assertIn(partial, partial_row.get_accessible().get_description())
+        partial_row.emit("leave-notify-event", Gdk.Event.new(Gdk.EventType.LEAVE_NOTIFY))
         word.emit("enter-notify-event", entered)
         self.assertIn(full, self.panel.details.displayed_text)
-        number.emit("enter-notify-event", entered)
+        partial_row.emit("enter-notify-event", entered)
         self.assertEqual(snapshot, original)
         self.assertEqual(self.commits, [])
         self.assertFalse(self.panel.get_accept_focus())
-        number.clicked()
-        self.assertEqual(self.commits, [("select", 0, True)])
+        partial_row.clicked()
+        self.assertEqual(self.commits, [("select", 0, False)])
+        self.panel.update({**snapshot, "selection": 0})
+        self.panel.navigation.confirm.clicked()
+        self.assertEqual(self.commits, [("select", 0, False), ("select", 0, True)])
 
     def test_stationary_hover_stays_on_its_target_after_keyboard_updates_and_leave_restores_selection(self):
         from gi.repository import Gdk
 
         entered = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
         left = Gdk.Event.new(Gdk.EventType.LEAVE_NOTIFY)
-        for kind in ("node", "select", "list"):
+        for kind in ("node", "list"):
             with self.subTest(kind=kind):
                 original = self.shared_word_snapshot()
                 self.panel.update(original)
                 self.panel.navigation.expanded = True
+                self.panel.tree_expanded = True
                 self.panel.update(original)
                 target = (self.panel.navigation.row_buttons[0] if kind == "list"
                           else self.panel.actions[(kind, 0)])
@@ -214,10 +233,11 @@ class CandidateDetailTests(unittest.TestCase):
         from gi.repository import Gdk
 
         entered = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
-        for kind in ("select", "list"):
+        for kind in ("node", "list"):
             with self.subTest(kind=kind):
                 self.panel.update(self.shared_word_snapshot())
                 self.panel.navigation.expanded = True
+                self.panel.tree_expanded = True
                 self.panel.update(self.shared_word_snapshot())
                 target = (self.panel.navigation.row_buttons[0] if kind == "list"
                           else self.panel.actions[(kind, 0)])
