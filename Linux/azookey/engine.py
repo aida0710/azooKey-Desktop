@@ -14,6 +14,7 @@ from .async_bridge import AsyncBridge
 from .input_coordinator import InputCoordinator
 from .input_preview import is_native_key
 from .native_key_reply import NativeKeyReply
+from .native_key_dispatch import dispatch_native_key, finish_native_key
 from .keymap import translate
 from .tree_panel import TreePanel
 from .candidate_announcements import CandidateAnnouncements
@@ -256,33 +257,10 @@ class Engine(IBus.Engine):
     def do_service_method_call(self, connection, sender, object_path, interface,
                                method, parameters, invocation):
         arguments = (connection, sender, object_path, interface, method, parameters, invocation)
-        if (method == "ProcessKeyEvent" and interface == "org.freedesktop.IBus.Engine"
-                and connection == self.get_connection()):
-            # GTK's synchronous client applies preedit from this invocation
-            # before earlier asynchronous signals. Keep every key's Core
-            # display changes inside its original reply, including plain text.
-            reply = NativeKeyReply(lambda consumed: self.finish_native_key(consumed, arguments))
-            previous, self.native_key_reply = self.native_key_reply, reply
-            try:
-                consumed = self.emit("process-key-event", *parameters.unpack())
-                if not reply.deferred:
-                    reply.finish(consumed)
-            finally:
-                self.native_key_reply = previous
-            return
-        IBus.Engine.do_service_method_call(self, *arguments)
+        dispatch_native_key(self, arguments)
 
     def finish_native_key(self, consumed, arguments):
-        if consumed:
-            arguments[-1].return_value(GLib.Variant("(b)", (True,)))
-            return
-        # Reuse IBus's public method dispatcher so its extension filter and
-        # original invocation reply are preserved for an unhandled event.
-        previous, self.native_key_passthrough = self.native_key_passthrough, True
-        try:
-            IBus.Engine.do_service_method_call(self, *arguments)
-        finally:
-            self.native_key_passthrough = previous
+        finish_native_key(self, consumed, arguments)
 
     def do_process_key_event(self, keyval, keycode, state):
         if self.native_key_passthrough:

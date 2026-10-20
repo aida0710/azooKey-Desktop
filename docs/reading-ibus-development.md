@@ -1,0 +1,17 @@
+# 読みプロセスを使うIBus開発入口
+
+`Linux/ibus-azookey-tree.py --reading-worker-development` は、読み処理と候補計算を別プロセスで動かすための検証入口です。通常起動のEngineは既存経路を使います。設定やインストール済みcomponentを書き換える機能ではありません。隔離したDBus/IBusセッションで実行します。
+
+`ReadingFrontend` は元入力の完了callback、入力欄、最後に適用したsnapshotを管理します。`ReadingEngine` はIBusのキー、焦点、周辺文脈、private属性を伝え、返された正式入力をcommit/preedit通知へ変換します。IBusの元`ProcessKeyEvent`への返信を保持する処理は既存Engineと共通です。候補表示からキーを作り直したり、ForwardKeyEventで再送したりしません。
+
+候補の到着ではIBus標準一覧だけを更新します。文字編集、カーソル、確定は元キーの入力応答から反映します。表示済み候補を選ぶSpace・上下・数字・Enter、およびF6〜F10は読み側で処理します。候補を待っている間のEnterは、表示中の読みを確定します。
+
+焦点を失った後は古い入力応答を表示しません。表示中のpreeditの確定はIBusと入力先クライアントが担当するため、focus-outの読み側操作は`submit=false`とし、古い欄の文字を新しい欄へ送らないようにします。応答不明の入力は自動再送せず、最後の表示を保ちます。明示的なResetまたは次のfocus-inで新しい読みプロセスを開始します。Resetは未確定入力の取消です。表示や通知で例外が起きても、正式な取消と元キー返信は退役させます。
+
+この開発入口の対応範囲は標準ローマ字・ライブ変換OFF・キーボードによる候補操作です。候補Tree、pointer/ATによる選択、一般設定・辞書変更同期、予測・AI・再変換、ライブ変換ONは通常入口へ切り替える前に接続が必要です。一般設定を読んだふりで適用したり、元の設定ファイルを変更したりしません。現段階ではEngineごとにworkerを所有します。
+
+`Linux/tests/ibus_reading_toolkits.py` は本物のGTK4/Qt入力widgetと実IBusを使い、実候補プロセスへSIGSTOPを送り停止状態を確認してから入力します。編集・部分F10・Enter・Escape・焦点移動・次欄への入力を、SIGCONTより前に確認します。原IBusイベント、widgetの挿入/未確定履歴、UI heartbeat、実ロードされたIBus moduleを別々に保存します。
+
+Ubuntu 24.04のQt 6.4.2／IBus 1.5.29では、新ウィンドウのFocusInが旧ウィンドウのFocusOutより先に届く条件で、旧preeditが確定されず消えることを確認しています。通常Engineでも同じ条件で再現しました。この検査は文字保持をFAILのまま保存し、次欄への入力・候補再開後の旧入力再送がないことも続けて調べます。別欄に旧文字を送る方法で補いません。
+
+標準一覧での開発試験は、候補Treeや実GNOME Waylandの受入を代替しません。現在の製品配布物を使用する実VM検証とは、ソース・bridge・テスト条件を分けて記録します。

@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from native_ibus_observer import has_native_focus
+from native_ibus_observer import current_native_focus, has_native_focus
 
 
 def focus_in(client, context="/org/freedesktop/IBus/InputContext_2"):
@@ -64,6 +64,15 @@ class NativeIBusFocusTests(unittest.TestCase):
             "member=HideLookupTable\n"
         ))
         self.assertTrue(has_native_focus(self.directory, "gtk4"))
+
+    def test_two_widgets_using_the_same_toolkit_have_distinct_ready_contexts(self):
+        self.observed.write_text(focus_in("gtk4-im:python3"))
+        previous = current_native_focus(self.directory)
+        self.observed.write_text(focus_in("gtk4-im:python3") + FOCUS_OUT
+                                 + focus_in("gtk4-im:python3", "/org/freedesktop/IBus/InputContext_3"))
+        self.assertTrue(has_native_focus(self.directory, "gtk4"))
+        self.assertNotEqual(current_native_focus(self.directory), previous)
+        self.assertEqual(current_native_focus(self.directory)[0], "/org/freedesktop/IBus/InputContext_3")
 
 
 if __name__ == "__main__":
