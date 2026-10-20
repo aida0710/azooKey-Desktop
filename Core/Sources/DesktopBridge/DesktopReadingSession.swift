@@ -19,8 +19,6 @@ struct DesktopReadingSession {
     private var candidateContext: DesktopReadingCandidateContext?
     private var candidateCompletions: [DesktopCandidateCompletion] = []
     private let japaneseInputStyle: InputStyle
-    // Match the surrounding-text bound of the existing DesktopBridge router.
-    private static let clientContextLimit = 100
 
     init(inputStyle: InputStyle = .mapped(id: .defaultRomanToKana)) {
         japaneseInputStyle = inputStyle
@@ -53,7 +51,7 @@ struct DesktopReadingSession {
         if next.composition.isEmpty {
             next.candidateContext = nil
         } else if !response.commits.isEmpty, let context = next.candidateContext {
-            let left = String((context.leftContext + response.commits.joined()).suffix(Self.clientContextLimit))
+            let left = DesktopReadingSurroundings.appending(response.commits, to: context.leftContext)
             next.candidateContext = next.currentContext(context, leftContext: left)
         }
         response.compositionRevision = next.compositionRevision
@@ -117,7 +115,11 @@ struct DesktopReadingSession {
     }
 
     mutating func updateLearningRevision(_ revision: Int) throws {
-        guard let candidateContext else { throw DesktopReadingCandidates.Failure.changedSettings }
+        guard revision >= 0 else { throw DesktopReadingCandidates.Failure.changedSettings }
+        // A global learning change also reaches contexts that have not requested candidates yet.
+        guard let candidateContext else {
+            return
+        }
         try candidates.updateLearningRevision(from: candidateContext.settingsRevision, to: revision)
         var current = candidateContext
         current.settingsRevision = revision

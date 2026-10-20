@@ -1,57 +1,17 @@
-"""The explicit reading process must remain independent of converter work."""
+"""Real JSONL lifecycle and converter-independent formal input."""
 import os
 from pathlib import Path
 import signal
-import sys
-import tempfile
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-# This detects a stuck fixture; it is not the input-to-paint performance budget.
-REQUEST_TIMEOUT_SECONDS = 5
+from Linux.tests.reading_worker_fixture import ReadingWorkerCase, REQUEST_TIMEOUT_SECONDS
 
 
-@unittest.skipUnless(sys.platform == "linux" and os.environ.get("AZOOKEY_BRIDGE"),
-                     "requires the real Linux Swift bridge")
-class ReadingWorkerTests(unittest.TestCase):
-    def setUp(self):
-        from azookey.bridge import Bridge
-
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        self.directory = Path(directory.name)
-        # A converter session cannot create its memory directory below a regular file.
-        self.blocked_data_path = self.directory / "reading-data-is-a-file"
-        self.blocked_data_path.write_text("do not replace\n")
-        self.environment = {
-            **os.environ,
-            "AZOOKEY_BRIDGE_ROLE": "reading",
-            "AZOOKEY_DATA_DIR": str(self.blocked_data_path),
-            "AZOOKEY_RESOURCES": str(self.directory / "absent-models"),
-            "XDG_CONFIG_HOME": str(self.directory / "config"),
-        }
-        self.bridge = Bridge(timeout=REQUEST_TIMEOUT_SECONDS, environment=self.environment)
-        self.addCleanup(self.bridge.close)
-
-    def key(self, keyval, *, context="field"):
-        from azookey.keymap import translate
-
-        return self.bridge.request("key", context=context, event=translate(keyval, 0))
-
-    def type(self, text, *, context="field"):
-        snapshot = self.bridge.request("snapshot", context=context)
-        for character in text:
-            snapshot = self.key(ord(character), context=context)
-        return snapshot
-
+class ReadingWorkerTests(ReadingWorkerCase):
     def test_reading_edit_and_enter_work_while_the_separate_converter_process_is_stopped(self):
         from azookey.bridge import Bridge
 
-        converter_environment = {
-            **self.environment,
-            "AZOOKEY_DATA_DIR": str(self.directory / "converter"),
-        }
+        converter_environment = {**self.environment, "AZOOKEY_DATA_DIR": str(self.directory / "converter")}
         converter_environment.pop("AZOOKEY_BRIDGE_ROLE")
         converter = Bridge(timeout=REQUEST_TIMEOUT_SECONDS, environment=converter_environment)
         try:
@@ -62,15 +22,15 @@ class ReadingWorkerTests(unittest.TestCase):
             self.assertEqual(stopped_pid, converter.process.pid)
             self.assertTrue(os.WIFSTOPPED(status))
             self.assertEqual(self.type("nihongo")["preedit"], "にほんご")
-            self.assertEqual(self.key(0xFF51)["cursor"], 3)
+            self.assertEqual(self.key(0xFF51)["snapshot"]["cursor"], 3)
             self.assertEqual(self.type("a")["preedit"], "にほんあご")
-            self.assertEqual(self.key(0xFF08)["preedit"], "にほんご")
-            self.assertEqual(self.key(0xFFFF)["preedit"], "にほん")
-            committed = self.key(0xFF0D)
+            self.assertEqual(self.key(0xFF08)["snapshot"]["preedit"], "にほんご")
+            self.assertEqual(self.key(0xFFFF)["snapshot"]["preedit"], "にほん")
+            committed = self.key(0xFF0D)["snapshot"]
             self.assertEqual(committed["commits"], ["にほん"])
             self.assertEqual(committed["preedit"], "")
             self.assertEqual(self.type("a")["preedit"], "あ")
-            self.assertEqual(self.key(0xFF1B)["preedit"], "")
+            self.assertEqual(self.key(0xFF1B)["snapshot"]["preedit"], "")
             self.assertIsNone(converter.process.poll())
             process_status = Path(f"/proc/{converter.process.pid}/status").read_text()
             self.assertRegex(process_status, r"(?m)^State:\s+T\b")
@@ -82,24 +42,61 @@ class ReadingWorkerTests(unittest.TestCase):
         mappings = Path(f"/proc/{self.bridge.process.pid}/maps").read_text()
         for suffix in (".gguf", ".louds", ".loudstxt", ".marisa"):
             self.assertNotIn(suffix, mappings)
-        self.assertFalse(self.bridge.request("snapshot")["zenzaiLoaded"])
+        self.assertFalse(self.snapshot()["zenzaiLoaded"])
 
-    def test_rejected_actions_and_other_contexts_do_not_discard_the_active_reading(self):
-        self.assertEqual(self.type("nihongo")["preedit"], "にほんご")
-        before = self.key(0xFF51)
-        rejected = self.key(0x20)
-        self.assertEqual(rejected["error"], "unsupported_reading_action")
-        self.assertFalse(rejected["consumed"])
-        for field in ("reading", "preedit", "cursor", "generation", "inputState"):
-            self.assertEqual(rejected[field], before[field], field)
-        self.assertEqual(rejected["commits"], [])
-        self.assertEqual(self.type("a", context="second")["preedit"], "あ")
+    def test_focus_out_commits_once_and_delayed_old_field_keys_cannot_edit_the_new_field(self):
+        self.type("nihongo")
+        old_focus = self.reference
+        other = self.open("second")
+        self.assert_rejected_without_edit("focus-in", reference=other,
+                                          surroundings={"leftContext": "", "rightContext": "", "privateInput": False})
+        self.assert_rejected_without_edit("close", reference=self.reference)
+        self.assertEqual(self.focus_out(submit=True)["commits"], ["にほんご"])
+        inactive = self.reference
+        self.assert_rejected_without_edit("focus-out", reference=old_focus, submit=True,
+                                          error="stale_reading_focus")
+        self.reference = other
+        self.focus()
+        self.type("a")
+        for reference in (old_focus, inactive):
+            self.assert_rejected_without_edit("key", reference=reference,
+                                              event={"keyCode": 0, "characters": "b", "modifierFlags": 0})
+        self.assertEqual(self.snapshot()["preedit"], "あ")
+        self.assertEqual(self.key(0xFF8D)["snapshot"]["commits"], ["あ"])
+        self.assertEqual(self.request("snapshot", reference=inactive)["snapshot"]["preedit"], "")
+
+    def test_cancel_and_same_name_reopen_retire_focus_and_pending_candidates(self):
+        self.type("nihongo")
+        batch = self.batch()
+        old_reference = self.reference
+        self.assertEqual(self.focus_out(submit=False)["commits"], [])
+        self.assertEqual(self.snapshot()["preedit"], "")
+        self.request("close", reference=self.reference)
+        self.reference = self.open("field")
+        self.focus(private=True)
+        self.type("nihongo")
+        self.assertGreater(self.reference["focusEpoch"], old_reference["focusEpoch"])
+        self.assert_rejected_without_edit("key", reference=old_reference,
+                                          event={"keyCode": 36, "modifierFlags": 0})
+        self.assert_rejected_without_edit("adopt-candidates", reference=self.reference, batch=batch,
+                                          retainedReference=self.batch_reference(batch))
+        request = self.prepare()
+        self.assertTrue(request["privateInput"])
+        self.assertEqual(request["authority"]["focusEpoch"], self.reference["focusEpoch"])
+
+    def test_unsupported_actions_and_stale_process_do_not_discard_the_active_reading(self):
+        self.type("nihongo")
+        self.key(0xFF51)
+        before = self.snapshot()
+        reply = self.key(0xFF09)
+        self.assertEqual(reply["error"], "unsupported_reading_action")
+        self.assertEqual(self.snapshot(), before)
+        self.assert_rejected_without_edit("reset", reference={**self.reference, "readingProcessGeneration": "old"},
+                                          submit=True, error="wrong_reading_process_generation")
+        self.assert_rejected_without_edit("key", reference={**self.reference, "context": "unknown"},
+                                          event={"keyCode": 36, "modifierFlags": 0}, error="unknown_reading_context")
         self.assertEqual(self.type("a")["preedit"], "にほんあご")
-        committed = self.key(0xFF8D)
-        self.assertEqual(committed["commits"], ["にほんあご"])
-        self.assertEqual(self.bridge.request("snapshot", context="second")["preedit"], "あ")
-        self.bridge.request("close", context="second")
-        self.assertEqual(self.bridge.request("snapshot", context="second")["preedit"], "")
+        self.assertEqual(self.key(0xFF8D)["snapshot"]["commits"], ["にほんあご"])
 
 
 if __name__ == "__main__":
