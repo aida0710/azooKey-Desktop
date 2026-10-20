@@ -104,8 +104,7 @@ class InputCoordinator:
                 self.recover_pending()
                 return False
         elif pending.operation is not None:
-            self.snapshot = {**snapshot, "commits": [], "request": None}
-            self.render(snapshot)
+            self.publish(snapshot)
         if pending.key is not None and not snapshot.get("consumed", False):
             self.forward(*pending.key)
         self._forward_native()
@@ -113,6 +112,11 @@ class InputCoordinator:
             self._stop_timeout()
         self._preview()
         return False
+
+    def publish(self, snapshot):
+        """Keep recovery aligned with an explicitly acknowledged composition."""
+        self.snapshot = {**snapshot, "commits": [], "request": None}
+        self.render(snapshot)
 
     def recover_pending(self):
         # Only acknowledged snapshots reached the application. Preserve that
