@@ -20,6 +20,12 @@ macOS と Ubuntu の AI 操作では、送信前に「送信先」「対象の�
 
 周辺テキストの設定は現在の設定ファイルへ差分保存します。他の画面で変更した辞書や設定を古い値で上書きしません。破損した設定ファイルはそのまま残し、保存できなかったことを表示します。この場合、選択はその要求だけに適用します。
 
+選択文のプレビューは、元の入力欄と選択範囲を確認できる場合だけ本文へ適用します。同じ文章がある別の欄、変更された範囲、読み取り専用の欄には書き込みません。確認できなかった場合も生成結果は残り、「結果をコピー」から明示的にコピーできます。コピーを押すまではクリップボードを書き換えません。
+
+適用先の確認には IBus の入力先 ID に加えて、AT-SPI のバス・オブジェクト・有効なウィンドウ・選択位置・本文を使います。本文取得後にも範囲とフォーカスを確認します。GNOME Shell のように複数の入力欄が同じ IBus context を共有する場合も、入力先 ID と同じ文章だけでは許可しません。AT-SPI が使えない、複数の欄が対象に見える、照合中に入力・Reset・フォーカス変更が届いた場合は適用を止め、コピー可能な結果を残します。
+
+AT-SPI の読取りはダイアログを開くときと適用するときだけ、別スレッドで行います。通常の文字入力では呼びません。読取り期限やフォーカス復帰の期限を超えた場合は失敗扱いで、待ち時間の経過を適用の許可には使いません。
+
 ## 検証
 
 選択した本文のプレビューでは、生成中の Enter を重ねても送信を増やしません。指示や範囲を変えた場合は前のプレビューを破棄し、古い要求が後から完了しても新しい要求の操作を再有効化しません。
@@ -33,3 +39,14 @@ macOS と Ubuntu の AI 操作では、送信前に「送信先」「対象の�
 実機では TextEdit と Chromium 系アプリで、長い対象本文の表示、入力フォーカス、確認中・通信待ちの Enter、入力欄やアプリの切替を確認します。VoiceOver で送信先・対象・周辺設定を読めることも確認が必要です。単体テストの `canBecomeKey == false` は、この実機確認の代わりにはなりません。
 
 Ubuntu は実 Swift bridge と loopback HTTP の模擬サーバーで、候補・選択文変換それぞれの周辺テキスト OFF / ON の通信本文を検査します。GTK の回帰は送信前の通信抑止、物理 Control キーからの送信、設定保存の競合・破損、古い入力での取消を確認します。実 GNOME Wayland / X11 の非フォーカス表示、GTK / Qt / Chromium の入力保持、Orca の読み上げは別の GUI 確認が必要です。
+
+`bash Tools/tests/linux-ai-target.sh` は専用の D-Bus・AT-SPI・Xvfb で動作し、外部 AI へは通信しません。単体試験に加え、実 GTK の異なる編集欄を読み取り、実 IBus を経由して次を確かめます。
+
+- 元の欄へ戻ると一度だけ適用する。
+- 別 context の欄と、同じ context を共有する別の欄には書き込まない。
+- フォーカス復帰後に Reset が入り、古い surrounding-text 通知が遅れても書き込まない。
+- 適用できない結果はプレビューとコピー操作を残す。
+
+この IBus 試験は GTK の編集欄と AT-SPI を使いますが、入力 context の通知は試験から送ります。実 GTK・Qt・Chromium が送るフォーカス・Reset の順序、実 GNOME Wayland / X11 でのダイアログ往復は、最終配布物の確認に残します。AT-SPI の確認と IBus の確定は異なるプロトコルのため、他のアプリの変更と原子的に置換する API ではありません。
+
+IBus の `has-focus-id` と `active-surrounding-text` は生成時のみ設定できるため、Factory の `create-engine` から Python の `Engine` を明示的に生成します。汎用の GObject 生成では、Python の初期化後に既定値が入り、入力先 ID の通知が無効になることを実 IBus で確認しました。仕様の確認先は [IBus Engine](https://github.com/ibus/ibus/blob/1.5.29/src/ibusengine.c) と [IBus Factory](https://github.com/ibus/ibus/blob/1.5.29/src/ibusfactory.c) です。選択位置と状態の照合は [AT-SPI Text](https://github.com/GNOME/at-spi2-core/blob/AT_SPI2_CORE_2_52_0/xml/Text.xml) と [Accessible](https://github.com/GNOME/at-spi2-core/blob/AT_SPI2_CORE_2_52_0/xml/Accessible.xml) に基づきます。

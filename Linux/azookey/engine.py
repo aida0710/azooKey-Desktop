@@ -18,7 +18,8 @@ from .settings_store import SettingsStore
 from .i18n import text
 from .shell_surface import surface
 from .prompts import PromptHistory, matches
-from .prompt_dialog import PromptDialog
+from .ai_transform_target import InputSelection
+from .selected_text_transform import SelectedTextTransformation
 from .ai_scope import AIRequestConfiguration, AIRequestScope, MODIFIER_KEYS
 from .ai_review import AISuggestionReview
 from .i18n import text as message
@@ -31,6 +32,7 @@ class Engine(IBus.Engine):
     __gtype_name__ = "AzooKeyTreeEngine"
 
     def __init__(self, *args, **kwargs):
+        kwargs.update(has_focus_id=True, active_surrounding_text=True)
         super().__init__(*args, **kwargs)
         self.context_id = str(uuid.uuid4())
         self.bridge = AsyncBridge.acquire(GLib.idle_add)
@@ -40,9 +42,10 @@ class Engine(IBus.Engine):
         self.private = False
         self.sensitive = False
         self.focused = False
-        self.prompt_open = False
+        self.focus_revision = object()
+        self.focus_identity = None
+        self.transform_selection = None
         self.ai_pending = False
-        self.pending_transform = None
         self.last_language_key = (None, 0)
         self.destroyed = False
         self.settings = {}
@@ -64,6 +67,7 @@ class Engine(IBus.Engine):
         self.ai_review = AISuggestionReview(
             current_state=self.ai_review_state, send=self.start_ai, save_context=self.save_ai_context,
         )
+        self.transformation = SelectedTextTransformation(self)
         self.reconversion = ReconversionCoordinator(
             self.input, context=self.current_reconversion_context,
             delete=self.delete_surrounding_text, status=self.show_reconversion_status,
@@ -144,6 +148,7 @@ class Engine(IBus.Engine):
     def request(self, operation, *, original_key=None, **values):
         if self.destroyed or self.private:
             return False
+        self.transformation.input_changed()
         self.ai_review.cancel()
         self.input.submit(operation, payload={
             "leftContext": self.left, "rightContext": self.right, "privateInput": self.sensitive,
@@ -155,6 +160,12 @@ class Engine(IBus.Engine):
         if not self.focused or self.sensitive or not self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT:
             return None
         return self.reconversion_context
+
+    def current_transform_selection(self):
+        if (not self.focused or self.sensitive
+                or not self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT):
+            return None
+        return self.transform_selection
 
     def show_reconversion_status(self, text):
         self.update_auxiliary_text(IBus.Text.new_from_string(text), bool(text))
@@ -195,6 +206,8 @@ class Engine(IBus.Engine):
         event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
         if self.private or not self.focused or self.input.recovering:
             return False
+        if event is not None and keyval not in MODIFIER_KEYS:
+            self.transformation.input_changed()
         if self.ai_review.confirmation and keyval in MODIFIER_KEYS:
             return False
         if self.ai_review.key(event):
@@ -247,6 +260,7 @@ class Engine(IBus.Engine):
         self.sensitive = self.private or bool(hints & IBus.InputHints.PRIVATE)
         if self.sensitive:
             self.ai_review.cancel()
+            self.transformation.invalidate_target()
             self.clear_reconversion()
         if self.private:
             self.input.cancel()
@@ -259,24 +273,14 @@ class Engine(IBus.Engine):
         self.left = value[:min(cursor, anchor)][-100:]
         self.right = value[max(cursor, anchor):][:100]
         self.selected_text = value[min(cursor, anchor):max(cursor, anchor)]
+        self.transform_selection = InputSelection.capture(self.focus_identity, value, cursor=cursor, anchor=anchor)
         self.reconversion_context = surrounding_context(
             value, cursor, anchor,
             can_replace=bool(self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT),
             sensitive=self.sensitive,
         )
         self.reconversion.surrounding_changed()
-        self.apply_pending_transform()
-
-    def apply_pending_transform(self):
-        if not self.pending_transform or not self.focused:
-            return GLib.SOURCE_REMOVE
-        expected, result, deadline = self.pending_transform
-        if time.monotonic() > deadline:
-            self.pending_transform = None
-        elif expected == (self.left, self.right, self.selected_text):
-            self.pending_transform = None
-            self.commit_text(IBus.Text.new_from_string(result))
-        return GLib.SOURCE_REMOVE
+        self.transformation.context_changed()
 
     def do_set_cursor_location(self, x, y, width, height):
         self.anchor.locate((x, y, width, height))
@@ -296,7 +300,17 @@ class Engine(IBus.Engine):
         return {**snapshot, "wordGeometry": geometry}
 
     def do_focus_in(self):
+        self.focus_identity = None
+        self.activate_input_context()
+
+    def do_focus_in_id(self, object_path, client):
+        self.focus_identity = (object_path, client)
+        self.activate_input_context()
+
+    def activate_input_context(self):
         self.focused = True
+        self.focus_revision = object()
+        self.transform_selection = None
         self.anchor.update("", 0)
         self.reload_settings()
         self.get_surrounding_text()
@@ -322,6 +336,8 @@ class Engine(IBus.Engine):
     def do_focus_out(self):
         self.ai_review.cancel()
         self.focused = False
+        self.focus_revision = object()
+        self.focus_identity = self.transform_selection = None
         self.clear_reconversion()
         surface().hide(self)
         self.input.cancel()
@@ -330,8 +346,12 @@ class Engine(IBus.Engine):
         self.left = self.right = self.selected_text = ""
         self.panel.hide()
 
+    def do_focus_out_id(self, _object_path):
+        self.do_focus_out()
+
     def do_reset(self):
         self.ai_review.cancel()
+        self.transformation.invalidate_target()
         self.clear_reconversion()
         self.input.cancel()
         self.pending_settings_stamp = None
@@ -346,6 +366,7 @@ class Engine(IBus.Engine):
         if self.destroyed:
             return
         self.destroyed = True
+        self.transformation.close()
         self.ai_review.cancel()
         self.clear_reconversion()
         surface().hide(self)
@@ -479,24 +500,5 @@ class Engine(IBus.Engine):
         return GLib.SOURCE_REMOVE
 
     def prompt(self, initial_prompt=""):
-        if self.prompt_open:
-            return
         self.ai_review.cancel()
-        target = self.selected_text
-        scope = self.make_ai_scope(target)
-        expected_context = (self.left, self.right, target)
-        snapshot = dict(self.snapshot)
-        self.prompt_open = True
-        dialog = PromptDialog(
-            lambda prompt, selected_scope, completion: self.start_ai(snapshot, selected_scope, prompt=prompt, completion=completion),
-            initial_prompt, scope=scope, on_context_changed=self.save_ai_context,
-        )
-        dialog.show_all()
-        response = dialog.run()
-        result = dialog.result
-        dialog.destroy()
-        self.prompt_open = False
-        if response == Gtk.ResponseType.OK and result:
-            self.pending_transform = (expected_context, result, time.monotonic() + 5)
-            self.get_surrounding_text()
-            GLib.idle_add(self.apply_pending_transform)
+        self.transformation.show(initial_prompt)

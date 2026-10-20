@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import argparse
+from itertools import count
 import gi
 gi.require_version("IBus", "1.0")
 gi.require_version("Gtk", "3.0")
@@ -22,7 +23,17 @@ def main():
     bus = IBus.Bus()
     bus.connect("disconnected", lambda _bus: Gtk.main_quit())
     factory = IBus.Factory.new(bus.get_connection())
-    factory.add_engine("azookey-tree", Engine)
+    engine_ids = count(1)
+
+    def create_engine(factory, name):
+        if name != "azookey-tree":
+            return None
+        # Generic GObject creation overwrites Python's construct-only options
+        # with defaults. Python construction preserves focus-id notification.
+        return Engine(engine_name=name, connection=factory.get_connection(),
+                      object_path=f"/org/freedesktop/IBus/Engine/{next(engine_ids)}")
+
+    factory.connect("create-engine", create_engine)
     if arguments.ibus:
         bus.request_name("org.freedesktop.IBus.AzooKeyTree", 0)
     else:

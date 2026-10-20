@@ -1,6 +1,6 @@
 import gi
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk
+from gi.repository import Gdk, Gtk
 from .ai_preview import AITransformationPreview
 from .ai_scope_view import AIRequestScopeView
 from .i18n import text as message
@@ -19,6 +19,7 @@ class PromptDialog(Gtk.Dialog):
         self.set_response_sensitive(Gtk.ResponseType.OK, False)
         self.history = PromptHistory()
         self.preview = AITransformationPreview()
+        self.target_available = True
         self.closed = False
         self.connect("destroy", self.destroyed)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -55,6 +56,12 @@ class PromptDialog(Gtk.Dialog):
         scroll = Gtk.ScrolledWindow(min_content_height=160)
         scroll.add(self.text)
         box.pack_start(scroll, True, True, 0)
+        self.copy_button = Gtk.Button(label=message("ai.preview.copy"))
+        self.copy_button.set_sensitive(False)
+        self.copy_button.connect("clicked", self.copy_result)
+        box.add(self.copy_button)
+        self.target_message = StatusMessage()
+        box.add(self.target_message)
         self.message = StatusMessage()
         box.add(self.message)
         self.preview_button.connect("clicked", lambda _: self.generate(preview))
@@ -69,11 +76,21 @@ class PromptDialog(Gtk.Dialog):
     def result(self):
         return self.preview.applicable_text
 
+    def set_target_available(self, available):
+        self.target_available = available
+        self.set_response_sensitive(Gtk.ResponseType.OK, available and bool(self.result))
+        self.target_message.set_text("" if available else message("ai.preview.target-changed"))
+
+    def copy_result(self, _button):
+        if self.result:
+            Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(self.result, -1)
+
     def invalidate(self, _entry):
         had_preview = self.preview.is_loading or self.preview.applicable_text is not None
         self.preview.invalidate()
         self.text.get_buffer().set_text("")
         self.set_response_sensitive(Gtk.ResponseType.OK, False)
+        self.copy_button.set_sensitive(False)
         self.preview_button.set_sensitive(True)
         self.scope_view.context.set_sensitive(True)
         if had_preview:
@@ -107,6 +124,7 @@ class PromptDialog(Gtk.Dialog):
         self.preview_button.set_sensitive(False)
         self.scope_view.context.set_sensitive(False)
         self.set_response_sensitive(Gtk.ResponseType.OK, False)
+        self.copy_button.set_sensitive(False)
         self.message.set_text(message("ai.scope.generating"))
 
         def finish(text):
@@ -115,6 +133,7 @@ class PromptDialog(Gtk.Dialog):
             self.preview_button.set_sensitive(True)
             self.scope_view.context.set_sensitive(True)
             self.text.get_buffer().set_text(text or "")
-            self.set_response_sensitive(Gtk.ResponseType.OK, bool(text))
+            self.set_response_sensitive(Gtk.ResponseType.OK, self.target_available and bool(text))
+            self.copy_button.set_sensitive(bool(text))
             self.message.set_text(message("ai.preview.ready" if text else "ai.preview.failed"))
         preview(prompt, self.scope_view.scope, finish)
