@@ -5,6 +5,12 @@ import KanaKanjiConverterModule
 
 @MainActor
 struct DesktopReadingTestSupport {
+    static func encodedJSON<Value: Encodable>(_ value: Value) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return try encoder.encode(value)
+    }
+
     func key(_ code: UInt16, modifiers: KeyEventCore.ModifierFlag = []) -> KeyEventCore {
         .init(modifierFlags: modifiers, characters: nil, charactersIgnoringModifiers: nil, keyCode: code)
     }

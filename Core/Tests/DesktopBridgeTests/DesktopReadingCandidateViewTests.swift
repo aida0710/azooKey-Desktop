@@ -12,17 +12,11 @@ import Testing
         return (fixture, batch)
     }
 
-    private func encodedSnapshot(_ snapshot: DesktopSnapshot) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-        return try encoder.encode(snapshot)
-    }
-
     @Test func adoptingAMainCandidateAddsOnlyAViewAndKeepsTheFormalSnapshotIdentical() throws {
         var source = try prepared()
         let batch = DesktopCandidateBatch(authority: source.batch.authority, workerGeneration: source.batch.workerGeneration,
             batchID: source.batch.batchID, candidates: source.batch.candidates, mainCandidateID: "candidate")
-        let before = try encodedSnapshot(source.fixture.snapshot())
+        let before = try DesktopReadingTestSupport.encodedJSON(source.fixture.snapshot())
         let adopted = try source.fixture.adopt(batch)
         let view = try #require(adopted.candidateView)
         #expect(adopted.kind == .acknowledgement)
@@ -32,7 +26,7 @@ import Testing
         #expect(view.selection == nil)
         #expect(view.focusedNode == nil)
         #expect(!view.showCandidateIndex)
-        #expect(try encodedSnapshot(source.fixture.snapshot()) == before)
+        #expect(try DesktopReadingTestSupport.encodedJSON(source.fixture.snapshot()) == before)
         let committed = try source.fixture.keyResponse(36)
         #expect(committed.snapshot?.commits == ["にほんご"])
         #expect(committed.snapshot?.candidateCompletions == nil)
@@ -192,13 +186,13 @@ import Testing
         _ = try session.key(support.key(49))
         let request = try support.request(from: &session)
         _ = try session.adoptCandidates(support.batch(request))
-        let before = try encodedSnapshot(session.snapshot())
+        let before = try DesktopReadingTestSupport.encodedJSON(session.snapshot())
         for _ in 0..<2 {
             let view = try #require(try session.candidateView())
             #expect(view.selection == nil)
             #expect(!view.showCandidateIndex)
         }
-        #expect(try encodedSnapshot(session.snapshot()) == before)
+        #expect(try DesktopReadingTestSupport.encodedJSON(session.snapshot()) == before)
         let preview = try session.key(support.key(49))
         #expect(preview.inputState == "previewing")
         #expect(try session.candidateView()?.selection == preview.selection)

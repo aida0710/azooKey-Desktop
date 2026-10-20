@@ -25,6 +25,7 @@ context 参照は `{context, readingProcessGeneration, focusEpoch}` です。con
 | `prepare-candidates` | reference、candidateWorkerGeneration | `candidates` / candidateRequest |
 | `adopt-candidates` | reference、batch、retainedReference | `acknowledgement` / candidateReference・candidateView |
 | `select` | reference、selection | `input` / 明示選択後のsnapshot・candidateView |
+| `commit-candidate` | reference、selection | `input` / 指定IDの確定snapshot。退役したcandidateViewは含まない |
 | `candidate-worker-stopped` | reference、candidateWorkerGeneration | `acknowledgement` / 対象workerの未確定要求を退役 |
 | `learning-revision` | readingProcessGeneration、settingsRevision | `acknowledgement` / 単調増加した学習revision |
 
@@ -60,9 +61,11 @@ F6〜F10の文字種変換も読み側で完了します。選択中または文
 2. coordinator が candidateRequest を候補 worker へ渡します。返された batch を candidate worker の `retain` へ送り、成功した ACK を待ちます。
 3. **実際の retain ACK を受けた後だけ**、その reference と batch を `adopt-candidates` に渡します。読み側は両参照の一致、対象worker、要求、入力・焦点・設定世代、文脈、消費範囲を検証します。読み側だけでは remote ACK の発生を証明できないため、実ACKを待つ責任は coordinator にあります。
 4. 採用応答は候補参照と表示専用の `candidateView` です。未確定文字・カーソル・入力状態を含む正式snapshot全体は変わらず、元入力への返信・確定・学習通知も生みません。pointer / AT / 遅れて届く操作は、表示した batch 参照と candidateID を `select` に渡します。
-5. 明示選択後の Enter は、その候補と検証済みの残る正式入力を使います。確定 snapshot にだけ candidateCompletions が入り、snapshot 取得や次のキーでは再送しません。coordinator はこれを元の candidate worker の `complete` へ渡します。
+5. 明示選択後の Enter、または明示した `commit-candidate` は、その候補と検証済みの残る正式入力を使います。確定 snapshot にだけ candidateCompletions が入り、snapshot 取得や次のキーでは再送しません。coordinator はこれを元の candidate worker の `complete` へ渡します。
 
-部分確定後は残る正式入力と、確定済みprefixを加えた左文脈で新しい候補を要求します。取消・編集で候補が不要になった場合、coordinator は保持している旧参照を candidate worker の release へ渡します。候補本文の組合せや Zenzai の修正履歴を再構築しません。選択したprefixと生の読みsuffixを reset等で一括確定する場合、その組合せを架空の候補として学習させません。
+`select` は未確定の選択だけを行います。`commit-candidate` は同じ `selection` のbatch参照とcandidateIDを検証し、選択・正式入力の消費・確定通知を1操作で完了します。事前のselectは不要なので、tree OFFの標準lookupはこの操作だけで直接確定できます。tree ONでは行/ATのselectと独立した確定操作を使用します。存在しないID、別batch、取消・編集・focus移動・worker停止で退役した表示からの確定、同じ確定の二重送信は拒否し、現在の読みと選択を保持します。新しい表示からの確定と、worker停止前に明示選択済みのEnterによる確定は区別します。
+
+部分確定後は残る正式入力と、確定済みprefixを加えた左文脈で新しい候補を要求します。`commit-candidate` の部分確定応答は残る読みをcomposingで返し、`request: "candidates"` を付けます。未選択のままEnterを押せば、既存の規則で残る読みを確定します。完全・部分とも旧viewを返さず、candidateCompletionsは成功応答に一度だけ含めます。取消・編集で候補が不要になった場合、coordinator は保持している旧参照を candidate worker の release へ渡します。候補本文の組合せや Zenzai の修正履歴を再構築しません。選択したprefixと生の読みsuffixを reset等で一括確定する場合、その組合せを架空の候補として学習させません。
 
 `candidateView` は既存のCandidateTree/CandidatePageによる投影で、batch参照・元candidateID付き一覧・木・ページ・明示選択位置を持ちます。採用ACKでは空batchにも空viewを返し、key/selectの元入力応答では採用済みbatchがある場合だけ付けます。reset、focus-out、worker停止、正式入力の変更で退役したviewは再送しません。診断用snapshot要求にも追加しません。mainCandidateIDだけで選択を作らず、番号表示はselecting時だけ、相対スコア表示は適用中のShowRelativeScores設定を使います。各候補・木のpreview・ページに示す消費する読みと残る読みは、正式CandidateConsumptionから再生成し、workerのpresentation.commitScopeを権限として使いません。表示によるJSON増加も既存4MiB上限内で検査し、超過時は採用を部分的に進めません。通常入口やrendererへの接続は別の段階です。
 
@@ -74,7 +77,7 @@ F6〜F10の文字種変換も読み側で完了します。選択中または文
 
 transport の上限は `DesktopWorkerProtocolLimits` にまとめています。JSON 4 MiB、opaque ASCII ID 1〜512 bytes、左右文脈各16 KiB、1process最大64contextです。正式入力には `CompositionSnapshotLimits` も適用します。入力前後で上限を検査し、限度超過で元入力を消しません。長すぎる JSONL は改行まで破棄して1エラーを返し、次の行を読みます。
 
-応答不明時に key / reset / select を自動再送する契約はありません。coordinator は元要求と応答の対応を保持し、process 終了時は未完了の入力と候補処理を区別して回復する必要があります。
+応答不明時に key / reset / select / commit-candidate を自動再送する契約はありません。coordinator は元要求と応答の対応を保持し、process 終了時は未完了の入力と候補処理を区別して回復する必要があります。
 
 ## 検証範囲と未接続部分
 
