@@ -66,7 +66,7 @@ macOS 26.5.2・4 vCPU・8 GiBの検証VMでは、Metal対応版とCPU専用版�
 5. アプリ切替、パスワード、PRIVATE欄、辞書登録、学習リセット、設定の即時反映。
 6. macOSはTextEditとブラウザ、UbuntuはGTK・Qt・Chromiumの入力欄とX11を確認。
 
-UbuntuのQt/Chromium用のローカル入力欄は `Tools/tests/qt-editor.py` です。VMのホームなど再起動で消えない場所へコピーし、VM内のPyQt6とQtWebEngineで実行します。外部サイトにはアクセスしません。
+UbuntuのQt/QtWebEngine用のローカル入力欄は `Tools/tests/qt-editor.py` です。`Tools/tests/fixture_events.py` と一緒にVMのホームなど再起動で消えない場所へコピーし、VM内のPyQt6とQtWebEngineで実行します。外部サイトにはアクセスしません。
 
 Safariなど通常のブラウザでは `Tools/tests/ime-editor.html` をVMにコピーして開きます。入力中／確定済みの状態とフォーカス、入力結果をページ内に表示します。通信・保存は行いません。候補の番号クリック後に `a` を入力して確定し、全文に「あ」が続くこと、`Composing: false` と `Focused: true` を確認してください。
 
@@ -75,6 +75,8 @@ Safariなど通常のブラウザでは `Tools/tests/ime-editor.html` をVMに�
 
 ### 固定の入力欄の結果を記録する
 
-GTK用の`Tools/tests/gtk-editor.py`とQt/Chromium用の`Tools/tests/qt-editor.py`は、2つの入力欄を持ちます。どちらも`--output /home/azookey/ux-gui/state.json`を付けると、その画面内の確定文字列・カーソル位置・フォーカスをJSONへ記録します。Qt版はQtの版と表示方式、Chromium欄の選択範囲も記録します。外部サイトや他のアプリの本文は読みません。
+GTK用の`Tools/tests/gtk-editor.py`とQt/QtWebEngine用の`Tools/tests/qt-editor.py`は、2つの入力欄を持ちます。`fixture_events.py` を同じ場所へ置き、`--output /home/azookey/ux-gui/state.json`を付けると、その画面内の確定文字列・カーソル位置・フォーカスをJSONへ記録します。Qt版はQtの版と表示方式、QtWebEngine欄の選択範囲も記録します。外部サイトや他のアプリの本文は読みません。
+
+`--events /home/azookey/ux-gui/trial-events.jsonl` を追加すると、GTKの挿入・削除、Qtのnative input-methodイベント、状態の時系列を記録します。既存のログへ試行を混ぜないため、新しいファイル名を使ってください。AI結果の元欄への適用・別欄への誤適用・Resetの検証は、[ローカルmockを使う手順](linux-ai-gui-validation.md)を参照してください。
 
 候補クリック後の追加入力、欄を切り替えたときの誤確定、重複確定を、画面とJSONの両方で確認してください。ここで得たJSONだけでは、候補の見やすさや読み上げの合格とは判定できません。録画やログに残す入力は固定の検証文に限ります。

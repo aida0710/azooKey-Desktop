@@ -6,11 +6,12 @@ import tempfile
 import json
 import threading
 import uuid
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "Tools/tests"))
 from azookey.bridge import Bridge
 from azookey.keymap import translate
 from azookey.personalization import import_model
+from ai_mock_server import LocalAIServer
 from unittest.mock import patch
 
 
@@ -277,22 +278,7 @@ class BridgeIntegrationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "linux", "local API fixture runs in isolated Ubuntu")
     def test_openai_compatible_api_with_local_fixture(self):
-        received = []
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *_):
-                pass
-            def do_POST(self):
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                received.append(body)
-                texts = {"result": "変換した本文"} if self.path.endswith("/transform") else {"predictions": ["候補A", "候補B"]}
-                content = json.dumps(texts, ensure_ascii=False)
-                response = json.dumps({"choices": [{"message": {"content": content}}]}).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(response)))
-                self.end_headers()
-                self.wfile.write(response)
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server = LocalAIServer(hold_requests=False)
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
         original = self.bridge.request("settings")["settings"]
@@ -310,7 +296,7 @@ class BridgeIntegrationTests(unittest.TestCase):
                         )
                         expected = ["変換した本文"] if operation == "transform" else ["候補A", "候補B"]
                         self.assertEqual(response["suggestions"], expected)
-                        body = received[-1]
+                        body = server.observations()[-1]["body"]
                         self.assertEqual(body["model"], "fixture-model")
                         serialized = json.dumps(body)
                         self.assertIn("TARGET_TEXT", serialized)

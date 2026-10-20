@@ -1,11 +1,13 @@
 #!/usr/bin/python3
 """Guest-only native GTK input fixture; writes only its own synthetic test text."""
 import argparse
+from functools import partial
 import json
 import pathlib
 import time
 
 import gi
+from fixture_events import FixtureEvents
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
@@ -14,8 +16,10 @@ from gi.repository import Gdk, Gtk
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", required=True, type=pathlib.Path)
+parser.add_argument("--events", type=pathlib.Path)
 arguments = parser.parse_args()
 arguments.output.parent.mkdir(parents=True, exist_ok=True)
+event_log = FixtureEvents(arguments.events)
 
 window = Gtk.Window(title="azooKey UX validation — GTK")
 window.set_default_size(900, 600)
@@ -50,6 +54,7 @@ def record(*_arguments):
     pending_output = arguments.output.with_suffix(arguments.output.suffix + ".pending")
     pending_output.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
     pending_output.replace(arguments.output)
+    event_log.append("state", state=state)
     return False
 
 
@@ -58,11 +63,24 @@ def record_preedit(editor, preedit):
     record()
 
 
+def observe_insert(_buffer, position, inserted_text, *_byte_length, field_index):
+    # GTK also supplies a byte count; the observed text is already decoded.
+    event_log.append("insert-text", fieldIndex=field_index, text=inserted_text,
+                     positionScalar=position.get_offset())
+
+
+def observe_delete(_buffer, start, end, *, field_index):
+    event_log.append("delete-range", fieldIndex=field_index,
+                     startScalar=start.get_offset(), endScalar=end.get_offset())
+
+
 for index in range(2):
     editor = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
     editor.preedit = ""
     editor.get_accessible().set_name(f"Test input {index + 1}")
     editor.get_buffer().connect("changed", record)
+    editor.get_buffer().connect("insert-text", partial(observe_insert, field_index=index))
+    editor.get_buffer().connect("delete-range", partial(observe_delete, field_index=index))
     editor.get_buffer().connect("notify::cursor-position", record)
     editor.get_buffer().connect("notify::has-selection", record)
     editor.connect("notify::has-focus", record)
