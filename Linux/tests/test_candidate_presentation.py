@@ -46,11 +46,12 @@ class CandidatePresentationTests(unittest.TestCase):
             "私",
         ]
         return {
-            "contextId": "document", "generation": 1, "selection": 0, "focusedNode": 0, "inputState": "composing",
+            "contextId": "document", "generation": 1, "selection": 0, "focusedNode": 0, "inputState": "selecting",
             "preedit": sentences[0], "reading": "わたしはにほんごをべんきょうしています",
             "showCandidateIndex": True, "columns": [[0, 1, 2]], "selectedPath": [0],
             "nodes": [{"id": index, "text": sentence, "reading": "ワタシ", "parent": None,
-                       "terminals": [index]} for index, sentence in enumerate(sentences)],
+                       "terminals": [index], "preview": {"candidateIndex": index}}
+                      for index, sentence in enumerate(sentences)],
             "candidates": [{"index": index, "text": sentence,
                             "commitScope": {"consumedReading": "わたし", "remainingReading": "はにほんごをべんきょうしています"}
                             if index == 2 else {"consumedReading": "わたしはにほんごをべんきょうしています", "remainingReading": ""}}
@@ -67,7 +68,8 @@ class CandidatePresentationTests(unittest.TestCase):
             self.snapshot = {**self.snapshot, "selection": index, "focusedNode": index,
                              "selectedPath": [index], "generation": self.snapshot["generation"] + 1,
                              "inputState": "selecting"}
-            self.snapshot["candidatePage"] = {**self.snapshot["candidatePage"], "position": index + 1}
+            self.snapshot["candidatePage"] = {**self.snapshot["candidatePage"],
+                                              "position": index - self.snapshot["candidatePage"].get("start", 0) + 1}
             self.panel.update(self.snapshot)
 
     def test_full_sentences_are_primary_and_wrap_without_changing_focus(self):
@@ -85,7 +87,10 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertEqual(self.actions, [])
 
     def test_unselected_composition_previews_the_candidate_without_claiming_enter_will_commit_it(self):
-        self.panel.update({**self.snapshot, "preedit": self.snapshot["reading"]})
+        self.panel.update({**self.snapshot, "inputState": "composing", "preedit": self.snapshot["reading"]})
+        self.assertFalse(self.panel.composition.get_visible())
+        self.assertTrue(self.panel.scroll.get_visible())
+        self.assertFalse(self.panel.navigation.scroll.get_visible())
         self.assertEqual(self.panel.composition_title.get_text(), "候補のプレビュー")
         self.assertEqual(self.panel.composition.get_accessible().get_name(), "候補のプレビュー")
         self.assertEqual(self.panel.composition.displayed_text, self.snapshot["candidates"][0]["text"])
@@ -109,6 +114,103 @@ class CandidatePresentationTests(unittest.TestCase):
         self.panel.update({**self.snapshot, "inputState": "composing"})
         self.assertEqual(self.panel.navigation.confirm.get_label(), "この候補を確定")
         self.assertEqual(self.actions, [])
+
+    def test_live_tree_hides_the_sentence_menu_until_conversion_state_changes(self):
+        live = {**self.snapshot, "inputState": "composing", "showCandidateIndex": False}
+        self.panel.update(live)
+        self.assertTrue(self.panel.scroll.get_visible())
+        old_word = self.panel.actions[("node", 1)]
+        self.assertEqual(self.panel.candidate_numbers, {0: 1, 1: 2, 2: 3})
+        self.assertTrue(self.panel.scroll.get_visible())
+        self.assertFalse(self.panel.navigation.expanded)
+        self.assertFalse(self.panel.composition.get_visible())
+        self.assertFalse(self.panel.disclosures.get_visible())
+        self.assertFalse(self.panel.details.get_visible())
+        for state in ("previewing", "selecting", "replaceSuggestion"):
+            with self.subTest(state=state):
+                self.panel.update({**self.snapshot, "inputState": state})
+                self.assertTrue(self.panel.navigation.expanded)
+                self.assertTrue(self.panel.navigation.scroll.get_visible())
+                self.assertFalse(self.panel.scroll.get_visible())
+                old_word.clicked()
+                self.assertEqual(self.actions, [])
+                self.panel.update(live)
+                self.assertTrue(self.panel.scroll.get_visible())
+                self.assertFalse(self.panel.navigation.expanded)
+
+    def test_live_tree_scroll_and_explicit_list_stay_put_across_repaint_and_pending_updates(self):
+        from gi.repository import GLib
+        from Linux.tests.test_candidate_theme import CandidateThemeTests
+
+        live = copy.deepcopy(self.snapshot)
+        live["inputState"] = "composing"
+        for index in range(3, 9):
+            text = f"候補の文章{index}"
+            live["nodes"].append({"id": index, "text": text, "reading": "コウホ", "parent": None, "terminals": [index]})
+            live["candidates"].append({"index": index, "text": text})
+            live["candidatePage"]["items"].append({"index": index, "text": text})
+        live["columns"] = [[node["id"] for node in live["nodes"]]]
+        live["candidatePage"]["totalCount"] = 9
+        self.panel.update(live)
+        self.panel.navigation.toggle.clicked()
+        CandidateThemeTests.wait_for_paint(self.panel, GLib)
+        adjustment = self.panel.scroll.get_vadjustment()
+        self.assertGreater(adjustment.get_upper(), adjustment.get_page_size())
+        adjustment.set_value(60)
+        self.assertTrue(self.panel.navigation.expanded)
+        self.panel.update({**live, "generation": 2})
+        CandidateThemeTests.wait_for_paint(self.panel, GLib)
+        self.assertTrue(self.panel.navigation.expanded)
+        self.assertEqual(adjustment.get_value(), 60)
+        self.panel.suspend()
+        self.panel.update({**live, "generation": 3})
+        CandidateThemeTests.wait_for_paint(self.panel, GLib)
+        self.assertTrue(self.panel.navigation.expanded)
+        self.assertTrue(self.panel.scroll.get_visible())
+        self.assertEqual(adjustment.get_value(), 60)
+        self.assertEqual(self.actions, [])
+
+    def test_badge_uses_real_page_numbers_and_the_same_node_action(self):
+        import types
+
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot["inputState"] = "composing"
+        snapshot["pageStart"] = 9
+        snapshot["selection"] = 10
+        snapshot["focusedNode"] = 10
+        snapshot["selectedPath"] = [10]
+        snapshot["columns"] = [[9, 10, 11]]
+        snapshot["candidatePage"]["start"] = 9
+        for index, node in enumerate(snapshot["nodes"]):
+            node["id"] = index + 9
+            node["terminals"] = [index + 9]
+            node["preview"]["candidateIndex"] += 9
+        for candidate in snapshot["candidates"] + snapshot["candidatePage"]["items"]:
+            candidate["index"] += 9
+        self.snapshot = snapshot
+        self.panel.update(snapshot)
+        self.assertFalse(any(kind == "select" for kind, *_ in self.panel.rectangles))
+        self.assertEqual(self.panel.candidate_numbers, {9: 1, 10: 2, 11: 3})
+        node = self.panel.actions[("node", 10)]
+        self.assertIn("候補番号 2", node.get_accessible().get_description())
+        frame = next(frame for frame in self.panel.rectangles if frame[:2] == ("node", 10))
+        self.assertGreaterEqual(frame[4], 44)
+        self.assertGreaterEqual(frame[5], 44)
+        self.panel.click(None, types.SimpleNamespace(button=1, x=frame[2] + 6, y=frame[3] + frame[5] - 4))
+        self.assertEqual(self.actions, [("node", 10, False)])
+        self.assertIs(self.document.get_focus(), self.entry)
+
+    def test_shared_node_badge_matches_the_preview_not_its_shorter_terminal_and_hides_page_outliers(self):
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot["inputState"] = "composing"
+        snapshot["nodes"][0]["terminals"] = [2]
+        snapshot["nodes"][0]["preview"] = {"candidateIndex": 1}
+        snapshot["nodes"][1]["preview"] = {"candidateIndex": 11}
+        snapshot["nodes"][2].pop("preview")
+        self.panel.update(snapshot)
+        self.assertEqual(self.panel.candidate_numbers, {0: 2})
+        self.assertIn("候補番号 2", self.panel.actions[("node", 0)].get_accessible().get_description())
+        self.assertNotIn("候補番号", self.panel.actions[("node", 1)].get_accessible().get_description())
 
     def test_compact_rows_keep_readable_text_and_a_large_activation_area(self):
         from gi.repository import GLib

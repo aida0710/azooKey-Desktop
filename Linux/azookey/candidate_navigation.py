@@ -30,7 +30,7 @@ class CandidateNavigation(Gtk.Box):
         self.preview = preview
         self.expanded = True
         self.active = False
-        self.reset_on_update = False
+        self.expanded_on_update = None
         self.page = {}
         self.token = None
         self.submitted_token = None
@@ -44,6 +44,7 @@ class CandidateNavigation(Gtk.Box):
         self.scroll_idle = None
         self.header = Gtk.Box(spacing=4, margin_start=8, margin_end=8)
         self.status = Gtk.Label(xalign=0)
+        self.status.set_no_show_all(True)
         self.status.get_style_context().add_class("candidate-secondary")
         self.status.set_ellipsize(Pango.EllipsizeMode.END)
         self.status.set_width_chars(1)
@@ -58,6 +59,7 @@ class CandidateNavigation(Gtk.Box):
         self.pack_start(self.scroll, False, False, 0)
         self.footer = Gtk.Box(spacing=6, margin_start=8, margin_end=8)
         self.hint = Gtk.Label(label=message("candidate.selectHint"), xalign=0, wrap=True)
+        self.hint.set_no_show_all(True)
         self.hint.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.hint.set_width_chars(1)
         self.hint.get_style_context().add_class("candidate-secondary")
@@ -87,10 +89,10 @@ class CandidateNavigation(Gtk.Box):
             f".candidate-navigation button:selected .candidate-secondary {{ color: {palette['selectionText']}; }}"
         ).encode())
 
-    def update(self, snapshot, *, font_size, list_height):
-        if self.reset_on_update:
-            self.expanded = True
-            self.reset_on_update = False
+    def update(self, snapshot, *, font_size, list_height, compact=False):
+        if self.expanded_on_update is not None:
+            self.expanded = self.expanded_on_update
+            self.expanded_on_update = None
         self.active = True
         self.page = snapshot.get("candidatePage", {})
         previous_selection = self.token[2] if self.token else None
@@ -140,6 +142,8 @@ class CandidateNavigation(Gtk.Box):
         self.rows.show_all()
         self.header.show_all()
         self.footer.show_all()
+        self.status.set_visible(not compact or self.expanded)
+        self.hint.set_visible(not compact or self.expanded)
         has_pages = self.page.get("previousIndex") is not None or self.page.get("nextIndex") is not None
         self.previous.set_visible(self.expanded and has_pages)
         self.next.set_visible(self.expanded and has_pages)
@@ -263,10 +267,10 @@ class CandidateNavigation(Gtk.Box):
         self.clear_rows()
         self.retire_controls()
 
-    def dismiss(self):
+    def dismiss(self, *, expanded_on_update=True):
         self.suspend()
         self.expanded = False
-        self.reset_on_update = True
+        self.expanded_on_update = expanded_on_update
         self.page = {}
         self.token = None
         self.row_identity = None
