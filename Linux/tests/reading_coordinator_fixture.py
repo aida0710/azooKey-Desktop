@@ -22,6 +22,7 @@ class ReadingBridgeFixture:
         self.gates = defaultdict(deque)
         self.all_gates = []
         self.failures = defaultdict(deque)
+        self.rejections = defaultdict(deque)
         self.rewrite = None
         self.condition = threading.Condition()
         self._reset()
@@ -40,6 +41,9 @@ class ReadingBridgeFixture:
 
     def fail(self, operation, *, after_effect=False):
         self.failures[operation].append(after_effect)
+
+    def reject(self, operation, error):
+        self.rejections[operation].append(error)
 
     def ensure_running(self):
         if self.interrupted:
@@ -64,7 +68,8 @@ class ReadingBridgeFixture:
         failure = self.failures[operation].popleft() if self.failures[operation] else None
         if failure is False:
             raise RuntimeError("fixture failed before reply")
-        response = self._respond(operation, payload)
+        response = (self._header("error", error=self.rejections[operation].popleft())
+                    if self.rejections[operation] else self._respond(operation, payload))
         if failure is True:
             raise RuntimeError("fixture lost acknowledgement")
         return self.rewrite(operation, deepcopy(response)) if self.rewrite else response

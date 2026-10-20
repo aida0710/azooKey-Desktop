@@ -39,6 +39,8 @@ publish_input の途中で取消が再入した場合も、旧 snapshot や候�
 
 学習設定変更は active context なし・待機入力なしでのみ開始します。candidate ACK → reader learning-revision ACK まで focus-in は明示拒否します。busy 条件の拒否は変更を始めず、条件が解消した後に再度開始できます。通信や設定 ACK が不明なら推測で前の設定へ戻しません。active 中の変更と確定時 revision の整合は最終 #14 / #17 受入までに必要で、通常 frontend の既存設定処理をこの制限で置き換えません。
 
+candidate process が再起動して設定 revision が戻った場合、両 process で確認済みの学習設定を新 worker generation へ同期します。mode / revision / generation / transport epoch の一致した ACK を得るまで候補を要求しません。この待機は読み・確定・焦点切替を止めず、待機中に変わった焦点へ旧候補を採用しません。同じ revision の別 mode や先行 revision は明示エラーにします。復旧 ACK の消失後は、次の明示候補要求で設定を再確認します。不明な候補確定通知は再送しません。
+
 ## 検証の範囲
 
 合成試験は順序・元返信一度・取消・旧参照・再入・例外・設定条件を検査します。実2 process 試験は正式読みの編集、候補 process の SIGSTOP 中の Enter / Escape / focus、実候補の保持・採用・部分確定、private、ACK 消失と再起動を検査します。候補停止中の入力応答を、実アプリの key-to-paint や GTK / Qt / IBus の応答性へ読み替えません。frontend adapter、元欄の復旧、実 GUI の検査は別の未完項目です。

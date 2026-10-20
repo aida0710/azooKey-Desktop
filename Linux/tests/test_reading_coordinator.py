@@ -489,6 +489,147 @@ class ReadingCoordinatorTests(unittest.TestCase):
         self.assertFalse(any(operation == "complete" for _, operation, _ in self.converter.calls))
         self.assertEqual(self.converter.learning_updates, [])
 
+    def restart_configured_candidate(self):
+        self.coordinator.focus_out("field", submit=False, token="configure-out", finish=self.finish)
+        self.drain_until(lambda: ("configure-out", True) in self.finished)
+        configured = []
+        self.coordinator.configure_learning("nothing", 1, configured.append)
+        self.drain_until(lambda: configured)
+        reopened = []
+        self.coordinator.focus_in("field", {"leftContext": "", "rightContext": "", "privateInput": False}, reopened.append)
+        self.drain_until(lambda: reopened)
+        self.converter.dead = True
+        self.key("a")
+        self.key("", 49)
+        self.drain_until(lambda: any(notice.code == "stale_candidate_authority" for notice in self.notices))
+
+    def wait_for_restoration(self):
+        gate = self.converter.gate("configure-learning")
+        self.key("", 49)
+        self.callbacks.drain(1)  # The settings ACK authorizes only a restoration request.
+        self.assertTrue(gate.entered.wait(WAIT_SECONDS))
+        return gate
+
+    def test_candidate_settings_restore_wait_does_not_hold_enter_or_adopt_an_old_focus(self):
+        self.restart_configured_candidate()
+        gate = self.wait_for_restoration()
+        self.key("", 36)
+        self.assertEqual(self.inputs[-1].snapshot["commits"], ["a"])
+        self.coordinator.focus_out("field", submit=False, token="restore-out", finish=self.finish)
+        opened = []
+        self.coordinator.focus_in("field", {"leftContext": "", "rightContext": "", "privateInput": True}, opened.append)
+        self.drain_until(lambda: opened)
+        self.key("b")
+        self.key("", 49)
+        self.assertEqual(self.panels, [])
+        self.assertEqual(sum(operation == "candidates" for _, operation, _ in self.converter.calls), 1)
+        gate.proceed.set()
+        self.drain_until(lambda: self.panels)
+        self.assertEqual(self.panels[-1].batch["authority"]["focusEpoch"], self.inputs[-1].reference["focusEpoch"])
+        self.assertEqual(self.panels[-1].batch["authority"]["settingsRevision"], 1)
+        self.assertTrue(self.converter.private[self.panels[-1].batch["batchID"]])
+        self.assertEqual(self.converter.learning, "nothing")
+        self.assertFalse(self.coordinator._broken)
+        self.assertFalse(any(operation == "complete" for _, operation, _ in self.converter.calls))
+
+    def test_wrong_restoration_ack_cannot_enable_candidate_adoption(self):
+        self.restart_configured_candidate()
+        self.converter.rewrite = lambda operation, response: {**response, "learning": "inputAndOutput"} if operation == "configure-learning" else response
+        self.key("", 49)
+        self.drain_until(lambda: any(notice.code == "candidate_settings_changed" for notice in self.notices))
+        self.assertIsNone(self.coordinator._candidate_settings)
+        self.assertEqual(self.panels, [])
+        self.key("", 36)
+        self.assertEqual(self.inputs[-1].snapshot["commits"], ["a"])
+        self.assertFalse(self.coordinator._broken)
+
+    def test_lost_restoration_ack_keeps_reading_and_retries_only_after_an_explicit_candidate_request(self):
+        self.restart_configured_candidate()
+        self.converter.fail("configure-learning", after_effect=True)
+        self.key("", 49)
+        self.drain_until(lambda: any(notice.code == "candidate_worker_unavailable" for notice in self.notices))
+        self.assertEqual(self.panels, [])
+        self.assertFalse(self.coordinator._broken)
+        attempts = sum(operation == "configure-learning" for _, operation, _ in self.converter.calls)
+        self.key("b")
+        self.assertEqual(self.inputs[-1].snapshot["preedit"], "ab")
+        self.assertEqual(sum(operation == "configure-learning" for _, operation, _ in self.converter.calls), attempts)
+        self.key("", 49)
+        self.drain_until(lambda: self.panels)
+        self.assertEqual(self.converter.learning, "nothing")
+        self.assertEqual(self.converter.settings_revision, 1)
+        self.assertEqual(sum(operation == "configure-learning" for _, operation, _ in self.converter.calls), attempts + 1)
+        self.assertFalse(any(operation == "complete" for _, operation, _ in self.converter.calls))
+
+    def test_restoration_ack_from_a_retired_worker_cannot_enable_candidate_adoption(self):
+        self.restart_configured_candidate()
+        gate = self.wait_for_restoration()
+        gate.proceed.set()
+        callback, reply = self.callbacks.take()
+        self.assertEqual(reply.settings["settingsRevision"], 1)
+        self.converter.dead = True
+        settings = []
+        self.coordinator.candidates.settings(settings.append)
+        self.callbacks.drain(1)
+        self.assertNotEqual(settings[0].worker_generation, reply.worker_generation)
+        callback(reply)
+        self.assertEqual(self.notices[-1].code, "candidate_worker_changed")
+        self.assertIsNone(self.coordinator._candidate_settings)
+        self.assertEqual(self.panels, [])
+        self.key("", 36)
+        self.assertEqual(self.inputs[-1].snapshot["commits"], ["a"])
+
+    def test_same_or_ahead_revision_with_another_preference_is_rejected_without_guessing_settings(self):
+        self.restart_configured_candidate()
+        attempts = sum(operation == "configure-learning" for _, operation, _ in self.converter.calls)
+        for revision in (1, 2):
+            with self.subTest(revision=revision):
+                self.converter.rewrite = lambda operation, response: {**response, "settingsRevision": revision} if operation == "settings" else response
+                notices = len(self.notices)
+                self.key("", 49)
+                self.drain_until(lambda: len(self.notices) > notices)
+                self.assertEqual(self.notices[-1].code, "candidate_settings_changed")
+                self.assertIsNone(self.coordinator._candidate_settings)
+                self.assertEqual(self.panels, [])
+                self.assertEqual(sum(operation == "configure-learning" for _, operation, _ in self.converter.calls), attempts)
+        self.assertEqual(self.coordinator._settings_revision, 1)
+        self.key("", 36)
+        self.assertEqual(self.inputs[-1].snapshot["commits"], ["a"])
+
+    def test_old_focus_rejection_cannot_retire_the_new_same_context_owner(self):
+        self.coordinator.focus_out("field", submit=False, token="out", finish=self.finish)
+        self.drain_until(lambda: ("out", True) in self.finished)
+        gate = self.reader.gate("focus-in")
+        self.reader.reject("focus-in", "reading_request_limit")
+        rejected, reopened = [], []
+        self.coordinator.focus_in("field", {"leftContext": "old", "rightContext": "", "privateInput": False}, rejected.append)
+        self.assertTrue(gate.entered.wait(WAIT_SECONDS))
+        self.coordinator.focus_out("field", submit=False, token="old-out", finish=self.finish)
+        self.coordinator.focus_in("field", {"leftContext": "new", "rightContext": "", "privateInput": True}, reopened.append)
+        gate.proceed.set()
+        self.drain_until(lambda: reopened)
+        self.assertEqual(rejected[0]["error"], "reading_request_limit")
+        self.assertNotIn("error", reopened[0])
+        self.key("a", token="new")
+        self.assertEqual(self.inputs[-1].snapshot["preedit"], "a")
+        self.assertEqual(self.inputs[-1].reference, reopened[0]["reference"])
+        self.assertTrue(self.coordinator._contexts["field"].private_input)
+        self.assertEqual(self.finished.count(("new", True)), 1)
+
+    def test_current_focus_rejection_allows_a_later_valid_focus(self):
+        self.coordinator.focus_out("field", submit=False, token="out", finish=self.finish)
+        self.drain_until(lambda: ("out", True) in self.finished)
+        self.reader.reject("focus-in", "reading_request_limit")
+        rejected = []
+        self.coordinator.focus_in("field", {"leftContext": "bad", "rightContext": "", "privateInput": False}, rejected.append)
+        self.drain_until(lambda: rejected)
+        self.assertIsNone(self.coordinator._planned_focus)
+        reopened = []
+        self.coordinator.focus_in("field", {"leftContext": "", "rightContext": "", "privateInput": False}, reopened.append)
+        self.drain_until(lambda: reopened)
+        self.key("a")
+        self.assertEqual(self.inputs[-1].snapshot["preedit"], "a")
+
 
 if __name__ == "__main__":
     unittest.main()
