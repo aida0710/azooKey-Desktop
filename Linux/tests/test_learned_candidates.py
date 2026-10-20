@@ -10,6 +10,8 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from azookey.bridge import Bridge
 from azookey.keymap import translate
+from azookey.settings_store import SettingsStore
+from azookey.user_dictionary_service import UserDictionaryService
 
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "learned_candidates.json"
@@ -27,7 +29,7 @@ class LearnedCandidateTests(unittest.TestCase):
                 environment = {**os.environ, "AZOOKEY_DATA_DIR": directory, "XDG_CONFIG_HOME": directory}
                 bridge = Bridge(environment=environment)
                 try:
-                    self.configure_fixture(bridge, fixture)
+                    self.configure_fixture(bridge, fixture, environment=environment)
                     for stage_index, stage in enumerate(STAGES):
                         if stage == "restarted":
                             bridge.close()
@@ -45,13 +47,23 @@ class LearnedCandidateTests(unittest.TestCase):
         if output:
             pathlib.Path(output).write_text(json.dumps(observations, ensure_ascii=False, indent=2) + "\n")
 
-    def configure_fixture(self, bridge, fixture):
+    def configure_fixture(self, bridge, fixture, *, environment):
         settings = bridge.request("settings")["settings"]
         settings.update(live=False, tree=True, learning="inputAndOutput", predictiveTyping=False, typoCorrection=False)
         if fixture.get("userDictionary"):
-            settings["userDictionary"] = {"items": [{
+            entries = [{
                 "id": DICTIONARY_ENTRY_ID, "word": fixture["text"], "reading": fixture["reading"],
-            }]}
+            }]
+            store = SettingsStore(pathlib.Path(environment["XDG_CONFIG_HOME"]) / "azookey-tree/settings.json")
+            service = UserDictionaryService(
+                store, store.load(settings), bridge_factory=lambda: Bridge(environment=environment),
+            )
+            # The editor's save transaction installs and verifies the file before
+            # configure reloads it into this existing conversion session.
+            service.save(entries)
+            self.assertIsNotNone(service.last_saved)
+            settings = service.last_saved.values
+            self.assertEqual(store.load(settings).values["userDictionary"]["items"], entries)
         self.assertNotIn("error", bridge.request("configure", settings=settings))
         saved = bridge.request("settings")["settings"]
         self.assertEqual(saved["userDictionary"], settings["userDictionary"])
