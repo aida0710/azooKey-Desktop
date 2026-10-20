@@ -28,7 +28,7 @@ from .ai_scope import AIRequestConfiguration, AIRequestScope, MODIFIER_KEYS
 from .ai_review import AISuggestionReview
 from .i18n import text as message
 from .settings_store import update_settings
-from .reconversion import ReconversionCoordinator, surrounding_context
+from .reconversion import ReconversionCoordinator, reconversion_operation, surrounding_context
 from .reconversion_strings import message as reconversion_message
 
 
@@ -68,7 +68,7 @@ class Engine(IBus.Engine):
         self.table.set_orientation(IBus.Orientation.VERTICAL)
         self.input = InputCoordinator(
             self.bridge, self.context_id, render=self.render, forward=self.forward_key_event,
-            recover=self.recover_composition, preview=self.preview_pending,
+            recover=self.prepare_composition_recovery, preview=self.preview_pending,
             schedule_timeout=GLib.timeout_add, remove_timeout=GLib.source_remove,
         )
         self.native_key_reply = None
@@ -170,11 +170,24 @@ class Engine(IBus.Engine):
             return self.native_key_reply.defer()
         return None
 
-    def replay_key_event(self, *key):
-        # Reconversion already replied True to these calls. A later False
-        # therefore needs the existing replay path rather than being ignored.
-        if not self.do_process_key_event(*key):
-            self.forward_key_event(*key)
+    def replay_key_event(self, *key, key_reply=None):
+        def complete(consumed):
+            if key_reply:
+                key_reply(consumed)
+            elif not consumed:
+                self.forward_key_event(*key)
+
+        reply = NativeKeyReply(complete)
+        if self.destroyed or self.private or not self.focused:
+            reply.finish(True)
+            return
+        previous, self.native_key_reply = self.native_key_reply, reply
+        try:
+            consumed = self.do_process_key_event(*key)
+            if not reply.deferred:
+                reply.finish(consumed)
+        finally:
+            self.native_key_reply = previous
 
     def current_reconversion_context(self):
         if not self.focused or self.sensitive or not self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT:
@@ -196,9 +209,12 @@ class Engine(IBus.Engine):
         self.show_reconversion_status("")
 
     def recover_composition(self, text=""):
+        self.prepare_composition_recovery(text)()
+
+    def prepare_composition_recovery(self, text):
         self.lookup_announcements.reset()
         self.ai_review.cancel()
-        text, queued = self.reconversion.take_recovery(text)
+        text, recovery = self.reconversion.take_recovery(text)
         self.pending_settings_stamp = None
         self.snapshot = {}
         self.anchor.update("", 0)
@@ -207,11 +223,11 @@ class Engine(IBus.Engine):
         self.panel.dismiss()
         self.hide_preedit_text()
         self.hide_lookup_table()
-        if text and self.focused and not self.private:
+        can_restore = self.reconversion.is_current_recovery(recovery)
+        if text and self.focused and not self.private and can_restore:
             self.commit_text(IBus.Text.new_from_string(text))
-        if self.focused and not self.private:
-            for key in queued:
-                self.forward_key_event(*key)
+        return lambda: self.reconversion.finish_recovery(
+            recovery, allow_native=can_restore and self.focused and not self.private)
 
     def preview_pending(self, text, cursor):
         if not self.focused or self.private:
@@ -231,7 +247,8 @@ class Engine(IBus.Engine):
                 and connection == self.get_connection()):
             keyval, _keycode, state = parameters.unpack()
             event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
-            if (any(pending.key_reply for pending in self.input.pending)
+            if (self.reconversion.active or reconversion_operation(event) is not None
+                    or any(pending.key_reply for pending in self.input.pending)
                     or self.input.pending_native_key(event)):
                 reply = NativeKeyReply(lambda consumed: self.finish_native_key(consumed, arguments))
                 previous, self.native_key_reply = self.native_key_reply, reply
@@ -275,7 +292,7 @@ class Engine(IBus.Engine):
             if surface().scroll_details(self, forward) or self.panel.scroll_details(forward):
                 return True
         original_key = (keyval, keycode, state)
-        if self.reconversion.process(event, original_key):
+        if self.reconversion.process(event, original_key, key_reply=self.native_key_reply):
             return True
         if event is None:
             # Modifier changes and releases do not edit text. Their original
@@ -310,13 +327,7 @@ class Engine(IBus.Engine):
                 return False
             return self.request("key", event=event, doubleTap=double_tap, original_key=original_key)
         except (OSError, RuntimeError, ValueError):
-            self.input.recover_pending()
-            if self.native_key_reply:
-                self.native_key_reply.finish(False)
-                return True
-            # Returning False here can let synchronous clients apply this key
-            # before the queued forward-key-event signals for earlier keys.
-            self.forward_key_event(*original_key)
+            self.input.recover_pending(key=original_key, key_reply=self.defer_native_key(original_key))
             return True
 
     def do_set_content_type(self, purpose, hints):
@@ -395,7 +406,7 @@ class Engine(IBus.Engine):
             keyval = 0xFF22 if self.snapshot.get("language", "japanese") == "japanese" else 0xFF23
             self.request("key", event=translate(keyval, 0))
         elif name in ("undo-commit", "reconvert"):
-            self.reconversion.start(undo=name == "undo-commit")
+            self.reconversion.prompt_menu(undo=name == "undo-commit")
 
     def do_focus_out(self):
         self.lookup_announcements.reset()
