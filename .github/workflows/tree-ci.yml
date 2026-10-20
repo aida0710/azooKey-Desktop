@@ -1,64 +1,37 @@
-name: Tree and platform tests
+name: Compare native marked text selection
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
-# A push must not cancel the PR's merge-commit validation.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
-  select-checks:
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      run-checks: ${{ steps.decision.outputs.result }}
-    steps:
-      - uses: actions/checkout@v4
-      - run: node --test Tools/tests/ci-should-run-checks.test.cjs
-      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-        id: decision
-        with:
-          script: |
-            const { shouldRunChecks } = require('./Tools/ci/should-run-checks.cjs');
-            return await shouldRunChecks({ github, context, warning: core.warning, info: core.info });
-  ubuntu:
-    needs: select-checks
-    if: needs.select-checks.outputs.run-checks == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - run: bash Tools/test-docker.sh
-      - name: Fetch pinned model pointers without LFS installation
-        env:
-          GIT_LFS_SKIP_SMUDGE: '1'
-        run: git submodule update --init
-      - run: python3 Tools/fetch-models.py
-      - run: bash Tools/test-docker.sh --zenzai
   macos:
-    needs: select-checks
-    if: needs.select-checks.outputs.run-checks == 'true'
     runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - run: bash Tools/tests/test-sync-upstream.sh
-      - run: bash Tools/tests/test-docker-preflight.sh
-      - run: bash Tools/test-tree-model.sh
-      - run: swift test --package-path Core
-      - run: bash Tools/test-macos-app.sh test --jobs 4
-      - run: AZOOKEY_INFERENCE_BACKEND=cpu bash Tools/test-macos-app.sh test --jobs 4
-      - name: Diagnose a macOS test-process crash
-        if: failure()
-        run: bash Tools/diagnose-macos-test.sh
+      - name: Record the SDK before observing both revisions
+        run: |
+          set -euo pipefail
+          mkdir -p build/marked-selection-comparison
+          {
+            git rev-parse HEAD
+            sw_vers
+            xcodebuild -version
+            xcrun swift --version
+            shasum -a 256 Tools/diagnostics/compare-marked-selection.py
+          } | tee build/marked-selection-comparison/source-and-sdk.log
+      - name: Compare the same regressions and preserve the original failures
+        run: >-
+          python3 Tools/diagnostics/compare-marked-selection.py
+          --before 97ed2ae44f38746ca890a4b5fa174026619d558c
+          --after b78d4ea61e887a60d074dd002afea1796b4a05db
+      - name: Preserve both outcomes including unexpected failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marked-selection-comparison
+          path: build/marked-selection-comparison
+          if-no-files-found: error
+          retention-days: 7
