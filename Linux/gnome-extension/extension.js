@@ -295,6 +295,10 @@ export default class AzooKeyTreeExtension extends Extension {
                 this._buttons.delete(identity);
             }
         }
+        // Selection changes retire all actors before rebuilding the visible page.
+        // A target absent from that page must not regain hover when it reappears.
+        if (this._hoveredAction && !visibleButtons.has(this._hoveredAction.identity))
+            this._hoveredAction = null;
         const [x, y] = anchor.location;
         const monitorIndex = Main.layoutManager.monitors.findIndex(m => x >= m.x && x < m.x + m.width && y >= m.y && y < m.y + m.height);
         const index = monitorIndex >= 0 ? monitorIndex : Main.layoutManager.primaryIndex;
