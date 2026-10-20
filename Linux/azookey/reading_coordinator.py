@@ -1,0 +1,556 @@
+"""Own reading operations and original input replies independently of candidates."""
+from collections import deque
+from copy import deepcopy
+from dataclasses import dataclass, field
+import logging
+import threading
+
+from . import candidate_protocol as candidate_protocol
+from . import reading_protocol as protocol
+from .candidate_coordinator import CandidateCoordinator
+from .reading_transport import ReadingTransport
+
+
+LOGGER = logging.getLogger(__name__)
+# Bound original-call ownership even when the reading process is unresponsive.
+MAX_PENDING_INPUTS = 1024
+
+
+@dataclass
+class ReadingContext:
+    name: str
+    reference: dict | None = None
+    displayed: dict | None = field(default=None, repr=False)
+    active: bool = False
+    private_input: bool = False
+    planned_owner: object = field(default=None, repr=False)
+    sequence: int = 0
+    authority: dict | None = None
+    batch: dict | None = field(default=None, repr=False)
+    batch_visible: bool = False
+    wanted: int | None = None
+
+
+@dataclass
+class OwnedReadingOperation:
+    operation: str
+    context: ReadingContext | None
+    payload: dict = field(default_factory=dict, repr=False)
+    token: object = field(default=None, repr=False)
+    finish: object = None
+    callback: object = None
+    sequence: int = 0
+    cancelled: bool = False
+    completed: bool = False
+    wire_payload: dict | None = field(default=None, repr=False)
+    owner: object = field(default=None, repr=False)
+
+
+class ReadingCoordinator:
+    def __init__(self, dispatch, *, publish_input, publish_candidates, notify,
+                 environment=None, reader_factory=None, candidate_factory=None):
+        self.publish_input = publish_input
+        self.publish_candidates = publish_candidates
+        self.notify = notify
+        self.transport = ReadingTransport(dispatch, environment=environment, bridge_factory=reader_factory)
+        self.candidates = CandidateCoordinator(dispatch, environment=environment, bridge_factory=candidate_factory)
+        self._owner_thread = threading.get_ident()
+        self._closed = False
+        self._broken = False
+        self._generation = None
+        self._settings_revision = 0
+        self._candidate_settings = None
+        self._candidate_settings_pending = True
+        self._changing_settings = False
+        self._contexts = {}
+        self._planned_focus = None
+        self._pending = deque()
+        self._active = None
+        self._publishing = None
+        self.transport.submit("hello", {}, self._hello)
+        self.candidates.settings(self._candidate_ready)
+
+    def _owner(self):
+        if threading.get_ident() != self._owner_thread:
+            raise RuntimeError("reading ownership must run on its dispatcher thread")
+        if self._closed or self._broken:
+            raise RuntimeError("reading coordinator requires an explicit restart")
+
+    def _context(self, name):
+        self._owner()
+        candidate_protocol.identifier(name)
+        if name not in self._contexts:
+            raise ValueError("reading context is not open")
+        return self._contexts[name]
+
+    def open_context(self, context, callback=None):
+        self._owner()
+        candidate_protocol.identifier(context)
+        if context in self._contexts or len(self._contexts) >= candidate_protocol.MAX_CONTEXTS:
+            raise ValueError("reading context already open or limit reached")
+        state = ReadingContext(context)
+        self._contexts[context] = state
+        self._enqueue(OwnedReadingOperation("open", state, callback=callback))
+
+    def focus_in(self, context, surroundings, callback=None):
+        state = self._context(context)
+        if self._changing_settings or self._planned_focus is not None:
+            raise ValueError("reading focus requires completed settings and retired previous focus")
+        if (not isinstance(surroundings, dict) or set(surroundings) != {"leftContext", "rightContext", "privateInput"}
+                or any(not isinstance(surroundings[name], str) for name in ("leftContext", "rightContext"))
+                or type(surroundings["privateInput"]) is not bool):
+            raise ValueError("invalid reading surroundings")
+        self._planned_focus = context
+        state.planned_owner = object()
+        state.sequence += 1
+        self._enqueue(OwnedReadingOperation("focus-in", state, {"surroundings": deepcopy(surroundings)},
+                                           callback=callback, owner=state.planned_owner))
+
+    def key(self, context, event, *, token, finish, double_tap=False):
+        if not isinstance(event, dict) or type(double_tap) is not bool:
+            raise ValueError("invalid reading key")
+        self._input("key", context, {"event": deepcopy(event), "doubleTap": double_tap}, token=token, finish=finish)
+
+    def select(self, context, selection, *, token, finish):
+        self._input("select", context, {"selection": deepcopy(selection)}, token=token, finish=finish)
+
+    def reset(self, context, *, submit, token, finish):
+        self._reset("reset", context, submit=submit, token=token, finish=finish)
+
+    def focus_out(self, context, *, submit, token, finish):
+        self._reset("focus-out", context, submit=submit, token=token, finish=finish)
+
+    def _reset(self, operation, context, *, submit, token, finish):
+        if type(submit) is not bool:
+            raise ValueError("invalid reading submission")
+        state = self._context(context)
+        self._validate_input(context, finish, cancelling=not submit)
+        retired = []
+        earlier_operations = ((self._active,) if self._active else ()) + tuple(self._pending)
+        if not submit:
+            for earlier in earlier_operations:
+                if (earlier.context is state and earlier.owner is state.planned_owner
+                        and earlier.finish is not None):
+                    earlier.cancelled = True
+                    retired.append(earlier)
+        immediate = self._can_finish_cancelled(earlier_operations, retired)
+        if immediate:
+            retired_ids = {id(earlier) for earlier in retired}
+            self._pending = deque(earlier for earlier in self._pending if id(earlier) not in retired_ids)
+        state.sequence += 1
+        self._pending.append(OwnedReadingOperation(operation, state, {"submit": submit},
+                                                   token=token, finish=finish, sequence=state.sequence, owner=state.planned_owner))
+        if operation == "focus-out":
+            self._planned_focus = None
+        # Register the lifecycle boundary before callbacks can reenter with a new
+        # focus. A known cancellation never needs the old process reply to finish.
+        if immediate:
+            for earlier in retired:
+                self._finish(earlier, True)
+        self._pump()
+
+    def _can_finish_cancelled(self, operations, retired):
+        retired_ids = {id(earlier) for earlier in retired}
+        blocked = False
+        for earlier in operations:
+            if earlier is self._publishing or (earlier.finish is not None and not earlier.completed
+                                               and id(earlier) not in retired_ids):
+                blocked = True
+            if id(earlier) in retired_ids and blocked:
+                return False
+        return True
+
+    def barrier(self, context, *, token, finish):
+        self._input("barrier", context, {}, token=token, finish=finish)
+
+    def _input(self, operation, context, payload, *, token, finish):
+        state = self._context(context)
+        self._validate_input(context, finish)
+        if operation != "barrier":
+            state.sequence += 1
+        self._enqueue(OwnedReadingOperation(operation, state, payload, token=token, finish=finish,
+                                           sequence=state.sequence, owner=state.planned_owner))
+
+    def _validate_input(self, context, finish, *, cancelling=False):
+        if self._planned_focus != context:
+            raise ValueError("reading input has no planned focus")
+        if not callable(finish):
+            raise ValueError("reading input requires an original reply callback")
+        if not cancelling and len(self._pending) >= MAX_PENDING_INPUTS:
+            raise ValueError("reading input queue limit reached")
+
+    def close_context(self, context, callback=None):
+        state = self._context(context)
+        if self._planned_focus == context:
+            raise ValueError("reading focus must be retired before close")
+        state.sequence += 1
+        self._enqueue(OwnedReadingOperation("close", state, callback=callback))
+
+    def _enqueue(self, operation):
+        self._pending.append(operation)
+        self._pump()
+
+    def _hello(self, reply):
+        if self._closed or self._broken:
+            return False
+        if reply.error or reply.response.get("error"):
+            self._fail_all("reading_handshake_failed")
+        else:
+            self._generation = reply.generation
+            self._settings_revision = reply.response["settingsRevision"]
+            self._pump()
+        return False
+
+    def _payload(self, operation):
+        if operation.operation == "open":
+            return {"readingProcessGeneration": self._generation, "context": operation.context.name}
+        if operation.operation == "learning-revision":
+            return {**operation.payload, "readingProcessGeneration": self._generation}
+        state = operation.context
+        if self._contexts.get(state.name) is not state or state.reference is None:
+            raise ValueError("reading operation has no current context reference")
+        return {**operation.payload, "reference": deepcopy(state.reference)}
+
+    def _pump(self):
+        if self._closed or self._broken or self._generation is None or self._active is not None:
+            return
+        while self._pending:
+            if self._closed or self._broken or self._active is not None:
+                return
+            operation = self._pending.popleft()
+            if operation.cancelled or operation.operation == "barrier":
+                self._finish(operation, operation.cancelled)
+                continue
+            try:
+                operation.wire_payload = self._payload(operation)
+            except ValueError:
+                self._reject(operation, "reading_context_unavailable")
+                continue
+            self._active = operation
+            self.transport.submit(operation.operation, operation.wire_payload,
+                                  lambda reply, current=operation: self._received(current, reply))
+            return
+        if self._active is None:
+            self._prepare_wanted()
+
+    def _received(self, operation, reply):
+        if self._closed or self._broken or self._active is not operation:
+            return False
+        if reply.error or reply.generation != self._generation:
+            phase = "response-unknown" if reply.uncertain else "not-sent"
+            self._fail_all(reply.error or "reading_process_changed", operation, phase)
+            return False
+        response = reply.response
+        if response.get("error"):
+            self._reject(operation, response["error"])
+        else:
+            self._settings_revision = response["settingsRevision"]
+            try:
+                self._apply(operation, response)
+            except (OSError, RuntimeError, ValueError):
+                self._fail_all("reading_response_application_failed", operation, "application-unknown")
+        if self._active is operation:
+            self._active = None
+        self._pump()
+        return False
+
+    def _apply(self, operation, response):
+        state = operation.context
+        name = operation.operation
+        if name in protocol.INPUT_OPERATIONS:
+            self._apply_input(operation, response)
+            if self._broken or self._closed:
+                return
+        elif name in ("open", "focus-in"):
+            state.reference = response["reference"]
+            state.active = name == "focus-in"
+            if name == "focus-in":
+                state.private_input = operation.payload["surroundings"]["privateInput"]
+                state.displayed = None
+                state.wanted = None
+        elif name == "close":
+            self._release_batch(state)
+            self.candidates.close_context(state.name, self._generation)
+            self._contexts.pop(state.name, None)
+        elif name == "prepare-candidates":
+            self._prepared(operation, response)
+        elif name == "adopt-candidates":
+            self._adopted(operation, response)
+        if name == "focus-out":
+            state.reference = response["nextReference"]
+            state.active = False
+            self._release_batch(state)
+            self.candidates.close_context(state.name, self._generation)
+            state.authority = None
+        self._callback(operation.callback, response)
+
+    def _apply_input(self, operation, response):
+        state = operation.context
+        snapshot = response["snapshot"]
+        if operation.cancelled:
+            self._finish(operation, True)
+            return
+        if any(completion["privateInput"] != state.private_input
+               or completion["settingsRevision"] != response["settingsRevision"]
+               for completion in snapshot.get("candidateCompletions", [])):
+            self._fail_all("reading_completion_conditions_changed", operation, "not-applied")
+            return
+        self._publishing = operation
+        try:
+            applied = self.publish_input(protocol.ReadingInput(state.name, operation.token,
+                                                              deepcopy(response["reference"]), snapshot=deepcopy(snapshot)))
+        except (OSError, RuntimeError, ValueError):
+            self._fail_all("reading_input_application_failed", operation, "application-unknown")
+            return
+        finally:
+            self._publishing = None
+        if self._closed or self._broken:
+            return
+        known_cancel = operation.operation in ("reset", "focus-out") and not operation.payload["submit"]
+        if applied is False and not (known_cancel or operation.cancelled):
+            self._fail_all("reading_input_owner_changed", operation, "not-applied")
+            return
+        if applied is not False:
+            self._update_authority(state, response)
+            for completion in snapshot.get("candidateCompletions", []):
+                self._complete_candidate(state, completion)
+        if operation.cancelled:
+            # Publication can retire its focus reentrantly. An applied commit
+            # keeps its old learning owner, but cannot restore the retired UI.
+            state.displayed = None
+            state.wanted = None
+            self._finish(operation, True)
+            return
+        if applied is not False:
+            state.displayed = protocol.displayed_snapshot(snapshot)
+        elif known_cancel:
+            state.displayed = None
+            self._update_authority(state, response)
+        if (state.batch is not None and (not snapshot["preedit"]
+                or state.batch["authority"]["compositionRevision"] != snapshot["compositionRevision"])):
+            self._release_batch(state)
+        elif state.batch is not None and not state.batch_visible and snapshot.get("selection") is not None:
+            self._publish_batch(state)
+        state.wanted = state.sequence if snapshot.get("request") == "candidates" else None
+        self._finish(operation, operation.cancelled or snapshot["consumed"])
+
+    def _update_authority(self, state, response):
+        if state.authority is None:
+            return
+        state.authority = {**state.authority, "compositionRevision": response["snapshot"]["compositionRevision"],
+                           "settingsRevision": response["settingsRevision"]}
+        self.candidates.set_authority(state.authority)
+
+    def _complete_candidate(self, state, completion):
+        try:
+            self.candidates.complete(completion, authority=state.authority,
+                                     callback=lambda reply: self._learning_receipt(state.name, completion, reply))
+        except (OSError, RuntimeError, ValueError):
+            self._notice(protocol.ReadingNotice("candidate_learning_not_sent", context=state.name,
+                                               completion=deepcopy(completion), phase="not-sent"))
+
+    def _learning_receipt(self, context, completion, reply):
+        self._notice(protocol.ReadingNotice(reply.error or "candidate_learning_completed", context=context,
+                                           phase="response-unknown" if reply.uncertain else "receipt",
+                                           completion=deepcopy(reply.completion or completion)))
+
+    def _candidate_ready(self, reply):
+        if self._closed or self._broken:
+            return
+        self._candidate_settings_pending = False
+        generation, epoch = self.candidates.transport.identity
+        if reply.error or (reply.worker_generation, reply.transport_epoch) != (generation, epoch):
+            self._notice(protocol.ReadingNotice(reply.error or "candidate_worker_changed", operation="candidate-settings"))
+        else:
+            self._candidate_settings = reply.settings
+            self._pump()
+
+    def _prepare_wanted(self):
+        if self._changing_settings:
+            return
+        if (self._candidate_settings is not None
+                and self._candidate_settings["workerGeneration"] != self.candidates.transport.identity[0]):
+            self._candidate_settings = None
+        if self._candidate_settings is None:
+            if not self._candidate_settings_pending and any(state.wanted is not None for state in self._contexts.values()):
+                self._candidate_settings_pending = True
+                self.candidates.settings(self._candidate_ready)
+            return
+        for state in self._contexts.values():
+            if state.active and state.wanted is not None:
+                sequence, state.wanted = state.wanted, None
+                if sequence != state.sequence:
+                    continue
+                payload = {"candidateWorkerGeneration": self._candidate_settings["workerGeneration"]}
+                self._enqueue(OwnedReadingOperation("prepare-candidates", state, payload,
+                                                   sequence=sequence, owner=state.planned_owner))
+                return
+
+    def _current(self, operation):
+        return self._same_focus(operation) and operation.context.sequence == operation.sequence
+
+    def _same_focus(self, operation):
+        state = operation.context
+        return (not self._closed and not self._broken and self._contexts.get(state.name) is state
+                and state.active and self._planned_focus == state.name and operation.owner is state.planned_owner)
+
+    def _prepared(self, operation, response):
+        if not self._current(operation):
+            return
+        state = operation.context
+        request = response["candidateRequest"]
+        if request.get("privateInput") != state.private_input:
+            raise ValueError("reading candidate request changed privacy")
+        state.authority = request["authority"]
+        self.candidates.request_candidates(request, lambda reply: self._calculated(operation, reply))
+
+    def _calculated(self, operation, reply):
+        if not self._current(operation):
+            if reply.batch and not self._closed:
+                self.candidates.release(candidate_protocol.reference(reply.batch))
+            return
+        if reply.error:
+            self._notice(protocol.ReadingNotice(reply.error, context=operation.context.name, operation="candidates"))
+            self._enqueue(OwnedReadingOperation("candidate-worker-stopped", operation.context,
+                                                deepcopy(operation.payload), owner=operation.owner))
+            self._candidate_settings = None
+            return
+        payload = {"batch": reply.batch, "retainedReference": candidate_protocol.reference(reply.batch)}
+        self._enqueue(OwnedReadingOperation("adopt-candidates", operation.context, payload,
+                                           sequence=operation.sequence, owner=operation.owner))
+
+    def _adopted(self, operation, response):
+        state = operation.context
+        batch = operation.payload["batch"]
+        if not self._same_focus(operation):
+            self.candidates.release(candidate_protocol.reference(batch))
+            return
+        self._release_batch(state)
+        state.batch = deepcopy(batch)
+        # Core already adopted this exact retained batch. A key queued while its
+        # ACK was in flight may select it; keep the reference until that key tells
+        # us whether the composition changed, without publishing the old panel.
+        if self._current(operation):
+            self._publish_batch(state)
+
+    def _publish_batch(self, state):
+        try:
+            applied = self.publish_candidates(protocol.ReadingCandidates(state.name, deepcopy(state.reference), deepcopy(state.batch)))
+            state.batch_visible = applied is not False
+        except (OSError, RuntimeError, ValueError):
+            # Core still owns its adopted selection source. Retain it even when
+            # the panel fails; a later explicit key can select/commit it safely.
+            state.batch_visible = False
+            self._notice(protocol.ReadingNotice("reading_candidate_display_failed", context=state.name))
+
+    def _release_batch(self, state):
+        if state.batch is not None:
+            self.candidates.release(candidate_protocol.reference(state.batch))
+            state.batch = None
+            state.batch_visible = False
+
+    def configure_learning(self, learning, revision, callback=None):
+        self._owner()
+        if not isinstance(learning, str) or learning not in candidate_protocol.LEARNING_MODES:
+            raise ValueError("invalid reading learning preference")
+        if (self._changing_settings or self._planned_focus is not None or self._active is not None or self._pending
+                or any(state.active for state in self._contexts.values()) or self._candidate_settings is None):
+            raise ValueError("reading settings require inactive contexts and completed operations")
+        if candidate_protocol.revision(revision) <= self._settings_revision:
+            raise ValueError("reading settings revision must advance")
+        self._changing_settings = True
+        self.candidates.configure_learning(learning, revision,
+                                            worker_generation=self._candidate_settings["workerGeneration"],
+                                            callback=lambda reply: self._configured(reply, learning=learning,
+                                                                                     revision=revision, callback=callback))
+
+    def _configured(self, reply, *, learning, revision, callback):
+        if self._closed or self._broken:
+            return
+        identity = self.candidates.transport.identity
+        error = reply.error
+        if not error and ((reply.worker_generation, reply.transport_epoch) != identity
+                          or reply.settings["settingsRevision"] != revision or reply.settings["learning"] != learning):
+            error = "candidate_settings_changed"
+        if error:
+            # A failed candidate settings response can be ambiguous. Do not allow
+            # new input under a guessed agreement between the two processes.
+            self._fail_all("reading_settings_unconfirmed")
+            self._callback(callback, {"error": error})
+            return
+        self._candidate_settings = reply.settings
+        self._enqueue(OwnedReadingOperation("learning-revision", None, {"settingsRevision": revision},
+                                           callback=lambda response: self._settings_finished(response, callback)))
+
+    def _settings_finished(self, response, callback):
+        self._changing_settings = False
+        self._callback(callback, response)
+
+    def _reject(self, operation, error):
+        if operation.operation == "learning-revision":
+            self._fail_all("reading_settings_unconfirmed", operation, "rejected")
+            return
+        if operation.operation == "adopt-candidates":
+            self.candidates.release(operation.payload["retainedReference"])
+        if operation.operation == "focus-in" and self._planned_focus == operation.context.name:
+            self._planned_focus = None
+        self._notice_for(operation, error, "rejected")
+        self._finish(operation, True)
+        self._callback(operation.callback, {"error": error})
+
+    def _notice_for(self, operation, error, phase):
+        state = operation.context
+        self._notice(protocol.ReadingNotice(error, context=state.name if state else None,
+                                           operation=operation.operation, phase=phase, token=operation.token,
+                                           reference=deepcopy(state.reference) if state else None,
+                                           displayed_snapshot=deepcopy(state.displayed) if state else None,
+                                           payload=deepcopy(operation.payload)))
+
+    def _fail_all(self, error, operation=None, phase="not-sent"):
+        self._broken = True
+        pending, self._pending = list(self._pending), deque()
+        active, self._active = self._active, None
+        first = operation or active
+        operations = ([(first, phase if operation else "response-unknown")] if first else [])
+        operations.extend((queued, "not-sent") for queued in pending)
+        for retired, boundary in operations:
+            self._notice_for(retired, error, boundary)
+            self._finish(retired, True)
+            self._callback(retired.callback, {"error": error})
+        if not operations:
+            self._notice(protocol.ReadingNotice(error))
+        self.transport.close()
+
+    def _finish(self, operation, consumed):
+        if operation.completed:
+            return
+        operation.completed = True
+        if operation.finish is not None:
+            try:
+                operation.finish(operation.token, consumed)
+            except (OSError, RuntimeError, ValueError):
+                self._notice_for(operation, "reading_original_reply_failed", "reply")
+
+    def _callback(self, callback, response):
+        if callback is not None:
+            try:
+                callback(deepcopy(response))
+            except (OSError, RuntimeError, ValueError):
+                self._notice(protocol.ReadingNotice("reading_callback_failed"))
+
+    def _notice(self, notice):
+        try:
+            self.notify(notice)
+        except (OSError, RuntimeError, ValueError):
+            LOGGER.error("Reading notification failed")
+
+    def close(self):
+        if threading.get_ident() != self._owner_thread:
+            raise RuntimeError("reading close must run on its dispatcher thread")
+        if self._closed:
+            return
+        if self._active is not None or self._pending:
+            self._fail_all("reading_coordinator_closed")
+        self._closed = True
+        self.transport.close()
+        self.candidates.close()
