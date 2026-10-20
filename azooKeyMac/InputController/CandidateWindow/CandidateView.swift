@@ -113,6 +113,7 @@ class CandidatesViewController: BaseCandidateViewController {
         self.enterConfirmsCandidate = enterConfirmsCandidate
         lastCursorLocation = cursorLocation
         self.showedRows = selectionIndex == nil ? 0...8 : self.showedRows
+        treeView.setDefinitionsEnabled(usesTree)
         treeView.isHidden = !usesTree
         tableView.enclosingScrollView?.isHidden = usesTree
         view.subviews.compactMap { $0 as? NSVisualEffectView }.forEach { $0.isHidden = usesTree }
@@ -234,6 +235,7 @@ class CandidatesViewController: BaseCandidateViewController {
         self.showedRows = 0...8
         treeEntries = []
         enterConfirmsCandidate = false
+        treeView.setDefinitionsEnabled(false)
         treeView.update(entries: [], selectionIndex: nil, enterConfirmsCandidate: false)
     }
 

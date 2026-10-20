@@ -163,3 +163,10 @@
 "candidate.score.conditional100" = "100はこの分岐内の相対値です。子候補が一つでも100になり、正解を保証しません。";
 "candidate.score.roundedZero" = "0は丸めた相対値です。この候補が不可能という意味ではありません。";
 "candidate.score.explanation" = "同じ読み・消費範囲の取得候補を、同じ親から分かれる候補同士で比べた値です。非表示の候補も含みます。正解の確率ではありません。";
+
+"candidate.definition.title" = "「%@」の意味";
+"candidate.definition.source" = "macOSの辞典";
+"candidate.definition.loading" = "辞典を検索しています…";
+"candidate.definition.notFound" = "この単語の説明は見つかりませんでした。macOSの「辞書」の設定もご確認ください。";
+"candidate.definition.detailsHint" = "全文は「補足」で確認できます";
+"candidate.definition.readingNote" = "辞典は表記で検索するため、別の読みの意味が含まれることがあります。";

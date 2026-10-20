@@ -27,6 +27,9 @@ final class CandidateTreeView: NSView {
     private let composition = CandidateCompositionView(frame: .zero)
     private let navigation = CandidateNavigationView(frame: .zero)
     private let actions = CandidateActionsView(frame: .zero)
+    private let definitions: WordDefinitionsModel
+    private let definitionSummary = WordDefinitionsSummaryView(frame: .zero)
+    private var definitionsEnabled = true
     private let canvas = TreeCanvas()
     private var nodeButtons: [Int: TreeButton] = [:]
     private var hoveredDetail: DetailTarget?
@@ -65,11 +68,16 @@ final class CandidateTreeView: NSView {
         let width = showsTree ? treePreferredSize.width : minimumDetailWidth
         let menuHeight = enterConfirmsCandidate ? composition.preferredHeight(width: width) + navigation.preferredHeight(width: width) : 0
         let height = menuHeight + actions.preferredHeight(width: width) + (showsTree ? min(maximumTreeHeight, treePreferredSize.height) : 0) +
-            (detailsExpanded ? CandidateDetailView.maximumHeight : 0)
+            (detailsExpanded ? CandidateDetailView.maximumHeight : 0) + (definitionSummary.isHidden ? 0 : definitionSummary.preferredHeight)
         return NSSize(width: width, height: height)
     }
 
-    override init(frame: NSRect) {
+    override convenience init(frame: NSRect) {
+        self.init(frame: frame, definitions: WordDefinitionsModel())
+    }
+
+    init(frame: NSRect, definitions: WordDefinitionsModel) {
+        self.definitions = definitions
         super.init(frame: frame)
         scrollView.documentView = canvas
         scrollView.hasHorizontalScroller = true
@@ -88,6 +96,8 @@ final class CandidateTreeView: NSView {
         addSubview(composition)
         addSubview(navigation)
         addSubview(actions)
+        addSubview(definitionSummary)
+        definitions.onChange = { [weak self] in self?.refreshDetails() }
         navigation.onSelection = { [weak self] index in
             self?.selectCandidate(index)
         }
@@ -132,11 +142,12 @@ final class CandidateTreeView: NSView {
         let navigationHeight = enterConfirmsCandidate ? navigation.preferredHeight(width: bounds.width) : 0
         let treeHeight = showsTree ? min(maximumTreeHeight, treePreferredSize.height) : 0
         let detailHeight = detailsExpanded ? CandidateDetailView.maximumHeight : 0
-        let scale = min(1, available / max(1, compositionHeight + navigationHeight + treeHeight + detailHeight))
+        let definitionHeight = definitionSummary.isHidden ? 0 : definitionSummary.preferredHeight
+        let scale = min(1, available / max(1, compositionHeight + navigationHeight + treeHeight + detailHeight + definitionHeight))
         var top = bounds.height
         for (view, height) in [(composition as NSView, compositionHeight * scale),
                                (navigation, navigationHeight * scale),
-                               (scrollView, treeHeight * scale), (details, detailHeight * scale)] {
+                               (scrollView, treeHeight * scale), (definitionSummary, definitionHeight * scale), (details, detailHeight * scale)] {
             top -= height
             view.frame = NSRect(x: 0, y: top, width: bounds.width, height: height)
         }
@@ -162,9 +173,18 @@ final class CandidateTreeView: NSView {
         nodeButtons.values.forEach { $0.needsDisplay = true }
         let palette = CandidateTheme.palette(for: effectiveAppearance)
         details.applyPalette(palette)
+        definitionSummary.applyPalette(palette)
         composition.applyPalette(palette)
         navigation.applyPalette(palette)
         actions.subviews.forEach { $0.needsDisplay = true }
+    }
+
+    func setDefinitionsEnabled(_ enabled: Bool) {
+        definitionsEnabled = enabled
+        if !enabled {
+            definitions.invalidate()
+            definitionSummary.isHidden = true
+        }
     }
 
     func update(entries: [CandidateTree.Entry], selectionIndex: Int?, numbers: [Int: String] = [:],
@@ -515,22 +535,33 @@ final class CandidateTreeView: NSView {
         }
     }
 
-    private func showDetails(nodeID: Int?) {
+    private func showDetails(nodeID: Int?, candidateIndex: Int? = nil, previewText: String? = nil) {
         guard let nodeID, tree.nodes.indices.contains(nodeID) else {
+            definitions.invalidate()
+            definitionSummary.update(target: nil, result: nil, fontSize: CGFloat(textSize.pointSize))
             details.update(text: "", fontSize: CGFloat(textSize.pointSize))
             return
         }
         let token = tree.nodes[nodeID].token
         let word = token.reading.isEmpty ? token.text : "\(token.text)\n\(token.reading)"
         let preview = tree.preview(at: nodeID, preserving: selection.selectedCandidateIndex)?.detailDescription
-        let description = [word, preview, scorePresentations[nodeID]?.detailDescription, Localization.text("candidate.detailKeys")]
+        let description = previewText ?? [word, preview, scorePresentations[nodeID]?.detailDescription, Localization.text("candidate.detailKeys")]
             .compactMap { $0 }.joined(separator: "\n")
-        details.update(text: description, fontSize: CGFloat(textSize.pointSize))
+        let index = candidateIndex ?? tree.preferredCandidate(at: nodeID, preserving: selection.selectedCandidateIndex)
+        let target = definitionsEnabled && enterConfirmsCandidate ? index.map {
+            WordDefinitionsModel.Target(generation: generation, candidateIndex: $0, nodeID: nodeID, word: token.text, reading: token.reading)
+        } : nil
+        definitions.update(target: target)
+        definitionSummary.update(target: definitions.target, result: definitions.result, fontSize: CGFloat(textSize.pointSize))
+        details.update(text: [description, definitionSummary.detailDescription].filter { !$0.isEmpty }.joined(separator: "\n\n"),
+                       fontSize: CGFloat(textSize.pointSize))
     }
 
     private func showCandidateDetails(candidateIndex: Int) {
-        // A shared word and its adjacent number may commit different entries.
         let preview = candidatePage.items.first { $0.index == candidateIndex }?.detailDescription ?? ""
-        details.update(text: preview, fontSize: CGFloat(textSize.pointSize))
+        // A full row keeps its real candidate path and the user's current word depth.
+        let depth = selection.focusedNodeID.map { tree.nodes[$0].depth } ?? 0
+        let nodeID = tree.paths[candidateIndex].flatMap { path in path.isEmpty ? nil : path[min(depth, path.count - 1)] }
+        showDetails(nodeID: nodeID, candidateIndex: candidateIndex, previewText: preview)
     }
 }

@@ -163,3 +163,10 @@
 "candidate.score.conditional100" = "100 is relative to this branch. A sole child also gets 100; it does not guarantee a correct conversion.";
 "candidate.score.roundedZero" = "0 is a rounded relative value. It does not mean this candidate is impossible.";
 "candidate.score.explanation" = "These values compare returned candidates with the same reading and consumed input, conditional on their parent. Hidden candidates count too. They are not probabilities of correctness.";
+
+"candidate.definition.title" = "Meaning of “%@”";
+"candidate.definition.source" = "macOS dictionaries";
+"candidate.definition.loading" = "Looking up the word…";
+"candidate.definition.notFound" = "No definition was found. You can also check the dictionaries enabled in macOS Dictionary.";
+"candidate.definition.detailsHint" = "Open Details to read the full definition.";
+"candidate.definition.readingNote" = "Dictionaries are searched by spelling; meanings for other readings may be included.";
