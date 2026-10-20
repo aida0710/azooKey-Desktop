@@ -7,30 +7,6 @@ final class CandidateTreePanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// IMK character indices are UTF-16 offsets relative to the inline session.
-/// Reject wrapped, vertical, missing, or non-increasing client rectangles.
-struct CandidateDocumentGeometry {
-    let anchor: CGPoint
-    let widths: [CGFloat]
-
-    init?(words: [String], preedit: String, rectAtOffset: (Int) -> NSRect) {
-        guard !words.isEmpty, words.count <= 64, words.joined() == preedit else {
-            return nil
-        }
-        var offsets = [0]
-        for word in words { offsets.append(offsets.last! + word.utf16.count) }
-        let rects = offsets.map(rectAtOffset)
-        guard let first = rects.first, first.height > 0,
-              rects.allSatisfy({ $0.minX.isFinite && $0.minY.isFinite && abs($0.minY - first.minY) <= 1 && abs($0.height - first.height) <= 1 }) else { return nil }
-        let widths = zip(rects, rects.dropFirst()).map { $1.minX - $0.minX }
-        guard widths.allSatisfy({ $0 >= 6 && $0 < 4000 }) else {
-            return nil
-        }
-        self.anchor = CGPoint(x: first.minX - 12, y: first.minY)
-        self.widths = widths
-    }
-}
-
 /// A projection of complete, real candidates. Rendering never emits input events.
 @MainActor
 final class CandidateTreeView: NSView {
@@ -55,7 +31,8 @@ final class CandidateTreeView: NSView {
     private var announcedNode: Int?
     private var textSize = Config.CandidateTextSize.Value.standard
     // Detail text needs a readable line even when the selected word is one character.
-    private let minimumDetailWidth: CGFloat = 320
+    private let minimumDetailWidth = CandidateDetailView.minimumWidth
+    var hasDocumentAlignment: Bool { documentWidths != nil }
     private var detailHeight: CGFloat { textSize == .large ? CandidateDetailView.maximumHeight : 112 }
     private(set) var preferredSize = NSSize(width: 80, height: 46)
 

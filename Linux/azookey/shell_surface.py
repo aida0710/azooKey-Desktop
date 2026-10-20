@@ -8,6 +8,7 @@ NAME = "org.azookey.Tree"
 PATH = "/org/azookey/Tree"
 XML = """<node><interface name="org.azookey.Tree">
   <method name="ResetLearning"><arg type="b" direction="out"/></method>
+  <method name="DescribeLayout"><arg type="s" direction="out"/></method>
   <method name="SetRenderer"><arg type="b" direction="in"/></method>
   <method name="Select"><arg type="s" direction="in"/><arg type="i" direction="in"/>
     <arg type="b" direction="in"/><arg type="i" direction="in"/><arg type="s" direction="in"/></method>
@@ -32,6 +33,11 @@ class ShellSurface:
         self.registration = connection.register_object(PATH, info, self.method, None, None)
 
     def method(self, _connection, sender, _path, _interface, name, parameters, invocation):
+        if name == "DescribeLayout":
+            engine = self.engine() if self.engine else None
+            description = engine.panel.layout_diagnostics if engine and engine.focused else {}
+            invocation.return_value(GLib.Variant("(s)", (json.dumps(description),)))
+            return
         if name == "ResetLearning":
             AsyncBridge.reset_shared_learning(
                 lambda success: invocation.return_value(GLib.Variant("(b)", (success,))))
@@ -69,9 +75,9 @@ class ShellSurface:
             engine.render(engine.snapshot)
 
     def show(self, engine, snapshot, location):
+        self.engine = weakref.ref(engine)
         if not self.connection or not self.renderer:
             return False
-        self.engine = weakref.ref(engine)
         data = {**snapshot, "location": location, "contextId": engine.context_id}
         # Typed text is sent only to the registered renderer, never broadcast.
         self.connection.emit_signal(self.renderer, PATH, NAME, "Update", GLib.Variant("(s)", (json.dumps(data, ensure_ascii=False),)))
