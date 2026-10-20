@@ -26,6 +26,7 @@
 "candidate.select" = "Select this candidate";
 "candidate.focusedSelect" = "Current navigation target. Select this candidate";
 "candidate.numberSelect" = "Select candidate %@";
+"candidate.numberBadge" = "Candidate number %@";
 "candidate.preview.scope" = "Reading to commit: %@";
 "candidate.preview.remaining" = "Reading left to edit: %@";
 "candidate.preview.following" = "Following text: %@";
