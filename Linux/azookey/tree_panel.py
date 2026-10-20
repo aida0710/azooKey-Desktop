@@ -7,8 +7,12 @@ from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo
 
 from .candidate_accessibility import CandidateAction
 from .candidate_detail import CandidateDetail
-from .candidate_theme import CandidateTheme, score_role
+from .candidate_theme import CandidateTheme
+from .candidate_score import SCORE_LINE_HEIGHT, draw_score_badge, score_presentation
 from .i18n import text as message
+
+
+CANDIDATE_ROW_GAP = 4  # Separate actions even when the score line is hidden.
 
 
 class TreePanel(Gtk.Window):
@@ -58,10 +62,18 @@ class TreePanel(Gtk.Window):
         self.actions = {}
         self.location = (0, 0, 0, 0)
         self.focus_key = None
+        self.layout_diagnostics = {}
+        self.placement_side = None
         self.scroll_idle = None
         self.connect("destroy", self.cancel_scroll)
+        self.connect("hide", self.clear_placement)
+        self.connect("size-allocate", lambda *_: self.position() if self.get_visible() else None)
         self.theme = CandidateTheme(self, changed=self.refresh_appearance)
         self.refresh_appearance()
+
+    def clear_placement(self, *_args):
+        self.placement_side = None
+        self.layout_diagnostics = {}
 
     def refresh_appearance(self):
         self.details.apply_palette(self.theme.palette)
@@ -75,7 +87,7 @@ class TreePanel(Gtk.Window):
     def update(self, snapshot):
         identity = json.dumps([
             snapshot.get("contextId"), snapshot.get("reading"), snapshot.get("candidates", []),
-            [{key: value for key, value in node.items() if key not in ("relativeScore", "preview", "previewDescription")}
+            [{key: value for key, value in node.items() if key not in ("relativeScore", "scorePresentation", "preview", "previewDescription")}
              for node in snapshot.get("nodes", [])],
         ], sort_keys=True, ensure_ascii=False)
         if identity != self.candidate_identity:
@@ -105,7 +117,8 @@ class TreePanel(Gtk.Window):
         aligned = len(widths) == len(columns) and all(w >= minimum_width for w in widths)
         self.aligned = aligned
         # The number sits below the score; its height must grow with the font.
-        row_pitch = row_height + (row_height + 20 if snapshot.get("showCandidateIndex") and aligned else 20)
+        score_height = SCORE_LINE_HEIGHT if snapshot.get("showRelativeScores") else 0
+        row_pitch = row_height + score_height + CANDIDATE_ROW_GAP + (row_height if snapshot.get("showCandidateIndex") and aligned else 0)
         x = 12
         for depth, column in enumerate(columns):
             # Other candidates may cover the entire sentence. They must never
@@ -120,7 +133,7 @@ class TreePanel(Gtk.Window):
                 if snapshot.get("showCandidateIndex") and index is not None:
                     number = index - snapshot.get("pageStart", 0) + 1
                     if 1 <= number <= 9:
-                        badge = (x + column_width - row_height, 22 + row * row_pitch + row_height, row_height, row_height) if aligned else (x + column_width + 1, 6 + row * row_pitch, row_height, row_height)
+                        badge = (x + column_width - row_height, 6 + row * row_pitch + row_height + score_height, row_height, row_height) if aligned else (x + column_width + 1, 6 + row * row_pitch, row_height, row_height)
                         self.rectangles.append(("select", index, *badge, str(number), ""))
             x += column_width + (0 if aligned else (row_height + 2 if snapshot.get("showCandidateIndex") else 12))
         width = max(60, x)
@@ -129,10 +142,10 @@ class TreePanel(Gtk.Window):
         self.surface.set_size_request(int(width + 0.5), height)
         monitor = self.get_display().get_monitor_at_point(self.location[0], self.location[1])
         area = monitor.get_workarea() if monitor else self.get_screen().get_monitor_workarea(0)
-        if aligned and (self.location[0] - 12 < area.x or self.location[0] - 12 + width > area.x + area.width):
+        if aligned and (self.location[0] - 12 < area.x or self.location[0] - 12 + max(320, width) > area.x + area.width):
             # Clamping or scrolling would invalidate the document coordinates.
             # Use the ordinary compact popup when the span cannot fit onscreen.
-            self.update({**snapshot, "wordGeometry": None})
+            self.update({**snapshot, "wordGeometry": None, "layoutReason": "outside-workarea"})
             return
         # Keep a useful detail line below even for a one-character candidate.
         popup_width = int(min(max(320, width), 760 if not aligned else max(320, width), area.width) + 0.5)
@@ -192,9 +205,11 @@ class TreePanel(Gtk.Window):
                 node = next(item for item in self.snapshot["nodes"] if item["id"] == index)
                 if node.get("previewDescription"):
                     description += "\n" + node["previewDescription"]
+                if presentation := score_presentation(self.snapshot, node):
+                    description += "\n" + presentation["detailDescription"]
             if kind == "select":
                 name = message("candidate.numberConfirm", number=index + 1)
-            button.set_tooltip_text(name)
+            button.set_tooltip_text(name + "\n" + description)
             button.update_accessibility(name, selected=active, description=description)
 
     def show_details(self, node_id):
@@ -205,6 +220,8 @@ class TreePanel(Gtk.Window):
         content = node["text"] + ("\n" + node["reading"] if node.get("reading") else "")
         if node.get("previewDescription"):
             content += "\n" + node["previewDescription"]
+        if presentation := score_presentation(self.snapshot, node):
+            content += "\n" + presentation["detailDescription"]
         width = self.scroll.get_min_content_width()
         self.details.update(content + "\n" + message("candidate.detailKeys"), font_size=self.font_size, width=width)
         return False
@@ -229,8 +246,18 @@ class TreePanel(Gtk.Window):
         width, popup_height = self.get_size()
         x = max(area.x, min(x, area.x + area.width - width))
         below = y + height
-        y = below if below + popup_height <= area.y + area.height else y - popup_height
-        self.move(x, max(area.y, min(y, area.y + area.height - popup_height)))
+        fits_above = y - popup_height >= area.y
+        above = fits_above and (self.placement_side == "above" or below + popup_height > area.y + area.height)
+        self.placement_side = "above" if above else "below"
+        y = max(area.y, min(y - popup_height if above else below, area.y + area.height - popup_height))
+        self.move(x, y)
+        self.layout_diagnostics = {
+            "renderer": "gtk", "source": "ibus-caret",
+            "mode": "aligned" if self.aligned else "compact",
+            "reason": self.snapshot.get("layoutReason", "estimated-inline" if self.aligned else "unavailable-or-narrow"),
+            "cursor": self.location, "workArea": [area.x, area.y, area.width, area.height],
+            "popup": [x, y, width, popup_height],
+        }
 
     def measure(self, text, *, font_size=None):
         # PreeditAnchor calibrates this reference font against the document caret.
@@ -258,7 +285,7 @@ class TreePanel(Gtk.Window):
         context.fill()
         frames = {item[1]: item[2:6] for item in self.rectangles if item[0] == "node"}
         selected = set(self.snapshot.get("selectedPath", []))
-        scores = {node["id"]: node.get("relativeScore") for node in self.snapshot.get("nodes", [])}
+        nodes = {node["id"]: node for node in self.snapshot.get("nodes", [])}
         for node in self.snapshot.get("nodes", []):
             if node["id"] not in frames:
                 continue
@@ -304,14 +331,10 @@ class TreePanel(Gtk.Window):
             size = self.font_size if kind == "node" else max(14, self.font_size - 4)
             self.text(context, text, x + inset, y, width - inset * 2, size, color, self.aligned, height)
             if kind == "node":
-                score = scores.get(index)
-                label = str(score) if score is not None else "—"
-                badge_width = min(width, max(22, self.measure(label, font_size=12) + 6))
-                left = x + (width - badge_width) / 2
-                context.set_source_rgb(*self.theme.rgb(score_role(score)))
-                context.rectangle(left, y + height, badge_width, 16)
-                context.fill()
-                self.text(context, label, left, y + height, badge_width, 12, self.theme.rgb("scoreText"), False, 16)
+                node = nodes[index]
+                if presentation := score_presentation(self.snapshot, node):
+                    draw_score_badge(context, presentation, (x, y, width, height),
+                                     score=node.get("relativeScore"), theme=self.theme)
         return False
 
     @staticmethod
@@ -337,9 +360,9 @@ class TreePanel(Gtk.Window):
         nodes = {node["id"]: node for node in self.snapshot.get("nodes", [])}
         for kind, index, left, top, width, height, text, reading in self.rectangles:
             if kind == "node" and left <= x <= left + width and top <= y <= top + height + 12:
-                score = nodes[index].get("relativeScore")
-                detail = f"相対スコア {score}（取得候補内の評価。正解の確率ではありません）" if score is not None else "比較可能なスコアなし"
-                tooltip.set_text(f"{text}（{reading}）\n{detail}")
+                presentation = score_presentation(self.snapshot, nodes[index])
+                detail = "\n" + presentation["detailDescription"] if presentation else ""
+                tooltip.set_text(f"{text}（{reading}）{detail}")
                 return True
         return False
 

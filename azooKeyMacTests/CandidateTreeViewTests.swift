@@ -80,6 +80,40 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertFalse(buttons(in: view).contains { $0.toolTip?.contains("相対スコア 69") == true })
     }
 
+    func testHidingScoresPreservesTheFocusedCandidateAndOneClickCommit() throws {
+        let preference = Config.ShowRelativeScores()
+        let previous = preference.value
+        defer { preference.value = previous }
+        preference.value = true
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 320))
+        var submitted: [Int] = []
+        view.onCandidateSubmitted = { submitted.append($0) }
+        let scored: [CandidateTree.Entry] = [
+            .init(text: "選択", tokens: [.init(text: "選択", reading: "センタク")], candidateIndex: 0, score: log(69)),
+            .init(text: "洗濯", tokens: [.init(text: "洗濯", reading: "センタク")], candidateIndex: 1, score: log(31))
+        ]
+        view.update(entries: scored, selectionIndex: 0, numbers: [0: "1"], documentWidths: [80])
+        let chosen = try XCTUnwrap(buttons(in: view).first { $0.title == "選択" })
+        let focus = chosen.accessibilityValue() as? String
+        let height = view.preferredSize.height
+        let explanation = CandidateScorePresentation.explanation
+        XCTAssertTrue(textFields(in: view).contains { $0.stringValue.contains(explanation) })
+        preference.value = false
+        view.update(entries: scored, selectionIndex: 0, numbers: [0: "1"], documentWidths: [80])
+        XCTAssertTrue(buttons(in: view).first { $0.title == "選択" } === chosen)
+        XCTAssertEqual(chosen.accessibilityValue() as? String, focus)
+        XCTAssertTrue(chosen.isAccessibilitySelected())
+        XCTAssertFalse(chosen.acceptsFirstResponder)
+        XCTAssertFalse(chosen.accessibilityHelp()?.contains(explanation) == true)
+        XCTAssertFalse(textFields(in: view).contains { $0.stringValue.contains(explanation) })
+        XCTAssertLessThan(view.preferredSize.height, height)
+        let number = try XCTUnwrap(buttons(in: view).first { $0.title == "1" })
+        XCTAssertGreaterThanOrEqual(number.frame.minY, chosen.frame.maxY)
+        XCTAssertEqual(submitted, [])
+        chosen.performClick(nil)
+        XCTAssertEqual(submitted, [0])
+    }
+
     func testLongAlternativeDoesNotMoveFollowingWords() throws {
         let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 600, height: 160))
         view.update(entries: entries, selectionIndex: 0)
@@ -150,6 +184,18 @@ final class CandidateTreeViewTests: XCTestCase {
             XCTFail("Do not query unrelated candidate text")
             return .zero
         })
+    }
+
+    func testDocumentAlignmentFallsBackWhenTheDetailWidthCrossesTheScreenEdge() throws {
+        let geometry = try XCTUnwrap(CandidateDocumentGeometry(words: ["語"], preedit: "語") { offset in
+            NSRect(x: 600 + offset * 32, y: 200, width: 1, height: 24)
+        })
+        XCTAssertFalse(geometry.fits(in: CGRect(x: 0, y: 0, width: 800, height: 600)))
+        XCTAssertTrue(geometry.fits(in: CGRect(x: 0, y: 0, width: 1200, height: 600)))
+        let secondScreen = try XCTUnwrap(CandidateDocumentGeometry(words: ["語"], preedit: "語") { offset in
+            NSRect(x: -600 + offset * 32, y: 200, width: 1, height: 24)
+        })
+        XCTAssertTrue(secondScreen.fits(in: CGRect(x: -800, y: 0, width: 800, height: 600)))
     }
 
     func testReferenceLayoutKeepsChosenSentenceOnOneCompactRow() {

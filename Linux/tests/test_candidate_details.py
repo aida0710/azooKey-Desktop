@@ -53,6 +53,23 @@ class CandidateDetailTests(unittest.TestCase):
         self.assertFalse(self.panel.aligned)
         self.assertGreaterEqual(self.panel.rectangles[0][4], self.panel.font_size + 8)
 
+    def test_popup_near_right_edge_keeps_details_inside_the_work_area(self):
+        monitor = self.panel.get_display().get_monitor(0)
+        area = monitor.get_workarea()
+        self.panel.location = (area.x + area.width - 110, area.y + 40, 1, 24)
+        self.panel.update({**self.snapshot, "wordGeometry": {"widths": [80]}})
+        self.flush()
+        self.assertFalse(self.panel.aligned, "The detail panel must not shift aligned columns")
+        description = self.panel.layout_diagnostics
+        self.assertEqual(description["reason"], "outside-workarea")
+        x, y, width, height = description["popup"]
+        self.assertGreaterEqual(x, area.x)
+        self.assertGreaterEqual(y, area.y)
+        self.assertLessEqual(x + width, area.x + area.width)
+        self.assertLessEqual(y + height, area.y + area.height)
+        self.assertNotIn("語", str(description))
+        self.assertEqual(self.commits, [])
+
     def test_number_targets_do_not_overlap_and_scaled_digits_fit(self):
         from gi.repository import Pango
 
