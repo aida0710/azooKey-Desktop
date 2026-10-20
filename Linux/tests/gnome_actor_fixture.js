@@ -69,6 +69,17 @@ export class Actor {
     destroy_all_children() { for (const child of [...this.children]) child.destroy(); }
 }
 
+// BoxLayout implements StScrollable; labels and ordinary widgets do not.
+export class ScrollableActor extends Actor {}
+
+export class ScrollViewActor extends Actor {
+    set_child(child) {
+        if (!(child instanceof ScrollableActor))
+            throw new TypeError('St.ScrollView child must implement St.Scrollable');
+        super.set_child(child);
+    }
+}
+
 export function loadShellClass({fileName, imports, className}) {
     const file = Gio.File.new_for_uri(import.meta.url).get_parent().get_parent()
         .get_child(`gnome-extension/${fileName}`);
