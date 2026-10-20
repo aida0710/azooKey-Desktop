@@ -50,6 +50,8 @@ final class CandidateTreeView: NSView {
     private var layoutShowsNumbers = false
     private var documentWidths: [CGFloat]?
     private var scores: [Int: Int] = [:]
+    private var announcedCandidate: Int?
+    private var announcedNode: Int?
     private(set) var preferredSize = NSSize(width: 80, height: 46)
 
     override init(frame: NSRect) {
@@ -83,6 +85,12 @@ final class CandidateTreeView: NSView {
                 documentWidths: [CGFloat]? = nil) {
         let updatedTree = CandidateTree(entries: entries)
         let changed = updatedTree != tree || self.documentWidths != documentWidths
+        if updatedTree != tree {
+            nodeButtons.values.forEach { $0.removeFromSuperview() }
+            terminalButtons.values.forEach { $0.removeFromSuperview() }
+            nodeButtons.removeAll()
+            terminalButtons.removeAll()
+        }
         self.documentWidths = documentWidths
         tree = updatedTree
         numberLabels = numbers
@@ -212,7 +220,10 @@ final class CandidateTreeView: NSView {
             button.setAccessibilityLabel(button.toolTip)
             // The chosen word moves to the top row. Commit on the first click
             // so a second click cannot hit a different word at the old position.
-            button.clicked = { [weak self] _ in self?.selectNode(node.id, submit: true) }
+            button.clicked = { [weak self, weak button] _ in
+                guard let self, let button, self.nodeButtons[node.id] === button else { return }
+                self.selectNode(node.id, submit: true)
+            }
             canvas.addSubview(button)
             nodeButtons[id] = button
         }
@@ -221,7 +232,10 @@ final class CandidateTreeView: NSView {
             terminal.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
             terminal.toolTip = "候補 \(index + 1) を確定"
             terminal.setAccessibilityLabel(terminal.toolTip)
-            terminal.clicked = { [weak self] _ in self?.submit(candidateIndex: index) }
+            terminal.clicked = { [weak self, weak terminal] _ in
+                guard let self, let terminal, self.terminalButtons[index] === terminal else { return }
+                self.submit(candidateIndex: index)
+            }
             canvas.addSubview(terminal)
             terminalButtons[index] = terminal
         }
@@ -231,14 +245,18 @@ final class CandidateTreeView: NSView {
             let token = tree.nodes[id].token
             button.title = token.text
             button.toolTip = token.reading.isEmpty ? token.text : "\(token.text)（\(token.reading)）"
+            button.setAccessibilityLabel(button.toolTip)
             button.relativeScore = scores[id]
             button.toolTip! += scores[id].map { "\n相対スコア \($0)（取得候補内の評価。正解の確率ではありません）" } ?? "\n比較可能なスコアなし"
-            button.setAccessibilityLabel(button.toolTip)
+            button.setAccessibilityHelp(button.toolTip)
             button.highlightedPath = path.contains(id)
             button.focusedNode = selection.focusedNodeID == id
+            button.setAccessibilityValue(button.focusedNode ? Localization.text("candidate.focused") : "")
             button.documentAligned = documentWidths?.count == displayedColumns.count
             button.needsDisplay = true
         }
+        let selectedButtons = displayedColumns.compactMap(\.first).compactMap { nodeButtons[$0] }
+        setAccessibilitySelectedChildren(selectedButtons)
         for (index, button) in terminalButtons {
             if let frame = terminalFrames[index] { button.frame = frame }
             let title = numberLabels[index] ?? "↵"
@@ -265,6 +283,14 @@ final class CandidateTreeView: NSView {
             canvas.scrollToVisible(reveal.insetBy(dx: -16, dy: -16))
         }
         updateVisibleControls()
+        if announcedCandidate != selection.selectedCandidateIndex {
+            announcedCandidate = selection.selectedCandidateIndex
+            NSAccessibility.post(element: self, notification: .selectedChildrenChanged)
+        } else if announcedNode != selection.focusedNodeID,
+                  let id = selection.focusedNodeID, let button = nodeButtons[id] {
+            NSAccessibility.post(element: button, notification: .valueChanged)
+        }
+        announcedNode = selection.focusedNodeID
     }
 }
 
@@ -312,6 +338,7 @@ private final class TreeButton: NSButton {
     var relativeScore: Int?
     var compactBadge = false
     override var acceptsFirstResponder: Bool { false }
+    override func isAccessibilitySelected() -> Bool { highlightedPath }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override init(frame: NSRect) {
         super.init(frame: frame)

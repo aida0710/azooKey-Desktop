@@ -1,8 +1,12 @@
 import gi
 import cairo
+import json
 gi.require_version("Gtk", "3.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo
+
+from .candidate_accessibility import CandidateAction
+from .i18n import text as message
 
 
 class TreePanel(Gtk.Window):
@@ -19,10 +23,19 @@ class TreePanel(Gtk.Window):
             self.set_visual(visual)
         self.get_style_context().add_class("azookey-tree")
         css = Gtk.CssProvider()
-        css.load_from_data(b".azookey-tree, .azookey-tree scrolledwindow, .azookey-tree viewport { background: transparent; border: none; box-shadow: none; }")
+        css.load_from_data(b"""
+            .azookey-tree, .azookey-tree scrolledwindow, .azookey-tree viewport {
+                background: transparent; border: none; box-shadow: none;
+            }
+            .azookey-tree .candidate-action {
+                background: transparent; border: none; box-shadow: none;
+                padding: 0; min-width: 0; min-height: 0;
+            }
+        """)
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.select = select
         self.snapshot = {}
+        self.candidate_identity = None
         self.rectangles = []
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
@@ -33,7 +46,10 @@ class TreePanel(Gtk.Window):
         self.canvas.connect("button-press-event", self.click)
         self.canvas.set_has_tooltip(True)
         self.canvas.connect("query-tooltip", self.tooltip)
-        self.scroll.add(self.canvas)
+        self.surface = Gtk.Fixed()
+        self.surface.put(self.canvas, 0, 0)
+        self.scroll.add(self.surface)
+        self.actions = {}
         self.location = (0, 0, 0, 0)
         self.focus_key = None
         self.scroll_idle = None
@@ -45,14 +61,24 @@ class TreePanel(Gtk.Window):
             self.scroll_idle = None
 
     def update(self, snapshot):
+        identity = json.dumps([
+            snapshot.get("contextId"), snapshot.get("reading"), snapshot.get("candidates", []),
+            [{key: value for key, value in node.items() if key != "relativeScore"}
+             for node in snapshot.get("nodes", [])],
+        ], sort_keys=True, ensure_ascii=False)
+        if identity != self.candidate_identity:
+            self.clear_actions()
+            self.candidate_identity = identity
         self.snapshot = snapshot
         nodes = snapshot.get("nodes", [])
         if not nodes:
+            self.clear_actions()
             self.hide()
             return
         by_id = {node["id"]: node for node in nodes}
         columns = snapshot.get("columns", [])
         if not columns:
+            self.clear_actions()
             self.hide()
             return
         self.rectangles = []
@@ -82,6 +108,7 @@ class TreePanel(Gtk.Window):
         width = max(60, x)
         height = max(32, max(map(len, columns)) * row_pitch + 6)
         self.canvas.set_size_request(int(width + 0.5), height)
+        self.surface.set_size_request(int(width + 0.5), height)
         monitor = self.get_display().get_monitor_at_point(self.location[0], self.location[1])
         area = monitor.get_workarea() if monitor else self.get_screen().get_monitor_workarea(0)
         if aligned and (self.location[0] - 12 < area.x or self.location[0] - 12 + width > area.x + area.width):
@@ -93,6 +120,7 @@ class TreePanel(Gtk.Window):
         self.scroll.set_min_content_width(popup_width)
         self.scroll.set_min_content_height(popup_height)
         self.resize(popup_width, popup_height)
+        self.update_actions()
         self.show_all()
         self.position()
         self.canvas.queue_draw()
@@ -109,6 +137,42 @@ class TreePanel(Gtk.Window):
                         break
                 return GLib.SOURCE_REMOVE
             self.scroll_idle = GLib.idle_add(reveal)
+
+    def clear_actions(self):
+        for button in self.actions.values():
+            button.destroy()
+        self.actions.clear()
+
+    def update_actions(self):
+        visible = {(item[0], item[1]) for item in self.rectangles}
+        for identity in list(self.actions):
+            if identity not in visible:
+                self.actions.pop(identity).destroy()
+        selected = set(self.snapshot.get("selectedPath", []))
+        for kind, index, x, y, width, height, text, reading in self.rectangles:
+            identity = (kind, index)
+            button = self.actions.get(identity)
+            if button is None:
+                button = CandidateAction(lambda source, identity=identity: self.activate(identity, source))
+                self.surface.put(button, int(x), int(y))
+                self.actions[identity] = button
+            self.surface.move(button, int(x), int(y))
+            button.activation_token = (self.snapshot.get("contextId"), self.snapshot.get("generation"),
+                                       self.snapshot.get("selection"))
+            button.set_size_request(max(1, int(width)), max(1, int(height)))
+            name = text if not reading else message("candidate.withReading", text=text, reading=reading)
+            active = index in selected if kind == "node" else index == self.snapshot.get("selection")
+            description = message("candidate.focusedConfirm" if kind == "node" and index == self.snapshot.get("focusedNode")
+                                  else "candidate.confirm")
+            if kind == "select":
+                name = message("candidate.numberConfirm", number=index + 1)
+            button.set_tooltip_text(name)
+            button.update_accessibility(name, selected=active, description=description)
+
+    def activate(self, identity, source):
+        # Removed ATK objects may outlive a candidate update in the AT client.
+        if self.get_visible() and self.actions.get(identity) is source:
+            self.select(*identity, True)
 
     def position(self):
         x, y, _, height = self.location
@@ -233,7 +297,7 @@ class TreePanel(Gtk.Window):
         return False
 
     def click(self, _widget, event):
-        if event.button != 1:
+        if not self.get_visible() or event.button != 1:
             return False
         for kind, index, x, y, width, height, *_ in reversed(self.rectangles):
             if x <= event.x <= x + width and y <= event.y <= y + height:

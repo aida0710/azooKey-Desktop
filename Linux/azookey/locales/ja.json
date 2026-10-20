@@ -1,0 +1,6 @@
+{
+  "candidate.withReading": "{text}（{reading}）",
+  "candidate.confirm": "押すと候補を確定",
+  "candidate.focusedConfirm": "操作対象。押すと候補を確定",
+  "candidate.numberConfirm": "候補 {number} を確定"
+}

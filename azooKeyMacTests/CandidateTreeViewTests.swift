@@ -25,7 +25,8 @@ final class CandidateTreeViewTests: XCTestCase {
         view.update(entries: scored, selectionIndex: 0)
         let selection = try XCTUnwrap(buttons(in: view).first { $0.title == "選択" })
         XCTAssertTrue(selection.toolTip?.contains("相対スコア 69") == true)
-        XCTAssertTrue(selection.accessibilityLabel()?.contains("確率ではありません") == true)
+        XCTAssertEqual(selection.accessibilityLabel(), "選択（センタク）")
+        XCTAssertTrue(selection.accessibilityHelp()?.contains("確率ではありません") == true)
         view.update(entries: entries, selectionIndex: 0)
         XCTAssertFalse(buttons(in: view).contains { $0.toolTip?.contains("相対スコア 69") == true })
     }
@@ -112,6 +113,19 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertEqual(selections, [1])
     }
 
+    func testAccessibleSelectionChangesWithoutTakingKeyboardFocus() throws {
+        let view = CandidateTreeView()
+        view.update(entries: entries, selectionIndex: 0)
+        let original = try XCTUnwrap(buttons(in: view).first { $0.title == "語" })
+        XCTAssertTrue(original.isAccessibilitySelected())
+        XCTAssertFalse(original.acceptsFirstResponder)
+        XCTAssertTrue(view.navigate(.right))
+        XCTAssertTrue(view.navigate(.down))
+        let alternative = try XCTUnwrap(buttons(in: view).first { $0.title == "画" })
+        XCTAssertTrue(alternative.isAccessibilitySelected())
+        XCTAssertFalse(original.isAccessibilitySelected())
+    }
+
     func testStaleAndEmptyCandidatesCannotBeSubmitted() {
         let view = CandidateTreeView()
         var submitted: [Int] = []
@@ -121,6 +135,20 @@ final class CandidateTreeViewTests: XCTestCase {
         view.submit(candidateIndex: 0)
         XCTAssertEqual(submitted, [])
         XCTAssertFalse(view.navigate(.down))
+    }
+
+    func testOldAccessibleActionCannotSubmitNewCandidateWithSameNodeID() throws {
+        let view = CandidateTreeView()
+        var submitted: [Int] = []
+        view.onCandidateSubmitted = { submitted.append($0) }
+        view.update(entries: entries, selectionIndex: 0)
+        let oldButton = try XCTUnwrap(buttons(in: view).first { $0.title == "日本" })
+        view.update(entries: [.init(text: "日本に帰る", tokens: [.init(text: "日本"), .init(text: "に帰る")],
+                                    candidateIndex: 0)], selectionIndex: 0)
+        oldButton.performClick(nil)
+        XCTAssertEqual(submitted, [])
+        buttons(in: view).first { $0.title == "日本" }?.performClick(nil)
+        XCTAssertEqual(submitted, [0])
     }
 
     func testTerminalClickChoosesExactCandidateIncludingDuplicateText() {
