@@ -1,5 +1,6 @@
 """Original key replies keep their order across reconversion's client ACK."""
 import unittest
+from unittest.mock import Mock
 
 from reconversion_fixture import ReconversionFixture
 from azookey.keymap import translate
@@ -146,6 +147,37 @@ class ReconversionNativeReplyTests(ReconversionFixture, unittest.TestCase):
         self.worker.respond(0, {"reconversion": self.plan})
         self.assertEqual(self.replies(), [("reply", HOME, True)])
         self.assertFalse(any(effect[0] == "delete" for effect in self.effects))
+        self.assert_no_forward()
+
+    def test_error_status_failure_still_completes_start_and_buffered_original_calls(self):
+        start = (ord("r"), 27, CONTROL | 1)
+        self.native_key(start)
+        self.native_key(LETTER)
+        self.coordinator.status = Mock(side_effect=OSError("synthetic status failure"))
+        with self.assertLogs("azookey.input_coordinator", level="ERROR"):
+            self.worker.respond(0, {"reconversionError": "replacement_unavailable"})
+        self.assertEqual(self.replies(), [("reply", start, True), ("reply", LETTER, False)])
+        previous = list(self.replies())
+        self.coordinator.cancel()
+        self.inputs.cancel()
+        self.assertEqual(self.replies(), previous)
+        self.assertFalse(self.coordinator.active)
+        self.assert_no_forward()
+
+    def test_focus_change_during_failed_error_status_does_not_deliver_keys_to_the_new_field(self):
+        start = (ord("r"), 27, CONTROL | 1)
+        self.native_key(start)
+        self.native_key(LETTER)
+
+        def changed_status(_text):
+            self.document = None
+            self.coordinator.cancel()
+            raise OSError("synthetic status failure after focus change")
+
+        self.coordinator.status = changed_status
+        with self.assertLogs("azookey.input_coordinator", level="ERROR"):
+            self.worker.respond(0, {"reconversionError": "replacement_unavailable"})
+        self.assertEqual(self.replies(), [("reply", start, True), ("reply", LETTER, True)])
         self.assert_no_forward()
 
     def test_reading_entry_keeps_queued_text_backspace_enter_and_modifiers_local(self):
