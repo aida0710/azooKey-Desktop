@@ -22,6 +22,7 @@ class UserDictionaryFileDialogs:
     def _chooser(self, *, title, action, accept):
         dialog = Gtk.FileChooserDialog(
             title=self._message(title), transient_for=self._parent, action=action, modal=True,
+            destroy_with_parent=True,
         )
         dialog.set_local_only(True)
         dialog.add_button(self._message("cancel"), Gtk.ResponseType.CANCEL)
