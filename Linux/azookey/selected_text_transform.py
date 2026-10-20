@@ -153,23 +153,32 @@ class SelectedTextTransformation:
         self.engine.get_surrounding_text()
         GLib.idle_add(self.context_changed)
 
+    def focus_entered(self):
+        context = self.engine.current_transform_context()
+        # Closing the prompt can pass through IBus's temporary fake context.
+        # Only returning to the original context starts a new target read.
+        if self.pending and context and context.context_id == self.target.input_selection.context_id:
+            self.context_changed()
+
     def context_changed(self):
         if (self.opening_reset_pending and self.engine.focus_revision is not self.opening_focus_revision
                 and self.engine.current_transform_selection() is not None):
             # A different editor was reached before the prompt gained focus.
             # Even matching text is not an acknowledgement from our window.
             return self.reject()
-        if not self.pending or self.verifying:
+        if not self.pending:
             return GLib.SOURCE_REMOVE
-        selection = self.engine.current_transform_selection()
-        if selection is None:
+        context = self.engine.current_transform_context()
+        if context is None:
             return GLib.SOURCE_REMOVE
         # The prompt's last input context can outlive hide() until focus-out is
         # dispatched. Wait for the notification, not a guessed sleep duration.
         if self.engine.focus_revision is self.dismissal_focus_revision:
             return GLib.SOURCE_REMOVE
-        if selection != self.target.input_selection:
+        if not context.matches_original(self.target.input_selection):
             return self.reject()
+        if self.verifying:
+            return GLib.SOURCE_REMOVE
         revision, pending = self.revision, self.pending
         focus_revision = self.engine.focus_revision
         self.verifying = True
@@ -178,11 +187,11 @@ class SelectedTextTransformation:
             if revision is not self.revision or pending is not self.pending:
                 return
             self.verifying = False
-            current = self.engine.current_transform_selection()
+            current = self.engine.current_transform_context()
             if focus_revision is not self.engine.focus_revision:
                 self.reject()
                 return
-            replacement = pending.take(current, accessible)
+            replacement = pending.take_after_focus(current, accessible)
             if replacement is None:
                 self.reject()
                 return
@@ -191,7 +200,9 @@ class SelectedTextTransformation:
             self.close()
             self.engine.commit_text(IBus.Text.new_from_string(replacement))
 
-        self.inspect(selection, verified)
+        # This is a comparison target, never a substitute for current IBus
+        # text. The fresh AT-SPI result must match its original identity/range.
+        self.inspect(self.target.input_selection, verified)
         return GLib.SOURCE_REMOVE
 
     def focus_return_expired(self):

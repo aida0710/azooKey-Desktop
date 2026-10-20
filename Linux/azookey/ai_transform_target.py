@@ -27,6 +27,19 @@ class InputSelection:
 
 
 @dataclass(frozen=True)
+class FocusedInputContext:
+    context_id: tuple
+    selection: InputSelection | None
+    has_surrounding_update: bool
+
+    def matches_original(self, original):
+        # A new message with no selection is a rejection, not a missing update.
+        return self.context_id == original.context_id and (
+            self.selection == original if self.has_surrounding_update else self.selection is None
+        )
+
+
+@dataclass(frozen=True)
 class AccessibleSelection:
     bus_id: str
     identity: tuple
@@ -62,7 +75,16 @@ class PendingTransformation:
         self.replacement = replacement
 
     def take(self, input_selection, accessible_selection):
+        return self._take_if(self.target.matches(input_selection, accessible_selection))
+
+    def take_after_focus(self, context, accessible_selection):
+        return self._take_if(
+            context is not None and context.matches_original(self.target.input_selection)
+            and accessible_selection == self.target.accessible_selection
+        )
+
+    def _take_if(self, matches):
         replacement, self.replacement = self.replacement, None
-        if self.target.matches(input_selection, accessible_selection):
+        if matches:
             return replacement
         return None
