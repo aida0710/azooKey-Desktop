@@ -15,3 +15,4 @@ export AZOOKEY_BRIDGE="$(swift build --package-path Core --show-bin-path)/azooke
 python3 -m unittest discover -s Linux/tests -v
 GDK_BACKEND=x11 xvfb-run -a python3 -m unittest Linux.tests.test_tree_panel Linux.tests.test_candidate_accessibility -v
 dbus-run-session -- xvfb-run -a bash Tools/tests/linux-desktop.sh
+dbus-run-session -- xvfb-run -a env AZOOKEY_IBUS_TEST=Linux/tests/ibus_composition_editing.py bash Tools/tests/linux-desktop.sh

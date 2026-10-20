@@ -96,7 +96,7 @@ public enum InputState: Sendable, Hashable {
                 }
             case .startUnicodeInput:
                 return (.enterUnicodeInputMode, .transition(.unicodeInput("")))
-            case .unknown, .navigation, .backspace, .enter, .escape, .function, .editSegment, .tab, .forget, .transformSelectedText:
+            case .unknown, .navigation, .backspace, .deleteForward, .moveCompositionCursor, .enter, .escape, .function, .editSegment, .tab, .forget, .transformSelectedText:
                 return (.fallthrough, .fallthrough)
             }
         case .attachDiacritic(let diacritic):
@@ -124,11 +124,15 @@ public enum InputState: Sendable, Hashable {
                 return (.insertWithoutMarkedText(diacritic + "\t"), .transition(.none))
             case .startUnicodeInput:
                 return (.insertWithoutMarkedText(diacritic), .transition(.unicodeInput("")))
-            case .unknown, .space, .英数, .navigation, .editSegment, .suggest, .forget, .transformSelectedText:
+            case .unknown, .space, .英数, .navigation, .deleteForward, .moveCompositionCursor, .editSegment, .suggest, .forget, .transformSelectedText:
                 return (.insertWithoutMarkedText(diacritic), .transition(.none))
             }
         case .composing:
             switch userAction {
+            case .moveCompositionCursor(let movement):
+                return (.moveCompositionCursor(movement), .fallthrough)
+            case .deleteForward:
+                return (.removeNextMarkedText, .basedOnBackspace(ifIsEmpty: .none, ifIsNotEmpty: .composing))
             case .input(let string):
                 return (.appendPieceToMarkedText(string), .fallthrough)
             case .number(let number):
@@ -187,6 +191,10 @@ public enum InputState: Sendable, Hashable {
                     return (.editSegment(1), .transition(.selecting))
                 } else if direction == .left && event.modifierFlags.contains(.shift) {
                     return (.editSegment(-1), .transition(.selecting))
+                } else if direction == .left {
+                    return (.moveCompositionCursor(.backward), .fallthrough)
+                } else if direction == .right {
+                    return (.moveCompositionCursor(.forward), .fallthrough)
                 } else {
                     // ナビゲーションはハンドルしてしまう
                     return (.consume, .fallthrough)
@@ -206,6 +214,10 @@ public enum InputState: Sendable, Hashable {
             }
         case .previewing:
             switch userAction {
+            case .moveCompositionCursor(let movement):
+                return (.moveCompositionCursor(movement), .transition(.composing))
+            case .deleteForward:
+                return (.removeNextMarkedText, .basedOnBackspace(ifIsEmpty: .none, ifIsNotEmpty: .composing))
             case .input(let string):
                 return (.commitMarkedTextAndAppendPieceToMarkedText(string), .transition(.composing))
             case .number(let number):
@@ -248,6 +260,10 @@ public enum InputState: Sendable, Hashable {
                     return (.editSegment(1), .transition(.selecting))
                 } else if direction == .left && event.modifierFlags.contains(.shift) {
                     return (.editSegment(-1), .transition(.selecting))
+                } else if direction == .left {
+                    return (.moveCompositionCursor(.backward), .transition(.composing))
+                } else if direction == .right {
+                    return (.moveCompositionCursor(.forward), .transition(.composing))
                 } else {
                     // ナビゲーションはハンドルしてしまう
                     return (.consume, .fallthrough)
@@ -261,6 +277,10 @@ public enum InputState: Sendable, Hashable {
             }
         case .selecting:
             switch userAction {
+            case .moveCompositionCursor(let movement):
+                return (.moveCompositionCursor(movement), .transition(.composing))
+            case .deleteForward:
+                return (.removeNextMarkedText, .basedOnBackspace(ifIsEmpty: .none, ifIsNotEmpty: .composing))
             case .input(let string):
                 let s = string.inputString(preferIntention: true)
                 if s == "d" && enableDebugWindow {
@@ -346,6 +366,10 @@ public enum InputState: Sendable, Hashable {
             }
         case .replaceSuggestion:
             switch userAction {
+            case .moveCompositionCursor(let movement):
+                return (.moveCompositionCursor(movement), .transition(.composing))
+            case .deleteForward:
+                return (.removeNextMarkedText, .basedOnBackspace(ifIsEmpty: .none, ifIsNotEmpty: .composing))
             // 入力があったらcomposingに戻る
             case .input(let string):
                 return (.appendPieceToMarkedText(string), .transition(.composing))
@@ -408,7 +432,7 @@ public enum InputState: Sendable, Hashable {
                 }
             case .escape:
                 return (.cancelUnicodeInput, .transition(.none))
-            case .英数, .かな, .tab, .forget, .function, .navigation, .editSegment, .suggest, .transformSelectedText, .deadKey, .startUnicodeInput, .unknown:
+            case .英数, .かな, .tab, .forget, .function, .navigation, .deleteForward, .moveCompositionCursor, .editSegment, .suggest, .transformSelectedText, .deadKey, .startUnicodeInput, .unknown:
                 return (.consume, .fallthrough)
             }
         }

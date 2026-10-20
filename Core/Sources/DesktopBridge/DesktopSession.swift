@@ -38,6 +38,8 @@ struct DesktopSnapshot: Encodable {
     var settings: DesktopSettings?
     var suggestions: [String]?
     var reading = ""
+    var readingCursor = 0
+    var inputState = "none"
     var prediction: String?
     var pageStart = 0
     var showCandidateIndex = false
@@ -234,7 +236,7 @@ final class DesktopSession: SegmentManagerDelegate {
         generation += 1
         if doubleTap, event.keyCode == 102, !segments.isEmpty {
             var commits: [String] = []
-            commit(segments.getModifiedRomanCandidate { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &commits)
+            commit(segments.getModifiedRomanCandidate(inputState: state) { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &commits)
             language = .english
             state = segments.isEmpty ? .none : .composing
             converter.commitUpdateLearningData()
@@ -267,7 +269,7 @@ final class DesktopSession: SegmentManagerDelegate {
         case .consume: break
         case .fallthrough: result.consumed = false
         case .showCandidateWindow: segments.requestSetCandidateWindowState(visible: true)
-        case .hideCandidateWindow: segments.requestSetCandidateWindowState(visible: false)
+        case .hideCandidateWindow: segments.cancelCandidateSelection()
         case .enterFirstCandidatePreviewMode:
             segments.insertCompositionSeparator(inputStyle: inputStyle, skipUpdate: false)
             segments.requestSetCandidateWindowState(visible: false)
@@ -278,6 +280,7 @@ final class DesktopSession: SegmentManagerDelegate {
         case .appendPieceToMarkedText(let pieces): segments.insertAtCursorPosition(pieces: pieces, inputStyle: inputStyle)
         case .insertWithoutMarkedText(let text): result.commits.append(text)
         case .editSegment(let count): segments.editSegment(count: count)
+        case .moveCompositionCursor(let movement): segments.moveCompositionCursor(movement)
         case .commitMarkedText: result.commits.append(segments.commitMarkedText(inputState: state))
         case .commitMarkedTextAndAppendToMarkedText(let text):
             result.commits.append(segments.commitMarkedText(inputState: state))
@@ -288,6 +291,9 @@ final class DesktopSession: SegmentManagerDelegate {
         case .submitSelectedCandidate: commitSelected(into: &result.commits)
         case .removeLastMarkedText:
             segments.deleteBackwardFromCursorPosition()
+            segments.requestResettingSelection()
+        case .removeNextMarkedText:
+            segments.deleteForwardFromCursorPosition()
             segments.requestResettingSelection()
         case .selectPrevCandidate: segments.requestSelectingPrevCandidate()
         case .selectNextCandidate: segments.requestSelectingNextCandidate()
@@ -305,9 +311,9 @@ final class DesktopSession: SegmentManagerDelegate {
         case .submitHankakuKatakanaCandidate:
             commit(segments.getModifiedRubyCandidate(inputState: state) { $0.toKatakana().applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &result.commits)
         case .submitFullWidthRomanCandidate:
-            commit(segments.getModifiedRomanCandidate { $0.applyingTransform(.fullwidthToHalfwidth, reverse: true) ?? $0 }, into: &result.commits)
+            commit(segments.getModifiedRomanCandidate(inputState: state) { $0.applyingTransform(.fullwidthToHalfwidth, reverse: true) ?? $0 }, into: &result.commits)
         case .submitHalfWidthRomanCandidate:
-            commit(segments.getModifiedRomanCandidate { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &result.commits)
+            commit(segments.getModifiedRomanCandidate(inputState: state) { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &result.commits)
         case .enableDebugWindow: segments.requestDebugWindowMode(enabled: true)
         case .disableDebugWindow: segments.requestDebugWindowMode(enabled: false)
         case .stopComposition: segments.stopComposition()
@@ -367,6 +373,16 @@ final class DesktopSession: SegmentManagerDelegate {
         result.zenzaiLoaded = modelURL.map { converter.zenzStatus == "load \($0.absoluteString)" } ?? false
         result.personalizationConfigured = segments.hasPersonalizationConfiguration
         result.reading = segments.convertTarget
+        result.readingCursor = unicodeScalarOffset(in: result.reading, utf16Offset: segments.readingCursorUTF16Offset)
+        result.inputState = switch state {
+        case .none: "none"
+        case .composing: "composing"
+        case .previewing: "previewing"
+        case .selecting: "selecting"
+        case .replaceSuggestion: "replaceSuggestion"
+        case .unicodeInput: "unicodeInput"
+        case .attachDiacritic: "attachDiacritic"
+        }
         if state == .composing {
             result.prediction = SegmentsManager.preferredPredictionCandidates(
                 typoCorrectionCandidates: segments.requestTypoCorrectionPredictionCandidates(),
@@ -379,10 +395,7 @@ final class DesktopSession: SegmentManagerDelegate {
         } else {
             let marked = segments.getCurrentMarkedText(inputState: state)
             result.preedit = marked.map(\.content).joined()
-            let utf16Position = min(marked.selectionRange.location, result.preedit.utf16.count)
-            // IBus uses Unicode code points; upstream selection offsets are UTF-16.
-            let prefix = String(decoding: Array(result.preedit.utf16.prefix(utf16Position)), as: UTF16.self)
-            result.cursor = prefix.unicodeScalars.count
+            result.cursor = unicodeScalarOffset(in: result.preedit, utf16Offset: marked.selectionRange.location)
         }
         let candidates = currentCandidates
         switch segments.getCurrentCandidateWindow(inputState: state) {
