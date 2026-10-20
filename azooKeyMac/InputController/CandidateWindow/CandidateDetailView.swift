@@ -14,6 +14,8 @@ final class CandidateDetailView: NSScrollView {
     private var displayedText = ""
     private let inset: CGFloat = 8
     static let maximumHeight: CGFloat = 160
+    // Details need a full readable line even when the only candidate is one glyph.
+    nonisolated static let minimumWidth: CGFloat = 320
 
     override init(frame: NSRect) {
         super.init(frame: frame)
