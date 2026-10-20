@@ -52,8 +52,13 @@ let targets: [Target] = [
     ),
     .testTarget(
         name: "CoreTests",
-        dependencies: ["Core"],
+        dependencies: ["Core", "DictionaryLockProbe"],
         swiftSettings: [.interoperabilityMode(.Cxx)]
+    ),
+    // Only the test target launches this helper; the bridge and library do not depend on it.
+    .executableTarget(
+        name: "DictionaryLockProbe",
+        path: "Tests/DictionaryLockProbe"
     )
 ]
 
