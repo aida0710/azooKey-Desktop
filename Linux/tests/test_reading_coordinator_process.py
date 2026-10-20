@@ -275,6 +275,75 @@ class ReadingCoordinatorProcessTests(unittest.TestCase):
         self.flush_candidates()
         self.assertEqual(len([notice for notice in self.notices if notice.code == "candidate_learning_completed"]), 1)
 
+    def test_restarted_candidate_restores_acknowledged_learning_before_displaying_an_actual_batch(self):
+        self.coordinator.focus_out("field", submit=False, token="out", finish=self.finish)
+        self.drain_until(lambda: ("out", True) in self.finished)
+        configured = []
+        self.coordinator.configure_learning("nothing", 1, configured.append)
+        self.drain_until(lambda: configured)
+        self.focus("field")
+        old_batch = self.batch()
+        self.coordinator.reset("field", submit=False, token="reset", finish=self.finish)
+        self.drain_until(lambda: ("reset", True) in self.finished)
+        converter = self.bridges["candidate"]
+        os.kill(converter.process.pid, signal.SIGKILL)
+        converter.process.wait(timeout=WAIT_SECONDS)
+        self.type("nihongo")
+        for _ in range(2):
+            notices = len(self.notices)
+            self.key(0x20)
+            self.drain_until(lambda: len(self.panels) == 2 or len(self.notices) > notices)
+            if len(self.panels) == 2:
+                break
+        self.assertEqual(len(self.panels), 2)
+        batch = self.panels[-1].batch
+        self.assertNotEqual(batch["workerGeneration"], old_batch["workerGeneration"])
+        self.assertEqual(batch["authority"]["settingsRevision"], 1)
+        candidate = next(item for item in batch["candidates"] if item["text"] == "日本語")
+        self.select(batch, candidate)
+        self.key(0xff0d)
+        self.assertEqual(self.inputs[-1].snapshot["commits"], ["日本語"])
+        self.flush_candidates()
+        receipt = next(notice.completion for notice in self.notices if notice.code == "candidate_learning_completed")
+        self.assertFalse(receipt["learningRequested"])
+        self.assertEqual(receipt["candidateID"], candidate["candidateID"])
+        self.assertEqual(sum(operation == "complete" for operation, _ in converter.operations), 1)
+
+    def test_rejected_oversized_focus_cannot_cancel_the_following_same_context_private_focus(self):
+        self.coordinator.focus_out("field", submit=False, token="out", finish=self.finish)
+        self.drain_until(lambda: ("out", True) in self.finished)
+        reader = self.bridges["reading"]
+        original_request = reader.request
+        entered, proceed = threading.Event(), threading.Event()
+        gate_pending = True
+
+        def hold_first_focus(operation, **payload):
+            nonlocal gate_pending
+            if operation == "focus-in" and gate_pending:
+                gate_pending = False
+                entered.set()
+                if not proceed.wait(WAIT_SECONDS):
+                    raise RuntimeError("focus fixture gate expired")
+            return original_request(operation, **payload)
+
+        reader.request = hold_first_focus
+        rejected, reopened = [], []
+        # The actual reading protocol rejects context beyond its 16 KiB limit.
+        self.coordinator.focus_in("field", {"leftContext": "x" * (16 * 1024 + 1),
+                                             "rightContext": "", "privateInput": False}, rejected.append)
+        self.assertTrue(entered.wait(WAIT_SECONDS))
+        try:
+            self.coordinator.focus_out("field", submit=False, token="old-out", finish=self.finish)
+            self.coordinator.focus_in("field", {"leftContext": "", "rightContext": "", "privateInput": True}, reopened.append)
+        finally:
+            proceed.set()
+        self.drain_until(lambda: reopened)
+        self.assertEqual(rejected[0]["error"], "reading_request_limit")
+        self.assertNotIn("error", reopened[0])
+        self.assertEqual(self.type("a")["preedit"], "あ")
+        self.assertEqual(self.inputs[-1].reference, reopened[0]["reference"])
+        self.assertTrue(self.coordinator._contexts["field"].private_input)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -59,6 +59,7 @@ class ReadingCoordinator:
         self._broken = False
         self._generation = None
         self._settings_revision = 0
+        self._confirmed_learning = None
         self._candidate_settings = None
         self._candidate_settings_pending = True
         self._changing_settings = False
@@ -361,9 +362,49 @@ class ReadingCoordinator:
         generation, epoch = self.candidates.transport.identity
         if reply.error or (reply.worker_generation, reply.transport_epoch) != (generation, epoch):
             self._notice(protocol.ReadingNotice(reply.error or "candidate_worker_changed", operation="candidate-settings"))
-        else:
-            self._candidate_settings = reply.settings
+            return
+        settings = reply.settings
+        if self._confirmed_learning is None and settings["settingsRevision"] == self._settings_revision:
+            self._confirmed_learning = settings["learning"]
+        if (settings["settingsRevision"] == self._settings_revision
+                and settings["learning"] == self._confirmed_learning):
+            self._candidate_settings = settings
             self._pump()
+            return
+        if self._confirmed_learning is None or settings["settingsRevision"] >= self._settings_revision:
+            self._notice(protocol.ReadingNotice("candidate_settings_changed", operation="candidate-settings"))
+            return
+        # A replacement process starts at revision zero. Restore only settings
+        # acknowledged by both workers; uncertain completion payloads stay retired.
+        self._candidate_settings_pending = True
+        learning, revision = self._confirmed_learning, self._settings_revision
+        self.candidates.configure_learning(learning, revision, worker_generation=generation,
+                                            callback=lambda response: self._candidate_restored(
+                                                response, learning=learning, revision=revision,
+                                                identity=(generation, epoch)))
+
+    def _candidate_restored(self, reply, *, learning, revision, identity):
+        if self._closed or self._broken:
+            return
+        self._candidate_settings_pending = False
+        error = self._candidate_settings_error(reply, learning=learning, revision=revision, identity=identity)
+        if not error and (learning, revision) != (self._confirmed_learning, self._settings_revision):
+            error = "candidate_settings_changed"
+        if error:
+            self._notice(protocol.ReadingNotice(error, operation="candidate-settings"))
+            return
+        self._candidate_settings = reply.settings
+        self._pump()
+
+    def _candidate_settings_error(self, reply, *, learning, revision, identity=None):
+        if reply.error:
+            return reply.error
+        current = self.candidates.transport.identity
+        if (reply.worker_generation, reply.transport_epoch) != current or identity is not None and identity != current:
+            return "candidate_worker_changed"
+        if reply.settings["settingsRevision"] != revision or reply.settings["learning"] != learning:
+            return "candidate_settings_changed"
+        return None
 
     def _prepare_wanted(self):
         if self._changing_settings:
@@ -467,11 +508,7 @@ class ReadingCoordinator:
     def _configured(self, reply, *, learning, revision, callback):
         if self._closed or self._broken:
             return
-        identity = self.candidates.transport.identity
-        error = reply.error
-        if not error and ((reply.worker_generation, reply.transport_epoch) != identity
-                          or reply.settings["settingsRevision"] != revision or reply.settings["learning"] != learning):
-            error = "candidate_settings_changed"
+        error = self._candidate_settings_error(reply, learning=learning, revision=revision)
         if error:
             # A failed candidate settings response can be ambiguous. Do not allow
             # new input under a guessed agreement between the two processes.
@@ -480,10 +517,12 @@ class ReadingCoordinator:
             return
         self._candidate_settings = reply.settings
         self._enqueue(OwnedReadingOperation("learning-revision", None, {"settingsRevision": revision},
-                                           callback=lambda response: self._settings_finished(response, callback)))
+                                           callback=lambda response: self._settings_finished(response, learning, callback)))
 
-    def _settings_finished(self, response, callback):
+    def _settings_finished(self, response, learning, callback):
         self._changing_settings = False
+        if not response.get("error"):
+            self._confirmed_learning = learning
         self._callback(callback, response)
 
     def _reject(self, operation, error):
@@ -492,7 +531,8 @@ class ReadingCoordinator:
             return
         if operation.operation == "adopt-candidates":
             self.candidates.release(operation.payload["retainedReference"])
-        if operation.operation == "focus-in" and self._planned_focus == operation.context.name:
+        if (operation.operation == "focus-in" and self._planned_focus == operation.context.name
+                and operation.owner is operation.context.planned_owner):
             self._planned_focus = None
         self._notice_for(operation, error, "rejected")
         self._finish(operation, True)
