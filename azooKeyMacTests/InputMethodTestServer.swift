@@ -1,10 +1,12 @@
 import Cocoa
+import CoreFoundation
 import InputMethodKit
 import XCTest
 
 /// Holds the bundle metadata that the production IMKServer initializer reads.
 @MainActor
 struct InputMethodTestServer {
+    private let registeredBundle: CFBundle
     let bundle: Bundle
     let server: IMKServer
 
@@ -27,8 +29,17 @@ struct InputMethodTestServer {
         ]
         let content = try PropertyListSerialization.data(fromPropertyList: properties, format: .xml, options: 0)
         try content.write(to: contentsURL.appendingPathComponent("Info.plist"))
-        bundle = try XCTUnwrap(Bundle(url: bundleURL))
-        _ = try XCTUnwrap(Bundle(identifier: identifier), "InputMethodKit must be able to resolve its bundle")
+        // A metadata-only NSBundle need not be registered for identifier lookup.
+        // Keep its CFBundle alive so IMKServer can find the same metadata by ID.
+        registeredBundle = try XCTUnwrap(CFBundleCreate(kCFAllocatorDefault, bundleURL as CFURL))
+        _ = try XCTUnwrap(
+            CFBundleGetBundleWithIdentifier(identifier as CFString),
+            "Core Foundation must resolve the temporary input-method bundle"
+        )
+        bundle = try XCTUnwrap(
+            Bundle(identifier: identifier),
+            "InputMethodKit must resolve the registered bundle at \(bundleURL.path)"
+        )
         _ = try XCTUnwrap(NSClassFromString(controllerName), "The bundle must name the actual input controller")
         server = try XCTUnwrap(IMKServer(name: connectionName, bundleIdentifier: identifier))
     }

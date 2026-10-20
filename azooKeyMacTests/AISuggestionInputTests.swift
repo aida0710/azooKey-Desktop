@@ -22,7 +22,9 @@ private final class DeferredAIClient {
     }
 
     func waitForRequests(_ count: Int) async {
-        if requests.count >= count { return }
+        if requests.count >= count {
+            return
+        }
         await withCheckedContinuation { waiters.append((count, $0)) }
     }
 
@@ -77,7 +79,7 @@ private final class FakeTextInput: NSObject, IMKTextInput {
 
 @MainActor
 final class AISuggestionInputTests: XCTestCase {
-    private var controller: azooKeyMacInputController!
+    private var controller: InputMethodTestController!
     private var client: FakeTextInput!
     private var sender: DeferredAIClient!
     private var serverFixture: InputMethodTestServer?
@@ -111,11 +113,12 @@ final class AISuggestionInputTests: XCTestCase {
         client = FakeTextInput()
         sender = DeferredAIClient()
         serverFixture = try InputMethodTestServer(
-            directoryURL: directory, controllerClass: azooKeyMacInputController.self
+            directoryURL: directory, controllerClass: InputMethodTestController.self
         )
-        controller = try XCTUnwrap(azooKeyMacInputController(
-            server: serverFixture?.server, delegate: nil, client: client, segmentsManager: manager
+        controller = try XCTUnwrap(InputMethodTestController(
+            server: try XCTUnwrap(serverFixture?.server), client: client, segmentsManager: manager
         ))
+        XCTAssertTrue(controller.client() === client)
         let deferredSender = sender!
         controller.aiSuggestionSession.sendRequest = { request in try await deferredSender.send(request) }
     }
@@ -294,6 +297,45 @@ final class AISuggestionInputTests: XCTestCase {
 
         XCTAssertEqual(controller.inputState, .composing)
         XCTAssertTrue(controller.replaceSuggestionsViewController.candidates.isEmpty)
+        send(.enter)
+        XCTAssertEqual(client.inserted, ["にほんご"])
+    }
+
+    func testChangingClientsWithTheSameSelectionDiscardsAPendingResult() async throws {
+        type("nihongo")
+        let task = try beginRequest()
+        await sender.waitForRequests(1)
+        let otherClient = FakeTextInput()
+        XCTAssertEqual(otherClient.selectedRange(), client.selectedRange())
+        controller.activeClient = otherClient
+        XCTAssertTrue(controller.client() === otherClient)
+        sender.finish(0, with: .success(["別の入力欄への候補"]))
+        await task.value
+
+        XCTAssertTrue(controller.replaceSuggestionsViewController.candidates.isEmpty)
+        XCTAssertTrue(client.inserted.isEmpty)
+        XCTAssertTrue(otherClient.inserted.isEmpty)
+        XCTAssertEqual(client.marked, "にほんご")
+        XCTAssertEqual(otherClient.marked, "")
+        controller.activeClient = client
+        send(.enter)
+        XCTAssertEqual(client.inserted, ["にほんご"])
+        XCTAssertTrue(otherClient.inserted.isEmpty)
+    }
+
+    func testMissingClientCannotSendAPreparedRequestOrDiscardMarkedText() {
+        type("nihongo")
+        controller.requestReplaceSuggestion()
+        XCTAssertNotNil(controller.aiSuggestionConfirmation)
+        controller.activeClient = nil
+        XCTAssertNil(controller.client())
+        XCTAssertNil(controller.confirmReplaceSuggestion())
+        XCTAssertNil(controller.aiSuggestionConfirmation)
+        XCTAssertTrue(sender.capturedRequests.isEmpty)
+        XCTAssertEqual(client.marked, "にほんご")
+        XCTAssertTrue(client.inserted.isEmpty)
+
+        controller.activeClient = client
         send(.enter)
         XCTAssertEqual(client.inserted, ["にほんご"])
     }
