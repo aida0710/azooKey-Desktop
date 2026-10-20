@@ -58,6 +58,10 @@ struct BridgeMain {
         dup2(nullFD, STDERR_FILENO)
         close(nullFD)
         let environment = ProcessInfo.processInfo.environment
+        if environment["AZOOKEY_BRIDGE_ROLE"] == "candidate" {
+            try DesktopCandidateWorker.run(output: output, environment: environment)
+            return
+        }
         let dataPath = environment["AZOOKEY_DATA_DIR"] ??
             (environment["XDG_DATA_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share").path) + "/azookey-tree"
         let memoryDirectoryURL = URL(fileURLWithPath: dataPath, isDirectory: true)
