@@ -100,7 +100,7 @@ class DictionaryExchangeIntegrationTests(unittest.TestCase):
         original = original_entries()[:1]
         settings = self.config / "azookey-tree/settings.json"
         settings.parent.mkdir(parents=True)
-        settings.write_text(json.dumps({"userDictionary": original}), encoding="utf-8")
+        settings.write_text(json.dumps({"userDictionary": {"items": original}}), encoding="utf-8")
         before = settings.read_bytes(), settings.stat().st_ino, settings.stat().st_mtime_ns
         source = self.directory / "import.json"
         self.service.export(original_entries()[1:], destination=source)
