@@ -1,7 +1,7 @@
 import AppKit
+@testable import azooKeyMac
 import Core
 import XCTest
-@testable import azooKeyMac
 
 @MainActor
 final class CandidateTreeViewTests: XCTestCase {
@@ -9,6 +9,10 @@ final class CandidateTreeViewTests: XCTestCase {
         view.subviews.flatMap { child in
             child.isHidden ? [] : ((child as? NSButton).map { [$0] } ?? buttons(in: child))
         }
+    }
+
+    private func candidateButtons(in view: CandidateTreeView) -> [NSButton] {
+        view.subviews.filter { !($0 is CandidateNavigationView) }.flatMap { buttons(in: $0) }
     }
 
     private let entries: [CandidateTree.Entry] = [
@@ -285,7 +289,8 @@ final class CandidateTreeViewTests: XCTestCase {
         let view = CandidateTreeView()
         view.update(entries: entries, selectionIndex: 0)
         view.update(entries: [.init(text: "更新", tokens: [], candidateIndex: 0)], selectionIndex: 0)
-        XCTAssertEqual(buttons(in: view).map(\.title), ["更新"])
+        XCTAssertEqual(candidateButtons(in: view).map(\.title), ["更新"])
+        XCTAssertEqual(buttons(in: view).filter { $0.title == Localization.text("candidate.openList") }.count, 1)
     }
 
     func testDuplicateCandidateNumbersDoNotOverlap() {
@@ -294,7 +299,8 @@ final class CandidateTreeViewTests: XCTestCase {
             .init(text: "同じ", tokens: [], candidateIndex: 0),
             .init(text: "同じ", tokens: [], candidateIndex: 1)
         ], selectionIndex: 1, numbers: [0: "1", 1: "2"])
-        XCTAssertEqual(Set(buttons(in: view).map(\.title)), ["同じ", "2"])
+        XCTAssertEqual(candidateButtons(in: view).map(\.title).sorted(), ["2", "同じ"])
+        XCTAssertEqual(buttons(in: view).filter { $0.title == Localization.text("candidate.openList") }.count, 1)
     }
 
     func testAlternativeClickCommitsItsRealCandidateBeforeItMoves() {
