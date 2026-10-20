@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from azookey.candidate_coordinator import CandidateCoordinator
+from azookey import candidate_protocol as protocol
 from candidate_fixture import CallbackQueue, CandidateBridgeFixture, WAIT_SECONDS, candidate_request, completion_for
 
 
@@ -180,6 +181,102 @@ class CandidateCoordinatorTests(unittest.TestCase):
         self.assertEqual([reply.completion["status"] for reply in receipts], ["completed", "alreadyCompleted"])
         self.assertEqual(len(self.bridge.learning_updates), 1)
         self.assertEqual(sum(operation == "complete" for _, operation, _ in self.bridge.calls), 2)
+
+    def test_completion_capacity_keeps_the_first_receipt_and_rejects_new_learning_before_send(self):
+        first_completion = None
+        for revision in range(1, protocol.MAX_COMPLETIONS_PER_CONTEXT + 1):
+            request, batch = self.adopt(candidate_request(revision=revision))
+            completion = completion_for(batch)
+            if first_completion is None:
+                first_completion = completion
+            receipts = []
+            self.coordinator.complete(completion, authority=request["authority"], callback=receipts.append)
+            self.callbacks.drain(1)
+            self.assertEqual(receipts[0].completion["status"], "completed")
+
+        request, batch = self.adopt(candidate_request(revision=protocol.MAX_COMPLETIONS_PER_CONTEXT + 1))
+        receipts = []
+        before = len(self.bridge.calls)
+        with self.assertRaisesRegex(ValueError, "completion limit"):
+            self.coordinator.complete(completion_for(batch), authority=request["authority"], callback=receipts.append)
+        self.assertEqual(len(self.bridge.calls), before)
+        self.coordinator.complete(first_completion, authority=request["authority"], callback=receipts.append)
+        self.callbacks.drain(1)
+        self.assertEqual(receipts[0].completion["status"], "alreadyCompleted")
+        self.assertEqual(len(self.bridge.learning_updates), protocol.MAX_COMPLETIONS_PER_CONTEXT)
+        self.assertTrue(self.coordinator.release(batch))
+        self.flush()
+
+    def test_rejected_notifications_reserve_their_ids_instead_of_freeing_capacity_for_reuse(self):
+        first_completion = None
+        with patch.object(protocol, "MAX_COMPLETIONS_PER_CONTEXT", 2):
+            for revision in range(2):
+                request, batch = self.adopt(candidate_request(revision=revision + 1, settings=revision))
+                current = {**request["authority"], "settingsRevision": revision + 1}
+                self.coordinator.set_authority(current)
+                completion = completion_for(batch, settings=revision + 1)
+                first_completion = first_completion or completion
+                receipts = []
+                self.coordinator.complete(completion, authority=current, callback=receipts.append)
+                self.callbacks.drain(1)
+                self.assertEqual(receipts[0].error, "stale_candidate_authority")
+                self.coordinator.configure_learning("nothing", revision + 1,
+                                                    worker_generation=batch["workerGeneration"], callback=None)
+                self.flush()
+            request, batch = self.adopt(candidate_request(revision=3, settings=2))
+            before = len(self.bridge.calls)
+            with self.assertRaisesRegex(ValueError, "completion limit"):
+                self.coordinator.complete(completion_for(batch, settings=2),
+                                          authority=request["authority"], callback=None)
+            with self.assertRaisesRegex(ValueError, "commit identity was reused"):
+                changed = {**completion_for(batch, settings=2), "commitID": first_completion["commitID"]}
+                self.coordinator.complete(changed, authority=request["authority"], callback=None)
+            self.assertEqual(len(self.bridge.calls), before)
+            self.assertEqual(self.bridge.learning_updates, [])
+            self.assertTrue(self.coordinator.release(batch))
+            self.flush()
+
+    def test_restart_and_close_end_capacity_without_reauthorizing_retired_candidates(self):
+        with patch.object(protocol, "MAX_COMPLETIONS_PER_CONTEXT", 1):
+            request, batch = self.adopt()
+            first = completion_for(batch)
+            self.coordinator.complete(first, authority=request["authority"], callback=None)
+            self.flush()
+            self.bridge.dead = True
+            self.flush()
+            request, batch = self.adopt(candidate_request(revision=2))
+            with self.assertRaisesRegex(ValueError, "worker changed"):
+                self.coordinator.complete(first, authority=request["authority"], callback=None)
+            second = completion_for(batch)
+            self.coordinator.complete(second, authority=request["authority"], callback=None)
+            self.flush()
+            self.coordinator.close_context("field", "reader-1")
+            self.flush()
+            request, batch = self.adopt(candidate_request(generation="reader-2"))
+            with self.assertRaises(ValueError):
+                self.coordinator.complete(second, authority=request["authority"], callback=None)
+            self.coordinator.complete(completion_for(batch), authority=request["authority"], callback=None)
+            self.flush()
+            self.assertEqual(len(self.bridge.learning_updates), 3)
+            self.assertEqual(sum(operation == "complete" for _, operation, _ in self.bridge.calls), 3)
+
+    def test_context_capacity_rejects_new_owners_without_disturbing_existing_ones(self):
+        requests = [candidate_request(context=f"field-{index}") for index in range(protocol.MAX_CONTEXTS)]
+        for request in requests:
+            self.coordinator.set_authority(request["authority"])
+        overflow = candidate_request(context="overflow")
+        before = len(self.bridge.calls)
+        with self.assertRaisesRegex(ValueError, "context limit"):
+            self.coordinator.request_candidates(overflow, lambda _reply: self.fail("overflow was delivered"))
+        self.assertEqual(len(self.bridge.calls), before)
+        request, batch = self.adopt(requests[0])
+        self.coordinator.close_context(requests[-1]["authority"]["context"], "reader-1")
+        self.flush()
+        self.adopt(overflow)
+        completed = []
+        self.coordinator.complete(completion_for(batch), authority=request["authority"], callback=completed.append)
+        self.flush()
+        self.assertEqual(completed[0].completion["status"], "completed")
 
     def test_lost_completion_ack_is_uncertain_and_never_sent_to_a_restarted_worker(self):
         request, batch = self.adopt()

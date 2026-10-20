@@ -15,6 +15,7 @@ class CandidateCoordinator:
         self._calculations = {}
         self._retained = {}
         self._commits = {}
+        self._known_generation = None
 
     def _owner(self):
         if threading.get_ident() != self._owner_thread:
@@ -29,6 +30,8 @@ class CandidateCoordinator:
         previous = self._current.get(context)
         if previous == authority:
             return
+        if previous is None and len(self._current) >= protocol.MAX_CONTEXTS:
+            raise ValueError("candidate context limit reached")
         if previous is not None:
             if previous["readingProcessGeneration"] != authority["readingProcessGeneration"]:
                 self.close_context(context, previous["readingProcessGeneration"])
@@ -103,7 +106,13 @@ class CandidateCoordinator:
 
     def _forget_old_generations(self):
         generation = self.transport.identity[0]
+        if generation == self._known_generation:
+            return
+        self._known_generation = generation
         self._retained = {key: batch for key, batch in self._retained.items() if key[0] == generation}
+        # A retired generation cannot accept any of these candidate references.
+        # Queued completion payloads keep their own permission and are not replayed.
+        self._commits.clear()
 
     def release(self, reference):
         self._owner()
@@ -127,8 +136,10 @@ class CandidateCoordinator:
     def complete(self, completion, *, authority, callback):
         self._owner()
         completion = protocol.completion_request(completion)
-        key = completion["authority"]["context"], completion["commitID"]
-        previous = self._commits.get(key)
+        self._forget_old_generations()
+        context = completion["authority"]["context"]
+        history = self._commits.get(context, {})
+        previous = history.get(completion["commitID"])
         if completion["workerGeneration"] != self.transport.identity[0]:
             raise ValueError("candidate worker changed before completion")
         if previous is not None:
@@ -136,11 +147,15 @@ class CandidateCoordinator:
                 raise ValueError("candidate commit identity was reused")
         else:
             self._authorize_completion(completion, authority)
+            if len(history) >= protocol.MAX_COMPLETIONS_PER_CONTEXT:
+                raise ValueError("candidate completion limit reached")
         # This permission was granted at the commit point. Later edits/focus or
         # context-close must not cancel this independent learning notification.
         self.transport.submit("complete", {"completion": completion},
                               lambda reply: self._control_finished(callback, reply))
-        self._commits[key] = completion
+        # Failed attempts also reserve their ID: forgetting one would allow a
+        # different payload to reuse it after an ambiguous or rejected receipt.
+        self._commits.setdefault(context, {})[completion["commitID"]] = completion
         self._retained.pop(protocol.reference_key(completion), None)
 
     def _authorize_completion(self, completion, current_authority):
@@ -191,7 +206,7 @@ class CandidateCoordinator:
         payload = {"context": context, "readingProcessGeneration": reading_process_generation,
                    "workerGeneration": self.transport.identity[0]}
         self.transport.submit("close", payload, lambda reply: self._control_finished(callback, reply))
-        self._commits = {key: value for key, value in self._commits.items() if key[0] != context}
+        self._commits.pop(context, None)
 
     def close(self):
         self._owner()

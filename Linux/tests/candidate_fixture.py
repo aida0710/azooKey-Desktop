@@ -150,6 +150,8 @@ class CandidateBridgeFixture:
                 if batch["authority"]["context"] == payload["context"]:
                     self.batches.pop(batch_id)
                     self.retained.discard(batch_id)
+            self.receipts = {key: receipt for key, receipt in self.receipts.items()
+                             if receipt["authority"]["context"] != payload["context"]}
             return self._header()
         if operation == "complete" and source["commitID"] in self.receipts:
             receipt = {**self.receipts[source["commitID"]], "status": "alreadyCompleted"}
