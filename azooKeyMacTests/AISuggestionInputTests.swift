@@ -78,11 +78,12 @@ final class AISuggestionInputTests: XCTestCase {
     private var controller: azooKeyMacInputController!
     private var client: FakeTextInput!
     private var sender: DeferredAIClient!
+    private var server: IMKServer?
     private var directory: URL!
     private var restoreSettings: (() -> Void)!
 
-    override func setUp() {
-        super.setUp()
+    override func setUpWithError() throws {
+        try super.setUpWithError()
         _ = NSApplication.shared
         let oldBackend = Config.AIBackendPreference().value
         let oldContext = Config.IncludeContextInAITransform().value
@@ -105,18 +106,27 @@ final class AISuggestionInputTests: XCTestCase {
         )
         client = FakeTextInput()
         sender = DeferredAIClient()
+        // XCTest has no input-method Info.plist. Supply the controller class
+        // explicitly so IMKInputController receives an initialized server.
+        server = try XCTUnwrap(IMKServer(
+            name: "azookey-tests-\(UUID().uuidString)",
+            controllerClass: azooKeyMacInputController.self, delegateClass: nil
+        ))
         controller = azooKeyMacInputController(
-            server: IMKServer(), delegate: nil, client: client, segmentsManager: manager
+            server: server, delegate: nil, client: client, segmentsManager: manager
         )
         let deferredSender = sender!
         controller.aiSuggestionSession.sendRequest = { request in try await deferredSender.send(request) }
     }
 
     override func tearDown() {
-        controller.cancelReplaceSuggestion()
+        controller?.cancelReplaceSuggestion()
         controller = nil
-        restoreSettings()
-        try? FileManager.default.removeItem(at: directory)
+        server = nil
+        restoreSettings?()
+        if let directory {
+            try? FileManager.default.removeItem(at: directory)
+        }
         super.tearDown()
     }
 
