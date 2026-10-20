@@ -90,7 +90,7 @@ public enum InputState: Sendable, Hashable {
                 }
             case .suggest:
                 if enableSuggestion {
-                    return (.requestPredictiveSuggestion, .transition(.replaceSuggestion))
+                    return (.requestPredictiveSuggestion, .transition(.composing))
                 } else {
                     return (.fallthrough, .fallthrough)
                 }
@@ -195,7 +195,7 @@ public enum InputState: Sendable, Hashable {
                 return (.editSegment(count), .transition(.selecting))
             case .suggest:
                 if enableSuggestion {
-                    return (.requestReplaceSuggestion, .transition(.replaceSuggestion))
+                    return (.requestReplaceSuggestion, .transition(.composing))
                 } else {
                     return (.fallthrough, .fallthrough)
                 }
@@ -349,6 +349,8 @@ public enum InputState: Sendable, Hashable {
             // 入力があったらcomposingに戻る
             case .input(let string):
                 return (.appendPieceToMarkedText(string), .transition(.composing))
+            case .number(let number):
+                return (.appendPieceToMarkedText([number.inputPiece]), .transition(.composing))
             case .space:
                 return (.selectNextReplaceSuggestionCandidate, .fallthrough)
             case .navigation(let direction):
@@ -360,7 +362,7 @@ public enum InputState: Sendable, Hashable {
                     return (.consume, .fallthrough)
                 }
             case .suggest:
-                return (.requestReplaceSuggestion, .fallthrough)
+                return (.requestReplaceSuggestion, .transition(.composing))
             case .enter:
                 return (.submitReplaceSuggestionCandidate, .transition(.none))
             case .backspace, .escape:
@@ -373,7 +375,7 @@ public enum InputState: Sendable, Hashable {
                 return (.consume, .fallthrough)
             case .startUnicodeInput:
                 return (.hideReplaceSuggestionWindow, .transition(.unicodeInput("")))
-            case .unknown, .function, .number, .editSegment, .transformSelectedText, .deadKey:
+            case .unknown, .function, .editSegment, .transformSelectedText, .deadKey:
                 return (.fallthrough, .fallthrough)
             }
         case .unicodeInput(let codePoint):

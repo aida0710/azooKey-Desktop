@@ -44,6 +44,7 @@ let targets: [Target] = [
             .product(name: "Crypto", package: "swift-crypto"),
             .product(name: "ZIPFoundation", package: "ZIPFoundation")
         ],
+        resources: [.process("Resources")],
         swiftSettings: [.interoperabilityMode(.Cxx)],
         plugins: [
             .plugin(name: "GitInfoPlugin")
@@ -58,6 +59,7 @@ let targets: [Target] = [
 
 let package = Package(
     name: "Core",
+    defaultLocalization: "ja",
     platforms: [.macOS(.v13)],
     products: products,
     traits: coreTraits,
