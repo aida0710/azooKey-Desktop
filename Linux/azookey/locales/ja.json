@@ -1,0 +1,20 @@
+{
+  "settings.invalid_value": "設定項目「{field}」の型または値を確認してください。",
+  "settings.unknown_key": "未対応の設定項目「{field}」があります。",
+  "settings.invalid_json": "JSONの構文を確認してください（{line}行目、{column}列目）。",
+  "settings.read_failed": "設定ファイルを読み取れません。ファイルの権限と種類を確認してください。",
+  "settings.changed": "別の操作で設定ファイルが変わりました。設定画面を開き直してください。",
+  "settings.recovery_required": "設定ファイルの復旧が必要です。設定画面で元ファイルを保全してから復旧してください。",
+  "settings.busy": "別の画面が設定を保存しています。少し待ってもう一度保存してください。",
+  "settings.engine_rejected": "変換器が設定を適用できませんでした。カスタム入力表などを確認してください。",
+  "settings.input_continues": "設定を読み込めないため、正常な設定で入力を続けます。設定画面で確認してください。",
+  "settings.recovery_title": "設定ファイルを復旧できます",
+  "settings.recovery_detail": "{reason}\n対象: {path}\n現在は正常な設定を使っています。復旧時は元ファイルを別名で残します。",
+  "settings.restore_current": "正常な設定で復旧",
+  "settings.restore_defaults": "入力・表示を既定に戻して復旧",
+  "settings.restore_question": "元ファイルを保全して設定を復旧しますか？",
+  "settings.restore_explanation": "辞書、学習データ、個人化モデル、APIキーは削除しません。AI設定と学習方法も保持します。",
+  "settings.restored": "設定を復旧しました。元ファイル: {backup}",
+  "settings.saved": "保存しました。次の入力から反映します。",
+  "settings.backup_warning": "設定は保存しましたが、正常版の控えを保存できませんでした。設定フォルダーの権限を確認してください。"
+}
