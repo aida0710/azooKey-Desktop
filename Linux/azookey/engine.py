@@ -1,4 +1,3 @@
-import json
 import pathlib
 import subprocess
 import threading
@@ -14,7 +13,9 @@ from .input_coordinator import InputCoordinator
 from .keymap import translate
 from .tree_panel import TreePanel
 from .preedit_anchor import PreeditAnchor
-from .settings import config_path, read_key
+from .settings import read_key
+from .settings_store import SettingsStore
+from .i18n import text
 from .shell_surface import surface
 from .prompts import PromptHistory, matches
 from .prompt_dialog import PromptDialog
@@ -41,6 +42,8 @@ class Engine(IBus.Engine):
         self.settings = {}
         self.settings_stamp = None
         self.pending_settings_stamp = None
+        self.settings_store = SettingsStore()
+        self.settings_problem_stamp = None
         self.selected_text = ""
         self.left = ""
         self.right = ""
@@ -64,21 +67,39 @@ class Engine(IBus.Engine):
             if not any(pending.operation == "settings" for pending in self.input.pending):
                 self.input.submit("settings", completion=self.load_settings)
             return
-        path = config_path()
-        if path.is_file():
-            stamp = path.stat().st_mtime_ns
-            if stamp not in (self.settings_stamp, self.pending_settings_stamp) and self.settings:
-                settings = {**self.settings, **json.loads(path.read_text())}
-                self.pending_settings_stamp = stamp
+        loaded = self.settings_store.load(self.settings)
+        if loaded.problem:
+            self.notify_settings_problem(loaded.problem)
+            return
+        self.settings_problem_stamp = None
+        if loaded.stamp is None or loaded.stamp in (self.settings_stamp, self.pending_settings_stamp):
+            return
+        self.pending_settings_stamp = loaded.stamp
 
-                def configured(snapshot):
-                    self.pending_settings_stamp = None
-                    if not snapshot.get("error"):
-                        self.settings = settings
-                        self.input.settings = settings
-                        self.settings_stamp = stamp
+        def configured(snapshot):
+            self.pending_settings_stamp = None
+            if snapshot.get("error"):
+                self.settings_store.reject(loaded)
+                self.notify_settings_problem(self.settings_store.load(self.settings).problem)
+                return
+            self.settings = loaded.values
+            self.input.settings = loaded.values
+            self.settings_stamp = loaded.stamp
 
-                self.input.submit("configure", payload={"settings": settings}, completion=configured)
+        self.input.submit(
+            "configure", payload={"settings": loaded.values}, completion=configured,
+            persist=lambda: self.settings_store.remember(loaded.values),
+        )
+
+    def notify_settings_problem(self, problem):
+        # The user may have repaired the file while Core rejected an older
+        # queued version. In that case there is no current problem to show.
+        if problem is None:
+            return
+        if problem.stamp != self.settings_problem_stamp:
+            self.settings_problem_stamp = problem.stamp
+            notification = text("settings.input_continues")
+            self.update_auxiliary_text(IBus.Text.new_from_string(notification), True)
 
     def request(self, operation, *, original_key=None, **values):
         if self.destroyed or self.private:
@@ -286,7 +307,8 @@ class Engine(IBus.Engine):
         selected = snapshot.get("selection")
         annotation = next((c.get("annotation", "") for c in snapshot.get("candidates", []) if c["index"] == selected), "")
         auxiliary = f"Tab: {prediction}" if prediction else annotation or ""
-        self.update_auxiliary_text(IBus.Text.new_from_string(auxiliary), bool(auxiliary))
+        if self.settings_problem_stamp is None:
+            self.update_auxiliary_text(IBus.Text.new_from_string(auxiliary), bool(auxiliary))
         self.table.clear()
         for candidate in snapshot.get("candidates", []):
             self.table.append_candidate(IBus.Text.new_from_string(candidate["text"]))
