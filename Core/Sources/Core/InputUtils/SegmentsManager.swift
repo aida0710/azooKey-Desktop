@@ -776,6 +776,7 @@ public final class SegmentsManager {
         }
         var text: [Element]
 
+        /// macOSのsetMarkedTextと同じUTF-16単位。未指定時は.notFound。
         public var selectionRange: NSRange
 
         public init(text: [Element], selectionRange: NSRange) {
@@ -1191,7 +1192,7 @@ public final class SegmentsManager {
                         .init(content: candidates[self.selectionIndex!].text, focus: .focused),
                         .init(content: afterComposingText.convertTarget, focus: .unfocused)
                     ],
-                    selectionRange: NSRange(location: candidates[self.selectionIndex!].text.count, length: 0)
+                    selectionRange: NSRange(location: candidates[self.selectionIndex!].text.utf16.count, length: 0)
                 )
             } else {
                 return MarkedText(text: [.init(content: self.composingText.convertTarget, focus: .none)], selectionRange: .notFound)
@@ -1202,7 +1203,7 @@ public final class SegmentsManager {
                replaceSuggestions.indices.contains(index) {
                 return MarkedText(
                     text: [.init(content: replaceSuggestions[index].text, focus: .focused)],
-                    selectionRange: NSRange(location: replaceSuggestions[index].text.count, length: 0)
+                    selectionRange: NSRange(location: replaceSuggestions[index].text.utf16.count, length: 0)
                 )
             } else {
                 return MarkedText(
@@ -1215,7 +1216,7 @@ public final class SegmentsManager {
             let displayText = "U+" + codePoint
             return MarkedText(
                 text: [.init(content: displayText, focus: .none)],
-                selectionRange: NSRange(location: displayText.count, length: 0)
+                selectionRange: NSRange(location: displayText.utf16.count, length: 0)
             )
         }
     }

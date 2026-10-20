@@ -379,10 +379,7 @@ final class DesktopSession: SegmentManagerDelegate {
         } else {
             let marked = segments.getCurrentMarkedText(inputState: state)
             result.preedit = marked.map(\.content).joined()
-            let utf16Position = min(marked.selectionRange.location, result.preedit.utf16.count)
-            // IBus uses Unicode code points; upstream selection offsets are UTF-16.
-            let prefix = String(decoding: Array(result.preedit.utf16.prefix(utf16Position)), as: UTF16.self)
-            result.cursor = prefix.unicodeScalars.count
+            result.cursor = unicodeScalarOffset(in: result.preedit, utf16Offset: marked.selectionRange.location)
         }
         let candidates = currentCandidates
         switch segments.getCurrentCandidateWindow(inputState: state) {
