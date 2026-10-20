@@ -4,6 +4,8 @@
 
 設定画面は変換器が保持する正常値で開き、原因と対象パスを表示する。「正常な設定で復旧」と「入力・表示を既定に戻して復旧」を選べる。復旧前に元のファイルを`settings.recovered-日時-識別子.json`へ移し、書き込みに失敗したら元の場所へ戻す。通常の「保存」とAI確認画面からの部分更新は、破損した原本を上書きしない。
 
+復旧確認はGTKのresponse signalで受け取り、同期AT操作の中で別のmain loopを開始しない。同時に開く確認は1つで、連打や別の復旧ボタンでは最初の選択を維持する。Escape・取消・確認の破棄・親画面の終了は保存を行わず、承認された現在の確認だけが一度復旧を実行する。保存に失敗した場合は、原本と復旧操作を残して再度確認できる。
+
 「入力・表示を既定に戻す」の対象は候補表示、入力配列、句読点、スペース、推論回数などに限る。ユーザー辞書、カスタム入力表、学習方法、個人化の設定、プロファイル、AIの接続先と送信範囲は維持する。学習データと個人化モデルのファイルを削除する操作や、キーリングへの書き込みは行わない。
 
 ## 保存の共通処理
@@ -36,3 +38,7 @@ AZOOKEY_BRIDGE=/path/to/bridge AZOOKEY_IBUS_TEST=Linux/tests/ibus_settings_integ
 ```
 
 権限000の実ファイル試験は一般ユーザーのVMで実行する。rootのコンテナでは読み取り禁止を再現できないため、その1条件は省く。GTK画面とIBus経路を検証した範囲であり、Orcaによる読み上げ、arm64、配布パッケージの各デスクトップ環境での確認は別に行う。
+
+復旧確認の回帰は`test_settings_window.py`で実dialogと実Swift bridgeを使う。`Tools/tests/linux-dictionary-dialogs.sh`は独立Xvfb/session/AT busで、実ATによる正常設定/既定値の復旧開始、実Escape取消、その後の明示承認と原本・辞書・学習設定の保持を検査する。AT listenerが実Controlキーを受け取ったことを先に確認し、応答や成功をfixtureから注入しない。既存の辞書chooser2条件も同じ共有AT harnessで維持する。これは人によるOrca音声評価や配布パッケージの再受入を代替しない。
+
+GTK公式の[`Dialog.run`](https://docs.gtk.org/gtk3/method.Dialog.run.html)は再帰main loopで待機し、[`response`](https://docs.gtk.org/gtk3/signal.Dialog.response.html)はボタン操作やdelete eventを通知する。この公開API境界を使ってAT dispatchへの再入を避ける。

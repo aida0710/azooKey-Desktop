@@ -103,6 +103,7 @@ class SettingsWindowTests(unittest.TestCase):
                 self.assertEqual(self.path.read_text(), document)
 
     def test_explicit_default_recovery_preserves_dictionary_and_never_calls_keyring_save(self):
+        from gi.repository import Gtk
         from azookey.settings_store import SettingsRecoveryRequired
         original = b"{ synthetic invalid JSON"
         self.path.write_bytes(original)
@@ -112,8 +113,10 @@ class SettingsWindowTests(unittest.TestCase):
                 window.apply_settings(window.values)
             bridge.assert_not_called()
         self.assertEqual(self.path.read_bytes(), original)
-        with patch("azookey.settings.confirm_restore", return_value=True), patch("azookey.settings.save_key") as keyring:
+        with patch("azookey.settings.save_key") as keyring:
             window.restore_settings(True)
+            self.assertEqual(self.path.read_bytes(), original)
+            window.recovery_dialog.response(Gtk.ResponseType.OK)
         keyring.assert_not_called()
         self.assertFalse(window.recovery_bar.get_visible())
         self.assertTrue(window.widgets["live"].get_active())
@@ -130,18 +133,90 @@ class SettingsWindowTests(unittest.TestCase):
         self.assertFalse(json.loads(self.path.read_text())["live"])
 
     def test_recovery_cancel_and_save_failure_keep_original(self):
+        from gi.repository import Gtk
         self.path.write_bytes(b"{ original")
         window = self.window()
-        with patch("azookey.settings.confirm_restore", return_value=False):
-            window.restore_settings(False)
+        window.restore_settings(False)
+        window.recovery_dialog.response(Gtk.ResponseType.CANCEL)
         self.assertEqual(self.path.read_bytes(), b"{ original")
-        with patch("azookey.settings.confirm_restore", return_value=True), \
-                patch.object(window.settings_store, "save_with_backend", side_effect=OSError("synthetic disk full")):
+        with patch.object(window.settings_store, "save_with_backend", side_effect=OSError("synthetic disk full")):
             window.restore_settings(True)
+            window.recovery_dialog.response(Gtk.ResponseType.OK)
         self.assertEqual(self.path.read_bytes(), b"{ original")
         self.assertTrue(window.recovery_bar.get_visible())
         self.assertIn("synthetic disk full", window.message.get_text())
         self.assertFalse(window.bridge.request("settings")["settings"]["live"])
+        window.restore_settings(False)
+        window.recovery_dialog.response(Gtk.ResponseType.OK)
+        self.assertFalse(window.recovery_bar.get_visible())
+        self.assertFalse(json.loads(self.path.read_text())["live"])
+
+    def test_repeated_restore_keeps_first_confirmation_and_applies_only_once(self):
+        from gi.repository import Gtk
+        self.path.write_bytes(b"{ original")
+        window = self.window()
+        window.restore_settings(False)
+        dialog = window.recovery_dialog
+        window.restore_settings(True)
+        self.assertIs(window.recovery_dialog, dialog)
+        self.assertEqual(self.path.read_bytes(), b"{ original")
+        with patch.object(window, "apply_settings", wraps=window.apply_settings) as apply:
+            dialog.response(Gtk.ResponseType.OK)
+            dialog.response(Gtk.ResponseType.OK)
+            window.restore_settings(True)
+        apply.assert_called_once()
+        self.assertFalse(json.loads(self.path.read_text())["live"], "The first request kept current settings")
+        self.assertIsNone(window.recovery_dialog)
+        self.assertEqual(len(list(self.path.parent.glob("settings.recovered-*"))), 1)
+
+    def test_dismissed_confirmation_cannot_authorize_a_later_restore(self):
+        from gi.repository import Gtk
+        self.path.write_bytes(b"{ original")
+        window = self.window()
+        window.restore_settings(True)
+        dismissed = window.recovery_dialog
+        dismissed.response(Gtk.ResponseType.DELETE_EVENT)
+        window.restore_settings(False)
+        current = window.recovery_dialog
+        self.assertIsNot(current, dismissed)
+        with patch.object(window, "apply_settings", wraps=window.apply_settings) as apply:
+            dismissed.response(Gtk.ResponseType.OK)
+            self.assertIs(window.recovery_dialog, current)
+            current.destroy()
+        apply.assert_not_called()
+        self.assertIsNone(window.recovery_dialog)
+        self.assertEqual(self.path.read_bytes(), b"{ original")
+        self.assertFalse(list(self.path.parent.glob("settings.recovered-*")))
+
+    def test_destroying_parent_cancels_confirmation_without_saving(self):
+        from gi.repository import Gtk
+        self.path.write_bytes(b"{ original")
+        window = self.window()
+        window.restore_settings(True)
+        dialog = window.recovery_dialog
+        self.assertTrue(dialog.get_destroy_with_parent())
+        with patch.object(window, "apply_settings", wraps=window.apply_settings) as apply:
+            window.destroy()
+            dialog.response(Gtk.ResponseType.OK)
+            window.restore_settings(True)
+        apply.assert_not_called()
+        self.assertIsNone(window.recovery_dialog)
+        self.assertFalse(dialog.get_visible())
+        self.assertEqual(self.path.read_bytes(), b"{ original")
+        self.assertFalse(list(self.path.parent.glob("settings.recovered-*")))
+
+    def test_parent_closed_during_confirmation_retirement_does_not_apply_settings(self):
+        from gi.repository import Gtk
+        self.path.write_bytes(b"{ original")
+        window = self.window()
+        window.restore_settings(True)
+        dialog = window.recovery_dialog
+        dialog.connect("destroy", lambda _dialog: window.destroy())
+        with patch.object(window, "apply_settings", wraps=window.apply_settings) as apply:
+            dialog.response(Gtk.ResponseType.OK)
+        apply.assert_not_called()
+        self.assertTrue(window.closed)
+        self.assertEqual(self.path.read_bytes(), b"{ original")
 
     def test_concurrent_save_leaves_latest_file_and_shows_conflict(self):
         window = self.window()
