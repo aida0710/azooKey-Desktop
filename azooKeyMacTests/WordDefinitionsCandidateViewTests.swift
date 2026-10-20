@@ -106,6 +106,34 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         }
     }
 
+    func testScaledSummaryKeepsWholeLinesWithinBoundsWithoutShrinkingTheCandidateFont() throws {
+        let fixture = Fixture()
+        let view = fixture.view()
+        view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
+        fixture.completions[0]("現在の語の説明")
+        let label = try summary(in: view)
+        for fontSize: CGFloat in [18, 24] {
+            label.update(target: fixture.model.target, result: fixture.model.result, fontSize: fontSize)
+            let preferredHeight = label.preferredHeight
+            for height in [CGFloat.zero, 20, preferredHeight / 2, preferredHeight] {
+                label.frame = NSRect(x: 0, y: 0, width: 320, height: height)
+                label.layoutSubtreeIfNeeded()
+                let visible = descendants(label).compactMap { $0 as? NSTextField }.filter { !$0.isHidden }
+                XCTAssertTrue(visible.allSatisfy { label.bounds.contains($0.frame) })
+                XCTAssertTrue(visible.filter { $0.font?.pointSize != 12 }.allSatisfy { $0.font?.pointSize == fontSize })
+                if height == preferredHeight / 2 {
+                    XCTAssertEqual(visible.count, 1)
+                    XCTAssertTrue(try XCTUnwrap(visible.first).stringValue.contains("現在の語の説明"))
+                } else if height == preferredHeight {
+                    XCTAssertEqual(visible.count, 3)
+                } else {
+                    XCTAssertTrue(visible.isEmpty)
+                }
+                XCTAssertTrue(label.detailDescription.contains("現在の語の説明"))
+            }
+        }
+    }
+
     private func summary(in view: NSView) throws -> WordDefinitionsSummaryView {
         try XCTUnwrap(view.subviews.first { $0.accessibilityIdentifier() == "candidate-definition-summary" } as? WordDefinitionsSummaryView)
     }

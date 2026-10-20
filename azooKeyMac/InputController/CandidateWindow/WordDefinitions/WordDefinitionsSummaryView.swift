@@ -15,6 +15,7 @@ final class WordDefinitionsSummaryView: NSView {
     private let maximumSourceWidthRatio: CGFloat = 0.4
     private var fontSize: CGFloat = 18
     private(set) var detailDescription = ""
+    private var previewText = ""
 
     var preferredHeight: CGFloat { ceil(fontSize * lineHeightScale) * rowCount + inset * 2 }
 
@@ -43,16 +44,17 @@ final class WordDefinitionsSummaryView: NSView {
         source.setAccessibilityHelp(Localization.text("candidate.definition.detailsHint"))
         setAccessibilityHelp(Localization.text("candidate.definition.readingNote"))
         switch result {
-        case .definition(let definition)?: summary.stringValue = definition.components(separatedBy: .newlines).joined(separator: " ")
-        case .notFound?: summary.stringValue = Localization.text("candidate.definition.notFound")
-        case .loading?: summary.stringValue = Localization.text("candidate.definition.loading")
-        case nil: summary.stringValue = ""
+        case .definition(let definition)?: previewText = definition.components(separatedBy: .newlines).joined(separator: " ")
+        case .notFound?: previewText = Localization.text("candidate.definition.notFound")
+        case .loading?: previewText = Localization.text("candidate.definition.loading")
+        case nil: previewText = ""
         }
+        summary.stringValue = previewText
         let fullText: String
         if case .definition(let definition)? = result {
             fullText = definition
         } else {
-            fullText = summary.stringValue
+            fullText = previewText
         }
         detailDescription = target == nil ? "" : [title.stringValue, Localization.text("candidate.definition.source"),
                                                   Localization.text("candidate.definition.readingNote"), fullText].joined(separator: "\n")
@@ -68,12 +70,33 @@ final class WordDefinitionsSummaryView: NSView {
     override func layout() {
         super.layout()
         let lineHeight = ceil(fontSize * lineHeightScale)
-        let width = max(1, bounds.width - inset * 2)
+        let horizontalInset = min(inset, max(0, bounds.width / 2))
+        let width = max(0, bounds.width - horizontalInset * 2)
+        let visibleRows = min(rowCount, floor(max(0, bounds.height) / lineHeight))
+        title.isHidden = visibleRows < rowCount
+        source.isHidden = title.isHidden
+        summary.isHidden = visibleRows == 0 || width == 0
+        guard !summary.isHidden else {
+            title.isHidden = true
+            source.isHidden = true
+            for label in [title, source, summary] { label.frame = .zero }
+            return
+        }
+        // The candidate window may scale this region. Use fewer whole lines,
+        // rather than shrinking fonts or drawing beyond the allocated region.
+        let verticalInset = min(inset, max(0, (bounds.height - lineHeight * visibleRows) / 2))
+        summary.stringValue = title.isHidden ? [title.stringValue, previewText].joined(separator: " · ") : previewText
+        summary.frame = NSRect(x: horizontalInset, y: verticalInset, width: width, height: lineHeight)
+        guard !title.isHidden else {
+            title.frame = .zero
+            source.frame = .zero
+            return
+        }
         let sourceWidth = min(source.intrinsicContentSize.width, width * maximumSourceWidthRatio)
         let sourceHeight = min(source.intrinsicContentSize.height, lineHeight)
-        summary.frame = NSRect(x: inset, y: inset, width: width, height: lineHeight)
-        title.frame = NSRect(x: inset, y: summary.frame.maxY, width: max(1, width - sourceWidth - inset), height: lineHeight)
-        source.frame = NSRect(x: bounds.width - inset - sourceWidth, y: title.frame.midY - sourceHeight / 2,
+        let titleWidth = max(0, width - sourceWidth - inset)
+        title.frame = NSRect(x: horizontalInset, y: summary.frame.maxY, width: titleWidth, height: lineHeight)
+        source.frame = NSRect(x: horizontalInset + width - sourceWidth, y: title.frame.midY - sourceHeight / 2,
                               width: sourceWidth, height: sourceHeight)
     }
 }
