@@ -106,10 +106,10 @@ private func treeToken(_ text: String, _ reading: String = "") -> CandidateTree.
 
 @Test func candidateTreeSplitsKanaFallbackUsingRealReadingBoundaries() {
     let tree = CandidateTree(entries: [
-        .init(text: "このように候補", tokens: [treeToken("このように", "コノヨウニ"), treeToken("候補", "コウホ")], candidateIndex: 0),
-        .init(text: "コノヨウニコウホ", tokens: [treeToken("コノヨウニコウホ", "コノヨウニコウホ")], candidateIndex: 1),
-        .init(text: "このようにこうほ", tokens: [treeToken("このようにこうほ", "コノヨウニコウホ")], candidateIndex: 2),
-        .init(text: "学習済み文", tokens: [treeToken("学習済み文", "コノヨウニコウホ")], candidateIndex: 3)
+        .init(text: "このように候補", tokens: [treeToken("このように", "コノヨウニ"), treeToken("候補", "コウホ")], candidateIndex: 0, comparisonGroup: 16),
+        .init(text: "コノヨウニコウホ", tokens: [treeToken("コノヨウニコウホ", "コノヨウニコウホ")], candidateIndex: 1, comparisonGroup: 16),
+        .init(text: "このようにこうほ", tokens: [treeToken("このようにこうほ", "コノヨウニコウホ")], candidateIndex: 2, comparisonGroup: 16),
+        .init(text: "学習済み文", tokens: [treeToken("学習済み文", "コノヨウニコウホ")], candidateIndex: 3, comparisonGroup: 16)
     ])
     #expect(tree.paths[1]!.map { tree.nodes[$0].token.text } == ["コノヨウニ", "コウホ"])
     #expect(tree.paths[2]!.map { tree.nodes[$0].token.text } == ["このように", "こうほ"])
@@ -123,11 +123,51 @@ private func treeToken(_ text: String, _ reading: String = "") -> CandidateTree.
 @Test func candidateTreeKeepsCanonicalEquivalentKanaIntact() {
     for (reading, text) in [("カ\u{3099}", "ガナ"), ("ガ", "カ\u{3099}ナ")] {
         let tree = CandidateTree(entries: [
-            .init(text: "画名", tokens: [treeToken("画", reading), treeToken("名", "ナ")], candidateIndex: 0),
-            .init(text: text, tokens: [treeToken(text, text)], candidateIndex: 1)
+            .init(text: "画名", tokens: [treeToken("画", reading), treeToken("名", "ナ")], candidateIndex: 0, comparisonGroup: 4),
+            .init(text: text, tokens: [treeToken(text, text)], candidateIndex: 1, comparisonGroup: 4)
         ])
         #expect(tree.paths[1]!.map { tree.nodes[$0].token.text }.joined().unicodeScalars.elementsEqual(text.unicodeScalars))
     }
+}
+
+@Test func candidateTreeKeepsTheExactScalarsOfEachCandidateAndReading() {
+    let tree = CandidateTree(entries: [
+        .init(text: "é", tokens: [treeToken("é", "カ\u{3099}")], candidateIndex: 0),
+        .init(text: "e\u{301}", tokens: [treeToken("e\u{301}", "カ\u{3099}")], candidateIndex: 1),
+        .init(text: "é", tokens: [treeToken("é", "ガ")], candidateIndex: 2)
+    ])
+    #expect(tree.roots.count == 3)
+    for index in 0..<3 {
+        let entry = tree.entry(candidateIndex: index)!
+        let path = tree.paths[index]!
+        #expect(path.map { tree.nodes[$0].token.text }.joined().unicodeScalars.elementsEqual(entry.text.unicodeScalars))
+        #expect(tree.nodes[path[0]].token.reading.unicodeScalars.elementsEqual(entry.tokens[0].reading.unicodeScalars))
+        #expect(tree.preferredCandidate(at: path[0], preserving: index) == index)
+    }
+}
+
+@Test func candidateTreeUsesTheCommittedScalarsWhenAnalysisIsOnlyCanonicallyEquivalent() {
+    let text = "e\u{301}入力"
+    let tree = CandidateTree(entries: [
+        .init(text: text, tokens: [treeToken("é", "エ"), treeToken("入力", "ニュウリョク")], candidateIndex: 0)
+    ])
+    #expect(tree.paths[0]?.count == 1)
+    #expect(tree.nodes[0].token.text.unicodeScalars.elementsEqual(text.unicodeScalars))
+}
+
+@Test func candidateTreeDoesNotReuseKanaBoundariesWithDifferentOrUnknownConsumedInput() {
+    let tree = CandidateTree(entries: [
+        .init(text: "画名", tokens: [treeToken("画", "ガ"), treeToken("名", "ナ")], candidateIndex: 0, comparisonGroup: 4),
+        .init(text: "がな", tokens: [treeToken("がな", "ガナ")], candidateIndex: 1, comparisonGroup: 3),
+        .init(text: "ガナ", tokens: [treeToken("ガナ", "ガナ")], candidateIndex: 2)
+    ])
+    #expect(tree.paths[1]?.count == 1)
+    #expect(tree.paths[2]?.count == 1)
+    let unknown = CandidateTree(entries: [
+        .init(text: "画名", tokens: [treeToken("画", "ガ"), treeToken("名", "ナ")], candidateIndex: 0),
+        .init(text: "がな", tokens: [treeToken("がな", "ガナ")], candidateIndex: 1)
+    ])
+    #expect(unknown.paths[1]?.count == 1)
 }
 
 @Test func candidateTreeCompactColumnsKeepRealSelectedPathAndBoundAlternatives() {
