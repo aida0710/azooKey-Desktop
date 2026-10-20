@@ -30,3 +30,5 @@
 "reconversion.stale_request" = "入力先が変わりました。もう一度やり直してください";
 "reconversion.composition_active" = "入力中の文字を確定してから再変換してください";
 "reconversion.whole_selection_required" = "再変換では選択した語全体を対象にしてください";
+"ai.preview.target-changed" = "元の入力欄や選択範囲を確認できないため、適用しませんでした。結果をコピーして貼り付けてください。";
+"ai.preview.copy" = "結果をコピー";

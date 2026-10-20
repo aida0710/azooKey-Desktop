@@ -30,3 +30,5 @@
 "reconversion.stale_request" = "The input context changed. Try again";
 "reconversion.composition_active" = "Finish the current composition before reconverting";
 "reconversion.whole_selection_required" = "Reconversion must cover the entire selected word";
+"ai.preview.target-changed" = "The original field or selection could not be verified, so the result was not applied. Copy the result and paste it where needed.";
+"ai.preview.copy" = "Copy result";
