@@ -26,6 +26,9 @@ class KeymapTests(unittest.TestCase):
         self.assertEqual(translate(0xFF57, 0)["keyCode"], 0x77)
         self.assertEqual(translate(0xFFFF, 0)["keyCode"], 0x75)
 
+    def test_keypad_enter_reaches_the_core_enter_action(self):
+        self.assertEqual(translate(0xFF8D, 0)["keyCode"], 0x4C)
+
     def test_encoded_fullwidth_unicode_is_text_not_a_function_key(self):
         self.assertEqual(translate(0x0100FF21, 0)["characters"], "Ａ")
         self.assertEqual(translate(0x0100FF76, 0)["characters"], "ｶ")
