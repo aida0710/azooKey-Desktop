@@ -4,12 +4,13 @@ from dataclasses import dataclass, field
 
 from . import candidate_protocol as candidates
 from . import worker_settings
+from .reading_candidate_view import validate_view
 
 
 REFERENCE_FIELDS = frozenset(("context", "readingProcessGeneration", "focusEpoch"))
 RESPONSE_FIELDS = frozenset((
     "kind", "readingProcessGeneration", "settingsRevision", "reference",
-    "nextReference", "snapshot", "candidateRequest", "candidateReference", "limits", "error",
+    "nextReference", "snapshot", "candidateRequest", "candidateReference", "candidateView", "limits", "error",
 )) | worker_settings.ACKNOWLEDGEMENT_FIELDS | worker_settings.DEFAULTS_FIELDS
 INPUT_OPERATIONS = frozenset(("key", "select", "reset", "focus-out"))
 RESPONSE_KINDS = {"hello": "process", "prepare-candidates": "candidates",
@@ -31,6 +32,7 @@ class ReadingInput:
     token: object = field(repr=False)
     reference: dict
     snapshot: dict = field(repr=False)
+    candidate_view: dict | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,7 @@ class ReadingCandidates:
     context: str
     reference: dict
     batch: dict = field(repr=False)
+    candidate_view: dict = field(repr=False)
 
 
 @dataclass(frozen=True)
@@ -134,6 +137,9 @@ def response(value, operation, payload):
         if kind == "input":
             permitted.add("snapshot")
             snapshot(value.get("snapshot"), current)
+            if "candidateView" in value:
+                permitted.add("candidateView")
+                validate_view(value["candidateView"], expected_reference=current, snapshot=value["snapshot"])
         if operation == "focus-out":
             permitted.add("nextReference")
             following = reference(value.get("nextReference"))
@@ -150,9 +156,12 @@ def response(value, operation, payload):
                     or authority["settingsRevision"] != value["settingsRevision"]):
                 raise ValueError("reading candidate request changed owner")
         if operation == "adopt-candidates":
-            permitted.add("candidateReference")
+            permitted.update(("candidateReference", "candidateView"))
             if candidates.reference(value.get("candidateReference")) != payload["retainedReference"]:
                 raise ValueError("reading adopted another candidate reference")
+            view = validate_view(value.get("candidateView"), expected_reference=current, batch=payload["batch"])
+            if view.get("selection") is not None:
+                raise ValueError("candidate arrival selected an input candidate")
     if set(value) != permitted:
         raise ValueError("reading response contains unrelated effects")
     return deepcopy(value)

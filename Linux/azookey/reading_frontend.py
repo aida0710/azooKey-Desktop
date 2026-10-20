@@ -37,6 +37,7 @@ class ReadingFrontend:
         self.reference = None
         self.snapshot = {}
         self.batch = None
+        self.candidate_view = None
         self.pending = set()
         self.surroundings = {"leftContext": "", "rightContext": "", "privateInput": False}
         self.coordinator = self._start_coordinator()
@@ -80,7 +81,7 @@ class ReadingFrontend:
         self.focused = False
         self.focus = object()
         retired_focus = self.focus
-        self.snapshot, self.batch, self.reference = {}, None, None
+        self.snapshot, self.batch, self.reference, self.candidate_view = {}, None, None, None
         if not self.blocked:
             self._control("focus-out")
         if self.focus is retired_focus:
@@ -91,7 +92,7 @@ class ReadingFrontend:
             return
         self.focus = object()
         reset_focus = self.focus
-        self.snapshot, self.batch = {}, None
+        self.snapshot, self.batch, self.candidate_view = {}, None, None
         # Reset is an explicit client cancellation. IBus already owns any
         # focus-out submission; neither this clear nor a later ACK commits it.
         if self.blocked:
@@ -191,7 +192,8 @@ class ReadingFrontend:
         if (self.batch is not None and (not snapshot.get("preedit")
                 or self.batch["authority"]["compositionRevision"] != snapshot["compositionRevision"])):
             self.batch = None
-        self.render_candidates(self.snapshot, self.batch)
+        self.candidate_view = deepcopy(value.candidate_view)
+        self.render_candidates(self.snapshot, self.candidate_view)
         return True
 
     def _publish_candidates(self, value):
@@ -202,10 +204,11 @@ class ReadingFrontend:
             return False
         # Candidate arrival updates no input text and completes no native key.
         focus = self.focus
-        self.render_candidates(self.snapshot, batch)
+        self.render_candidates(self.snapshot, value.candidate_view)
         if self.closed or not self.focused or self.focus is not focus:
             return False
         self.batch = deepcopy(batch)
+        self.candidate_view = deepcopy(value.candidate_view)
         return True
 
     def _finish(self, owner, consumed):

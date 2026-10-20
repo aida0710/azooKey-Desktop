@@ -5,6 +5,7 @@ import unittest
 
 from azookey.reading_frontend import ReadingFrontend
 from azookey.reading_protocol import ReadingCandidates, ReadingInput, ReadingNotice
+from reading_candidate_view_fixture import candidate_view
 
 
 class ManualReadingCoordinator:
@@ -37,8 +38,9 @@ class ManualReadingCoordinator:
     def focus_out(self, context, **ownership):
         self.operations.append(SimpleNamespace(operation="focus-out", reference=deepcopy(self.reference), **ownership))
 
-    def deliver(self, operation, snapshot):
-        return self.callbacks["publish_input"](ReadingInput(self.context, operation.token, operation.reference, snapshot))
+    def deliver(self, operation, snapshot, view=None):
+        return self.callbacks["publish_input"](ReadingInput(
+            self.context, operation.token, operation.reference, snapshot, candidate_view=view))
 
     def finish(self, operation, consumed=True):
         operation.finish(operation.token, consumed)
@@ -102,11 +104,12 @@ class ReadingFrontendTests(unittest.TestCase):
 
     def candidates(self, *, revision=1, reference=None):
         reference = reference or self.frontend.reference
-        return ReadingCandidates(self.frontend.context, deepcopy(reference), {
+        batch = {
             "authority": {**reference, "compositionRevision": revision, "settingsRevision": 0, "requestID": "request"},
             "workerGeneration": "converter", "batchID": "batch",
             "candidates": [{"candidateID": "real-id", "text": "亜"}],
-        })
+        }
+        return ReadingCandidates(self.frontend.context, deepcopy(reference), batch, candidate_view=candidate_view(batch))
 
     def test_input_effects_precede_the_original_reply_and_finish_only_once(self):
         operation = self.key()
@@ -124,8 +127,36 @@ class ReadingFrontendTests(unittest.TestCase):
         self.effects.clear()
         value = self.candidates()
         self.assertTrue(self.frontend._publish_candidates(value))
-        self.assertEqual(self.effects, [("candidates", self.frontend.snapshot, value.batch)])
+        self.assertEqual(self.effects, [("candidates", self.frontend.snapshot, value.candidate_view)])
         self.assertEqual(self.frontend.snapshot["preedit"], "あ")
+        self.assertEqual(self.frontend.batch, value.batch)
+        self.assertEqual(self.frontend.candidate_view, value.candidate_view)
+
+    def test_a_formal_selection_publishes_its_view_before_finishing_the_original_key(self):
+        self.publish_reading()
+        value = self.candidates()
+        self.frontend._publish_candidates(value)
+        self.effects.clear()
+        operation = self.key()
+        snapshot = {**reading_snapshot(), "inputState": "selecting", "selection": 0}
+        view = candidate_view(value.batch, selection=0, show_indices=True)
+        self.coordinator.deliver(operation, snapshot, view)
+        self.coordinator.finish(operation)
+        self.assertEqual([effect[0] for effect in self.effects], ["input", "candidates", "reply"])
+        self.assertEqual(self.effects[1][2], view)
+        self.assertEqual(self.frontend.candidate_view, view)
+
+    def test_a_retired_view_is_cleared_without_changing_an_input_reply(self):
+        self.publish_reading()
+        value = self.candidates()
+        self.frontend._publish_candidates(value)
+        self.effects.clear()
+        operation = self.key()
+        self.coordinator.deliver(operation, reading_snapshot())
+        self.coordinator.finish(operation)
+        self.assertIsNone(self.frontend.candidate_view)
+        self.assertEqual(self.effects[-2], ("candidates", self.frontend.snapshot, None))
+        self.assertEqual(self.effects[-1], ("reply", True))
 
     def test_new_formal_input_retires_an_older_candidate_view(self):
         self.publish_reading()

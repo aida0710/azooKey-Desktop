@@ -144,9 +144,9 @@ class ReadingEngine(IBus.Engine):
             IBus.Text.new_from_string(preedit), snapshot.get("cursor", 0), bool(preedit), focus_mode,
         )
 
-    def render_candidates(self, snapshot, batch):
+    def render_candidates(self, snapshot, candidate_view):
         self.table.clear()
-        candidates = batch["candidates"] if batch else []
+        candidates = candidate_view["candidates"] if candidate_view else []
         for candidate in candidates:
             self.table.append_candidate(IBus.Text.new_from_string(candidate["text"]))
         for index in range(CANDIDATE_PAGE_SIZE):

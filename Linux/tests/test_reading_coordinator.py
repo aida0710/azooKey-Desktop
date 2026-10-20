@@ -101,6 +101,37 @@ class ReadingCoordinatorTests(unittest.TestCase):
         self.drain_until(lambda: self.panels)
         self.assertEqual(len(self.inputs), input_count)
         self.assertEqual(self.panels[0].batch["authority"]["focusEpoch"], self.inputs[-1].reference["focusEpoch"])
+        self.assertEqual(self.panels[0].candidate_view["candidateReference"]["batchID"], self.panels[0].batch["batchID"])
+        self.assertTrue(all(publication.candidate_view is None for publication in self.inputs))
+
+    def test_formal_selection_carries_the_retained_view_before_its_original_reply(self):
+        batch = self.batch()
+        self.select(batch)
+        selected = self.inputs[-1]
+        self.assertEqual(selected.candidate_view["selection"], 0)
+        self.assertEqual(selected.candidate_view["candidates"][0]["candidateID"], batch["candidates"][0]["candidateID"])
+        self.assertEqual(selected.candidate_view["candidateReference"]["batchID"], batch["batchID"])
+        self.assertEqual(self.sequence[-2:], [("input", selected.token), ("finish", selected.token)])
+        self.key("", 36)
+        self.assertIsNone(self.inputs[-1].candidate_view)
+        self.assertIsNone(self.coordinator._contexts["field"].candidate_view)
+
+    def test_an_unretained_view_cannot_apply_input_or_leave_the_original_reply_pending(self):
+        batch = self.batch()
+        before = len(self.inputs)
+
+        def replace_batch(operation, response):
+            if operation == "select":
+                response["candidateView"]["candidateReference"]["batchID"] = "not-retained"
+            return response
+
+        self.reader.rewrite = replace_batch
+        self.select(batch)
+        self.assertTrue(self.coordinator._broken)
+        self.assertEqual(len(self.inputs), before)
+        self.assertEqual(self.notices[-1].code, "reading_candidate_view_changed")
+        self.assertEqual(self.notices[-1].phase, "not-applied")
+        self.assertEqual(len(self.finished), len(self.inputs) + 1)
 
     def test_candidate_wait_does_not_hold_reading_enter_or_native_release(self):
         gate = self.converter.gate("candidates")
