@@ -85,9 +85,11 @@ function snapshot({generation = 2, selection = 1, numbers = true, contextId = 's
     return {contextId, generation, selection, inputState: 'selecting',
         focusedNode: 1, selectedPath: [], showCandidateIndex: numbers, pageStart,
         columns: [[0], [1]], candidates,
-        nodes: [{id: 0, depth: 0, parent: null, text: '日本語', reading: 'ニホンゴ', terminals: [0], previewDescription: partial},
+        nodes: [{id: 0, depth: 0, parent: null, text: '日本語', reading: 'ニホンゴ', terminals: [0],
+                preview: {candidateIndex: selection}, previewDescription: selection ? full : partial},
             {id: 1, depth: 1, parent: 0, text: '入力', reading: 'ニュウリョク',
-                terminals: Array.from({length: 26}, (_, index) => index + 1), previewDescription: full}],
+                terminals: Array.from({length: 26}, (_, index) => index + 1),
+                preview: {candidateIndex: selection || 1}, previewDescription: full}],
         candidatePage: {totalCount: 27, start: pageStart, position: selection + 1,
             previousIndex: pageStart ? pageStart - 9 : null,
             nextIndex: pageStart >= 18 ? null : pageStart + 9, items}};
@@ -103,31 +105,31 @@ extension._treeExpanded = true;
 extension._render(snapshot({generation: 1}));
 const firstNode = extension._buttons.get(nodeIdentity);
 hover(firstNode, true);
-equal(extension._details.label.text.includes(partial), true);
+equal(extension._details.label.text.startsWith('日本語\n'), true);
 equal(firstNode.get_accessible().do_action(), true);
 extension._render(snapshot());
 drainActions();
 equal(submitted, []);
-equal(extension._details.label.text.includes(partial), true);
+equal(extension._details.label.text.startsWith('日本語\n'), true);
 const replacementNode = extension._buttons.get(nodeIdentity);
 equal(firstNode === replacementNode, false);
 hover(firstNode, false);
-equal(extension._details.label.text.includes(partial), true);
+equal(extension._details.label.text.startsWith('日本語\n'), true);
 hover(replacementNode, false);
 showsSelectedDetails();
 print('GNOME tree: stationary hover survives selection, old AT/leave are rejected, current leave restores selection PASS');
 
 hover(replacementNode, true);
 extension._render(snapshot({selection: 10}));
-equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
-equal(extension._details.label.text.includes(partial), true);
+equal(extension._buttons.get(nodeIdentity)._numberBadge.text, '2');
+equal(extension._details.label.text.startsWith('日本語\n'), true);
 extension._render(snapshot());
 const numberedNode = extension._buttons.get(nodeIdentity);
-equal(numberedNode._numberBadge.text, '1');
+equal(numberedNode._numberBadge.text, '2');
 equal(numberedNode._numberBadge.reactive, false);
 equal(numberedNode._numberBadge.can_focus, false);
 equal(numberedNode.height >= 44, true);
-equal(numberedNode.accessible_name.includes(messages.numberBadge(1)), true);
+equal(numberedNode.accessible_name.includes(messages.numberBadge(2)), true);
 equal([...extension._buttons.keys()].some(identity => JSON.parse(identity)[0] === 'select'), false);
 numberedNode.get_accessible().do_action();
 drainActions();
@@ -292,7 +294,7 @@ equal(submitted, []);
 print('GNOME progressive tree: selecting a word reveals its alternatives and Suspend rejects its old AT action PASS');
 
 extension._hideCandidates();
-const liveBranches = {...branches, inputState: 'composing', focusedNode: 0};
+const liveBranches = {...branches, inputState: 'composing', showCandidateIndex: false, focusedNode: 0};
 extension._render(liveBranches);
 equal(extension._treeScroll.visible, true);
 equal(extension._buttons.has(JSON.stringify(['node', 2])), true);
@@ -359,7 +361,42 @@ print('GNOME enlarged block: 24px at 100%/200% reserves measured sentence, numbe
 
 submitted.length = 0;
 extension._hideCandidates();
-const composing = {...snapshot({selection: 0}), inputState: 'composing', preedit: 'にほんご', reading: 'にほんご'};
+const sharedWord = {...snapshot({selection: 1, numbers: false}), inputState: 'composing'};
+extension._render(sharedWord);
+const sharedNode = extension._buttons.get(nodeIdentity);
+equal(sharedWord.nodes[0].terminals, [0]);
+equal(sharedWord.nodes[0].preview.candidateIndex, 1);
+equal(sharedNode._numberBadge.text, '2');
+equal(sharedNode.accessible_name.includes(messages.numberBadge(2)), true);
+sharedNode.get_accessible().do_action();
+drainActions();
+equal(submitted, [['Select', 'node', 0, false, 2, 'synthetic-field']]);
+equal(extension._navigation.actor.visible, false);
+equal([...extension._buttons.keys()].every(identity => JSON.parse(identity)[0] === 'node'), true);
+for (const inputState of ['previewing', 'replaceSuggestion']) {
+    extension._render({...sharedWord, inputState});
+    extension._treeExpanded = true;
+    extension._render({...sharedWord, inputState});
+    equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
+}
+const outsidePage = snapshot({selection: 10});
+outsidePage.nodes[0].preview.candidateIndex = 0;
+extension._render({...outsidePage, inputState: 'composing', showCandidateIndex: false});
+equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
+for (const preview of [null, {}, {candidateIndex: '1'}, {candidateIndex: -1}, {candidateIndex: 1.5}]) {
+    const unavailable = {...sharedWord, nodes: sharedWord.nodes.map(node => node.id === 0 ? {...node, preview} : node)};
+    extension._render(unavailable);
+    equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
+}
+const unavailableCandidate = {...sharedWord, pageStart: 999,
+    nodes: sharedWord.nodes.map(node => node.id === 0 ? {...node, preview: {candidateIndex: 999}} : node)};
+extension._render(unavailableCandidate);
+equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
+print('GNOME reference numbers: shared partial word shows preferred preview 2; live permits no numeric action, AI/previewing and unavailable previews stay unnumbered PASS');
+
+submitted.length = 0;
+extension._hideCandidates();
+const composing = {...snapshot({selection: 0, numbers: false}), inputState: 'composing', preedit: 'にほんご', reading: 'にほんご'};
 extension._render(composing);
 equal(extension._composition.actor.visible, false);
 equal(extension._composition._confirm, null);

@@ -156,6 +156,8 @@ export default class AzooKeyTreeExtension extends Extension {
         this._details.applyPalette(palette);
         const nodes = data.nodes ?? [];
         const presentationMode = ['selecting', 'previewing', 'replaceSuggestion'].includes(data.inputState) ? 'menu' : 'live';
+        // Live badges identify the preview; only showCandidateIndex advertises physical number keys.
+        const showNodeNumbers = data.inputState === 'composing' || data.showCandidateIndex === true;
         const candidateIdentity = JSON.stringify([data.contextId, data.reading, data.candidates,
             nodes.map(({relativeScore, scorePresentation, preview, previewDescription, ...node}) => node)]);
         if (candidateIdentity !== this._candidateIdentity || presentationMode !== this._presentationMode) {
@@ -210,7 +212,7 @@ export default class AzooKeyTreeExtension extends Extension {
             return dimensions;
         };
         const numberFontSize = Math.max(12, fontSize - 8);
-        const badgeHeight = data.showCandidateIndex ? measureText('9', numberFontSize).height : 0;
+        const badgeHeight = showNodeNumbers ? measureText('9', numberFontSize).height : 0;
         const rowHeight = Math.max(MINIMUM_NODE_HEIGHT,
             measureText('あg', fontSize).height + badgeHeight + NODE_BORDER_WIDTH * 2);
         const scoreHeight = data.showRelativeScores ? SCORE_LINE_HEIGHT : 0;
@@ -331,12 +333,14 @@ export default class AzooKeyTreeExtension extends Extension {
             widget.set_size(frame.width, frame.height);
             this._canvas.set_child_above_sibling(widget, null);
         };
+        const candidateIndices = new Set((data.candidates ?? []).map(candidate => candidate.index));
         for (const [id, frame] of frames) {
             const node = byId.get(id);
             const presentation = data.showRelativeScores ? node.scorePresentation : null;
-            const index = node.terminals.includes(data.selection) ? data.selection : node.terminals[0];
+            const index = node.preview?.candidateIndex;
             const pageNumber = index - (data.pageStart ?? 0) + 1;
-            const number = data.showCandidateIndex && pageNumber >= 1 && pageNumber <= 9 ? pageNumber : null;
+            const number = showNodeNumbers && Number.isInteger(index) && index >= 0 && candidateIndices.has(index) &&
+                pageNumber >= 1 && pageNumber <= 9 ? pageNumber : null;
             const accessibleName = [node.text, node.reading, number === null ? null : messages.numberBadge(number)]
                 .filter(Boolean).join('\n');
             const description = [id === data.focusedNode ? messages.focusedSelect : messages.select,
