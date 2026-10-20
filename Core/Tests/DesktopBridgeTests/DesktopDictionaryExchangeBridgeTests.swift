@@ -39,7 +39,7 @@ struct DesktopDictionaryExchangeBridgeTests {
         #expect(roundtrip.rows.first?.item?.nonNullHint.isEmpty == true)
     }
 
-    @Test("未対応の版や文字コードと読めないファイルは内容を含まない理由だけ返す")
+    @Test("未対応の版と読めないファイルは内容を含まない理由だけ返す")
     func importFailuresNeverExposeFileContentOrPaths() throws {
         let fixture = try DesktopDictionaryBridgeFixture()
         let source = fixture.rootURL.appendingPathComponent("PRIVATE_SOURCE.json")
