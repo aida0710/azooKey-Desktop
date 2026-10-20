@@ -38,6 +38,7 @@ class SettingsWindow(Gtk.Window):
         loaded = self.settings_store.load(self.values)
         self.values = loaded.values
         self.settings_stamp = loaded.stamp
+        self.backend_recovery_pending = False
         self.recovery_bar = None
         self.widgets = {}
         self.closed = False
@@ -139,13 +140,18 @@ class SettingsWindow(Gtk.Window):
         values = validate_settings(values)
 
         def apply_staged(staged):
+            if self.backend_recovery_pending:
+                self.restore_backend_settings()
             reply = self.bridge.request("configure", settings=values)
             if reply.get("error"):
                 raise ValueError(message("settings.engine_rejected"))
             try:
                 staged.replace(self.settings_store.path)
-            except OSError:
-                self.bridge.request("configure", settings=self.values)
+            except OSError as publication_error:
+                try:
+                    self.restore_backend_settings()
+                except RuntimeError as recovery_error:
+                    raise recovery_error from publication_error
                 raise
 
         # Check conflicts and hold the writer lock before mutating Core.
@@ -155,6 +161,18 @@ class SettingsWindow(Gtk.Window):
         self.values = saved.values
         self.settings_stamp = saved.stamp
         return saved
+
+    def restore_backend_settings(self):
+        # Until Core confirms the old values, another save must not compound
+        # an interrupted publication with a second unverified configuration.
+        self.backend_recovery_pending = True
+        try:
+            reply = self.bridge.request("configure", settings=self.values)
+            if reply.get("error"):
+                raise ValueError(message("settings.engine_rejected"))
+        except (ValueError, OSError, RuntimeError) as error:
+            raise RuntimeError(message("settings.backend_recovery_failed")) from error
+        self.backend_recovery_pending = False
 
     def reset_learning(self, _button):
         dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,

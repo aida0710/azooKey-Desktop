@@ -74,6 +74,8 @@ def _read(path, defaults):
         document = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_keys)
     except json.JSONDecodeError as error:
         raise ValueError(text("settings.invalid_json", line=error.lineno, column=error.colno)) from error
+    except RecursionError as error:
+        raise ValueError(text("settings.invalid_structure")) from error
     except (OSError, UnicodeError) as error:
         raise ValueError(text("settings.read_failed")) from error
     return validate_settings(document, defaults=defaults)
@@ -115,12 +117,12 @@ class SettingsStore:
         if stamp is None:
             return SettingsLoad(copy.deepcopy(known_good), None)
         if stamp != self.cached_stamp:
-            self.cached_stamp = stamp
             try:
                 values = _read(self.path, known_good)
-                self.cached = SettingsLoad(values, stamp)
+                loaded = SettingsLoad(values, stamp)
             except ValueError as error:
-                self.cached = SettingsLoad({}, stamp, SettingsProblem(str(error), stamp))
+                loaded = SettingsLoad({}, stamp, SettingsProblem(str(error), stamp))
+            self.cached, self.cached_stamp = loaded, stamp
         if self.cached.problem:
             # A later successful configure may have changed known_good while
             # the same broken file remains. Never pin an older fallback.

@@ -48,6 +48,13 @@ class SettingsValidationTests(unittest.TestCase):
     def test_extended_graphemes_use_the_same_profile_limit_as_core(self):
         self.assertEqual(validate_settings({"profile": "か\u3099" * 4096})["profile"], "か\u3099" * 4096)
 
+    def test_recursive_values_are_rejected_before_copying(self):
+        cyclic = []
+        cyclic.append(cyclic)
+        for field in ("profile", "userDictionary", "transformShortcut"):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_settings({field: cyclic}, defaults=known_settings())
+
     def test_duplicate_dictionary_id_is_rejected_without_mutating_original(self):
         values = known_settings()
         values["userDictionary"]["items"] *= 2
@@ -110,6 +117,19 @@ class SettingsStoreTests(unittest.TestCase):
         loaded = self.store.load(self.values)
         self.assertIsNotNone(loaded.problem)
         self.assertEqual(loaded.values, self.values)
+
+    def test_deeply_invalid_document_remains_recoverable_on_repeated_reads_and_repair(self):
+        original = '{"profile":' + "[" * 1200 + "0" + "]" * 1200 + "}"
+        self.path.write_text(original)
+        for _ in range(3):
+            loaded = self.store.load(self.values)
+            self.assertEqual(loaded.values, self.values)
+            self.assertIsNotNone(loaded.problem)
+        self.assertEqual(self.path.read_text(), original)
+        self.write({**self.values, "live": True})
+        repaired = self.store.load(self.values)
+        self.assertTrue(repaired.values["live"])
+        self.assertIsNone(repaired.problem)
 
     def test_repaired_file_applies_on_next_load_without_restart(self):
         self.path.write_text("{")
