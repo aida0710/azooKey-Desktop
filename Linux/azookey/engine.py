@@ -499,12 +499,16 @@ class Engine(IBus.Engine):
         self.ai_pending = False
         if self.destroyed:
             return GLib.SOURCE_REMOVE
-        if bridge_generation != self.input.generation or focus_epoch is not self.input.cancelled:
+        if bridge_generation != self.input.generation:
             if completion:
                 completion(None)
             return GLib.SOURCE_REMOVE
         if completion:
-            completion(texts[0] if texts else None)
+            # A selected-text preview has its own lifetime and request revision.
+            # Lost input focus removes apply permission, not its copyable result.
+            completion(texts[0] if texts else None, input_context_unchanged=focus_epoch is self.input.cancelled)
+            return GLib.SOURCE_REMOVE
+        if focus_epoch is not self.input.cancelled:
             return GLib.SOURCE_REMOVE
         if not texts:
             self.update_auxiliary_text(IBus.Text.new_from_string("AI変換に失敗しました。接続設定を確認してください。"), True)
