@@ -505,6 +505,17 @@ class Engine(IBus.Engine):
                       else IBus.PreeditFocusMode.COMMIT)
         self.update_preedit_text_with_mode(IBus.Text.new_from_string(preedit), snapshot.get("cursor", 0),
                                           bool(preedit), focus_mode)
+        snapshot = self.render_candidates(snapshot)
+        if snapshot.get("request") in ("replace", "predict", "prompt"):
+            if snapshot["request"] == "prompt" and self.selected_text:
+                self.prompt()
+            else:
+                if self.settings.get("aiEnabled") and not self.sensitive:
+                    scope = self.make_ai_scope(snapshot.get("reading") or "つづき")
+                    self.ai_review.show(scope, snapshot, self.panel.location)
+
+    def render_candidates(self, snapshot):
+        """Redraw candidates without resending input effects outside a key reply."""
         snapshot = self.positioned_snapshot(snapshot)
         prediction = snapshot.get("prediction", "")
         selected = snapshot.get("selection")
@@ -535,13 +546,7 @@ class Engine(IBus.Engine):
             self.lookup_announcements.reset()
             self.hide_lookup_table()
             self.panel.update(snapshot)
-        if snapshot.get("request") in ("replace", "predict", "prompt"):
-            if snapshot["request"] == "prompt" and self.selected_text:
-                self.prompt()
-            else:
-                if self.settings.get("aiEnabled") and not self.sensitive:
-                    scope = self.make_ai_scope(snapshot.get("reading") or "つづき")
-                    self.ai_review.show(scope, snapshot, self.panel.location)
+        return snapshot
 
     def start_ai(self, snapshot, scope, *, prompt=None, completion=None):
         if self.ai_pending or self.sensitive or not self.settings.get("aiEnabled"):
