@@ -49,12 +49,14 @@ async function decision(options = {}, context = pushContext) {
 }
 
 test('a push without an open PR runs all checks', async () => {
-    const outcome = await decision();
-    assert.equal(outcome.run, true);
-    assert.deepEqual(outcome.calls, [{
-        operation: 'list',
-        parameters: { owner: 'example', repo: 'input-method', state: 'open', head: 'example:codex/topic', per_page: 100 }
-    }]);
+    for (const listed of [[], [pullRequest({ state: 'closed' })]]) {
+        const outcome = await decision({ listed });
+        assert.equal(outcome.run, true);
+        assert.deepEqual(outcome.calls, [{
+            operation: 'list',
+            parameters: { owner: 'example', repo: 'input-method', state: 'open', head: 'example:codex/topic', per_page: 100 }
+        }]);
+    }
 });
 
 test('a confirmed mergeable PR for the exact same pushed head replaces push checks', async () => {
@@ -68,7 +70,8 @@ test('PR, tag and manual events always run checks without querying other PRs', a
     for (const context of [
         { ...pushContext, eventName: 'pull_request', ref: 'refs/pull/42/merge' },
         { ...pushContext, ref: 'refs/tags/codex/topic' },
-        { ...pushContext, eventName: 'workflow_dispatch' }
+        { ...pushContext, eventName: 'workflow_dispatch' },
+        { ...pushContext, eventName: 'workflow_dispatch', ref: 'refs/tags/codex/topic' }
     ]) {
         const outcome = await decision({ listed: [pullRequest()] }, context);
         assert.equal(outcome.run, true);
@@ -80,6 +83,7 @@ test('another fork, branch or commit cannot suppress the pushed head', async () 
     const source = pullRequest().head;
     for (const head of [
         { ...source, repo: { full_name: 'contributor/input-method' } },
+        { ...source, repo: { full_name: 'example/another-input-method' } },
         { ...source, ref: 'codex/other' },
         { ...source, sha: 'b'.repeat(40) },
         { ...source, repo: null }
