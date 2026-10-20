@@ -202,6 +202,26 @@ class SettingsWindowTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), original)
         editor.cancel_button.clicked()
 
+    def test_dictionary_save_reports_backup_failure_after_persisting_the_new_dictionary(self):
+        from azookey import settings_store
+        window = self.window()
+        window.dictionary_button.clicked()
+        editor = window.dictionary_editor
+        editor.fields["word"].set_text("控え失敗確認語")
+        write_atomic = settings_store._write_atomic
+
+        def backup_unavailable(path, values):
+            if path.name == "settings.last-good.json":
+                raise PermissionError("SYNTHETIC_PRIVATE_FAILURE")
+            return write_atomic(path, values)
+
+        with patch("azookey.settings_store._write_atomic", side_effect=backup_unavailable):
+            self.finish_dictionary_save(editor)
+        self.assertTrue(editor.closed)
+        self.assertEqual(json.loads(self.path.read_text())["userDictionary"]["items"][0]["word"], "控え失敗確認語")
+        self.assertIn("控え", window.message.get_text())
+        self.assertNotIn("SYNTHETIC_PRIVATE_FAILURE", window.message.get_text())
+
     @staticmethod
     def finish_dictionary_save(editor):
         from gi.repository import GLib
@@ -231,8 +251,10 @@ class SettingsWindowTests(unittest.TestCase):
         finally:
             if not expired:
                 GLib.source_remove(timer)
-            editor.status_label.disconnect(status_handler)
-            editor.disconnect(destroy_handler)
+            if editor.status_label.handler_is_connected(status_handler):
+                editor.status_label.disconnect(status_handler)
+            if editor.handler_is_connected(destroy_handler):
+                editor.disconnect(destroy_handler)
 
 
 if __name__ == "__main__":

@@ -142,7 +142,8 @@ class SettingsWindow(Gtk.Window):
             self.values = service.last_saved.values
             self.settings_stamp = service.last_saved.stamp
             self.refresh_dictionary_button()
-            self.message.set_text(message("settings.dictionary_saved"))
+            key = "settings.backup_warning" if service.last_saved.backup_warning else "settings.dictionary_saved"
+            self.message.set_text(message(key))
 
         self.dictionary_editor = UserDictionaryEditor(
             opened.values["userDictionary"]["items"], validate=service.validate,
