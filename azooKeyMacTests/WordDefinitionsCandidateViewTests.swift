@@ -11,10 +11,10 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         let view = fixture.view()
         view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: false)
         XCTAssertTrue(fixture.words.isEmpty)
-        XCTAssertTrue(try summary(in: view).isHidden)
+        XCTAssertTrue(try side(in: view).isHidden)
         view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
         XCTAssertEqual(fixture.words, ["橋"])
-        XCTAssertFalse(try summary(in: view).isHidden)
+        XCTAssertFalse(try side(in: view).isHidden)
         XCTAssertEqual(fixture.model.target?.candidateIndex, 42)
     }
 
@@ -28,7 +28,7 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
         _ = view.navigate(.right)
         XCTAssertEqual(fixture.model.target?.word, "を渡る")
-        let row = try XCTUnwrap(descendants(view).compactMap { $0 as? CandidateRowButton }.first { $0.candidateIndex == 7 })
+        let row = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateRowButton }.first { $0.candidateIndex == 7 })
         row.preview?(true)
         XCTAssertEqual(fixture.model.target?.word, "橋")
         XCTAssertEqual(fixture.model.target?.candidateIndex, 7)
@@ -41,7 +41,7 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         let fixture = Fixture()
         let view = fixture.view()
         view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
-        let oldRow = try XCTUnwrap(descendants(view).compactMap { $0 as? CandidateRowButton }.first)
+        let oldRow = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateRowButton }.first)
         view.update(entries: [.init(text: "箸", tokens: [.init(text: "箸", reading: "ハシ")], candidateIndex: 42)],
                     selectionIndex: 42, enterConfirmsCandidate: true)
         let requestCount = fixture.words.count
@@ -76,70 +76,162 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         XCTAssertEqual(fixture.model.target?.reading, "")
     }
 
-    func testFullDefinitionAndTruthfulSourceRemainReadableInTheExistingDetails() throws {
+    func testFullDefinitionMovesToTheRightWhileCandidateMetadataStaysSeparate() throws {
         let fixture = Fixture()
         let view = fixture.view()
         view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
         let full = "語の説明\n合成した用例。\n" + String(repeating: "長い説明。", count: 100)
         fixture.completions[0](full)
-        let details = try XCTUnwrap(view.subviews.first { $0.accessibilityIdentifier() == "candidate-details" } as? CandidateDetailView)
-        let text = try XCTUnwrap(descendants(details).compactMap { $0 as? NSTextField }.first).stringValue
-        XCTAssertTrue(text.contains(full))
-        XCTAssertTrue(text.contains(Localization.text("candidate.definition.source")))
-        XCTAssertTrue(text.contains(Localization.text("candidate.definition.readingNote")))
-        let label = try summary(in: view)
-        XCTAssertFalse(label.acceptsFirstResponder)
-        for fontSize: CGFloat in [18, 24] {
-            label.update(target: fixture.model.target, result: fixture.model.result, fontSize: fontSize)
-            XCTAssertLessThanOrEqual(label.preferredHeight, 80)
-            label.frame = NSRect(x: 0, y: 0, width: 480, height: label.preferredHeight)
-            label.layoutSubtreeIfNeeded()
-            let fields = descendants(label).compactMap { $0 as? NSTextField }
-            XCTAssertTrue(fields.allSatisfy { !$0.isSelectable })
-            let source = try XCTUnwrap(fields.first { $0.stringValue == Localization.text("candidate.definition.source") })
-            let title = try XCTUnwrap(fields.first { $0.font?.pointSize == fontSize && $0.frame.minY > 6 })
-            let summary = try XCTUnwrap(fields.first { $0.font?.pointSize == fontSize && $0.frame.minY == 6 })
-            XCTAssertLessThanOrEqual(title.frame.maxX, source.frame.minX)
-            XCTAssertEqual(title.frame.midY, source.frame.midY)
-            XCTAssertLessThanOrEqual(summary.frame.maxY, title.frame.minY)
-            XCTAssertEqual(source.accessibilityHelp(), Localization.text("candidate.definition.detailsHint"))
+        let side = try side(in: view)
+        let toggle = try XCTUnwrap(candidateViewDescendants(in: side).compactMap { $0 as? CandidatePresentationButton }.first)
+        toggle.activate?()
+        let fullText = candidateViewDescendants(in: side).compactMap { $0 as? NSTextField }.map(\.stringValue).joined(separator: "\n")
+        XCTAssertTrue(fullText.contains(full))
+        XCTAssertTrue(fullText.contains(Localization.text("candidate.definition.source")))
+        XCTAssertTrue(fullText.contains(Localization.text("candidate.definition.readingNote")))
+        let details = try XCTUnwrap(candidateViewDescendants(in: view).first { $0.accessibilityIdentifier() == "candidate-details" } as? CandidateDetailView)
+        let text = try XCTUnwrap(candidateViewDescendants(in: details).compactMap { $0 as? NSTextField }.first).stringValue
+        XCTAssertFalse(text.contains(full))
+        XCTAssertFalse(side.acceptsFirstResponder)
+    }
+
+    func testNarrowViewportReachesTheRightColumnWithoutSelectingOrSubmittingACandidate() throws {
+        for width: CGFloat in [1000, 640, 320] {
+            let fixture = Fixture()
+            let view = fixture.view()
+            var selections: [Int] = []
+            var submissions: [Int] = []
+            view.onSelectionChanged = { selections.append($0) }
+            view.onCandidateSubmitted = { submissions.append($0) }
+            view.setAvailableWidth(width)
+            view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
+            fixture.completions[0](String(repeating: "長い現在の語の説明。", count: 100))
+            view.frame = NSRect(origin: .zero, size: view.preferredSize)
+            view.layoutSubtreeIfNeeded()
+            let side = try side(in: view)
+            let navigation = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateNavigationView }.first)
+            let viewport = try XCTUnwrap(candidateViewDescendants(in: view).first { $0.accessibilityIdentifier() == "candidate-side-viewport" } as? NSScrollView)
+            XCTAssertGreaterThan(side.frame.minX, navigation.frame.maxX)
+            XCTAssertEqual(side.frame.maxY, navigation.frame.maxY)
+            XCTAssertLessThanOrEqual(view.frame.width, width)
+            let maximumOffset = max(0, try XCTUnwrap(viewport.documentView).frame.width - viewport.contentSize.width)
+            viewport.contentView.scroll(to: NSPoint(x: maximumOffset, y: 0))
+            viewport.reflectScrolledClipView(viewport.contentView)
+            XCTAssertTrue(viewport.contentView.bounds.intersects(side.frame))
+            if width < 650 {
+                XCTAssertTrue(viewport.hasHorizontalScroller)
+                XCTAssertGreaterThan(maximumOffset, 0)
+            }
+            let toggle = try XCTUnwrap(candidateViewDescendants(in: side).compactMap { $0 as? CandidatePresentationButton }.first)
+            toggle.activate?()
+            XCTAssertTrue(side.expanded)
+            XCTAssertEqual(fixture.model.target?.candidateIndex, 42)
+            XCTAssertTrue(selections.isEmpty)
+            XCTAssertTrue(submissions.isEmpty)
         }
     }
 
-    func testScaledSummaryKeepsWholeLinesWithinBoundsWithoutShrinkingTheCandidateFont() throws {
+    func testOpeningTheFullDefinitionUsesTheTallerColumnInsteadOfAddingBelowTheCandidates() throws {
         let fixture = Fixture()
         let view = fixture.view()
+        view.setAvailableWidth(1000)
         view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
-        fixture.completions[0]("現在の語の説明")
-        let label = try summary(in: view)
-        for fontSize: CGFloat in [18, 24] {
-            label.update(target: fixture.model.target, result: fixture.model.result, fontSize: fontSize)
-            let preferredHeight = label.preferredHeight
-            for height in [CGFloat.zero, 20, preferredHeight / 2, preferredHeight] {
-                label.frame = NSRect(x: 0, y: 0, width: 320, height: height)
-                label.layoutSubtreeIfNeeded()
-                let visible = descendants(label).compactMap { $0 as? NSTextField }.filter { !$0.isHidden }
-                XCTAssertTrue(visible.allSatisfy { label.bounds.contains($0.frame) })
-                XCTAssertTrue(visible.filter { $0.font?.pointSize != 12 }.allSatisfy { $0.font?.pointSize == fontSize })
-                if height == preferredHeight / 2 {
-                    XCTAssertEqual(visible.count, 1)
-                    XCTAssertTrue(try XCTUnwrap(visible.first).stringValue.contains("現在の語の説明"))
-                } else if height == preferredHeight {
-                    XCTAssertEqual(visible.count, 3)
-                } else {
-                    XCTAssertTrue(visible.isEmpty)
-                }
-                XCTAssertTrue(label.detailDescription.contains("現在の語の説明"))
-            }
-        }
+        fixture.completions[0](String(repeating: "長い語の説明。", count: 100))
+        let side = try side(in: view)
+        let toggle = try XCTUnwrap(candidateViewDescendants(in: side).compactMap { $0 as? CandidatePresentationButton }.first)
+        toggle.activate?()
+        view.frame = NSRect(origin: .zero, size: view.preferredSize)
+        view.layoutSubtreeIfNeeded()
+        let composition = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateCompositionView }.first)
+        let navigation = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateNavigationView }.first)
+        let actions = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateActionsView }.first)
+        let leftHeight = navigation.preferredHeight(width: navigation.frame.width) + actions.preferredHeight(width: navigation.frame.width)
+        XCTAssertEqual(view.preferredSize.height,
+                       composition.preferredHeight(width: view.preferredSize.width) + max(leftHeight, side.preferredHeight))
+        XCTAssertEqual(side.frame.maxY, navigation.frame.maxY)
     }
 
-    private func summary(in view: NSView) throws -> WordDefinitionsSummaryView {
-        try XCTUnwrap(view.subviews.first { $0.accessibilityIdentifier() == "candidate-definition-summary" } as? WordDefinitionsSummaryView)
+    func testMovingFromAHoveredWordIntoItsDefinitionKeepsTheTargetUntilThePointerOrSelectionLeaves() throws {
+        let fixture = Fixture()
+        let view = fixture.view()
+        view.setAvailableWidth(1000)
+        view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
+        _ = view.navigate(.right)
+        XCTAssertEqual(fixture.model.target?.word, "を渡る")
+        view.frame = NSRect(origin: .zero, size: view.preferredSize)
+        view.layoutSubtreeIfNeeded()
+        let row = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateRowButton }.first { $0.candidateIndex == 7 })
+        row.preview?(true)
+        let side = try side(in: view)
+        fixture.pointerPoint = side.convert(NSPoint(x: 20, y: 20), to: view)
+        row.preview?(false)
+        XCTAssertEqual(fixture.model.target?.candidateIndex, 7)
+        let oldCompletion = try XCTUnwrap(fixture.completions.last)
+        oldCompletion("橋の現在の説明")
+        XCTAssertEqual(fixture.model.result, .definition("橋の現在の説明"))
+        fixture.pointerPoint = NSPoint(x: -10, y: -10)
+        side.onPointerExit?()
+        XCTAssertEqual(fixture.model.target?.word, "を渡る")
+        row.preview?(true)
+        fixture.pointerPoint = side.convert(NSPoint(x: 20, y: 20), to: view)
+        row.preview?(false)
+        let retiredCompletion = try XCTUnwrap(fixture.completions.last)
+        _ = view.navigate(.left)
+        retiredCompletion("退役したhoverの説明")
+        XCTAssertEqual(fixture.model.target?.candidateIndex, 42)
+        XCTAssertEqual(fixture.model.result, .loading)
     }
 
-    private func descendants(_ view: NSView) -> [NSView] {
-        view.subviews + view.subviews.flatMap(descendants)
+    func testClosingTheTreeRetiresTheDefinitionRetainedFromAnOldControl() throws {
+        let fixture = Fixture()
+        let view = fixture.view()
+        view.setAvailableWidth(1000)
+        view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
+        _ = view.navigate(.right)
+        view.frame = NSRect(origin: .zero, size: view.preferredSize)
+        view.layoutSubtreeIfNeeded()
+        let row = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateRowButton }.first { $0.candidateIndex == 7 })
+        row.preview?(true)
+        let side = try side(in: view)
+        fixture.pointerPoint = side.convert(NSPoint(x: 20, y: 20), to: view)
+        row.preview?(false)
+        let oldCompletion = try XCTUnwrap(fixture.completions.last)
+        XCTAssertEqual(fixture.model.target?.candidateIndex, 7)
+        let closeTree = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidatePresentationButton }
+            .first { $0.accessibilityIdentifier() == "candidate-tree-toggle" })
+        closeTree.activate?()
+        row.preview?(true)
+        oldCompletion("閉じた木の古い対象")
+        XCTAssertEqual(fixture.model.target?.candidateIndex, 42)
+        XCTAssertEqual(fixture.model.target?.word, "を渡る")
+        XCTAssertEqual(fixture.model.result, .loading)
+    }
+
+    func testShortWorkAreaKeepsLongCommitTextAndOneCandidateRowInSeparateScrollableAreas() throws {
+        let fixture = Fixture()
+        let view = fixture.view()
+        let longText = String(repeating: "長い変換候補です。", count: 100)
+        let entry = CandidateTree.Entry(text: longText, tokens: [.init(text: longText, reading: "ナガイ")], candidateIndex: 42,
+                                        scope: .init(consumedReading: "ながい", remainingReading: String(repeating: "のこり", count: 100)))
+        view.setAvailableWidth(640)
+        view.update(entries: [entry], selectionIndex: 42, enterConfirmsCandidate: true)
+        fixture.completions[0](String(repeating: "長い語釈です。", count: 100))
+        view.frame = NSRect(x: 0, y: 0, width: 640, height: 320)
+        view.layoutSubtreeIfNeeded()
+        let composition = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateCompositionView }.first)
+        let navigation = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateNavigationView }.first)
+        let side = try side(in: view)
+        XCTAssertLessThanOrEqual(composition.frame.height, 112)
+        XCTAssertGreaterThanOrEqual(navigation.frame.height, navigation.minimumHeight)
+        XCTAssertEqual(side.frame.maxY, navigation.frame.maxY)
+        XCTAssertTrue(side.subviews.allSatisfy { side.bounds.contains($0.frame) })
+        let commitText = candidateViewDescendants(in: composition).compactMap { $0 as? NSTextField }.map(\.stringValue)
+        XCTAssertTrue(commitText.contains(longText))
+        XCTAssertFalse(side.acceptsFirstResponder)
+    }
+
+    private func side(in view: NSView) throws -> WordDefinitionsSideView {
+        try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? WordDefinitionsSideView }.first)
     }
 
     @MainActor
@@ -150,13 +242,15 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         ]
         var words: [String] = []
         var completions: [WordDefinitionsService.Completion] = []
+        var pointerPoint: NSPoint?
         lazy var model = WordDefinitionsModel(search: { [weak self] in
             self?.words.append($0)
             self?.completions.append($1)
         }, cancelPending: {})
 
         func view() -> CandidateTreeView {
-            CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 600), definitions: model)
+            CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 600), definitions: model,
+                              pointerLocation: { [weak self] _ in self?.pointerPoint })
         }
     }
 }

@@ -28,7 +28,10 @@ final class CandidateNavigationView: NSView {
     private let headerHeight: CGFloat = 36
     private let hintHeight: CGFloat = 22
     private let inset: CGFloat = 8
+    // Preserve the page controls and at least one 44-point row before optional sections.
+    private let minimumRowViewportHeight: CGFloat = 44
     var selectedCandidateControls: [NSButton] { rows.filter(\.selected) }
+    var minimumHeight: CGFloat { page.totalCount > 0 ? headerHeight + hintHeight + minimumRowViewportHeight : 0 }
 
     func preferredHeight(width: CGFloat) -> CGFloat {
         guard page.totalCount > 0 else {

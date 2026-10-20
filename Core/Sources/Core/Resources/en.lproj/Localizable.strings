@@ -168,5 +168,6 @@
 "candidate.definition.source" = "macOS dictionaries";
 "candidate.definition.loading" = "Looking up the word…";
 "candidate.definition.notFound" = "No definition was found. You can also check the dictionaries enabled in macOS Dictionary.";
-"candidate.definition.detailsHint" = "Open Details to read the full definition.";
+"candidate.definition.openFull" = "Show full definition";
+"candidate.definition.closeFull" = "Show summary";
 "candidate.definition.readingNote" = "Dictionaries are searched by spelling; meanings for other readings may be included.";

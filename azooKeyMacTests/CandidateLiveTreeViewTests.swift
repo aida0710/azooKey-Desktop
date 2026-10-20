@@ -21,7 +21,7 @@ final class CandidateLiveTreeViewTests: XCTestCase {
     }
 
     private func treeArea(in view: CandidateTreeView) throws -> NSScrollView {
-        try XCTUnwrap(view.subviews.first { $0.accessibilityIdentifier() == "candidate-segments" } as? NSScrollView)
+        try XCTUnwrap(descendants(in: view).first { $0.accessibilityIdentifier() == "candidate-segments" } as? NSScrollView)
     }
 
     func testLiveCompositionShowsTheSelectedPathAndRealBranchesWithoutTheLargeMenu() throws {
@@ -30,14 +30,14 @@ final class CandidateLiveTreeViewTests: XCTestCase {
         XCTAssertFalse(try treeArea(in: view).isHidden)
         XCTAssertEqual(Set(descendants(in: view).compactMap { $0 as? TreeButton }.map(\.title)), ["日本", "語", "画"])
         XCTAssertTrue(descendants(in: view).compactMap { $0 as? TreeButton }.allSatisfy { $0.candidateNumber == nil })
-        XCTAssertTrue(try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateNavigationView }.first).isHidden)
+        XCTAssertTrue(try XCTUnwrap(descendants(in: view).compactMap { $0 as? CandidateNavigationView }.first).isHidden)
         XCTAssertTrue(try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateCompositionView }.first).isHidden)
-        XCTAssertTrue(try XCTUnwrap(view.subviews.first { $0.accessibilityIdentifier() == "candidate-details" }).isHidden)
+        XCTAssertTrue(try XCTUnwrap(descendants(in: view).first { $0.accessibilityIdentifier() == "candidate-details" }).isHidden)
         let liveHeight = view.preferredSize.height
 
         view.update(entries: entries, selectionIndex: 7, numbers: [7: "1", 42: "2"], enterConfirmsCandidate: true)
         XCTAssertTrue(try treeArea(in: view).isHidden)
-        XCTAssertFalse(try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateNavigationView }.first).isHidden)
+        XCTAssertFalse(try XCTUnwrap(descendants(in: view).compactMap { $0 as? CandidateNavigationView }.first).isHidden)
         XCTAssertGreaterThan(view.preferredSize.height, liveHeight)
         XCTAssertEqual(try button(in: view, identifier: "candidate-confirm").title, Localization.text("candidate.submit") + "  ↵")
     }
@@ -53,7 +53,7 @@ final class CandidateLiveTreeViewTests: XCTestCase {
         try button(in: view, identifier: "candidate-details-toggle").performClick(nil)
         view.update(entries: alternatives, selectionIndex: 0)
         XCTAssertEqual(try button(in: view, identifier: "candidate-tree-toggle").title, Localization.text("candidate.closeTree"))
-        XCTAssertFalse(try XCTUnwrap(view.subviews.first { $0.accessibilityIdentifier() == "candidate-details" }).isHidden)
+        XCTAssertFalse(try XCTUnwrap(descendants(in: view).first { $0.accessibilityIdentifier() == "candidate-details" }).isHidden)
 
         view.update(entries: alternatives, selectionIndex: 0, enterConfirmsCandidate: true)
         XCTAssertTrue(try treeArea(in: view).isHidden)

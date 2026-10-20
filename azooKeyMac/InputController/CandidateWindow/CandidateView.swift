@@ -93,6 +93,7 @@ class CandidatesViewController: BaseCandidateViewController {
               let screen = ScreenLookup.screen(containing: cursorLocation, fallbackWindow: window) else {
             return
         }
+        treeView.setAvailableWidth(screen.visibleFrame.width)
         let size = treeView.preferredSize
         let frame = WindowPositioning.frameNearCursor(
             currentFrame: .init(window.frame), screenRect: .init(screen.visibleFrame),
