@@ -1,0 +1,47 @@
+[
+  {
+    "name": "sentence",
+    "roman": "watashihanihongowobenkyoushiteimasu",
+    "reading": "わたしはにほんごをべんきょうしています",
+    "text": "私は日本語を勉強しています"
+  },
+  {
+    "name": "learned-sentence",
+    "roman": "hashiwowataru",
+    "reading": "はしをわたる",
+    "text": "橋を渡る",
+    "normalModelTokenCounts": [3, 1, 1]
+  },
+  {
+    "name": "homonym-bridge",
+    "roman": "hashi",
+    "reading": "はし",
+    "text": "橋"
+  },
+  {
+    "name": "homonym-chopsticks",
+    "roman": "hashi",
+    "reading": "はし",
+    "text": "箸"
+  },
+  {
+    "name": "proper-name",
+    "roman": "toukyoueki",
+    "reading": "とうきょうえき",
+    "text": "東京駅"
+  },
+  {
+    "name": "dictionary-sentence",
+    "roman": "choubunjisho",
+    "reading": "ちょうぶんじしょ",
+    "text": "azooKey Treeで日本語を入力する",
+    "userDictionary": true
+  },
+  {
+    "name": "mixed-kana-ascii",
+    "roman": "kongou",
+    "reading": "こんごう",
+    "text": "かなABC123",
+    "userDictionary": true
+  }
+]
