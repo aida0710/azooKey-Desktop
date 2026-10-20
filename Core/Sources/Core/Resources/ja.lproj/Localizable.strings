@@ -139,3 +139,11 @@
 "reconversion.stale_request" = "入力先が変わりました。もう一度やり直してください";
 "reconversion.composition_active" = "入力中の文字を確定してから再変換してください";
 "reconversion.whole_selection_required" = "再変換では選択した語全体を対象にしてください";
+
+"candidate.score.show" = "相対スコアを表示";
+"candidate.score.value" = "相対スコア %d";
+"candidate.score.unavailableLabel" = "—";
+"candidate.score.unavailable" = "未評価: 同じ読み・消費範囲で比較できる評価がありません。";
+"candidate.score.conditional100" = "100はこの分岐内の相対値です。子候補が一つでも100になり、正解を保証しません。";
+"candidate.score.roundedZero" = "0は丸めた相対値です。この候補が不可能という意味ではありません。";
+"candidate.score.explanation" = "同じ読み・消費範囲の取得候補を、同じ親から分かれる候補同士で比べた値です。非表示の候補も含みます。正解の確率ではありません。";

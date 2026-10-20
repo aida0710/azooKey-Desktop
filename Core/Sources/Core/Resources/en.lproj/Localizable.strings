@@ -139,3 +139,11 @@
 "reconversion.stale_request" = "The input context changed. Try again";
 "reconversion.composition_active" = "Finish the current composition before reconverting";
 "reconversion.whole_selection_required" = "Reconversion must cover the entire selected word";
+
+"candidate.score.show" = "Show relative scores";
+"candidate.score.value" = "Relative score %d";
+"candidate.score.unavailableLabel" = "—";
+"candidate.score.unavailable" = "Not evaluated: no comparable evaluation for the same reading and consumed input.";
+"candidate.score.conditional100" = "100 is relative to this branch. A sole child also gets 100; it does not guarantee a correct conversion.";
+"candidate.score.roundedZero" = "0 is a rounded relative value. It does not mean this candidate is impossible.";
+"candidate.score.explanation" = "These values compare returned candidates with the same reading and consumed input, conditional on their parent. Hidden candidates count too. They are not probabilities of correctness.";

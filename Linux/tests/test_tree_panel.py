@@ -31,7 +31,7 @@ class TreePanelTests(unittest.TestCase):
                     {"id": 1, "text": "確率的に", "reading": "", "parent": 0, "terminals": [0]},
                     {"id": 2, "text": "このようにかくりつてきに", "reading": "", "parent": None, "terminals": [1]},
                 ],
-                "columns": [[0, 2], [1]], "selectedPath": [0, 1],
+                "columns": [[0, 2], [1]], "selectedPath": [0, 1], "showRelativeScores": True,
                 "wordGeometry": {"widths": [75, 60], "fontSize": 15},
             }
             panel.update(snapshot)

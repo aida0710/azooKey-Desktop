@@ -6,6 +6,7 @@ struct ConfigWindow: View {
     @ConfigState private var liveConversion = Config.LiveConversion()
     @ConfigState private var treeCandidates = Config.TreeCandidates()
     @ConfigState private var candidateTextSize = Config.CandidateTextSize()
+    @ConfigState private var showRelativeScores = Config.ShowRelativeScores()
     @ConfigState private var inputStyle = Config.InputStyle()
     @ConfigState private var typeBackSlash = Config.TypeBackSlash()
     @ConfigState private var punctuationStyle = Config.PunctuationStyle()
@@ -270,6 +271,10 @@ struct ConfigWindow: View {
                     Text(Localization.text("candidate.textSize.standard")).tag(Config.CandidateTextSize.Value.standard)
                     Text(Localization.text("candidate.textSize.large")).tag(Config.CandidateTextSize.Value.large)
                 }
+                Toggle(Localization.text("candidate.score.show"), isOn: $showRelativeScores)
+                Text(CandidateScorePresentation.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } header: {
                 Label("変換設定", systemImage: "brain")
             }

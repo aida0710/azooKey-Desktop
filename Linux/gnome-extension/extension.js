@@ -11,10 +11,12 @@ import {candidatePlacement} from './candidatePlacement.js';
 import {ShellCursor} from './shellCursor.js';
 import {LayoutDiagnostics} from './layoutDiagnostics.js';
 import {CandidateNavigation} from './candidateNavigation.js';
-import {CandidateTheme, scoreRole} from './candidateTheme.js';
+import {CandidateTheme} from './candidateTheme.js';
+import {addScoreBadge, SCORE_LINE_HEIGHT} from './candidateScore.js';
 
 const NAME = 'org.azookey.Tree';
 const PATH = '/org/azookey/Tree';
+const CANDIDATE_ROW_GAP = 4; // Separate actions even when the score line is hidden.
 
 export default class AzooKeyTreeExtension extends Extension {
     enable() {
@@ -91,7 +93,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._details.applyPalette(palette);
         const nodes = data.nodes ?? [];
         const candidateIdentity = JSON.stringify([data.contextId, data.reading, data.candidates,
-            nodes.map(({relativeScore, preview, previewDescription, ...node}) => node)]);
+            nodes.map(({relativeScore, scorePresentation, preview, previewDescription, ...node}) => node)]);
         if (candidateIdentity !== this._candidateIdentity) {
             for (const widget of this._buttons.values()) widget.destroy();
             this._buttons.clear();
@@ -130,7 +132,8 @@ export default class AzooKeyTreeExtension extends Extension {
             (data.layoutReason ?? (anchor.permitsWordAlignment
                 ? (documentWidths.length ? 'column-too-narrow' : 'missing-word-geometry') : 'caret-only'));
         const rowHeight = fontSize + 14;
-        const rowPitch = rowHeight + (data.showCandidateIndex && aligned ? rowHeight + 20 : 20);
+        const scoreHeight = data.showRelativeScores ? SCORE_LINE_HEIGHT : 0;
+        const rowPitch = rowHeight + scoreHeight + CANDIDATE_ROW_GAP + (data.showCandidateIndex && aligned ? rowHeight : 0);
         let nextX = 12;
         for (const [depth, column] of columns.entries()) {
             const measure = new St.Label({text: byId.get(column[0]).text, style: `font-size: ${fontSize}px;`});
@@ -239,27 +242,20 @@ export default class AzooKeyTreeExtension extends Extension {
         };
         for (const [id, frame] of frames) {
             const node = byId.get(id);
-            const score = node.relativeScore;
-            const detail = Number.isFinite(score)
-                ? `相対スコア ${score}（取得候補内の評価。正解の確率ではありません）` : '比較可能なスコアなし';
+            const presentation = data.showRelativeScores ? node.scorePresentation : null;
+            const accessibleName = [node.text, node.reading, node.previewDescription, presentation?.detailDescription]
+                .filter(Boolean).join('\n');
             button({operation: 'node', index: id, label: node.text, frame,
                 active: selected.has(id), focused: id === data.focusedNode,
-                accessibleName: `${node.text} ${node.reading}\n${node.previewDescription ?? ''}`});
-            const scoreText = Number.isFinite(score) ? String(score) : '—';
-            const scoreLabel = new St.Label({text: scoreText, accessible_name: detail,
-                style: `color: ${palette.scoreText}; background-color: ${palette[scoreRole(score)]}; font-size: 12px; text-align: center;`,
-                x_align: Clutter.ActorAlign.CENTER});
-            this._canvas.add_child(scoreLabel);
-            const badgeWidth = Math.min(frame.width, Math.max(22, scoreLabel.get_preferred_width(-1)[1] + 6));
-            scoreLabel.set_position(frame.x + (frame.width - badgeWidth) / 2, frame.y + frame.height);
-            scoreLabel.set_size(badgeWidth, 16);
+                accessibleName});
+            if (presentation) addScoreBadge(this._canvas, {node, frame, palette});
             const index = node.terminals.includes(data.selection) ? data.selection : node.terminals[0];
             if (data.showCandidateIndex && index !== undefined) {
                 const number = index - (data.pageStart ?? 0) + 1;
                 if (number >= 1 && number <= 9) {
                     button({operation: 'select', index, label: String(number), frame: {
                         x: aligned ? frame.x + frame.width - rowHeight : frame.x + frame.width + 1,
-                        y: aligned ? frame.y + frame.height + 16 : frame.y,
+                        y: aligned ? frame.y + frame.height + scoreHeight : frame.y,
                         width: rowHeight, height: rowHeight,
                     }, active: index === data.selection, focused: false, accessibleName: `候補 ${index + 1} を確定`});
                 }
@@ -293,7 +289,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._navigation.actor.set_size(popupWidth, navigationHeight);
         this._details.actor.set_size(popupWidth, detailHeight);
         this._popup.set_size(popupWidth, popupHeight);
-        this._detailState = {nodes: byId, fontSize, width: popupWidth};
+        this._detailState = {nodes: byId, fontSize, width: popupWidth, showScores: data.showRelativeScores};
         this._showDetails(data.focusedNode ?? columns[0][0]);
         this._popup.set_position(placement.x, placement.y);
         this._placementSide = placement.side;
@@ -325,7 +321,8 @@ export default class AzooKeyTreeExtension extends Extension {
         const state = this._detailState;
         const node = state?.nodes.get(nodeID);
         if (!node) return;
-        const text = [node.text, node.reading, node.previewDescription, messages.detailKeys].filter(Boolean).join('\n');
+        const scoreDescription = state.showScores ? node.scorePresentation?.detailDescription : null;
+        const text = [node.text, node.reading, node.previewDescription, scoreDescription, messages.detailKeys].filter(Boolean).join('\n');
         this._details.update({text, fontSize: state.fontSize, width: state.width});
     }
 

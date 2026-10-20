@@ -40,6 +40,8 @@ def populate_conversion_page(window, parent):
     add_checkboxes(window, parent, [("tree", "木構造の候補ウィンドウ"), ("live", "ライブ変換")])
     window.combo(parent, "candidateTextSize", label=message("candidate.textSize"),
                  choices=[("standard", message("candidate.textSize.standard")), ("large", message("candidate.textSize.large"))])
+    add_checkboxes(window, parent, [("showRelativeScores", message("candidate.score.show"))])
+    parent.pack_start(Gtk.Label(label=message("candidate.score.explanation"), xalign=0, wrap=True), False, False, 0)
     window.entry(parent, "inferenceLimit", "推論回数 (1–100)")
     add_checkboxes(window, parent, [("predictiveTyping", "予測入力（開発中）"),
                                ("typoCorrection", "入力訂正（開発中）"), ("debug", "デバッグ候補")])

@@ -145,5 +145,7 @@
   "ai.disabled": "AI変換（設定で無効）",
   "settings.dictionary_edit": "ユーザー辞書を編集…（{count}件）",
   "settings.dictionary_separate_save": "辞書は専用の画面で編集し、その画面の「保存」で反映します。",
-  "settings.dictionary_saved": "辞書を保存しました。次の変換から使用します。"
+  "settings.dictionary_saved": "辞書を保存しました。次の変換から使用します。",
+  "candidate.score.show": "相対スコアを表示",
+  "candidate.score.explanation": "同じ読み・消費範囲の取得候補を、同じ親から分かれる候補同士で比べた値です。非表示の候補も含みます。正解の確率ではありません。"
 }

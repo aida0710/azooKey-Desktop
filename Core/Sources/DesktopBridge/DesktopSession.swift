@@ -22,6 +22,7 @@ struct DesktopSnapshot: Encodable {
         let terminals: [Int]
         let depth: Int
         let relativeScore: Int?
+        let scorePresentation: CandidateScorePresentation?
         let preview: CandidateCommitPreview?
         let previewDescription: String?
     }
@@ -59,6 +60,7 @@ struct DesktopSnapshot: Encodable {
     var candidatePage = CandidatePage(entries: [], selectionIndex: nil)
     var showCandidateIndex = false
     var candidateTextSize = Config.CandidateTextSize().value
+    var showRelativeScores = Config.ShowRelativeScores().value
     var zenzaiLoaded = false
     var personalizationConfigured = false
     var language = "japanese"
@@ -568,9 +570,12 @@ final class DesktopSession: SegmentManagerDelegate {
         let visibleNodes = Set(result.columns.flatMap { $0 })
         result.nodes = tree.nodes.map { node in
             let preview = visibleNodes.contains(node.id) ? tree.preview(at: node.id, preserving: result.selection) : nil
+            let scorePresentation = result.showRelativeScores && visibleNodes.contains(node.id)
+                ? CandidateScorePresentation(relativeScore: relativeScores[node.id]) : nil
             return .init(id: node.id, text: node.token.text, reading: node.token.reading,
                          parent: node.parentID, children: node.children, terminals: node.terminalCandidateIndices,
                          depth: node.depth, relativeScore: relativeScores[node.id],
+                         scorePresentation: scorePresentation,
                          preview: preview, previewDescription: preview?.detailDescription)
         }
         result.selectedPath = result.columns.compactMap(\.first)

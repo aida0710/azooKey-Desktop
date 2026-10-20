@@ -9,7 +9,7 @@ from .graphemes import cursor_boundaries
 
 BOOLEAN_KEYS = frozenset({
     "tree", "live", "halfSpace", "backslash", "optionDirect", "predictiveTyping",
-    "typoCorrection", "debug", "aiEnabled", "includeContext",
+    "typoCorrection", "debug", "aiEnabled", "includeContext", "showRelativeScores",
 })
 STRING_KEYS = frozenset({"profile", "aiModel", "aiEndpoint", "customTable"})
 CHOICES = {
@@ -31,7 +31,7 @@ INPUT_DEFAULTS = {
     "tree": True, "live": True, "halfSpace": False, "backslash": False,
     "optionDirect": False, "inputStyle": "default", "candidateTextSize": "standard",
     "punctuation": 1, "inferenceLimit": 5, "predictiveTyping": False,
-    "typoCorrection": False, "debug": False,
+    "typoCorrection": False, "debug": False, "showRelativeScores": True,
 }
 PRESERVED_SETTINGS = frozenset({
     "userDictionary", "customTable", "learning", "personalization", "profile",

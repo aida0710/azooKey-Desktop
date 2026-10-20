@@ -6,6 +6,8 @@
 
 開発版では、[学習済みの全文候補](docs/learned-candidates.md)の文字列と消費範囲を保ち、語境界が得られない文は一枠のまま全文を確認できます。
 
+[相対スコア](docs/relative-scores.md)は設定で非表示にできます。0・100・未評価の意味を候補の詳細から確認でき、表示を切り替えても選択する候補は変わりません。
+
 **試験版の配布物は [Releases](https://github.com/aida0710/azooKey-Desktop/releases) から取得できます。** macOS版はad-hoc署名・未公証です。ATOKと同等の精度や全アプリの互換性を保証する段階ではありません。下記の「上流の案内」にあるインストール方法では、このフォークの追加機能は入りません。
 
 Apple Silicon Mac（macOS 14以降）:
