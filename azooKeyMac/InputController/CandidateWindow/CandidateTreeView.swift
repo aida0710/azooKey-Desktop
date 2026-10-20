@@ -29,11 +29,9 @@ final class CandidateTreeView: NSView {
     private let actions = CandidateActionsView(frame: .zero)
     private let canvas = TreeCanvas()
     private var nodeButtons: [Int: TreeButton] = [:]
-    private var terminalButtons: [Int: TreeButton] = [:]
     private var hoveredDetail: DetailTarget?
     private weak var hoveredControl: NSButton?
     private var nodeFrames: [Int: NSRect] = [:]
-    private var terminalFrames: [Int: NSRect] = [:]
     private var numberLabels: [Int: String] = [:]
     private var rebuilding = false
     private var displayedColumns: [[Int]] = []
@@ -49,16 +47,24 @@ final class CandidateTreeView: NSView {
     private var detailsExpanded = false
     private var generation: UInt = 0
     private var enterConfirmsCandidate = false
+    private var revealedTreeSelection: TreeViewportSelection?
+    private struct TreeViewportSelection: Equatable {
+        var candidateIndex: Int?
+        var nodeID: Int?
+        var generation: UInt
+        var isEditing: Bool
+    }
     // Optional branches stay scrollable without displacing the primary candidate list.
     private let maximumTreeHeight: CGFloat = 220
     // Detail text needs a readable line even when the selected word is one character.
     private let minimumDetailWidth = CandidateDetailView.minimumWidth
     var hasDocumentAlignment: Bool { documentWidths != nil }
     private var treePreferredSize = NSSize(width: 80, height: 46)
+    private var showsTree: Bool { !tree.nodes.isEmpty && (!enterConfirmsCandidate || treeExpanded) }
     var preferredSize: NSSize {
-        let width = treeExpanded ? treePreferredSize.width : minimumDetailWidth
-        let height = composition.preferredHeight(width: width) + navigation.preferredHeight(width: width) +
-            actions.preferredHeight(width: width) + (treeExpanded ? min(maximumTreeHeight, treePreferredSize.height) : 0) +
+        let width = showsTree ? treePreferredSize.width : minimumDetailWidth
+        let menuHeight = enterConfirmsCandidate ? composition.preferredHeight(width: width) + navigation.preferredHeight(width: width) : 0
+        let height = menuHeight + actions.preferredHeight(width: width) + (showsTree ? min(maximumTreeHeight, treePreferredSize.height) : 0) +
             (detailsExpanded ? CandidateDetailView.maximumHeight : 0)
         return NSSize(width: width, height: height)
     }
@@ -93,6 +99,8 @@ final class CandidateTreeView: NSView {
                 return
             }
             self.treeExpanded.toggle()
+            self.generation &+= 1
+            self.retireTreeControls()
             self.refreshSelection()
             self.onLayoutChanged?()
         }
@@ -120,9 +128,9 @@ final class CandidateTreeView: NSView {
         super.layout()
         let actionHeight = min(actions.preferredHeight(width: bounds.width), bounds.height)
         let available = max(0, bounds.height - actionHeight)
-        let compositionHeight = composition.preferredHeight(width: bounds.width)
-        let navigationHeight = navigation.preferredHeight(width: bounds.width)
-        let treeHeight = treeExpanded ? min(maximumTreeHeight, treePreferredSize.height) : 0
+        let compositionHeight = enterConfirmsCandidate ? composition.preferredHeight(width: bounds.width) : 0
+        let navigationHeight = enterConfirmsCandidate ? navigation.preferredHeight(width: bounds.width) : 0
+        let treeHeight = showsTree ? min(maximumTreeHeight, treePreferredSize.height) : 0
         let detailHeight = detailsExpanded ? CandidateDetailView.maximumHeight : 0
         let scale = min(1, available / max(1, compositionHeight + navigationHeight + treeHeight + detailHeight))
         var top = bounds.height
@@ -152,7 +160,6 @@ final class CandidateTreeView: NSView {
         needsDisplay = true
         canvas.needsDisplay = true
         nodeButtons.values.forEach { $0.needsDisplay = true }
-        terminalButtons.values.forEach { $0.needsDisplay = true }
         let palette = CandidateTheme.palette(for: effectiveAppearance)
         details.applyPalette(palette)
         composition.applyPalette(palette)
@@ -168,12 +175,15 @@ final class CandidateTreeView: NSView {
         let minimumColumnWidth = CGFloat(size.pointSize) + (numbers.isEmpty ? 8 : 14)
         let readableWidths = documentWidths?.allSatisfy { $0 >= minimumColumnWidth } == true ? documentWidths : nil
         let changed = updatedTree != tree || self.documentWidths != readableWidths || textSize != size || showsScores != scoresVisible
-        if updatedTree != tree || self.enterConfirmsCandidate != enterConfirmsCandidate {
+        let phaseChanged = self.enterConfirmsCandidate != enterConfirmsCandidate
+        if updatedTree != tree || phaseChanged {
             generation &+= 1
-            nodeButtons.values.forEach { $0.removeFromSuperview() }
-            terminalButtons.values.forEach { $0.removeFromSuperview() }
-            nodeButtons.removeAll()
-            terminalButtons.removeAll()
+            retireTreeControls()
+        }
+        if phaseChanged {
+            treeExpanded = false
+            detailsExpanded = false
+            revealedTreeSelection = nil
         }
         self.documentWidths = readableWidths
         textSize = size
@@ -202,8 +212,13 @@ final class CandidateTreeView: NSView {
         }
         if detailsExpanded {
             details.scrollPage(forward: forward)
-        } else {
+        } else if enterConfirmsCandidate {
             composition.scrollPage(forward: forward)
+        } else {
+            detailsExpanded = true
+            refreshSelection()
+            onLayoutChanged?()
+            details.scrollPage(forward: forward)
         }
         return true
     }
@@ -224,6 +239,8 @@ final class CandidateTreeView: NSView {
         }
         if !treeExpanded && !tree.nodes.isEmpty {
             treeExpanded = true
+            generation &+= 1
+            retireTreeControls()
             refreshSelection()
             onLayoutChanged?()
         }
@@ -268,16 +285,16 @@ final class CandidateTreeView: NSView {
         rebuilding = true
         defer { rebuilding = false }
         nodeFrames.removeAll()
-        terminalFrames.removeAll()
         var rows: [Int: CGFloat] = [:]
-        displayedColumns = tree.compactColumns(candidateIndex: selection.selectedCandidateIndex)
+        displayedColumns = presentationColumns
         layoutShowsNumbers = !numberLabels.isEmpty
         var widths: [Int: CGFloat] = [:]
         let aligned = documentWidths?.count == displayedColumns.count
-        let rowHeight = CGFloat(textSize.pointSize) + 14
+        // A number shares the word's action and fits below its text, including the 24-point setting.
+        let rowHeight = TreeButton.preferredHeight(fontSize: textSize.pointSize, hasNumber: layoutShowsNumbers)
         let scoreHeight = showsScores ? CandidateScoreBadge.lineHeight : 0
         let rowGap: CGFloat = 4 // Separate candidate actions even when the score line is hidden.
-        let rowPitch: CGFloat = rowHeight + scoreHeight + rowGap + (aligned && layoutShowsNumbers ? rowHeight : 0)
+        let rowPitch: CGFloat = rowHeight + scoreHeight + rowGap
         for (depth, column) in displayedColumns.enumerated() {
             for (row, id) in column.enumerated() {
                 rows[id] = CGFloat(row)
@@ -290,7 +307,7 @@ final class CandidateTreeView: NSView {
         var x: CGFloat = 12
         for depth in widths.keys.sorted() {
             xPositions[depth] = x
-            x += (widths[depth] ?? rowHeight) + (aligned ? 0 : (layoutShowsNumbers ? rowHeight + 2 : 12))
+            x += (widths[depth] ?? rowHeight) + (aligned ? 0 : 12)
         }
         let rowCount = displayedColumns.map(\.count).max() ?? 0
         let contentSize = NSSize(width: max(60, x), height: max(44, CGFloat(rowCount) * rowPitch + 6))
@@ -303,11 +320,6 @@ final class CandidateTreeView: NSView {
             let frame = NSRect(x: xPositions[node.depth] ?? 12, y: (rows[id] ?? 0) * rowPitch + 6,
                                width: widths[node.depth] ?? rowHeight, height: rowHeight)
             nodeFrames[node.id] = frame
-            for index in node.terminalCandidateIndices {
-                terminalFrames[index] = aligned
-                    ? NSRect(x: frame.maxX - rowHeight, y: frame.maxY + scoreHeight, width: rowHeight, height: rowHeight)
-                    : NSRect(x: frame.maxX + 1, y: frame.minY, width: rowHeight, height: rowHeight)
-            }
         }
         for id in displayedColumns.flatMap({ $0 }) {
             let node = tree.nodes[id]
@@ -318,40 +330,47 @@ final class CandidateTreeView: NSView {
         }
     }
 
-    private var numberedTerminals: Set<Int> {
-        Set(displayedColumns.flatMap { $0 }.compactMap { id -> Int? in
-            let terminals = tree.nodes[id].terminalCandidateIndices.filter { numberLabels[$0] != nil }
-            if let index = selection.selectedCandidateIndex, terminals.contains(index) {
-                return index
-            }
-            return terminals.first
-        })
+    private var presentationColumns: [[Int]] {
+        var columns = tree.compactColumns(candidateIndex: selection.selectedCandidateIndex)
+        guard treeExpanded, let id = selection.focusedNodeID else {
+            return columns
+        }
+        let node = tree.nodes[id]
+        let siblings = node.parentID.map { tree.nodes[$0].children } ?? tree.roots
+        columns[node.depth] = [id] + siblings.filter { $0 != id }
+        return columns
+    }
+
+    private func candidateNumber(nodeID: Int) -> String? {
+        // A shared word may preserve a full candidate; its badge must name that same action.
+        guard !tree.nodes[nodeID].terminalCandidateIndices.isEmpty,
+              let index = tree.preferredCandidate(at: nodeID, preserving: selection.selectedCandidateIndex) else {
+            return nil
+        }
+        return numberLabels[index]
+    }
+
+    private func retireTreeControls() {
+        nodeButtons.values.forEach { $0.removeFromSuperview() }
+        nodeButtons.removeAll()
     }
 
     private func updateVisibleControls() {
         guard !rebuilding else {
             return
         }
-        guard treeExpanded else {
-            nodeButtons.values.forEach { $0.removeFromSuperview() }
-            terminalButtons.values.forEach { $0.removeFromSuperview() }
-            nodeButtons.removeAll()
-            terminalButtons.removeAll()
-            setAccessibilitySelectedChildren(navigation.selectedCandidateControls)
+        guard showsTree else {
+            retireTreeControls()
+            setAccessibilitySelectedChildren(enterConfirmsCandidate ? navigation.selectedCandidateControls : [])
             refreshDetails()
             return
         }
         let viewport = canvas.visibleRect.isEmpty ? NSRect(origin: .zero, size: preferredSize) : canvas.visibleRect
         // Keep one row around the viewport ready while scrolling, without allocating the whole tree.
         let visible = viewport.insetBy(dx: -16, dy: -64)
-        let visibleTerminals = numberedTerminals
         for (id, button) in nodeButtons where nodeFrames[id]?.intersects(visible) != true {
             button.removeFromSuperview()
             nodeButtons.removeValue(forKey: id)
-        }
-        for (index, button) in terminalButtons where terminalFrames[index]?.intersects(visible) != true || !visibleTerminals.contains(index) {
-            button.removeFromSuperview()
-            terminalButtons.removeValue(forKey: index)
         }
         for (id, frame) in nodeFrames where frame.intersects(visible) && nodeButtons[id] == nil {
             let node = tree.nodes[id]
@@ -371,21 +390,6 @@ final class CandidateTreeView: NSView {
             canvas.addSubview(button)
             nodeButtons[id] = button
         }
-        for (index, frame) in terminalFrames where frame.intersects(visible) && terminalButtons[index] == nil && visibleTerminals.contains(index) {
-            let terminal = TreeButton(frame: frame)
-            terminal.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
-            terminal.toolTip = String(format: Localization.text("candidate.numberSelect"), numberLabels[index] ?? "")
-            terminal.setAccessibilityLabel(terminal.toolTip)
-            terminal.clicked = { [weak self, weak terminal] _ in
-                guard let self, let terminal, self.terminalButtons[index] === terminal else {
-                    return
-                }
-                self.selectCandidate(index)
-            }
-            observeDetailHover(terminal, target: .candidate(index))
-            canvas.addSubview(terminal)
-            terminalButtons[index] = terminal
-        }
         refreshControlAppearance()
         refreshDetails()
     }
@@ -399,6 +403,10 @@ final class CandidateTreeView: NSView {
             button.font = .systemFont(ofSize: textSize.pointSize)
             button.toolTip = token.reading.isEmpty ? token.text : "\(token.text)（\(token.reading)）"
             button.setAccessibilityLabel(button.toolTip)
+            button.candidateNumber = candidateNumber(nodeID: id)
+            if let number = button.candidateNumber {
+                button.toolTip! += "\n" + String(format: Localization.text("candidate.numberBadge"), number)
+            }
             if let presentation = scorePresentations[id] {
                 button.toolTip! += "\n" + presentation.detailDescription
             }
@@ -413,34 +421,23 @@ final class CandidateTreeView: NSView {
             button.needsDisplay = true
         }
         let selectedButtons = displayedColumns.compactMap(\.first).compactMap { nodeButtons[$0] }
-        setAccessibilitySelectedChildren(navigation.selectedCandidateControls + selectedButtons)
-        for (index, button) in terminalButtons {
-            if let frame = terminalFrames[index] { button.frame = frame }
-            let title = numberLabels[index] ?? "↵"
-            if button.title != title { button.title = title }
-            button.setAccessibilityLabel(String(format: Localization.text("candidate.numberSelect"), title))
-            let preview = candidatePage.items.first { $0.index == index }?.detailDescription
-            button.toolTip = [button.accessibilityLabel(), preview].compactMap { $0 }.joined(separator: "\n")
-            button.setAccessibilityHelp(button.toolTip)
-            button.highlightedPath = selection.selectedCandidateIndex == index
-            button.font = .monospacedSystemFont(ofSize: max(14, textSize.pointSize - 4), weight: .medium)
-            button.compactBadge = documentWidths?.count == displayedColumns.count
-            button.needsDisplay = true
-        }
+        setAccessibilitySelectedChildren((enterConfirmsCandidate ? navigation.selectedCandidateControls : []) + selectedButtons)
     }
 
     private func refreshSelection() {
         candidatePage = CandidatePage(entries: entries, selectionIndex: selection.selectedCandidateIndex,
                                       pageStart: numberLabels.keys.min())
         navigation.update(page: candidatePage, numbers: numberLabels, fontSize: textSize.pointSize, generation: generation)
+        navigation.isHidden = !enterConfirmsCandidate || entries.isEmpty
         let currentEntry = selection.selectedCandidateIndex.flatMap { tree.entry(candidateIndex: $0) }
         composition.update(entry: currentEntry, fontSize: textSize.pointSize, enterConfirmsCandidate: enterConfirmsCandidate)
+        composition.isHidden = !enterConfirmsCandidate
         actions.update(candidateIndex: selection.selectedCandidateIndex, generation: generation,
                        treeExpanded: treeExpanded, detailsExpanded: detailsExpanded, enterConfirmsCandidate: enterConfirmsCandidate)
-        scrollView.isHidden = !treeExpanded
+        scrollView.isHidden = !showsTree
         details.isHidden = !detailsExpanded
         needsLayout = true
-        if displayedColumns != tree.compactColumns(candidateIndex: selection.selectedCandidateIndex) || layoutShowsNumbers != !numberLabels.isEmpty { rebuild() }
+        if displayedColumns != presentationColumns || layoutShowsNumbers != !numberLabels.isEmpty { rebuild() }
         scores = tree.relativeScores(candidateIndex: selection.selectedCandidateIndex)
         scorePresentations = showsScores ? Dictionary(uniqueKeysWithValues: nodeFrames.keys.map {
             ($0, CandidateScorePresentation(relativeScore: scores[$0]))
@@ -450,13 +447,14 @@ final class CandidateTreeView: NSView {
         canvas.nodeFrames = nodeFrames
         canvas.selectedPath = Set(displayedColumns.compactMap(\.first))
         canvas.needsDisplay = true
-        if treeExpanded, let id = selection.focusedNodeID, let frame = nodeFrames[id] {
-            var reveal = frame
-            if let index = selection.selectedCandidateIndex,
-               numberLabels[index] != nil, tree.nodes[id].terminalCandidateIndices.contains(index), let terminal = terminalFrames[index] {
-                reveal = reveal.union(terminal)
-            }
-            canvas.scrollToVisible(reveal.insetBy(dx: -16, dy: -16))
+        let viewportSelection = TreeViewportSelection(candidateIndex: selection.selectedCandidateIndex,
+                                                      nodeID: selection.focusedNodeID, generation: generation, isEditing: treeExpanded)
+        if showsTree, revealedTreeSelection != viewportSelection,
+           let id = selection.focusedNodeID, let frame = nodeFrames[id] {
+            canvas.scrollToVisible(frame.insetBy(dx: -16, dy: -16))
+            revealedTreeSelection = viewportSelection
+        } else if !showsTree {
+            revealedTreeSelection = nil
         }
         updateVisibleControls()
         if announcedCandidate != selection.selectedCandidateIndex {
@@ -481,9 +479,9 @@ final class CandidateTreeView: NSView {
     private func isCurrentDetailControl(_ control: NSButton, target: DetailTarget) -> Bool {
         switch target {
         case .node(let id):
-            return treeExpanded && nodeButtons[id] === control
+            return showsTree && nodeButtons[id] === control
         case .candidate(let index):
-            return (treeExpanded && terminalButtons[index] === control) || navigation.isCurrentCandidateButton(control, candidateIndex: index)
+            return navigation.isCurrentCandidateButton(control, candidateIndex: index)
         }
     }
 
