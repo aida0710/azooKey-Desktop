@@ -1,7 +1,6 @@
 import Cocoa
 import Core
 import InputMethodKit
-import KanaKanjiConverterModule
 
 extension azooKeyMacInputController {
     @MainActor
@@ -42,22 +41,17 @@ extension azooKeyMacInputController {
             showReconversionFailure(.changedContext)
             return true
         }
-        switch UserAction.getUserAction(eventCore: event, inputLanguage: .japanese) {
-        case .input(let pieces):
-            reconversionClient.readingRequest?.input.insertAtCursorPosition(pieces: pieces, inputStyle: .mapped(id: .defaultRomanToKana))
-        case .backspace:
-            reconversionClient.readingRequest?.input.deleteBackwardFromCursorPosition(count: 1)
-        case .enter:
-            let reading = reconversionClient.readingRequest?.input.convertTarget
+        switch reconversionClient.readingRequest?.input.process(event) {
+        case .submitted(let reading):
             reconversionClient.readingRequest = nil
             requestReconversion(undo: false, reading: reading, client: client)
             return true
-        case .escape:
+        case .cancelled:
             reconversionClient.readingRequest = nil
             reconversionStatusPanel.orderOut(nil)
             return true
         default:
-            return true
+            break
         }
         showReconversionReading()
         return true
@@ -65,7 +59,7 @@ extension azooKeyMacInputController {
 
     @MainActor
     private func showReconversionReading() {
-        let reading = reconversionClient.readingRequest?.input.convertTarget ?? ""
+        let reading = reconversionClient.readingRequest?.input.text ?? ""
         let message = String(format: Localization.text("reconversion.reading_input"), reading)
         reconversionStatusPanel.show(message: message, cursorLocation: getCursorLocation())
     }

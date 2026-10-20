@@ -42,6 +42,7 @@ struct DesktopSnapshot: Encodable {
     var inputState = "none"
     var reconversion: ReconversionSession.Replacement?
     var reconversionError: String?
+    var reconversionReading: String?
     var canUndoCommit = false
     var prediction: String?
     var pageStart = 0
@@ -68,6 +69,8 @@ final class DesktopSession: SegmentManagerDelegate {
     private let reconversionSession = ReconversionSession()
     private var reconversionOriginalText: String?
     private var reconversionFailure: ReconversionSession.Failure?
+    private var reconversionReadingInput: ReconversionReadingInput?
+    private var reconversionReadingContext: ReconversionContext?
     private let modelURL: URL?
     var leftContext = ""
     var rightContext = ""
@@ -76,8 +79,7 @@ final class DesktopSession: SegmentManagerDelegate {
         didSet {
             segments.learningEnabled = !privateInput
             if privateInput {
-                reconversionSession.clear()
-                reconversionOriginalText = nil
+                clearReconversion()
             }
         }
     }
@@ -122,8 +124,7 @@ final class DesktopSession: SegmentManagerDelegate {
         let text = commit && !segments.isEmpty
             ? segments.commitMarkedText(inputState: state)
             : reconversionOriginalText ?? ""
-        reconversionSession.clear()
-        reconversionOriginalText = nil
+        clearReconversion()
         segments.stopComposition()
         state = .none
         pageStart = 0
@@ -133,13 +134,25 @@ final class DesktopSession: SegmentManagerDelegate {
     }
 
     func close() {
+        clearReconversion()
+        segments.deactivate()
+    }
+
+    private func clearReconversion() {
         reconversionSession.clear()
         reconversionOriginalText = nil
-        segments.deactivate()
+        cancelReconversionReading()
+    }
+
+    private func cancelReconversionReading() {
+        reconversionReadingInput = nil
+        reconversionReadingContext = nil
     }
 
     func prepareReconversion(undo: Bool, reading: String? = nil) -> DesktopSnapshot {
         generation += 1
+        reconversionFailure = nil
+        cancelReconversionReading()
         var response = snapshot()
         do {
             guard segments.isEmpty, state == .none else { throw ReconversionSession.Failure.compositionActive }
@@ -154,9 +167,37 @@ final class DesktopSession: SegmentManagerDelegate {
             }
         } catch let failure as ReconversionSession.Failure {
             response.reconversionError = failure.rawValue
+            if failure == .readingRequired {
+                reconversionReadingInput = .init()
+                reconversionReadingContext = reconversionContext
+                response.reconversionReading = ""
+            }
         } catch {
             response.reconversionError = ReconversionSession.Failure.invalidContext.rawValue
         }
+        return response
+    }
+
+    func editReconversionReading(_ event: KeyEventCore) -> DesktopSnapshot {
+        guard reconversionReadingInput != nil, !privateInput,
+              let savedContext = reconversionReadingContext, let currentContext = reconversionContext,
+              savedContext.matchesDocument(currentContext) else {
+            cancelReconversionReading()
+            var response = snapshot()
+            response.reconversionError = ReconversionSession.Failure.changedContext.rawValue
+            return response
+        }
+        switch reconversionReadingInput?.process(event) {
+        case .submitted(let reading):
+            cancelReconversionReading()
+            return prepareReconversion(undo: false, reading: reading)
+        case .cancelled:
+            cancelReconversionReading()
+        default:
+            break
+        }
+        var response = snapshot()
+        response.reconversionReading = reconversionReadingInput?.text
         return response
     }
 

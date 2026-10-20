@@ -92,6 +92,9 @@ struct BridgeMain {
                 case "reset": response = session.reset(commit: request.submit ?? false)
                 case "undo-commit": response = session.prepareReconversion(undo: true)
                 case "reconvert": response = session.prepareReconversion(undo: false, reading: request.reading)
+                case "reconversion-reading":
+                    guard let event = request.event else { throw ProtocolError.invalidRequest }
+                    response = session.editReconversionReading(event)
                 case "confirm-reconversion":
                     guard let token = request.reconversionToken else { throw ProtocolError.invalidRequest }
                     response = session.confirmReconversion(token)

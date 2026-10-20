@@ -2,7 +2,6 @@ import Carbon
 import Cocoa
 import Core
 import InputMethodKit
-import KanaKanjiConverterModule
 
 /// Reads and replaces only the validated range in the active IMK client.
 @MainActor
@@ -15,7 +14,7 @@ final class MacReconversionSession {
     struct ReadingRequest {
         let context: ReconversionContext
         let client: ObjectIdentifier
-        var input = ComposingText()
+        var input = ReconversionReadingInput()
     }
 
     private let session = ReconversionSession()
@@ -88,7 +87,7 @@ final class MacReconversionSession {
               let current = context(of: client) else {
             return false
         }
-        return current == readingRequest.context
+        return readingRequest.context.matchesDocument(current)
     }
 
     func apply(_ replacement: ReconversionSession.Replacement, client: IMKTextInput, manager: SegmentsManager) throws {

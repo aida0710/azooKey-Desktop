@@ -98,4 +98,40 @@ extension DesktopSegmentEditingTests {
             #expect(session.reset(commit: false).commits.isEmpty)
         }
     }
+
+    @Test func unknownReadingIsEnteredWithoutChangingTheDocumentOrStartingComposition() throws {
+        try withSession(liveConversion: false, treeCandidates: false) { session in
+            session.reconversionContext = reconversionDocument(selected: "相田")
+            #expect(session.prepareReconversion(undo: false).reconversionReading?.isEmpty == true)
+            for character in "aida" {
+                let value = String(character)
+                let snapshot = session.editReconversionReading(.init(
+                    modifierFlags: [], characters: value, charactersIgnoringModifiers: value, keyCode: 0
+                ))
+                #expect(snapshot.preedit.isEmpty)
+                #expect(snapshot.commits.isEmpty)
+                #expect(snapshot.reconversion == nil)
+            }
+            let snapshot = session.editReconversionReading(key(36))
+            #expect(snapshot.reconversion?.text == "相田")
+            #expect(snapshot.reconversion?.reading == "あいだ")
+            #expect(snapshot.preedit.isEmpty)
+            #expect(snapshot.commits.isEmpty)
+        }
+    }
+
+    @Test func cancelingTheReadingPromptOrChangingItsSelectionNeverCreatesAReplacement() throws {
+        try withSession(liveConversion: false, treeCandidates: false) { session in
+            session.reconversionContext = reconversionDocument(selected: "相田")
+            _ = session.prepareReconversion(undo: false)
+            #expect(session.editReconversionReading(key(53)).reconversionReading == nil)
+            _ = session.prepareReconversion(undo: false)
+            session.reconversionContext = reconversionDocument(selected: "別人")
+            let snapshot = session.editReconversionReading(key(36))
+            #expect(snapshot.reconversionError == "changed_context")
+            #expect(snapshot.reconversion == nil)
+            #expect(snapshot.preedit.isEmpty)
+            #expect(snapshot.commits.isEmpty)
+        }
+    }
 }

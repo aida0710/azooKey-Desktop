@@ -57,7 +57,7 @@ public struct ReconversionContext: Codable, Equatable, Sendable {
 
     /// A deletion may reveal additional preceding context that was outside the
     /// adapter's bounded window. The known suffix and exact position must agree.
-    func matchesDocument(_ other: Self) -> Bool {
+    public func matchesDocument(_ other: Self) -> Bool {
         guard isValid, other.isValid, other.canReplace, !other.isSensitive,
               cursorUTF16 == other.cursorUTF16, anchorUTF16 == other.anchorUTF16,
               selected.unicodeScalars.elementsEqual(other.selected.unicodeScalars),
