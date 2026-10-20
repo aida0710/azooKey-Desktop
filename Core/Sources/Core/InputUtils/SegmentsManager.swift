@@ -625,7 +625,9 @@ public final class SegmentsManager {
                 candidate.composingCount = .surfaceCount(conversionTarget.convertTarget.count - remaining.convertTarget.count)
                 return candidate
             }
-            result.mainResults = result.mainResults.map(restoreOriginalRange)
+            result.mainResults = result.mainResults
+                .filter { conversionTarget.isWholeComposingText(composingCount: $0.composingCount) }
+                .map(restoreOriginalRange)
             result.firstClauseResults = result.firstClauseResults.map(restoreOriginalRange)
             result.predictionResults = result.predictionResults.map(restoreOriginalRange)
             result.englishPredictionResults = result.englishPredictionResults.map(restoreOriginalRange)
