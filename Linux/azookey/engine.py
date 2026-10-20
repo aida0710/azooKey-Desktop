@@ -359,7 +359,7 @@ class Engine(IBus.Engine):
 
     def do_reset(self):
         self.ai_review.cancel()
-        self.transformation.invalidate_target()
+        self.transformation.reset_input()
         self.clear_reconversion()
         self.input.cancel()
         self.pending_settings_stamp = None

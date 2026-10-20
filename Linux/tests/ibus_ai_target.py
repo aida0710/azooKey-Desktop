@@ -117,18 +117,25 @@ class AITargetIntegration:
             raise
         return self.status
 
-    def preview(self):
+    def preview(self, *, reset_transfers=False):
         for field in self.fields.fields:
             field.set_text("前 原文 後")
         self.focus(0)
         self.wait_status(lambda status: status["selection_ready"] and status["settings_ready"])
         self.key(Gdk.KEY_F12)
         self.wait_status(lambda status: status["dialog"])
+        if reset_transfers:
+            self.active.call_sync("Reset", None, Gio.DBusCallFlags.NONE, ENGINE_SWITCH_TIMEOUT_MS, None)
+            self.key(Gdk.KEY_F7)
+            self.wait_status(lambda status: status["dialog_active"])
         self.focus(2)
         self.key(Gdk.KEY_F11)
         self.wait_status(lambda status: status["generated"] and status["can_apply"])
         self.key(Gdk.KEY_F10)
         self.wait_status(lambda status: status["pending"] and not status["visible"])
+        if reset_transfers:
+            self.active.call_sync("Reset", None, Gio.DBusCallFlags.NONE, ENGINE_SWITCH_TIMEOUT_MS, None)
+            self.wait_status(lambda status: status["pending"] and not status["visible"])
 
     def reject_case(self, context_index, field_index):
         self.preview()
@@ -153,7 +160,7 @@ class AITargetIntegration:
         self.key(Gdk.KEY_F9)
 
     def run(self):
-        self.preview()
+        self.preview(reset_transfers=True)
         self.focus(0)
         self.wait_status(lambda status: not status["dialog"])
         wait_until(lambda: len(self.commits) == 1, "original input context did not receive the replacement")
@@ -167,6 +174,7 @@ class AITargetIntegration:
         print(json.dumps({"status": "PASS", "original_commits": 1, "other_context_commits": 0,
                           "shared_context_other_field_commits": 0, "rejected_preview_preserved": True,
                           "reset_before_delayed_surrounding_commits": 0,
+                          "dialog_opening_and_dismissal_resets_verified": True,
                           "external_ai_requests": 0, "focus_ids": [context.get_object_path() for context in self.contexts]}))
 
     def close(self):

@@ -27,6 +27,10 @@ class SelectedTextTransformation:
         self.verifying = False
         self.restore_timeout = None
         self.dismissal_focus_revision = None
+        self.dismissal_from_dialog = False
+        self.opening_focus_revision = None
+        self.opening_focus_seen = False
+        self.opening_reset_pending = False
 
     def show(self, initial_prompt=""):
         if self.active:
@@ -57,6 +61,8 @@ class SelectedTextTransformation:
             self.dialog.set_modal(True)
             self.dialog.set_target_available(self.target is not None)
             self.dialog.connect("response", self.respond)
+            self.dialog.connect("notify::is-active", self.dialog_focus_changed)
+            self.opening_focus_revision = focus_revision if self.target else None
             self.dialog.show_all()
             self.dialog.present()
 
@@ -72,23 +78,67 @@ class SelectedTextTransformation:
             GLib.idle_add(lambda: completion(inspected) or GLib.SOURCE_REMOVE)
         threading.Thread(target=work, daemon=True).start()
 
+    def dialog_focus_changed(self, dialog, _property):
+        if dialog is not self.dialog or self.opening_focus_revision is None:
+            return
+        if dialog.is_active():
+            self.opening_focus_seen = True
+            self.opening_reset_pending = False
+            dialog.set_target_available(self.target is not None)
+            if self.engine.focus_revision is not self.opening_focus_revision:
+                self.finish_opening_focus()
+        elif self.opening_focus_seen:
+            self.finish_opening_focus()
+
+    def reset_input(self):
+        # Qt resets its old input context before delivering focus-out when our
+        # prompt takes focus. Only that original epoch can defer invalidation.
+        # GTK activation is still required before this transfer is accepted.
+        if (self.target is not None and self.dialog is not None and self.dialog.get_visible()
+                and self.pending is None and self.opening_focus_revision is self.engine.focus_revision):
+            active = self.dialog.is_active()
+            if not self.opening_focus_seen or active:
+                self.opening_focus_seen |= active
+                self.opening_reset_pending = not active
+                self.dialog.set_target_available(active)
+                return
+        # Hiding our active prompt also resets its outgoing IBus context.
+        # Once focus returns, resets again cancel even a delayed AT-SPI read.
+        if (self.pending is not None and not self.verifying and self.dismissal_from_dialog
+                and self.engine.focus_revision is self.dismissal_focus_revision
+                and self.dialog is not None and not self.dialog.get_visible()):
+            return
+        self.invalidate_target()
+
+    def finish_opening_focus(self):
+        self.opening_focus_revision = None
+        self.opening_focus_seen = False
+        self.opening_reset_pending = False
+
     def respond(self, _dialog, response):
         if response != Gtk.ResponseType.OK:
             self.close()
             return
         if self.pending:
             return
-        if self.target is None or not self.dialog.result:
+        if self.target is None or not self.dialog.result or self.opening_reset_pending:
             self.reject()
             return
+        self.finish_opening_focus()
         self.pending = PendingTransformation(self.target, self.dialog.result)
         self.dismissal_focus_revision = self.engine.focus_revision
+        self.dismissal_from_dialog = self.dialog.is_active()
         self.dialog.hide()
         self.restore_timeout = GLib.timeout_add(FOCUS_RETURN_TIMEOUT_MS, self.focus_return_expired)
         self.engine.get_surrounding_text()
         GLib.idle_add(self.context_changed)
 
     def context_changed(self):
+        if (self.opening_reset_pending and self.engine.focus_revision is not self.opening_focus_revision
+                and self.engine.current_transform_selection() is not None):
+            # A different editor was reached before the prompt gained focus.
+            # Even matching text is not an acknowledgement from our window.
+            return self.reject()
         if not self.pending or self.verifying:
             return GLib.SOURCE_REMOVE
         selection = self.engine.current_transform_selection()
@@ -129,7 +179,7 @@ class SelectedTextTransformation:
         return self.reject()
 
     def input_changed(self):
-        if self.pending:
+        if self.pending or self.opening_reset_pending:
             self.reject()
         elif self.active and self.dialog is None:
             self.close()
@@ -142,7 +192,9 @@ class SelectedTextTransformation:
 
     def reject(self):
         self.cancel_timeout()
+        self.finish_opening_focus()
         self.target = self.pending = None
+        self.dismissal_from_dialog = False
         self.verifying = False
         if self.dialog:
             self.dialog.set_target_available(False)
@@ -158,8 +210,10 @@ class SelectedTextTransformation:
     def close(self):
         self.revision = object()
         self.cancel_timeout()
+        self.finish_opening_focus()
         self.active = False
         self.target = self.pending = None
+        self.dismissal_from_dialog = False
         self.verifying = False
         if self.dialog:
             self.dialog.destroy()

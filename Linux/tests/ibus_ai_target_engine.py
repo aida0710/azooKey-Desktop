@@ -55,6 +55,13 @@ class AITargetFixtureEngine(engine_module.Engine):
                 owner.transformation.dialog.response(Gtk.ResponseType.OK)
         elif keyval == Gdk.KEY_F9:
             owner.transformation.close()
+        elif keyval == Gdk.KEY_F7:
+            dialog = owner.transformation.dialog
+            if dialog:
+                # This isolated Xvfb fixture has no window manager. Exercise
+                # GTK's real activation notification, not a mocked property.
+                dialog.get_window().focus(Gdk.CURRENT_TIME)
+                dialog.entry.grab_focus()
         elif keyval == Gdk.KEY_F8:
             dialog = owner.transformation.dialog
             status = {
@@ -64,6 +71,7 @@ class AITargetFixtureEngine(engine_module.Engine):
                 "settings_ready": "aiModel" in self.settings,
                 "selection_ready": self.current_transform_selection() is not None,
                 "dialog": dialog is not None,
+                "dialog_active": bool(dialog and dialog.is_active()),
                 "generated": bool(dialog and dialog.result),
                 "visible": bool(dialog and dialog.get_visible()),
                 "can_apply": bool(dialog and dialog.get_widget_for_response(Gtk.ResponseType.OK).get_sensitive()),

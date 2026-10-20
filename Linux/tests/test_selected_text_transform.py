@@ -14,7 +14,7 @@ from test_ai_transform_target import accessible_fixture, selection_fixture
 
 
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
-class SelectedTextTransformationTests(unittest.TestCase):
+class SelectedTextTransformationFixture(unittest.TestCase):
     def setUp(self):
         from azookey.selected_text_transform import SelectedTextTransformation
         self.directory = tempfile.TemporaryDirectory()
@@ -68,6 +68,17 @@ class SelectedTextTransformationTests(unittest.TestCase):
         self.assertFalse(self.session.dialog.get_widget_for_response(Gtk.ResponseType.OK).get_sensitive())
         self.assertEqual(self.session.dialog.target_message.get_text(), text("ai.preview.target-changed"))
 
+    def reset_input(self):
+        from azookey.engine import Engine
+        self.engine.ai_review = SimpleNamespace(cancel=lambda: None)
+        self.engine.transformation = self.session
+        self.engine.clear_reconversion = lambda: None
+        self.engine.recover_composition = lambda: None
+        self.engine.input.cancel = lambda: setattr(self.engine.input, "cancelled", object())
+        Engine.do_reset(self.engine)
+
+
+class SelectedTextTransformationTests(SelectedTextTransformationFixture):
     def test_original_target_after_prompt_focus_return_applies_exactly_once(self):
         self.generated_preview()
         self.begin_apply()
@@ -121,18 +132,12 @@ class SelectedTextTransformationTests(unittest.TestCase):
                 self.engine.sensitive = False
 
     def test_reset_before_delayed_surrounding_text_cannot_resume_application(self):
-        from azookey.engine import Engine
         from gi.repository import Gtk
         self.generated_preview()
         self.session.respond(self.session.dialog, Gtk.ResponseType.OK)
         self.selection = None
         self.engine.focus_revision = object()
-        self.engine.ai_review = SimpleNamespace(cancel=lambda: None)
-        self.engine.transformation = self.session
-        self.engine.clear_reconversion = lambda: None
-        self.engine.recover_composition = lambda: None
-        self.engine.input.cancel = lambda: setattr(self.engine.input, "cancelled", object())
-        Engine.do_reset(self.engine)
+        self.reset_input()
         self.selection = selection_fixture()
         self.session.context_changed()
         self.assertEqual(self.inspections, [])
