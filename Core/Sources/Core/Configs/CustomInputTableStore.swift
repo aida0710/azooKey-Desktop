@@ -47,12 +47,15 @@ public enum CustomInputTableStore {
 
     static func load(from url: URL, maximumBytes: Int) throws -> String? {
         guard maximumBytes >= 0, maximumBytes < Int.max else { throw ReadFailure.tooLarge }
+        var currentURL = url
+        // A repaired or replaced table can reuse a URL whose Darwin metadata was cached.
+        currentURL.removeAllCachedResourceValues()
         let file: FileHandle
         do {
-            let attributes = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            let attributes = try currentURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
             guard attributes.isRegularFile == true else { throw ReadFailure.notRegularFile }
             guard let size = attributes.fileSize, size <= maximumBytes else { throw ReadFailure.tooLarge }
-            file = try FileHandle(forReadingFrom: url)
+            file = try FileHandle(forReadingFrom: currentURL)
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
             return nil
         }
