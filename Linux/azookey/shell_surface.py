@@ -79,7 +79,7 @@ class ShellSurface:
         # The visible preedit may already contain keys absent from this snapshot.
         # Their reply will restore the fallback renderer without losing input.
         if engine and not engine.input.has_pending_preview:
-            engine.render(engine.snapshot)
+            engine.render_candidates(engine.snapshot)
 
     def show(self, engine, snapshot, location):
         self.engine = weakref.ref(engine)
