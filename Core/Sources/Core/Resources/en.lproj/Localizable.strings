@@ -127,3 +127,16 @@
 "ai.example.formal" = "Use formal language";
 "ai.example.english" = "Translate into English";
 "ai.disabled" = "AI conversion (disabled in settings)";
+"reconversion.undo_menu" = "Undo last commit (Control+Shift+Backspace)";
+"reconversion.selection_menu" = "Reconvert selected word (Control+Shift+R)";
+"reconversion.reading_input" = "Enter reading: %@  — Enter to reconvert / Escape to cancel";
+"reconversion.private_input" = "Commit undo and reconversion are unavailable in this field";
+"reconversion.replacement_unavailable" = "Cannot verify replacement of this range in this application";
+"reconversion.invalid_context" = "Cannot verify the document range. Select the word again";
+"reconversion.no_recent_commit" = "There is no recent commit to undo";
+"reconversion.changed_context" = "The text or cursor has changed. Select the word again";
+"reconversion.no_selection" = "Select a word to reconvert";
+"reconversion.reading_required" = "Enter the reading for this word";
+"reconversion.stale_request" = "The input context changed. Try again";
+"reconversion.composition_active" = "Finish the current composition before reconverting";
+"reconversion.whole_selection_required" = "Reconversion must cover the entire selected word";

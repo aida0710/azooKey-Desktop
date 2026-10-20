@@ -13,6 +13,12 @@ extension azooKeyMacInputController {
         self.transformSelectedTextMenuItem.keyEquivalentModifierMask = [.control]
         self.transformSelectedTextMenuItem.target = self
         self.appMenu.addItem(self.transformSelectedTextMenuItem)
+        let undoCommit = NSMenuItem(title: Localization.text("reconversion.undo_menu"), action: #selector(self.undoLastCommit(_:)), keyEquivalent: "")
+        undoCommit.target = self
+        self.appMenu.addItem(undoCommit)
+        let reconvert = NSMenuItem(title: Localization.text("reconversion.selection_menu"), action: #selector(self.reconvertSelection(_:)), keyEquivalent: "")
+        reconvert.target = self
+        self.appMenu.addItem(reconvert)
         self.appMenu.addItem(NSMenuItem.separator())
         self.appMenu.addItem(NSMenuItem(title: "設定…", action: #selector(self.openConfigWindow(_:)), keyEquivalent: ""))
         self.appMenu.addItem(NSMenuItem(title: Localization.text("support.title"), action: #selector(self.openSupportWindow(_:)), keyEquivalent: ""))

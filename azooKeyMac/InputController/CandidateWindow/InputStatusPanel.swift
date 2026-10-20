@@ -2,7 +2,7 @@ import Cocoa
 import Core
 
 /// Status stays outside the document and never takes keyboard focus.
-final class AISuggestionStatusPanel: NSPanel {
+final class InputStatusPanel: NSPanel {
     private let label = NSTextField(labelWithString: "")
     // Keep the status legible while leaving space between it and the caret.
     private static let horizontalInset: CGFloat = 12
@@ -24,7 +24,11 @@ final class AISuggestionStatusPanel: NSPanel {
     }
 
     func show(key: String, cursorLocation: CGPoint) {
-        label.stringValue = Localization.text(key)
+        show(message: Localization.text(key), cursorLocation: cursorLocation)
+    }
+
+    func show(message: String, cursorLocation: CGPoint) {
+        label.stringValue = message
         label.setAccessibilityLabel(label.stringValue)
         label.sizeToFit()
         label.setFrameOrigin(NSPoint(x: Self.horizontalInset, y: Self.verticalInset))

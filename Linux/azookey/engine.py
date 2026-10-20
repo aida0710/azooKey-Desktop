@@ -23,6 +23,8 @@ from .ai_scope import AIRequestConfiguration, AIRequestScope, MODIFIER_KEYS
 from .ai_review import AISuggestionReview
 from .i18n import text as message
 from .settings_store import update_settings
+from .reconversion import ReconversionCoordinator, surrounding_context
+from .reconversion_strings import message as reconversion_message
 
 
 class Engine(IBus.Engine):
@@ -51,6 +53,7 @@ class Engine(IBus.Engine):
         self.selected_text = ""
         self.left = ""
         self.right = ""
+        self.reconversion_context = None
         self.table = IBus.LookupTable.new(9, 0, True, True)
         self.table.set_orientation(IBus.Orientation.VERTICAL)
         self.input = InputCoordinator(
@@ -60,6 +63,12 @@ class Engine(IBus.Engine):
         )
         self.ai_review = AISuggestionReview(
             current_state=self.ai_review_state, send=self.start_ai, save_context=self.save_ai_context,
+        )
+        self.reconversion = ReconversionCoordinator(
+            self.input, context=self.current_reconversion_context,
+            delete=self.delete_surrounding_text, status=self.show_reconversion_status,
+            replay=self.do_process_key_event, forward=self.forward_key_event,
+            schedule_timeout=GLib.timeout_add, remove_timeout=GLib.source_remove,
         )
         self.input.submit("settings", completion=self.load_settings)
 
@@ -137,12 +146,27 @@ class Engine(IBus.Engine):
             return False
         self.ai_review.cancel()
         self.input.submit(operation, payload={
-            "leftContext": self.left, "rightContext": self.right, "privateInput": self.sensitive, **values,
+            "leftContext": self.left, "rightContext": self.right, "privateInput": self.sensitive,
+            "reconversionContext": self.current_reconversion_context(), **values,
         }, key=original_key)
         return True
 
+    def current_reconversion_context(self):
+        if not self.focused or self.sensitive or not self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT:
+            return None
+        return self.reconversion_context
+
+    def show_reconversion_status(self, text):
+        self.update_auxiliary_text(IBus.Text.new_from_string(text), bool(text))
+
+    def clear_reconversion(self):
+        self.reconversion.cancel()
+        self.reconversion_context = None
+        self.show_reconversion_status("")
+
     def recover_composition(self, text=""):
         self.ai_review.cancel()
+        queued = self.reconversion.cancel()
         self.pending_settings_stamp = None
         self.snapshot = {}
         self.anchor.update("", 0)
@@ -153,6 +177,9 @@ class Engine(IBus.Engine):
         self.hide_lookup_table()
         if text and self.focused and not self.private:
             self.commit_text(IBus.Text.new_from_string(text))
+        if self.focused and not self.private:
+            for key in queued:
+                self.forward_key_event(*key)
 
     def preview_pending(self, text, cursor):
         if not self.focused or self.private:
@@ -179,6 +206,8 @@ class Engine(IBus.Engine):
             if surface().scroll_details(self, forward) or self.panel.scroll_details(forward):
                 return True
         original_key = (keyval, keycode, state)
+        if self.reconversion.process(event, original_key):
+            return True
         if event is None:
             if not self.input.pending:
                 return False
@@ -218,16 +247,24 @@ class Engine(IBus.Engine):
         self.sensitive = self.private or bool(hints & IBus.InputHints.PRIVATE)
         if self.sensitive:
             self.ai_review.cancel()
+            self.clear_reconversion()
         if self.private:
             self.input.cancel()
             self.pending_settings_stamp = None
             self.recover_composition()
 
     def do_set_surrounding_text(self, text, cursor, anchor):
+        IBus.Engine.do_set_surrounding_text(self, text, cursor, anchor)
         value = text.get_text()
         self.left = value[:min(cursor, anchor)][-100:]
         self.right = value[max(cursor, anchor):][:100]
         self.selected_text = value[min(cursor, anchor):max(cursor, anchor)]
+        self.reconversion_context = surrounding_context(
+            value, cursor, anchor,
+            can_replace=bool(self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT),
+            sensitive=self.sensitive,
+        )
+        self.reconversion.surrounding_changed()
         self.apply_pending_transform()
 
     def apply_pending_transform(self):
@@ -267,6 +304,10 @@ class Engine(IBus.Engine):
         properties.append(IBus.Property.new("InputMode", IBus.PropType.NORMAL, IBus.Text.new_from_string("あ"), "",
                                             IBus.Text.new_from_string("日本語 / 英数を切り替え"), True, True, IBus.PropState.UNCHECKED, None))
         properties.append(IBus.Property.new("setup", IBus.PropType.NORMAL, IBus.Text.new_from_string("設定…"), "", IBus.Text.new_from_string("azooKey Tree の設定"), True, True, IBus.PropState.UNCHECKED, None))
+        for name, key in (("undo-commit", "undo_menu"), ("reconvert", "selection_menu")):
+            label = IBus.Text.new_from_string(reconversion_message(key))
+            properties.append(IBus.Property.new(name, IBus.PropType.NORMAL, label, "", label, True, True,
+                                                IBus.PropState.UNCHECKED, None))
         self.register_properties(properties)
 
     def do_property_activate(self, name, _state):
@@ -275,10 +316,13 @@ class Engine(IBus.Engine):
         elif name == "InputMode":
             keyval = 0xFF22 if self.snapshot.get("language", "japanese") == "japanese" else 0xFF23
             self.request("key", event=translate(keyval, 0))
+        elif name in ("undo-commit", "reconvert"):
+            self.reconversion.start(undo=name == "undo-commit")
 
     def do_focus_out(self):
         self.ai_review.cancel()
         self.focused = False
+        self.clear_reconversion()
         surface().hide(self)
         self.input.cancel()
         self.pending_settings_stamp = None
@@ -288,6 +332,7 @@ class Engine(IBus.Engine):
 
     def do_reset(self):
         self.ai_review.cancel()
+        self.clear_reconversion()
         self.input.cancel()
         self.pending_settings_stamp = None
         self.recover_composition()
@@ -302,6 +347,7 @@ class Engine(IBus.Engine):
             return
         self.destroyed = True
         self.ai_review.cancel()
+        self.clear_reconversion()
         surface().hide(self)
         self.panel.destroy()
         self.input.close()
@@ -328,7 +374,7 @@ class Engine(IBus.Engine):
         self.request("key", event=translate(0xFF54, 0))
 
     def choose(self, operation, index, submit):
-        if self.input.pending or not self.focused:
+        if self.input.pending or self.reconversion.active or not self.focused:
             return
         key = "node" if operation == "node" else "index"
         self.request(operation, **{key: index, "generation": self.snapshot.get("generation", -1), "submit": submit})
@@ -349,7 +395,9 @@ class Engine(IBus.Engine):
         selected = snapshot.get("selection")
         annotation = next((c.get("annotation", "") for c in snapshot.get("candidates", []) if c["index"] == selected), "")
         auxiliary = f"Tab: {prediction}" if prediction else annotation or ""
-        if self.settings_problem_stamp is None:
+        if snapshot.get("reconversionError"):
+            auxiliary = reconversion_message(snapshot["reconversionError"])
+        if snapshot.get("reconversionError") or self.settings_problem_stamp is None:
             self.update_auxiliary_text(IBus.Text.new_from_string(auxiliary), bool(auxiliary))
         self.table.clear()
         for candidate in snapshot.get("candidates", []):

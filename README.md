@@ -27,6 +27,7 @@ Releaseには通常Mac用の `arm64.zip` と、macOS VM向けCPU専用の `arm64
 - [Ubuntuでの導入・設定](docs/ubuntu.md)
 - [初回導入・更新・復旧・問題報告](docs/setup-and-recovery.md)
 - [履歴学習の設定と削除対象](docs/learning-settings.md)
+- [確定取消・選択再変換・文書のUndoの違い](docs/reconversion.md)
 - [Docker・macOS/Ubuntu VMのテスト手順](docs/vm-testing.md)
 - [上流の定期同期・独自リリース・Homebrew](docs/tree-maintenance.md)
 

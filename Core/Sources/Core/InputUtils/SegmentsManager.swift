@@ -546,6 +546,32 @@ public final class SegmentsManager {
         self.composingText.convertTargetBeforeCursor.utf16.count
     }
 
+    public func compositionCheckpoint() -> CompositionCheckpoint? {
+        guard !self.composingText.isEmpty else {
+            return nil
+        }
+        return .init(composingText: self.composingText, inputStyle: self.lastInputStyle,
+                     conversionRangeEnd: self.conversionRangeEnd,
+                     selectedText: self.selectedCandidate?.text ?? self.rawCandidates?.mainResults.first?.text)
+    }
+
+    @MainActor
+    public func restoreComposition(_ checkpoint: CompositionCheckpoint) {
+        self.stopComposition()
+        self.composingText = checkpoint.composingText
+        self.lastInputStyle = checkpoint.inputStyle
+        self.conversionRangeEnd = checkpoint.conversionRangeEnd
+        self.updateRawCandidate(requestRichCandidates: true)
+        self.shouldShowCandidateWindow = true
+        self.selectionIndex = self.candidates?.firstIndex { $0.text == checkpoint.selectedText }
+            ?? self.candidates?.firstIndex { self.composingText.isWholeComposingText(composingCount: $0.composingCount) }
+            ?? 0
+    }
+
+    public func consumesWholeComposition(_ candidate: Candidate) -> Bool {
+        self.composingText.isWholeComposingText(composingCount: candidate.composingCount)
+    }
+
     public var isEmpty: Bool {
         self.composingText.isEmpty
     }
