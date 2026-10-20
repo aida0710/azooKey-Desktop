@@ -1,5 +1,5 @@
 import * as IBusManager from 'resource:///org/gnome/shell/misc/ibusManager.js';
-import {translateCursorLocation, validCursorLocation} from './candidatePlacement.js';
+import {resolveCursorAnchor, validCursorLocation} from './candidatePlacement.js';
 
 // GNOME 46 forwards Wayland rectangles only to its panel service, not the engine.
 // Keep the version-specific adapter here; its absence leaves the engine fallback.
@@ -44,16 +44,13 @@ export class ShellCursor {
     }
 
     anchor(engineLocation) {
-        if (this._relative) {
-            const actor = this._window?.get_compositor_private();
-            const location = actor && translateCursorLocation(this._location, [actor.x, actor.y]);
-            if (location) return {location, source: 'wayland-relative', permitsWordAlignment: false};
-        }
-        if (validCursorLocation(engineLocation))
-            return {location: engineLocation, source: 'engine', permitsWordAlignment: true};
-        if (validCursorLocation(this._location))
-            return {location: this._location, source: 'shell', permitsWordAlignment: false};
-        return {location: [0, 0, 0, 0], source: 'unavailable', permitsWordAlignment: false};
+        const actor = this._relative ? this._window?.get_compositor_private() : null;
+        return resolveCursorAnchor({
+            engineLocation,
+            shellLocation: this._location,
+            relative: this._relative,
+            windowPosition: actor ? [actor.x, actor.y] : null,
+        });
     }
 
     _clear() {
