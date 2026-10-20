@@ -192,7 +192,7 @@ extension azooKeyMacInputController {
         let alert = NSAlert()
         alert.messageText = Localization.text("ai.preview.target-changed")
         alert.addButton(withTitle: Localization.text("ai.preview.copy"))
-        alert.addButton(withTitle: Localization.text("settings.cancel"))
+        alert.addButton(withTitle: Localization.text("ai.scope.cancel"))
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn {
             NSPasteboard.general.clearContents()
