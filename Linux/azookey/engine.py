@@ -114,6 +114,12 @@ class Engine(IBus.Engine):
         event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
         if self.private or not self.focused or self.input.recovering:
             return False
+        if (event and event["modifierFlags"] == 0 and not self.input.pending
+                and keyval in (Gdk.KEY_Page_Up, Gdk.KEY_Page_Down)
+                and self.settings.get("tree", True) and self.snapshot.get("nodes")):
+            forward = keyval == Gdk.KEY_Page_Down
+            if surface().scroll_details(self, forward) or self.panel.scroll_details(forward):
+                return True
         original_key = (keyval, keycode, state)
         if event is None:
             if not self.input.pending:
