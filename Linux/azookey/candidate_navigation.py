@@ -24,6 +24,8 @@ class CandidateNavigation(Gtk.Box):
         self.token = None
         self.row_buttons = []
         self.row_identity = None
+        self.hovered_item = None
+        self.hovered_button = None
         self.header = Gtk.Box(spacing=6)
         self.status = Gtk.Label(xalign=0)
         self.status.set_ellipsize(Pango.EllipsizeMode.END)
@@ -64,6 +66,7 @@ class CandidateNavigation(Gtk.Box):
                               sort_keys=True, ensure_ascii=False)
         if identity != self.row_identity:
             self.row_identity = identity
+            self.clear_preview()
             for child in self.rows.get_children():
                 child.destroy()
             self.row_buttons = []
@@ -97,10 +100,13 @@ class CandidateNavigation(Gtk.Box):
         button.add(label)
         button.set_tooltip_text(item.get("detailDescription", item["text"]))
         button.connect("enter-notify-event", lambda source, _event: self.preview_current(item, source))
+        button.connect("leave-notify-event", lambda source, _event: self.clear_preview(source))
         return button
 
     def toggle_list(self):
         self.expanded = not self.expanded
+        if not self.expanded:
+            self.clear_preview()
         self.changed()
 
     def move_page(self, key):
@@ -114,9 +120,19 @@ class CandidateNavigation(Gtk.Box):
 
     def preview_current(self, item, source):
         if self.expanded and source in self.row_buttons:
+            self.hovered_button = source
+            self.hovered_item = item
             self.preview(item)
+        return False
+
+    def clear_preview(self, source=None):
+        if self.hovered_item is not None and (source is None or self.hovered_button is source):
+            self.hovered_item = None
+            self.hovered_button = None
+            self.preview(None)
         return False
 
     def collapse(self):
         self.expanded = False
+        self.clear_preview()
         self.scroll.hide()

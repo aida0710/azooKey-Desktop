@@ -8,6 +8,8 @@ export class CandidateNavigation {
         this._select = select;
         this._changed = changed;
         this._preview = preview;
+        this.hoveredItem = null;
+        this._hoveredButton = null;
         this.expanded = false;
         this.actor = new St.BoxLayout({vertical: true, can_focus: false});
         this._header = new St.BoxLayout();
@@ -16,6 +18,7 @@ export class CandidateNavigation {
         this._header.add_child(this._status);
         this._toggle = this._button(() => {
             this.expanded = !this.expanded;
+            if (!this.expanded) this._clearPreview();
             this._changed();
         });
         this._previous = this._button(button => this._selectPage(button));
@@ -53,7 +56,10 @@ export class CandidateNavigation {
     update(snapshot, {fontSize, listHeight}) {
         const page = snapshot.candidatePage;
         this.actor.visible = (page?.totalCount ?? 0) > 0;
-        if (!this.actor.visible) return 0;
+        if (!this.actor.visible) {
+            this._clearPreview();
+            return 0;
+        }
         const action = (index, submit) => new GLib.Variant('(sibis)',
             ['select', index, submit, snapshot.generation, snapshot.contextId]);
         this._status.text = messages.position(page.position ?? '—', page.totalCount);
@@ -69,6 +75,7 @@ export class CandidateNavigation {
         const identity = JSON.stringify([page.items, snapshot.contextId, snapshot.showCandidateIndex, fontSize]);
         if (identity !== this._identity) {
             this._identity = identity;
+            this._clearPreview();
             this._rows.destroy_all_children();
             for (const [offset, item] of page.items.entries()) {
                 const button = this._button(source => {
@@ -81,7 +88,12 @@ export class CandidateNavigation {
                 button.set_child(label);
                 button.accessible_name = [item.text, item.reading, item.detailDescription].filter(Boolean).join('\n');
                 button.connect('notify::hover', () => {
-                    if (button.hover && this._identity === identity) this._preview(item);
+                    if (this._identity !== identity) return;
+                    if (button.hover && this.expanded) {
+                        this._hoveredButton = button;
+                        this.hoveredItem = item;
+                        this._preview(item);
+                    } else this._clearPreview(button);
                 });
                 this._rows.add_child(button);
             }
@@ -100,6 +112,16 @@ export class CandidateNavigation {
 
     collapse() {
         this.expanded = false;
+        this._clearPreview();
         this._scroll.hide();
     }
+
+    _clearPreview(button = null) {
+        if (this.hoveredItem && (!button || this._hoveredButton === button)) {
+            this.hoveredItem = null;
+            this._hoveredButton = null;
+            this._preview(null);
+        }
+    }
+
 }

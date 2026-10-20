@@ -1,7 +1,7 @@
 import AppKit
+@testable import azooKeyMac
 import Core
 import XCTest
-@testable import azooKeyMac
 
 @MainActor
 final class CandidateTreeViewTests: XCTestCase {
@@ -11,15 +11,49 @@ final class CandidateTreeViewTests: XCTestCase {
         }
     }
 
+    private func candidateButtons(in view: CandidateTreeView) -> [NSButton] {
+        view.subviews.filter { !($0 is CandidateNavigationView) }.flatMap { buttons(in: $0) }
+    }
+
     private let entries: [CandidateTree.Entry] = [
         .init(text: "日本語", tokens: [.init(text: "日本"), .init(text: "語")], candidateIndex: 0),
         .init(text: "日本画", tokens: [.init(text: "日本"), .init(text: "画")], candidateIndex: 1)
+    ]
+
+    private let partialEntries: [CandidateTree.Entry] = [
+        .init(text: "日本語", tokens: [.init(text: "日本語", reading: "ニホンゴ")], candidateIndex: 0,
+              scope: .init(consumedReading: "にほんご", remainingReading: "にゅうりょく")),
+        .init(text: "日本語入力", tokens: [.init(text: "日本語", reading: "ニホンゴ"), .init(text: "入力")],
+              candidateIndex: 1, annotation: "全文の注釈",
+              scope: .init(consumedReading: "にほんごにゅうりょく", remainingReading: "")),
+        .init(text: "日本語入力", tokens: [.init(text: "日本語", reading: "ニホンゴ"), .init(text: "入力")],
+              candidateIndex: 2, annotation: "別候補の注釈",
+              scope: .init(consumedReading: "にほんごにゅうりょく", remainingReading: ""))
     ]
 
     private func textFields(in view: NSView) -> [NSTextField] {
         view.subviews.flatMap { child in
             (child as? NSTextField).map { [$0] } ?? textFields(in: child)
         }
+    }
+
+    private func detailText(in view: NSView) -> String {
+        textFields(in: view).map(\.stringValue).joined(separator: "\n")
+    }
+
+    private func hoverEvent(_ type: NSEvent.EventType) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.enterExitEvent(
+            with: type, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+            context: nil, eventNumber: 0, trackingNumber: 0, userData: nil
+        ))
+    }
+
+    private func assertPartialPreview(in view: NSView, file: StaticString = #filePath, line: UInt = #line) {
+        let preview = detailText(in: view)
+        XCTAssertTrue(preview.contains("確定予定: 日本語\n"), file: file, line: line)
+        XCTAssertTrue(preview.contains("にゅうりょく"), file: file, line: line)
+        XCTAssertFalse(preview.contains("全文の注釈"), file: file, line: line)
+        XCTAssertFalse(preview.contains("別候補の注釈"), file: file, line: line)
     }
 
     func testLargeCandidateTextRetainsTheFullReadingWithoutCommitting() throws {
@@ -63,6 +97,159 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertEqual(submitted, [])
         XCTAssertTrue(view.navigate(.up))
         XCTAssertFalse(textFields(in: view).map(\.stringValue).joined().contains("注釈の例"))
+    }
+
+    func testHoveringANumberPreviewsItsPartialCandidateAndCommitsItOnce() throws {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 320))
+        var submitted: [Int] = []
+        var selected: [Int] = []
+        view.onCandidateSubmitted = { submitted.append($0) }
+        view.onSelectionChanged = { selected.append($0) }
+        view.update(entries: Array(partialEntries.prefix(2)), selectionIndex: 1, numbers: [0: "1", 1: "2"])
+        view.layoutSubtreeIfNeeded()
+        let word = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "日本語" })
+        let number = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "1" })
+        let entered = try hoverEvent(.mouseEntered)
+        word.mouseEntered(with: entered)
+        XCTAssertTrue(textFields(in: view).contains { $0.stringValue.contains("全文の注釈") })
+        number.mouseEntered(with: entered)
+        let details = textFields(in: view).map(\.stringValue).joined(separator: "\n")
+        XCTAssertTrue(details.contains("確定予定: 日本語\n"))
+        XCTAssertTrue(details.contains("にゅうりょく"))
+        XCTAssertFalse(details.contains("全文の注釈"))
+        XCTAssertTrue(number.accessibilityHelp()?.contains("にゅうりょく") == true)
+        word.mouseEntered(with: entered)
+        XCTAssertTrue(textFields(in: view).contains { $0.stringValue.contains("全文の注釈") })
+        number.mouseEntered(with: entered)
+        XCTAssertEqual(submitted, [])
+        XCTAssertEqual(selected, [])
+        XCTAssertFalse(number.acceptsFirstResponder)
+        number.performClick(nil)
+        XCTAssertEqual(submitted, [0])
+    }
+
+    func testNumberHoverSurvivesSelectionUpdatesAndExitRestoresKeyboardDetails() throws {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 320))
+        var submitted: [Int] = []
+        var selected: [Int] = []
+        view.onCandidateSubmitted = { submitted.append($0) }
+        view.onSelectionChanged = { selected.append($0) }
+        let numbers = [0: "1", 1: "2", 2: "3"]
+        view.update(entries: partialEntries, selectionIndex: 1, numbers: numbers)
+        let word = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "日本語" })
+        let number = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "1" })
+        word.mouseEntered(with: try hoverEvent(.mouseEntered))
+        number.mouseEntered(with: try hoverEvent(.mouseEntered))
+        // A queued exit from the word must not dismiss the newer number preview.
+        word.mouseExited(with: try hoverEvent(.mouseExited))
+        for index in [2, 1] {
+            view.update(entries: partialEntries, selectionIndex: index, numbers: numbers)
+            XCTAssertTrue(candidateButtons(in: view).first { $0.title == "1" } === number)
+            assertPartialPreview(in: view)
+        }
+        number.mouseExited(with: try hoverEvent(.mouseExited))
+        XCTAssertTrue(detailText(in: view).contains("全文の注釈"))
+        XCTAssertFalse(detailText(in: view).contains("別候補の注釈"))
+        XCTAssertEqual(submitted, [])
+        XCTAssertEqual(selected, [])
+        number.performClick(nil)
+        XCTAssertEqual(submitted, [0])
+    }
+
+    func testWordHoverUsesCurrentCandidateAndExitReturnsToTheKeyboardNode() throws {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 320))
+        view.update(entries: partialEntries, selectionIndex: 1)
+        let word = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "日本語" })
+        word.mouseEntered(with: try hoverEvent(.mouseEntered))
+        view.update(entries: partialEntries, selectionIndex: 2)
+        XCTAssertTrue(view.navigate(.right))
+        XCTAssertTrue(detailText(in: view).hasPrefix("日本語\nニホンゴ\n"))
+        XCTAssertTrue(detailText(in: view).contains("別候補の注釈"))
+        XCTAssertFalse(detailText(in: view).contains("全文の注釈"))
+        word.mouseExited(with: try hoverEvent(.mouseExited))
+        XCTAssertTrue(detailText(in: view).hasPrefix("入力\n"))
+        XCTAssertTrue(detailText(in: view).contains("別候補の注釈"))
+    }
+
+    func testRemovedControlsCannotPreviewCandidatesThatReuseTheirIndices() throws {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 320))
+        var submitted: [Int] = []
+        view.onCandidateSubmitted = { submitted.append($0) }
+        view.update(entries: partialEntries, selectionIndex: 1, numbers: [0: "1", 1: "2", 2: "3"])
+        let oldWord = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "日本語" })
+        let oldNumber = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "1" })
+        oldNumber.mouseEntered(with: try hoverEvent(.mouseEntered))
+        view.update(entries: [
+            .init(text: "別の候補", tokens: [], candidateIndex: 0),
+            .init(text: "現在の候補", tokens: [], candidateIndex: 1)
+        ], selectionIndex: 1, numbers: [0: "1", 1: "2"])
+        for oldControl in [oldWord, oldNumber] {
+            oldControl.mouseEntered(with: try hoverEvent(.mouseEntered))
+            oldControl.mouseExited(with: try hoverEvent(.mouseExited))
+            oldControl.performClick(nil)
+        }
+        XCTAssertTrue(detailText(in: view).contains("確定予定: 現在の候補"))
+        XCTAssertFalse(detailText(in: view).contains("確定予定: 別の候補"))
+        XCTAssertFalse(detailText(in: view).contains("日本語"))
+        XCTAssertEqual(submitted, [])
+        view.update(entries: [], selectionIndex: nil)
+        oldNumber.mouseEntered(with: try hoverEvent(.mouseEntered))
+        XCTAssertFalse(detailText(in: view).contains("確定予定:"))
+    }
+
+    func testRemovingANumberDuringSelectionUpdateReturnsToCurrentDetails() throws {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 320))
+        view.update(entries: partialEntries, selectionIndex: 1, numbers: [0: "1", 1: "2", 2: "3"])
+        let number = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "1" })
+        number.mouseEntered(with: try hoverEvent(.mouseEntered))
+        view.update(entries: partialEntries, selectionIndex: 2, numbers: [2: "3"])
+        XCTAssertNil(number.superview)
+        XCTAssertTrue(detailText(in: view).contains("別候補の注釈"))
+        number.mouseEntered(with: try hoverEvent(.mouseEntered))
+        XCTAssertTrue(detailText(in: view).contains("別候補の注釈"))
+    }
+
+    func testListHoverSurvivesSelectionUpdatesAndExitOrCloseRestoresKeyboardDetails() throws {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 520))
+        let numbers = [0: "1", 1: "2", 2: "3"]
+        view.update(entries: partialEntries, selectionIndex: 1, numbers: numbers)
+        let list = try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateNavigationView }.first)
+        try XCTUnwrap(buttons(in: list).first { $0.title == Localization.text("candidate.openList") }).performClick(nil)
+        let row = try XCTUnwrap(buttons(in: list).first { $0.title == "1. 日本語" })
+        row.mouseEntered(with: try hoverEvent(.mouseEntered))
+        for index in [2, 1] {
+            view.update(entries: partialEntries, selectionIndex: index, numbers: numbers)
+            XCTAssertTrue(buttons(in: list).first { $0.title == "1. 日本語" } === row)
+            assertPartialPreview(in: view)
+        }
+        row.mouseExited(with: try hoverEvent(.mouseExited))
+        XCTAssertTrue(detailText(in: view).contains("全文の注釈"))
+        row.mouseEntered(with: try hoverEvent(.mouseEntered))
+        try XCTUnwrap(buttons(in: list).first { $0.title == Localization.text("candidate.closeList") }).performClick(nil)
+        XCTAssertTrue(detailText(in: view).contains("全文の注釈"))
+        row.mouseEntered(with: try hoverEvent(.mouseEntered))
+        XCTAssertTrue(detailText(in: view).contains("全文の注釈"))
+    }
+
+    func testLeavingAListPageInvalidatesThePreviousRowsPreviewAndActions() throws {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 520))
+        let entries = (0..<12).map { CandidateTree.Entry(text: "候補\($0)", tokens: [], candidateIndex: $0) }
+        var submitted: [Int] = []
+        view.onCandidateSubmitted = { submitted.append($0) }
+        view.update(entries: entries, selectionIndex: 1, numbers: [0: "1", 1: "2"])
+        let list = try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateNavigationView }.first)
+        try XCTUnwrap(buttons(in: list).first { $0.title == Localization.text("candidate.openList") }).performClick(nil)
+        let row = try XCTUnwrap(buttons(in: list).first { $0.title == "1. 候補0" })
+        row.mouseEntered(with: try hoverEvent(.mouseEntered))
+        XCTAssertTrue(detailText(in: view).contains("確定予定: 候補0"))
+        view.update(entries: entries, selectionIndex: 10, numbers: [9: "1", 10: "2", 11: "3"])
+        XCTAssertNil(row.superview)
+        row.mouseEntered(with: try hoverEvent(.mouseEntered))
+        row.mouseExited(with: try hoverEvent(.mouseExited))
+        row.performClick(nil)
+        XCTAssertTrue(detailText(in: view).contains("確定予定: 候補10"))
+        XCTAssertFalse(detailText(in: view).contains("確定予定: 候補0"))
+        XCTAssertEqual(submitted, [])
     }
 
     func testScoresExplainRelativeMeaningAndRefreshOnCandidateChange() throws {
@@ -285,7 +472,8 @@ final class CandidateTreeViewTests: XCTestCase {
         let view = CandidateTreeView()
         view.update(entries: entries, selectionIndex: 0)
         view.update(entries: [.init(text: "更新", tokens: [], candidateIndex: 0)], selectionIndex: 0)
-        XCTAssertEqual(buttons(in: view).map(\.title), ["更新"])
+        XCTAssertEqual(candidateButtons(in: view).map(\.title), ["更新"])
+        XCTAssertEqual(buttons(in: view).filter { $0.title == Localization.text("candidate.openList") }.count, 1)
     }
 
     func testDuplicateCandidateNumbersDoNotOverlap() {
@@ -294,7 +482,8 @@ final class CandidateTreeViewTests: XCTestCase {
             .init(text: "同じ", tokens: [], candidateIndex: 0),
             .init(text: "同じ", tokens: [], candidateIndex: 1)
         ], selectionIndex: 1, numbers: [0: "1", 1: "2"])
-        XCTAssertEqual(Set(buttons(in: view).map(\.title)), ["同じ", "2"])
+        XCTAssertEqual(candidateButtons(in: view).map(\.title).sorted(), ["2", "同じ"])
+        XCTAssertEqual(buttons(in: view).filter { $0.title == Localization.text("candidate.openList") }.count, 1)
     }
 
     func testAlternativeClickCommitsItsRealCandidateBeforeItMoves() {

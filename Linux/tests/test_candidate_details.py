@@ -132,6 +132,109 @@ class CandidateDetailTests(unittest.TestCase):
         self.panel.show_details(0)
         self.assertNotIn("全角英数", self.panel.details.displayed_text)
 
+    @staticmethod
+    def shared_word_snapshot(selection=1):
+        partial = "確定予定: 日本語\n確定する読み: にほんご\n残る読み: にゅうりょく"
+        full = "確定予定: 日本語入力\n確定する読み: にほんごにゅうりょく\n全文の注釈"
+        alternative = full.replace("全文の注釈", "別の全文注釈")
+        return {
+            "contextId": "editor", "generation": selection, "selection": selection, "focusedNode": 0,
+            "columns": [[0], [1]], "selectedPath": [0, 1], "showCandidateIndex": True,
+            "nodes": [
+                {"id": 0, "text": "日本語", "reading": "ニホンゴ", "terminals": [0],
+                 "previewDescription": full if selection == 1 else alternative},
+                {"id": 1, "text": "入力", "reading": "ニュウリョク", "terminals": [1, 2],
+                 "previewDescription": full if selection == 1 else alternative},
+            ],
+            "candidatePage": {"start": 0, "position": selection + 1, "totalCount": 3, "items": [
+                {"index": 0, "text": "日本語", "reading": "ニホンゴ", "detailDescription": partial},
+                {"index": 1, "text": "日本語入力", "reading": "ニホンゴニュウリョク",
+                 "detailDescription": full},
+                {"index": 2, "text": "日本語入力", "reading": "ニホンゴニュウリョク",
+                 "detailDescription": alternative},
+            ]},
+        }
+
+    def test_hovering_a_number_previews_its_partial_candidate_and_commits_it_once(self):
+        from copy import deepcopy
+        from gi.repository import Gdk
+
+        snapshot = self.shared_word_snapshot()
+        partial, full = [item["detailDescription"] for item in snapshot["candidatePage"]["items"][:2]]
+        original = deepcopy(snapshot)
+        self.panel.update(snapshot)
+        word = self.panel.actions[("node", 0)]
+        number = self.panel.actions[("select", 0)]
+        entered = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
+        word.emit("enter-notify-event", entered)
+        self.assertIn(full, self.panel.details.displayed_text)
+        number.emit("enter-notify-event", entered)
+        self.assertIn(partial, self.panel.details.displayed_text)
+        self.assertNotIn("全文の注釈", self.panel.details.displayed_text)
+        self.assertIn(partial, number.get_accessible().get_description())
+        word.emit("enter-notify-event", entered)
+        self.assertIn(full, self.panel.details.displayed_text)
+        number.emit("enter-notify-event", entered)
+        self.assertEqual(snapshot, original)
+        self.assertEqual(self.commits, [])
+        self.assertFalse(self.panel.get_accept_focus())
+        number.clicked()
+        self.assertEqual(self.commits, [("select", 0, True)])
+
+    def test_stationary_hover_stays_on_its_target_after_keyboard_updates_and_leave_restores_selection(self):
+        from gi.repository import Gdk
+
+        entered = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
+        left = Gdk.Event.new(Gdk.EventType.LEAVE_NOTIFY)
+        for kind in ("node", "select", "list"):
+            with self.subTest(kind=kind):
+                original = self.shared_word_snapshot()
+                self.panel.update(original)
+                self.panel.navigation.expanded = True
+                self.panel.update(original)
+                target = (self.panel.navigation.row_buttons[0] if kind == "list"
+                          else self.panel.actions[(kind, 0)])
+                target.emit("enter-notify-event", entered)
+                for selection in (2, 1):
+                    updated = self.shared_word_snapshot(selection)
+                    self.panel.update(updated)
+                    current = (self.panel.navigation.row_buttons[0] if kind == "list"
+                               else self.panel.actions[(kind, 0)])
+                    self.assertIs(current, target, "The pointer did not enter a different control")
+                    expected = (updated["nodes"][0]["previewDescription"] if kind == "node"
+                                else updated["candidatePage"]["items"][0]["detailDescription"])
+                    self.assertIn(expected, self.panel.details.displayed_text)
+                target.emit("leave-notify-event", left)
+                self.assertIn(original["nodes"][0]["previewDescription"], self.panel.details.displayed_text)
+                self.assertNotIn("残る読み", self.panel.details.displayed_text)
+                self.assertEqual(self.commits, [])
+                self.assertFalse(self.panel.get_accept_focus())
+
+    def test_replacing_the_context_retires_the_hover_target_and_collapsing_the_list_restores_selection(self):
+        from gi.repository import Gdk
+
+        entered = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
+        for kind in ("select", "list"):
+            with self.subTest(kind=kind):
+                self.panel.update(self.shared_word_snapshot())
+                self.panel.navigation.expanded = True
+                self.panel.update(self.shared_word_snapshot())
+                target = (self.panel.navigation.row_buttons[0] if kind == "list"
+                          else self.panel.actions[(kind, 0)])
+                target.emit("enter-notify-event", entered)
+                updated = {**self.shared_word_snapshot(2), "contextId": "another-editor"}
+                self.panel.update(updated)
+                self.assertIn("別の全文注釈", self.panel.details.displayed_text)
+                target.emit("enter-notify-event", entered)
+                self.assertIn("別の全文注釈", self.panel.details.displayed_text)
+                self.panel.navigation.expanded = True
+                self.panel.update(updated)
+                self.panel.navigation.row_buttons[0].emit("enter-notify-event", entered)
+                self.assertIn("残る読み", self.panel.details.displayed_text)
+                self.panel.navigation.collapse()
+                self.assertIn("別の全文注釈", self.panel.details.displayed_text)
+                self.assertEqual(self.commits, [])
+
 
 if __name__ == "__main__":
     unittest.main()

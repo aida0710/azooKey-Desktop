@@ -61,6 +61,7 @@ class TreePanel(Gtk.Window):
         self.surface.put(self.canvas, 0, 0)
         self.scroll.add(self.surface)
         self.actions = {}
+        self.hovered_action = None
         self.location = (0, 0, 0, 0)
         self.focus_key = None
         self.layout_diagnostics = {}
@@ -71,6 +72,7 @@ class TreePanel(Gtk.Window):
         self.connect("size-allocate", lambda *_: self.position() if self.get_visible() else None)
 
     def clear_placement(self, *_args):
+        self.hovered_action = None
         self.navigation.collapse()
         self.placement_side = None
         self.layout_diagnostics = {}
@@ -152,7 +154,7 @@ class TreePanel(Gtk.Window):
         self.scroll.set_min_content_height(popup_height)
         self.resize(popup_width, popup_height)
         self.update_actions()
-        self.show_details(snapshot.get("focusedNode") if snapshot.get("focusedNode") is not None else columns[0][0])
+        self.refresh_details()
         self.show_all()
         self.position()
         self.canvas.queue_draw()
@@ -172,6 +174,7 @@ class TreePanel(Gtk.Window):
             self.scroll_idle = GLib.idle_add(reveal)
 
     def clear_actions(self):
+        self.hovered_action = None
         for button in self.actions.values():
             button.destroy()
         self.actions.clear()
@@ -181,14 +184,18 @@ class TreePanel(Gtk.Window):
         for identity in list(self.actions):
             if identity not in visible:
                 self.actions.pop(identity).destroy()
+                if self.hovered_action == identity:
+                    self.hovered_action = None
         selected = set(self.snapshot.get("selectedPath", []))
         for kind, index, x, y, width, height, text, reading in self.rectangles:
             identity = (kind, index)
             button = self.actions.get(identity)
             if button is None:
                 button = CandidateAction(lambda source, identity=identity: self.activate(identity, source))
-                if kind == "node":
-                    button.connect("enter-notify-event", lambda _button, _event, index=index: self.show_details(index))
+                button.connect("enter-notify-event", lambda source, _event, identity=identity:
+                               self.hover_action(identity, source))
+                button.connect("leave-notify-event", lambda source, _event, identity=identity:
+                               self.leave_action(identity, source))
                 self.surface.put(button, int(x), int(y))
                 self.actions[identity] = button
             self.surface.move(button, int(x), int(y))
@@ -205,8 +212,33 @@ class TreePanel(Gtk.Window):
                     description += "\n" + node["previewDescription"]
             if kind == "select":
                 name = message("candidate.numberConfirm", number=index + 1)
-            button.set_tooltip_text(name)
+                item = self.numbered_candidate(index)
+                if item and item.get("detailDescription"):
+                    description += "\n" + item["detailDescription"]
+            button.set_tooltip_text(name + "\n" + description)
             button.update_accessibility(name, selected=active, description=description)
+
+    def hover_action(self, identity, source):
+        if self.actions.get(identity) is source:
+            self.hovered_action = identity
+            self.refresh_details()
+        return False
+
+    def leave_action(self, identity, source):
+        if self.actions.get(identity) is source and self.hovered_action == identity:
+            self.hovered_action = None
+            self.refresh_details()
+        return False
+
+    def refresh_details(self):
+        if self.navigation.expanded and self.navigation.hovered_item:
+            return self.show_candidate_details(self.navigation.hovered_item)
+        if self.hovered_action in self.actions:
+            kind, index = self.hovered_action
+            return self.show_details(index) if kind == "node" else self.show_number_details(index)
+        columns = self.snapshot.get("columns", [])
+        node_id = self.snapshot.get("focusedNode")
+        return self.show_details(node_id if node_id is not None else (columns[0][0] if columns else None))
 
     def show_details(self, node_id):
         node = next((item for item in self.snapshot.get("nodes", []) if item["id"] == node_id), None)
@@ -221,9 +253,20 @@ class TreePanel(Gtk.Window):
         return False
 
     def show_candidate_details(self, item):
+        if item is None:
+            return self.refresh_details()
         content = item.get("detailDescription", item["text"])
         self.details.update(content, font_size=self.font_size, width=self.scroll.get_min_content_width())
         return False
+
+    def numbered_candidate(self, index):
+        return next((item for item in self.snapshot.get("candidatePage", {}).get("items", [])
+                     if item["index"] == index), None)
+
+    def show_number_details(self, index):
+        # A shared word can preview a longer candidate than its adjacent number.
+        item = self.numbered_candidate(index)
+        return self.show_candidate_details(item or {"text": ""})
 
     def scroll_details(self, forward):
         if not self.get_visible():
