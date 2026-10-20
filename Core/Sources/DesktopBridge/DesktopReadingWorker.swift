@@ -9,6 +9,7 @@ struct DesktopReadingWorker {
     private var focusedContext: String?
     private var focusEpoch = 0
     private var appliedSettings: DesktopWorkerSettingsRuntime?
+    private let defaults = DesktopWorkerDefaults()
 
     mutating func process(_ request: DesktopReadingWorkerRequest) throws -> DesktopReadingWorkerResponse {
         let encoded = try JSONEncoder().encode(request)
@@ -51,8 +52,8 @@ struct DesktopReadingWorker {
                             "identifierBytes": DesktopWorkerProtocolLimits.identifierBytes,
                             "contextBytes": DesktopWorkerProtocolLimits.contextBytes,
                             "contexts": DesktopWorkerProtocolLimits.contexts]
-            return reply
-        case "settings": return settingsResponse(.acknowledgement)
+            return try defaults.adding(to: reply)
+        case "settings": return try defaults.adding(to: settingsResponse(.acknowledgement))
         case "configure-settings": return try configureSettings(request)
         case "open": return try open(request)
         case "learning-revision": return try updateLearning(request)

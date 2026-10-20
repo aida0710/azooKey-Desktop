@@ -112,5 +112,7 @@ struct DesktopReadingWorkerResponse: Encodable {
     var settings: DesktopWorkerSettings?
     var customInputTableRevisions: [String: String]?
     var unsupportedFeatures: [String]?
+    var defaultSettings: DesktopWorkerSettings?
+    var defaultSettingsError: String?
     var error: String?
 }
