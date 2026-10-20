@@ -70,6 +70,40 @@ class CandidateDetailTests(unittest.TestCase):
         self.assertNotIn("語", str(description))
         self.assertEqual(self.commits, [])
 
+    def test_number_targets_do_not_overlap_and_scaled_digits_fit(self):
+        from gi.repository import Pango
+
+        settings = self.panel.get_settings()
+        previous_dpi = settings.get_property("gtk-xft-dpi")
+        self.panel.location = (100, 100, 1, 20)
+        try:
+            for size, base_size in [("standard", 18), ("large", 24)]:
+                for scale in [1, 1.5, 2]:
+                    settings.set_property("gtk-xft-dpi", round(96 * Pango.SCALE * scale))
+                    self.assert_number_geometry(size=size, column_width=base_size * scale + 8)
+                    self.assert_number_geometry(size=size, column_width=base_size * scale + 14)
+        finally:
+            settings.set_property("gtk-xft-dpi", previous_dpi)
+
+    def assert_number_geometry(self, *, size, column_width):
+        import cairo
+
+        self.panel.update({
+            **self.snapshot, "columns": [[0], [1]], "showCandidateIndex": True,
+            "candidateTextSize": size, "wordGeometry": {"widths": [column_width] * 2},
+        })
+        self.flush()
+        numbers = [item for item in self.panel.rectangles if item[0] == "select"]
+        self.assertEqual(len(numbers), 2)
+        self.assertLessEqual(numbers[0][2] + numbers[0][4], numbers[1][2])
+        context = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1))
+        for _, _, _, _, width, height, number, _ in numbers:
+            layout = self.panel.fitted_layout(context, number, width - 4, max(14, self.panel.font_size - 4))
+            ink, logical = layout.get_pixel_extents()
+            top = (height - logical.height) / 2 + ink.y
+            self.assertGreaterEqual(top, 0)
+            self.assertLessEqual(top + ink.height, height)
+
     def test_keyboard_can_scroll_all_of_a_long_candidate(self):
         self.panel.update({**self.snapshot, "focusedNode": 1})
         self.flush()

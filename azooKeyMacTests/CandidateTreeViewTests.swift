@@ -148,6 +148,26 @@ final class CandidateTreeViewTests: XCTestCase {
                                     "The shortcut number must leave the score line unobstructed")
     }
 
+    func testNarrowDocumentColumnsLeaveNumberTargetsSeparate() throws {
+        let preference = Config.CandidateTextSize()
+        let previous = preference.value
+        defer { preference.value = previous }
+        for size in [Config.CandidateTextSize.Value.standard, .large] {
+            preference.value = size
+            let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 600, height: 320))
+            let width = CGFloat(size.pointSize) + 8
+            view.update(entries: [
+                .init(text: "日", tokens: [.init(text: "日")], candidateIndex: 0),
+                .init(text: "日本", tokens: [.init(text: "日"), .init(text: "本")], candidateIndex: 1)
+            ], selectionIndex: 1, numbers: [0: "1", 1: "2"], documentWidths: [width, width])
+            view.layoutSubtreeIfNeeded()
+            let first = try XCTUnwrap(buttons(in: view).first { $0.title == "1" })
+            let second = try XCTUnwrap(buttons(in: view).first { $0.title == "2" })
+            XCTAssertLessThanOrEqual(first.frame.maxX, second.frame.minX)
+            XCTAssertGreaterThanOrEqual(first.frame.height, CGFloat(size.pointSize) + 14)
+        }
+    }
+
     func testDocumentGeometryUsesUTF16OffsetsAndRejectsWrappedText() throws {
         var queries: [Int] = []
         let geometry = try XCTUnwrap(CandidateDocumentGeometry(words: ["🙂", "日本", "日本"], preedit: "🙂日本日本") { offset in
