@@ -43,17 +43,25 @@ def same_document(expected, current):
 
 def removed_context(context, replacement):
     """Reject any plan that does not describe the exact captured text."""
+    if not isinstance(replacement, dict):
+        return None
+    text, count, offset = (replacement.get(key) for key in ("text", "count", "offset"))
+    if (
+        not isinstance(text, str) or not text
+        or type(count) is not int or type(offset) is not int
+        or not isinstance(replacement.get("token"), str) or not replacement["token"]
+    ):
+        return None
     before, selected = context["before"], context["selected"]
-    text, count = replacement["text"], replacement["count"]
-    if not text or count != len(text):
+    if count != len(text):
         return None
     if selected:
-        offset = -len(selected) if context["cursorUTF16"] > context["anchorUTF16"] else 0
-        if selected != text or replacement["offset"] != offset:
+        expected_offset = -len(selected) if context["cursorUTF16"] > context["anchorUTF16"] else 0
+        if selected != text or offset != expected_offset:
             return None
         cursor = min(context["cursorUTF16"], context["anchorUTF16"])
     else:
-        if not before.endswith(text) or replacement["offset"] != -count:
+        if not before.endswith(text) or offset != -count:
             return None
         before = before[:-count]
         cursor = context["cursorUTF16"] - utf16_count(text)
@@ -101,7 +109,8 @@ class ReconversionCoordinator:
         return False
 
     def start(self, *, undo):
-        if self.active or self.inputs.pending or self.inputs.snapshot.get("preedit"):
+        pending_input = any(pending.operation not in ("settings", "configure") for pending in self.inputs.pending)
+        if self.active or pending_input or self.inputs.snapshot.get("preedit"):
             self.status(message("composition_active"))
             return
         source = self.context()

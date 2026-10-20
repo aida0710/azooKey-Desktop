@@ -66,17 +66,26 @@ class ReconversionTests(unittest.TestCase):
         self.assertEqual(sum(effect[0] == "delete" for effect in self.effects), 1)
         self.assertEqual(len(self.worker.requests), 2)
 
-    def test_changed_document_or_focus_before_reply_never_deletes_text(self):
+    def test_changed_document_before_reply_never_deletes_text(self):
         self.coordinator.start(undo=False)
         self.document = surrounding_context("別日本語後", 4, 1, can_replace=True, sensitive=False)
         self.worker.respond(0, {"reconversion": self.plan})
         self.assertFalse(any(effect[0] == "delete" for effect in self.effects))
         self.assertFalse(self.coordinator.active)
+
+    def test_focus_change_before_reply_never_deletes_text(self):
         self.coordinator.start(undo=False)
         self.coordinator.cancel()
         self.inputs.cancel()
         self.worker.respond(0, {"reconversion": self.plan})
         self.assertFalse(any(effect[0] == "delete" for effect in self.effects))
+
+    def test_first_shortcut_waits_for_initial_settings_without_being_rejected(self):
+        self.inputs.submit("settings", completion=lambda _snapshot: None)
+        self.coordinator.start(undo=False)
+        self.worker.respond(0, {"settings": {}})
+        self.worker.respond(1, {"reconversion": self.plan})
+        self.assertIn(("delete", -3, 3), self.effects)
 
     def test_ignored_deletion_never_starts_composition_and_is_not_retried(self):
         self.prepare()
@@ -119,16 +128,18 @@ class ReconversionTests(unittest.TestCase):
 
     def test_plan_must_describe_exact_selected_scalar_range(self):
         for invalid in (
+            None, {}, "invalid",
             {**self.plan, "text": "日本"},
             {**self.plan, "offset": 0},
             {**self.plan, "count": 4},
+            {**self.plan, "count": 3.0},
         ):
             self.assertIsNone(removed_context(self.document, invalid))
         selected = "👩‍💻e\u0301"
         document = surrounding_context("前" + selected + "後", 1, 1 + len(selected), can_replace=True, sensitive=False)
         self.assertEqual(document["cursorUTF16"], 1)
         self.assertEqual(document["anchorUTF16"], 8)
-        expected = removed_context(document, {"text": selected, "offset": 0, "count": 5})
+        expected = removed_context(document, {"token": "unicode", "text": selected, "offset": 0, "count": 5})
         self.assertEqual(expected["cursorUTF16"], 1)
         self.assertEqual(expected["selected"], "")
 
