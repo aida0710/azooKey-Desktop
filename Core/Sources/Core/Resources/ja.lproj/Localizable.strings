@@ -7,3 +7,9 @@
 "candidate.textSize.standard" = "標準";
 "candidate.textSize.large" = "大きい";
 "candidate.detailKeys" = "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール";
+"candidate.preview.commit" = "確定予定: %@";
+"candidate.preview.scope" = "確定する読み: %@";
+"candidate.preview.remaining" = "残る読み: %@";
+"candidate.preview.following" = "この語の後続: %@";
+"candidate.preview.changedFollowing" = "後続の変更: %@ → %@";
+"candidate.preview.empty" = "なし";

@@ -283,6 +283,9 @@ final class CandidateTreeView: NSView {
             button.setAccessibilityLabel(button.toolTip)
             button.relativeScore = scores[id]
             button.toolTip! += scores[id].map { "\n相対スコア \($0)（取得候補内の評価。正解の確率ではありません）" } ?? "\n比較可能なスコアなし"
+            if let preview = tree.preview(at: id, preserving: selection.selectedCandidateIndex) {
+                button.toolTip! += "\n" + preview.detailDescription
+            }
             button.setAccessibilityHelp(button.toolTip)
             button.highlightedPath = path.contains(id)
             button.focusedNode = selection.focusedNodeID == id
@@ -337,7 +340,9 @@ final class CandidateTreeView: NSView {
         }
         let token = tree.nodes[nodeID].token
         let word = token.reading.isEmpty ? token.text : "\(token.text)\n\(token.reading)"
-        details.update(text: word + "\n" + Localization.text("candidate.detailKeys"), fontSize: CGFloat(textSize.pointSize))
+        let preview = tree.preview(at: nodeID, preserving: selection.selectedCandidateIndex)?.detailDescription
+        let description = [word, preview, Localization.text("candidate.detailKeys")].compactMap { $0 }.joined(separator: "\n")
+        details.update(text: description, fontSize: CGFloat(textSize.pointSize))
     }
 }
 

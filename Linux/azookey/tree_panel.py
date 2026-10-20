@@ -71,7 +71,7 @@ class TreePanel(Gtk.Window):
     def update(self, snapshot):
         identity = json.dumps([
             snapshot.get("contextId"), snapshot.get("reading"), snapshot.get("candidates", []),
-            [{key: value for key, value in node.items() if key != "relativeScore"}
+            [{key: value for key, value in node.items() if key not in ("relativeScore", "preview", "previewDescription")}
              for node in snapshot.get("nodes", [])],
         ], sort_keys=True, ensure_ascii=False)
         if identity != self.candidate_identity:
@@ -182,6 +182,10 @@ class TreePanel(Gtk.Window):
             active = index in selected if kind == "node" else index == self.snapshot.get("selection")
             description = message("candidate.focusedConfirm" if kind == "node" and index == self.snapshot.get("focusedNode")
                                   else "candidate.confirm")
+            if kind == "node":
+                node = next(item for item in self.snapshot["nodes"] if item["id"] == index)
+                if node.get("previewDescription"):
+                    description += "\n" + node["previewDescription"]
             if kind == "select":
                 name = message("candidate.numberConfirm", number=index + 1)
             button.set_tooltip_text(name)
@@ -193,6 +197,8 @@ class TreePanel(Gtk.Window):
             self.details.update("", font_size=self.font_size, width=320)
             return False
         content = node["text"] + ("\n" + node["reading"] if node.get("reading") else "")
+        if node.get("previewDescription"):
+            content += "\n" + node["previewDescription"]
         width = self.scroll.get_min_content_width()
         self.details.update(content + "\n" + message("candidate.detailKeys"), font_size=self.font_size, width=width)
         return False

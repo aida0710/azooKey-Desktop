@@ -11,6 +11,7 @@ struct DesktopSnapshot: Encodable {
         let annotation: String?
         let score: Double?
         let comparisonGroup: Int?
+        let commitScope: CandidateCommitScope?
     }
     struct Node: Encodable {
         let id: Int
@@ -21,6 +22,8 @@ struct DesktopSnapshot: Encodable {
         let terminals: [Int]
         let depth: Int
         let relativeScore: Int?
+        let preview: CandidateCommitPreview?
+        let previewDescription: String?
     }
     var consumed = true
     var preedit = ""
@@ -396,25 +399,28 @@ final class DesktopSession: SegmentManagerDelegate {
         case .hidden: break
         }
         if state == .replaceSuggestion, !suggestions.isEmpty { result.selection = suggestionIndex }
-        result.candidates = segments.makeCandidatePresentations(candidates).enumerated().map { index, presentation in
+        let presentations = segments.makeCandidatePresentations(candidates)
+        result.candidates = presentations.enumerated().map { index, presentation in
             .init(index: index, text: presentation.candidate.text,
                   tokens: presentation.candidate.data.map { .init(text: $0.word, reading: $0.ruby) },
                   annotation: presentation.displayContext.annotationText,
                   score: presentation.candidate.value.isFinite ? Double(presentation.candidate.value) : nil,
-                  comparisonGroup: presentation.consumedInputCount)
+                  comparisonGroup: presentation.consumedInputCount, commitScope: presentation.commitScope)
         }
-        let nextTree = CandidateTree(entries: result.candidates.map {
-            .init(text: $0.text, tokens: $0.tokens.map { .init(text: $0.text, reading: $0.reading) },
-                  candidateIndex: $0.index, score: $0.score, comparisonGroup: $0.comparisonGroup)
-        })
+        let nextTree = CandidateTree(entries: presentations.enumerated().map { $0.element.treeEntry(index: $0.offset) })
         if nextTree != tree { generation += 1; tree = nextTree }
         treeSelection.synchronize(tree: tree, candidateIndex: result.selection)
         result.generation = generation
         let relativeScores = tree.relativeScores(candidateIndex: result.selection)
-        result.nodes = tree.nodes.map { .init(id: $0.id, text: $0.token.text, reading: $0.token.reading,
-                                             parent: $0.parentID, children: $0.children, terminals: $0.terminalCandidateIndices,
-                                             depth: $0.depth, relativeScore: relativeScores[$0.id]) }
         result.columns = tree.compactColumns(candidateIndex: result.selection)
+        let visibleNodes = Set(result.columns.flatMap { $0 })
+        result.nodes = tree.nodes.map { node in
+            let preview = visibleNodes.contains(node.id) ? tree.preview(at: node.id, preserving: result.selection) : nil
+            return .init(id: node.id, text: node.token.text, reading: node.token.reading,
+                         parent: node.parentID, children: node.children, terminals: node.terminalCandidateIndices,
+                         depth: node.depth, relativeScore: relativeScores[node.id],
+                         preview: preview, previewDescription: preview?.detailDescription)
+        }
         result.selectedPath = result.columns.compactMap(\.first)
         result.focusedNode = treeSelection.focusedNodeID
         if let index = result.selection {

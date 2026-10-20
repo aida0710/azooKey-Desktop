@@ -97,12 +97,7 @@ class CandidatesViewController: BaseCandidateViewController {
         tableView.enclosingScrollView?.isHidden = usesTree
         view.subviews.compactMap { $0 as? NSVisualEffectView }.forEach { $0.isHidden = usesTree }
         configureWindowForRoundedCorners()
-        treeEntries = candidates.enumerated().map { index, presentation in
-            .init(text: presentation.candidate.text,
-                  tokens: presentation.candidate.data.map { .init(text: $0.word, reading: $0.ruby) },
-                  candidateIndex: index, score: Double(presentation.candidate.value),
-                  comparisonGroup: presentation.consumedInputCount)
-        }
+        treeEntries = candidates.enumerated().map { $0.element.treeEntry(index: $0.offset) }
         treeView.update(entries: treeEntries, selectionIndex: selectionIndex, documentWidths: documentGeometry?.widths)
         super.updateCandidatePresentations(
             candidates,
@@ -117,10 +112,7 @@ class CandidatesViewController: BaseCandidateViewController {
         guard usesTree, let selectionIndex, candidates.indices.contains(selectionIndex) else {
             return
         }
-        let projection = CandidateTree(entries: candidates.enumerated().map { index, presentation in
-            .init(text: presentation.candidate.text,
-                  tokens: presentation.candidate.data.map { .init(text: $0.word, reading: $0.ruby) }, candidateIndex: index)
-        })
+        let projection = CandidateTree(entries: candidates.enumerated().map { $0.element.treeEntry(index: $0.offset) })
         let words = (projection.paths[selectionIndex] ?? []).map { projection.nodes[$0].token.text }
         let geometry = CandidateDocumentGeometry(
             words: words, preedit: preedit, rectAtOffset: rectAtOffset

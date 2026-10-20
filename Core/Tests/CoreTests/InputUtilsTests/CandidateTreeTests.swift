@@ -6,6 +6,49 @@ private func treeToken(_ text: String, _ reading: String = "") -> CandidateTree.
     .init(text: text, reading: reading)
 }
 
+@Test func candidateTreePreviewIncludesTheUnseenContinuationOfTheActualCandidate() throws {
+    let tree = CandidateTree(entries: [
+        .init(text: "日本語入力", tokens: [treeToken("日本語"), treeToken("入力")], candidateIndex: 4),
+        .init(text: "日本画鑑賞", tokens: [treeToken("日本画"), treeToken("鑑賞")], candidateIndex: 7)
+    ])
+    let target = try #require(tree.paths[7]?.first)
+    #expect(!tree.compactColumns(candidateIndex: 4).flatMap { $0 }.contains(tree.paths[7]![1]))
+    let preview = try #require(tree.preview(at: target, preserving: 4))
+    #expect(preview.candidateIndex == 7)
+    #expect(preview.text == "日本画鑑賞")
+    #expect(preview.followingText == "鑑賞")
+    #expect(preview.previousFollowingText == "入力")
+    #expect(tree.preferredCandidate(at: target, preserving: 4) == preview.candidateIndex)
+}
+
+@Test func candidateTreePreviewKeepsDuplicateCandidateAnnotationsAndPartialScopeSeparate() throws {
+    let scope = CandidateCommitScope(consumedReading: "にほんご", remainingReading: "をべんきょう")
+    let tree = CandidateTree(entries: [
+        .init(text: "日本語", tokens: [treeToken("日本語")], candidateIndex: 2, annotation: "語A", scope: scope),
+        .init(text: "日本語入力", tokens: [treeToken("日本語"), treeToken("入力")], candidateIndex: 4),
+        .init(text: "日本語", tokens: [treeToken("日本語")], candidateIndex: 8, annotation: "語B", scope: scope)
+    ])
+    let node = try #require(tree.paths[2]?.first)
+    #expect(tree.preview(at: node, preserving: 8)?.annotation == "語B")
+    #expect(tree.preview(at: node, preserving: 8)?.candidateIndex == 8)
+    #expect(tree.preview(at: node, preserving: 2)?.scope == scope)
+    #expect(tree.preview(at: node, preserving: 4)?.text == "日本語入力")
+    #expect(tree.preview(at: node, preserving: 4)?.annotation == nil)
+    #expect(tree.preview(at: node, preserving: nil)?.text == "日本語")
+    #expect(tree.preview(at: -1, preserving: 4) == nil)
+}
+
+@Test func candidateTreePreviewMakesARemovedContinuationVisible() throws {
+    let tree = CandidateTree(entries: [
+        .init(text: "日本語入力", tokens: [treeToken("日本語"), treeToken("入力")], candidateIndex: 0),
+        .init(text: "日本画", tokens: [treeToken("日本画")], candidateIndex: 1)
+    ])
+    let preview = try #require(tree.preview(at: tree.paths[1]![0], preserving: 0))
+    #expect(preview.text == "日本画")
+    #expect(preview.followingText.isEmpty)
+    #expect(preview.previousFollowingText == "入力")
+}
+
 @Test func candidateTreeScoresAreConditionalRelativeWeights() {
     let tree = CandidateTree(entries: [
         .init(text: "候補を選択", tokens: [treeToken("候補を", "コウホヲ"), treeToken("選択", "センタク")], candidateIndex: 0, score: log(69)),

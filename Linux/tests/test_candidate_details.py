@@ -70,6 +70,17 @@ class CandidateDetailTests(unittest.TestCase):
         self.assertIn("ゴ", self.panel.details.displayed_text)
         self.assertNotIn(self.long_reading, self.panel.details.displayed_text)
 
+    def test_preview_and_annotation_follow_the_hovered_candidate_without_committing(self):
+        preview = "確定予定: 日本画鑑賞\n確定する読み: にほんがかんしょう\n後続の変更: 入力 → 鑑賞\n全角英数"
+        self.snapshot["nodes"][1]["previewDescription"] = preview
+        self.panel.update(self.snapshot)
+        self.panel.show_details(1)
+        self.assertIn(preview, self.panel.details.displayed_text)
+        self.assertIn(preview, self.panel.actions[("node", 1)].get_accessible().get_description())
+        self.assertEqual(self.commits, [])
+        self.panel.show_details(0)
+        self.assertNotIn("全角英数", self.panel.details.displayed_text)
+
 
 if __name__ == "__main__":
     unittest.main()

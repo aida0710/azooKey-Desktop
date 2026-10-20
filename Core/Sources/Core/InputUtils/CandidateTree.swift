@@ -19,13 +19,18 @@ public struct CandidateTree: Sendable, Equatable {
         public var candidateIndex: Int
         public var score: Double?
         public var comparisonGroup: Int?
+        public var annotation: String?
+        public var scope: CandidateCommitScope?
 
-        public init(text: String, tokens: [Token], candidateIndex: Int, score: Double? = nil, comparisonGroup: Int? = nil) {
+        public init(text: String, tokens: [Token], candidateIndex: Int, score: Double? = nil,
+                    comparisonGroup: Int? = nil, annotation: String? = nil, scope: CandidateCommitScope? = nil) {
             self.text = text
             self.tokens = tokens
             self.candidateIndex = candidateIndex
             self.score = score?.isFinite == true ? score : nil
             self.comparisonGroup = comparisonGroup
+            self.annotation = annotation
+            self.scope = scope
         }
 
         fileprivate var displayTokens: [Token] {
@@ -53,6 +58,11 @@ public struct CandidateTree: Sendable, Equatable {
     public private(set) var roots: [Int] = []
     public private(set) var paths: [Int: [Int]] = [:]
     private var entries: [Entry] = []
+    private var entryPositions: [Int: Int] = [:]
+
+    public func entry(candidateIndex: Int) -> Entry? {
+        entryPositions[candidateIndex].map { entries[$0] }
+    }
 
     public init(entries: [Entry]) {
         // Kana-only fallback sentences can reuse real dictionary reading
@@ -66,6 +76,7 @@ public struct CandidateTree: Sendable, Equatable {
             }
         }
         for entry in entries where entry.candidateIndex >= 0 && self.paths[entry.candidateIndex] == nil {
+            self.entryPositions[entry.candidateIndex] = self.entries.count
             self.entries.append(entry)
             var parentID: Int?
             var path: [Int] = []

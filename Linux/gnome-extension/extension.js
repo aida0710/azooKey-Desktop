@@ -60,7 +60,7 @@ export default class AzooKeyTreeExtension extends Extension {
     _render(data) {
         const nodes = data.nodes ?? [];
         const candidateIdentity = JSON.stringify([data.contextId, data.reading, data.candidates,
-            nodes.map(({relativeScore, ...node}) => node)]);
+            nodes.map(({relativeScore, preview, previewDescription, ...node}) => node)]);
         if (candidateIdentity !== this._candidateIdentity) {
             for (const widget of this._buttons.values()) widget.destroy();
             this._buttons.clear();
@@ -146,7 +146,7 @@ export default class AzooKeyTreeExtension extends Extension {
         }
         const button = ({operation, index, label, frame, active, focused, accessibleName, score}) => {
             const compactBadge = operation === 'select' && aligned;
-            const identity = JSON.stringify([operation, index, accessibleName]);
+            const identity = JSON.stringify([operation, index]);
             let widget = this._buttons.get(identity);
             if (!widget) {
                 widget = new St.Button({can_focus: false, reactive: true, track_hover: true, accessible_name: accessibleName});
@@ -171,6 +171,7 @@ export default class AzooKeyTreeExtension extends Extension {
                 this._canvas.add_child(widget);
                 this._buttons.set(identity, widget);
             }
+            widget.accessible_name = accessibleName;
             visibleButtons.add(identity);
             widget._selection = new GLib.Variant('(sibis)', [operation, index, true, data.generation, data.contextId]);
             widget.set_checked(active);
@@ -193,7 +194,7 @@ export default class AzooKeyTreeExtension extends Extension {
                 ? `相対スコア ${score}（取得候補内の評価。正解の確率ではありません）` : '比較可能なスコアなし';
             button({operation: 'node', index: id, label: node.text, frame,
                 active: selected.has(id), focused: id === data.focusedNode,
-                accessibleName: `${node.text} ${node.reading}`, score});
+                accessibleName: `${node.text} ${node.reading}\n${node.previewDescription ?? ''}`, score});
             const scoreText = Number.isFinite(score) ? String(score) : '—';
             const scoreLabel = new St.Label({text: scoreText, accessible_name: detail,
                 style: 'color: #a9a9b0; font-size: 12px;',
@@ -268,7 +269,7 @@ export default class AzooKeyTreeExtension extends Extension {
         const state = this._detailState;
         const node = state?.nodes.get(nodeID);
         if (!node) return;
-        const text = node.text + (node.reading ? `\n${node.reading}` : '') + `\n${messages.detailKeys}`;
+        const text = [node.text, node.reading, node.previewDescription, messages.detailKeys].filter(Boolean).join('\n');
         this._details.update({text, fontSize: state.fontSize, width: state.width});
     }
 

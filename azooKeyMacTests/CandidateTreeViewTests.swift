@@ -44,6 +44,27 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertEqual(submitted, [])
     }
 
+    func testKeyboardDetailsUseTheExactCandidateAndItsAnnotation() {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 400, height: 320))
+        var submitted: [Int] = []
+        view.onCandidateSubmitted = { submitted.append($0) }
+        view.update(entries: [
+            .init(text: "日本語入力", tokens: [.init(text: "日本語"), .init(text: "入力")], candidateIndex: 0),
+            .init(text: "日本画鑑賞", tokens: [.init(text: "日本画"), .init(text: "鑑賞")],
+                  candidateIndex: 1, annotation: "注釈の例",
+                  scope: .init(consumedReading: "にほんがかんしょう", remainingReading: "する"))
+        ], selectionIndex: 0)
+        XCTAssertTrue(view.navigate(.down))
+        let details = textFields(in: view).map(\.stringValue).joined()
+        XCTAssertTrue(details.contains("日本画鑑賞"))
+        XCTAssertTrue(details.contains("にほんがかんしょう"))
+        XCTAssertTrue(details.contains("する"))
+        XCTAssertTrue(details.contains("注釈の例"))
+        XCTAssertEqual(submitted, [])
+        XCTAssertTrue(view.navigate(.up))
+        XCTAssertFalse(textFields(in: view).map(\.stringValue).joined().contains("注釈の例"))
+    }
+
     func testScoresExplainRelativeMeaningAndRefreshOnCandidateChange() throws {
         let view = CandidateTreeView()
         let scored: [CandidateTree.Entry] = [

@@ -102,11 +102,14 @@ public final class SegmentsManager {
             var remaining = self.composingText
             remaining.prefixComplete(composingCount: candidates[index].composingCount)
             let consumed = self.composingText.input.count - remaining.input.count
-            if index < additionalPresentations.count {
-                return .init(candidate: candidates[index], displayContext: additionalPresentations[index].displayContext,
-                             consumedInputCount: consumed)
-            }
-            return .init(candidate: candidates[index], consumedInputCount: consumed)
+            let reading = self.composingText.convertTarget
+            let scope = reading.hasSuffix(remaining.convertTarget) ? CandidateCommitScope(
+                consumedReading: String(reading.dropLast(remaining.convertTarget.count)),
+                remainingReading: remaining.convertTarget
+            ) : nil
+            let displayContext = index < additionalPresentations.count ? additionalPresentations[index].displayContext : .init()
+            return .init(candidate: candidates[index], displayContext: displayContext,
+                         consumedInputCount: consumed, commitScope: scope)
         }
     }
 
