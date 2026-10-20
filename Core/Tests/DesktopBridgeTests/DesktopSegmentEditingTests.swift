@@ -29,6 +29,14 @@ import Testing
         .init(modifierFlags: shift ? [.shift] : [], characters: nil, charactersIgnoringModifiers: nil, keyCode: code)
     }
 
+    func type(_ text: String, into session: DesktopSession) -> DesktopSnapshot {
+        var snapshot = session.snapshot()
+        for character in text {
+            snapshot = session.key(.init(modifierFlags: [], characters: String(character), charactersIgnoringModifiers: String(character), keyCode: 0))
+        }
+        return snapshot
+    }
+
     func beginSelecting(_ session: DesktopSession) throws -> DesktopSnapshot {
         for character in "nihongowobenkyou" {
             _ = session.key(.init(modifierFlags: [], characters: String(character), charactersIgnoringModifiers: String(character), keyCode: 0))
