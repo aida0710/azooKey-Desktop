@@ -62,7 +62,19 @@ final class DesktopCandidateConversion: SegmentManagerDelegate {
         }
         // Selection lists may omit a main result with the same text as a prefix.
         // Another consumption or analysis must never stand in for that original candidate.
-        return items.first(where: { $0.candidate == candidate })?.item.candidateID
+        return items.first(where: { matchesOriginalCandidate($0.candidate, original: candidate) })?.item.candidateID
+    }
+
+    private static func matchesOriginalCandidate(_ stored: Candidate, original: Candidate) -> Bool {
+        guard stored == original, stored.text.utf8.elementsEqual(original.text.utf8) else {
+            return false
+        }
+        // Candidate equality accepts canonically equivalent strings. Keep the original
+        // token bytes as well, matching the tree's text/reading identity contract.
+        return zip(stored.data, original.data).allSatisfy { storedToken, originalToken in
+            storedToken.word.utf8.elementsEqual(originalToken.word.utf8)
+                && storedToken.ruby.utf8.elementsEqual(originalToken.ruby.utf8)
+        }
     }
 
     nonisolated func getLeftSideContext(maxCount: Int) -> String? {

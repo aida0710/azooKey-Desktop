@@ -23,7 +23,7 @@
 
 `DesktopCandidateRequest` はauthority、composition、leftContext、rightContext、privateInputを固定します。batchは同じauthority、workerGeneration、batchID、candidatesを持ち、各itemはcandidateID、text、ComposingCountSnapshot、presentationを持ちます。batchIDとcandidateIDはUUIDです。同文・同スコアでも別IDで、表示順や本文はidentityに使いません。
 
-任意の `mainCandidateID` は、converterの実 `mainResults.first` と全属性が一致する一覧内のIDです。通常一覧はfirstClause側と同じ表記のmain候補を省くことがあるため、表記が同じでも消費範囲や解析が異なれば代用せず、この欄を省略します。一覧や順序は変えません。空一覧でもmainのIDはありません。読み側・Python側は一覧に属さないIDを拒否し、読み側は各候補の正式消費も検査します。
+任意の `mainCandidateID` は、converterの実 `mainResults.first` と `Candidate` の等価比較が成立し、さらに本文と各tokenの語・読みがUTF-8で厳密一致する一覧内のIDです。通常一覧はfirstClause側と同じ表記のmain候補を省くことがあるため、表記が同じでも消費範囲や解析が異なれば代用せず、この欄を省略します。正規化すれば同じ文字になる場合も、元のUTF-8が異なる候補は代用しません。一覧や順序は変えません。空一覧でもmainのIDはありません。読み側・Python側は一覧に属さないIDを拒否し、読み側は各候補の正式消費も検査します。
 
 mainであることは全文候補であることを意味しません。文節を短くした要求のmainは部分候補です。全文に使えるかは `CandidateConsumption` の残る正式入力が空かで判定し、本文の一致やpresentationの見かけから推測しません。この追加情報だけで選択・preedit・確定・学習は発生せず、既存の明示選択規則も変えません。
 
