@@ -26,11 +26,9 @@ import Testing
         #expect(reading.candidateCompletions == nil)
         let request = try fixture.request(from: &session)
         #expect(request.authority.compositionRevision == reading.compositionRevision)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-        let before = try encoder.encode(session.snapshot())
+        let before = try DesktopReadingTestSupport.encodedJSON(session.snapshot())
         _ = try session.adoptCandidates(fixture.batch(request))
-        #expect(try encoder.encode(session.snapshot()) == before)
+        #expect(try DesktopReadingTestSupport.encodedJSON(session.snapshot()) == before)
         let committed = try session.key(fixture.key(0x24))
         #expect(committed.commits == ["にほんご"])
         #expect(committed.candidateCompletions == nil)

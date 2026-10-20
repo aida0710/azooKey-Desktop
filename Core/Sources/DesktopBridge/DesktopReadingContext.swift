@@ -18,7 +18,7 @@ struct DesktopReadingContext {
 
     mutating func process(_ request: DesktopReadingWorkerRequest, settingsRevision: Int) throws -> DesktopReadingWorkerResponse {
         var response = DesktopReadingWorkerResponse(
-            kind: ["key", "reset", "focus-out", "select"].contains(request.operation) ? .input : .acknowledgement,
+            kind: ["key", "reset", "focus-out", "select", "commit-candidate"].contains(request.operation) ? .input : .acknowledgement,
             readingProcessGeneration: reference.readingProcessGeneration, settingsRevision: settingsRevision,
             reference: reference)
         switch request.operation {
@@ -29,11 +29,12 @@ struct DesktopReadingContext {
         case "reset", "focus-out":
             response.snapshot = try session.reset(commit: DesktopReadingProtocolValidation.required(request.submit))
             candidateWorkerGeneration = nil
-        case "select":
+        case "select", "commit-candidate":
             let selection = try DesktopReadingProtocolValidation.required(request.selection)
             try DesktopReadingProtocolValidation.reference(selection.batch)
             try DesktopReadingProtocolValidation.identifier(selection.candidateID)
-            response.snapshot = try session.selectCandidate(selection)
+            response.snapshot = request.operation == "select"
+                ? try session.selectCandidate(selection) : try session.commitCandidate(selection)
         case "prepare-candidates":
             let generation = try DesktopReadingProtocolValidation.required(request.candidateWorkerGeneration)
             try DesktopReadingProtocolValidation.identifier(generation)
