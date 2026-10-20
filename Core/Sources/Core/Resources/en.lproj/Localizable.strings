@@ -1,0 +1,3 @@
+"ai.suggestion.loading" = "Getting AI suggestions… You can keep typing";
+"ai.suggestion.empty" = "No AI suggestions. You can keep typing";
+"ai.suggestion.failed" = "AI conversion failed. You can keep typing";
