@@ -7,7 +7,7 @@ import os
 import threading
 from typing import Callable
 
-from .bridge import Bridge
+from .bridge import Bridge, BridgeProcessChanged
 from . import candidate_protocol as protocol
 
 
@@ -19,6 +19,7 @@ class CandidateOperation:
     operation: str
     payload: dict
     complete: Callable[[protocol.CandidateReply], object]
+    worker_generation: str | None = None
     cancelled: threading.Event = field(default_factory=threading.Event)
     sent: bool = False
 
@@ -47,8 +48,8 @@ class CandidateTransport:
         with self._condition:
             return self._generation, self._epoch
 
-    def submit(self, operation, payload, complete):
-        pending = CandidateOperation(operation, deepcopy(payload), complete)
+    def submit(self, operation, payload, complete, *, worker_generation=None):
+        pending = CandidateOperation(operation, deepcopy(payload), complete, worker_generation=worker_generation)
         with self._condition:
             if self._closed:
                 raise RuntimeError("candidate transport is closed")
@@ -115,7 +116,15 @@ class CandidateTransport:
             payload = {**payload, "workerGeneration": self._generation}
         if pending is not None:
             pending.sent = True
-        response = self._bridge.request(operation, **payload)
+        try:
+            response = self._bridge.request(operation, expected_restarts=self._restarts, **payload)
+        except BridgeProcessChanged:
+            # request() may discover a restart after the handshake. Identify the
+            # replacement without sending this operation to its default settings.
+            if pending is not None:
+                pending.sent = False
+            self._connect()
+            raise CandidateGenerationChanged() from None
         protocol.response_header(response)
         if self._bridge.restarts != self._restarts or response["workerGeneration"] != self._generation:
             self._restarts = self._bridge.restarts
@@ -137,7 +146,7 @@ class CandidateTransport:
 
     def _calculate(self, pending):
         request = pending.payload["request"]
-        response = self._exchange("candidates", pending.payload)
+        response = self._exchange("candidates", pending.payload, generation=pending.worker_generation)
         if response.get("authority") != request["authority"]:
             raise ValueError("candidate response changed its request authority")
         if response.get("error"):
