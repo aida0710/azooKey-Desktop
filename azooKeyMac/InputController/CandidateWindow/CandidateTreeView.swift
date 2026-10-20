@@ -10,6 +10,11 @@ final class CandidateTreePanel: NSPanel {
 /// A projection of complete, real candidates. Rendering never emits input events.
 @MainActor
 final class CandidateTreeView: NSView {
+    private enum DetailTarget {
+        case node(Int)
+        case candidate(Int)
+    }
+
     var onSelectionChanged: ((Int) -> Void)?
     var onCandidateSubmitted: ((Int) -> Void)?
     var onLayoutChanged: (() -> Void)?
@@ -22,6 +27,8 @@ final class CandidateTreeView: NSView {
     private let canvas = TreeCanvas()
     private var nodeButtons: [Int: TreeButton] = [:]
     private var terminalButtons: [Int: TreeButton] = [:]
+    private var hoveredDetail: DetailTarget?
+    private weak var hoveredControl: NSButton?
     private var nodeFrames: [Int: NSRect] = [:]
     private var terminalFrames: [Int: NSRect] = [:]
     private var numberLabels: [Int: String] = [:]
@@ -71,13 +78,11 @@ final class CandidateTreeView: NSView {
         }
         navigation.onExpansion = { [weak self] in
             self?.needsLayout = true
+            self?.refreshDetails()
             self?.onLayoutChanged?()
         }
-        navigation.onPreview = { [weak self] text in
-            guard let self else {
-                return
-            }
-            self.details.update(text: text, fontSize: self.textSize.pointSize)
+        navigation.onPreview = { [weak self] index, button, hovered in
+            self?.changeDetailHover(.candidate(index), control: button, hovered: hovered)
         }
         setAccessibilityLabel("木構造の変換候補")
     }
@@ -267,7 +272,7 @@ final class CandidateTreeView: NSView {
                 }
                 self.selectNode(node.id, submit: true)
             }
-            button.hovered = { [weak self] in self?.showDetails(nodeID: node.id) }
+            observeDetailHover(button, target: .node(node.id))
             canvas.addSubview(button)
             nodeButtons[id] = button
         }
@@ -282,11 +287,12 @@ final class CandidateTreeView: NSView {
                 }
                 self.submit(candidateIndex: index)
             }
-            terminal.hovered = { [weak self] in self?.showNumberDetails(candidateIndex: index) }
+            observeDetailHover(terminal, target: .candidate(index))
             canvas.addSubview(terminal)
             terminalButtons[index] = terminal
         }
         refreshControlAppearance()
+        refreshDetails()
     }
 
     private func refreshControlAppearance() {
@@ -342,7 +348,6 @@ final class CandidateTreeView: NSView {
             canvas.scrollToVisible(reveal.insetBy(dx: -16, dy: -16))
         }
         updateVisibleControls()
-        showDetails(nodeID: selection.focusedNodeID ?? displayedColumns.first?.first)
         if announcedCandidate != selection.selectedCandidateIndex {
             announcedCandidate = selection.selectedCandidateIndex
             NSAccessibility.post(element: self, notification: .selectedChildrenChanged)
@@ -351,6 +356,55 @@ final class CandidateTreeView: NSView {
             NSAccessibility.post(element: button, notification: .valueChanged)
         }
         announcedNode = selection.focusedNodeID
+    }
+
+    private func observeDetailHover(_ button: TreeButton, target: DetailTarget) {
+        button.hovered = { [weak self, weak button] hovered in
+            guard let self, let button else {
+                return
+            }
+            self.changeDetailHover(target, control: button, hovered: hovered)
+        }
+    }
+
+    private func isCurrentDetailControl(_ control: NSButton, target: DetailTarget) -> Bool {
+        switch target {
+        case .node(let id):
+            return nodeButtons[id] === control
+        case .candidate(let index):
+            return terminalButtons[index] === control || navigation.isCurrentCandidateButton(control, candidateIndex: index)
+        }
+    }
+
+    private func changeDetailHover(_ target: DetailTarget, control: NSButton, hovered: Bool) {
+        if hovered {
+            guard isCurrentDetailControl(control, target: target) else {
+                return
+            }
+            hoveredDetail = target
+            hoveredControl = control
+        } else {
+            // A late exit from the previous control must not clear a newer hover.
+            guard hoveredControl === control else {
+                return
+            }
+            hoveredDetail = nil
+            hoveredControl = nil
+        }
+        refreshDetails()
+    }
+
+    private func refreshDetails() {
+        if let target = hoveredDetail, let control = hoveredControl, isCurrentDetailControl(control, target: target) {
+            switch target {
+            case .node(let id): showDetails(nodeID: id)
+            case .candidate(let index): showCandidateDetails(candidateIndex: index)
+            }
+        } else {
+            hoveredDetail = nil
+            hoveredControl = nil
+            showDetails(nodeID: selection.focusedNodeID ?? displayedColumns.first?.first)
+        }
     }
 
     private func showDetails(nodeID: Int?) {
@@ -365,7 +419,7 @@ final class CandidateTreeView: NSView {
         details.update(text: description, fontSize: CGFloat(textSize.pointSize))
     }
 
-    private func showNumberDetails(candidateIndex: Int) {
+    private func showCandidateDetails(candidateIndex: Int) {
         // A shared word and its adjacent number may commit different entries.
         let preview = candidatePage.items.first { $0.index == candidateIndex }?.detailDescription ?? ""
         details.update(text: preview, fontSize: CGFloat(textSize.pointSize))
@@ -409,7 +463,7 @@ private final class TreeCanvas: NSView {
 @MainActor
 private final class TreeButton: NSButton {
     var clicked: ((Bool) -> Void)?
-    var hovered: (() -> Void)?
+    var hovered: ((Bool) -> Void)?
     private var tracking: NSTrackingArea?
     var reading = ""
     var highlightedPath = false
@@ -438,7 +492,8 @@ private final class TreeButton: NSButton {
         addTrackingArea(area)
         tracking = area
     }
-    override func mouseEntered(with event: NSEvent) { hovered?() }
+    override func mouseEntered(with event: NSEvent) { hovered?(true) }
+    override func mouseExited(with event: NSEvent) { hovered?(false) }
     static func scoreColor(_ score: Int?) -> NSColor {
         if let score, score < 75 {
             return NSColor(red: 0.83, green: 0.39, blue: 0.06, alpha: 1)
