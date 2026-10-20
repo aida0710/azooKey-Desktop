@@ -11,17 +11,19 @@ from gi.repository import IBus, GLib, Gio
 from ibus_support import crash_converter
 
 
-# A callback budget is deliberately much shorter than either injected delay.
-CALLBACK_BUDGET_SECONDS = 0.1
+# The engine's main-loop query must stay responsive while original keys wait.
+ENGINE_REPLY_BUDGET_SECONDS = 0.1
 WAIT_BUDGET_SECONDS = 12
 POLL_INTERVAL_SECONDS = 0.005
 
 
-def wait_until(predicate):
+def wait_until(predicate, *, while_pending=None):
     deadline = time.monotonic() + WAIT_BUDGET_SECONDS
     while not predicate():
         if time.monotonic() > deadline:
             raise AssertionError("IBus fixture did not reach the expected state")
+        if while_pending:
+            while_pending()
         GLib.MainContext.default().iteration(False)
         time.sleep(POLL_INTERVAL_SECONDS)
     while GLib.MainContext.default().pending():
@@ -36,11 +38,12 @@ class Field:
         self.forwarded = []
         self.native = []
         self.native_reply_timings = []
-        self.ordered_reply_timings = []
+        self.key_reply_timings = []
         self.preedit = ""
         self.document = ""
         self.cursor = 0
-        self.timings = []
+        self.engine_response_timings = []
+        self.engine_connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         self.context.connect("commit-text", self.commit)
         self.context.connect("update-preedit-text", self.update_preedit)
         self.context.connect("forward-key-event", self.forward_key)
@@ -76,26 +79,48 @@ class Field:
                                Gio.DBusCallFlags.NONE, 5000, None)
         wait_until(lambda: self.context.get_engine() is not None)
 
-    def key(self, keyval, state=0, *, ordered=False):
-        start = time.monotonic()
-        consumed = self.context.process_key_event(keyval, 38, state)
-        duration = time.monotonic() - start
-        if ordered:
-            self.ordered_reply_timings.append({
-                "keyval": keyval, "state": int(state), "consumed": consumed, "seconds": duration,
-            })
-        if consumed:
-            if not ordered:
-                self.timings.append(duration)
-                assert duration < CALLBACK_BUDGET_SECONDS, f"consumed key callback blocked for {duration:.3f}s"
-        else:
-            # A native reply may wait for a preceding commit. Exercise that
-            # original event, separately from engine-generated ForwardKeyEvent.
-            self.native.append((keyval, 38, state))
-            self.native_reply_timings.append(duration)
-            self.deliver_native(keyval, state)
-        while GLib.MainContext.default().pending():
-            GLib.MainContext.default().iteration(False)
+    def measure_engine_response(self):
+        started = time.monotonic()
+        # RendererStatus executes in ShellSurface.method on the engine's GLib
+        # loop. GetEngine only queries IBus's cached descriptor in the daemon.
+        self.engine_connection.call_sync(
+            "org.azookey.Tree", "/org/azookey/Tree", "org.azookey.Tree", "RendererStatus",
+            None, GLib.VariantType.new("(b)"), Gio.DBusCallFlags.NONE,
+            int(WAIT_BUDGET_SECONDS * 1000), None,
+        )
+        duration = time.monotonic() - started
+        self.engine_response_timings.append(duration)
+        assert duration < ENGINE_REPLY_BUDGET_SECONDS, f"engine main-loop query blocked for {duration:.3f}s"
+
+    def key(self, keyval, state=0, *, keycode=38):
+        started = time.monotonic()
+        replied = False
+        reply_errors = []
+
+        def completed(context, response, _user_data):
+            nonlocal replied
+            try:
+                assert not replied, "an original key must complete only once"
+                consumed = context.process_key_event_async_finish(response)
+                duration = time.monotonic() - started
+                self.key_reply_timings.append({
+                    "keyval": keyval, "state": int(state), "consumed": consumed, "seconds": duration,
+                })
+                if not consumed:
+                    # Deliver the saved original event after preceding commits,
+                    # separately from engine-generated ForwardKeyEvent.
+                    self.native.append((keyval, keycode, state))
+                    self.native_reply_timings.append(duration)
+                    self.deliver_native(keyval, state)
+                replied = True
+            except Exception as error:
+                # GI reports callback exceptions without failing the caller.
+                reply_errors.append(error)
+
+        self.context.process_key_event_async(keyval, keycode, state, -1, None, completed, None)
+        wait_until(lambda: replied or reply_errors, while_pending=self.measure_engine_response)
+        if reply_errors:
+            raise reply_errors[0]
 
     def type(self, text):
         for character in text:
@@ -114,8 +139,8 @@ def main():
     second = Field(bus, "azookey-delay-second")
     first.focus()
 
-    # Each key is accepted before the delayed converter can return. A second
-    # Enter must return its original event after the first Enter committed text.
+    # Original replies can wait for conversion; the independent engine query
+    # must remain responsive. A second Enter follows the first Enter's commit.
     first.type("abc")
     first.key(IBus.KEY_Return)
     first.key(IBus.KEY_Return)
@@ -150,7 +175,7 @@ def main():
     second.type("d")
     # Reset keeps the language, but its authoritative reply may still be
     # pending. Enter needs that reply to distinguish commit from native Enter.
-    second.key(IBus.KEY_Return, ordered=True)
+    second.key(IBus.KEY_Return)
     wait_until(lambda: second.commits == ["z", "c", "d"])
     second.type("hx")
     wait_until(lambda: len(second.forwarded) == 2)
@@ -166,17 +191,17 @@ def main():
     assert first.commits == ["abc", "b"]
     regression_fields = check_editing_during_delay(bus)
     regression_fields.append(check_modifier_presses(bus))
-    timings = [value * 1000 for value in first.timings + second.timings]
-    timings += [value * 1000 for field in regression_fields for value in field.timings]
+    fields = [first, second, *regression_fields]
+    timings = [value * 1000 for field in fields for value in field.engine_response_timings]
     print(json.dumps({
         "injected_delay_seconds": float(os.environ["AZOOKEY_TEST_DELAY"]),
-        "callback_samples": len(timings),
-        "callback_p50_ms": round(statistics.median(timings), 3),
-        "callback_p95_ms": round(sorted(timings)[int(len(timings) * 0.95)], 3),
-        "callback_max_ms": round(max(timings), 3),
+        "engine_response_samples": len(timings),
+        "engine_response_p50_ms": round(statistics.median(timings), 3),
+        "engine_response_p95_ms": round(sorted(timings)[int(len(timings) * 0.95)], 3),
+        "engine_response_max_ms": round(max(timings), 3),
         "native_reply_seconds": first.native_reply_timings,
-        "ordered_reply_timings": [
-            reply for field in [first, second, *regression_fields] for reply in field.ordered_reply_timings
+        "original_reply_timings": [
+            reply for field in fields for reply in field.key_reply_timings
         ],
         "status": "PASS",
     }))
@@ -256,13 +281,7 @@ def check_modifier_presses(bus):
     def modifier(keyval, state):
         # A modifier can be returned immediately when idle, or ordered behind
         # pending input. Neither path may commit or insert document text.
-        started = time.monotonic()
-        field.context.process_key_event(keyval, 0, state)
-        elapsed = time.monotonic() - started
-        field.timings.append(elapsed)
-        assert elapsed < CALLBACK_BUDGET_SECONDS
-        while GLib.MainContext.default().pending():
-            GLib.MainContext.default().iteration(False)
+        field.key(keyval, state, keycode=0)
 
     for pending in (False, True):
         if pending:
