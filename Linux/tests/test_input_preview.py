@@ -74,6 +74,10 @@ class InputPreviewTests(unittest.TestCase):
         preview = self.preview({"preedit": "あ", "inputState": "composing"}, [(0xFF52, 0), (0xFF1B, 0)])
         self.assertEqual(preview.visible_text, "")
 
+    def test_initial_preview_uses_core_default_full_width_space(self):
+        preview = self.preview({}, [(32, 0)])
+        self.assertEqual(preview.visible_text, "　")
+
 
 if __name__ == "__main__":
     unittest.main()

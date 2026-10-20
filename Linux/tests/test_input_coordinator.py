@@ -123,6 +123,7 @@ class InputCoordinatorTests(unittest.TestCase):
         self.assertEqual(settings, [{"settings": {"live": True}}])
 
     def test_focus_fallback_keeps_literal_space_and_second_enter(self):
+        self.coordinator.settings = {"halfSpace": True}
         self.key("a")
         for keyval in (0xFF0D, 32, 0xFF0D):
             self.coordinator.submit("key", payload={"event": translate(keyval, 0)}, key=(keyval, 0, 0))
