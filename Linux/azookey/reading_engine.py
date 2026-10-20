@@ -1,0 +1,163 @@
+"""Explicit development IBus adapter for independent reading and candidate workers."""
+import time
+
+import gi
+gi.require_version("IBus", "1.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, IBus
+
+from .i18n import text
+from .input_preview import is_native_key
+from .keymap import translate
+from .native_key_dispatch import dispatch_native_key
+from .reading_frontend import ReadingFrontend
+
+
+CANDIDATE_PAGE_SIZE = 9  # Match the shared Core number-key selection page.
+LANGUAGE_DOUBLE_TAP_SECONDS = 0.5  # Preserve the existing desktop language-key gesture.
+SURROUNDING_CONTEXT_LIMIT = 100  # Use the same bounded context as the ordinary IBus adapter.
+
+
+class ReadingEngine(IBus.Engine):
+    __gtype_name__ = "AzooKeyReadingDevelopmentEngine"
+
+    def __init__(self, *args, **kwargs):
+        kwargs.update(has_focus_id=True, active_surrounding_text=True)
+        super().__init__(*args, **kwargs)
+        self.native_key_reply = None
+        self.native_key_passthrough = False
+        self.destroyed = False
+        self.private = False
+        self.sensitive = False
+        self.focus_identity = None
+        self.last_language_key = (None, 0)
+        self.left = self.right = ""
+        self.context_changed = False
+        self.table = IBus.LookupTable.new(CANDIDATE_PAGE_SIZE, 0, True, True)
+        self.table.set_orientation(IBus.Orientation.VERTICAL)
+        self.frontend = ReadingFrontend(
+            GLib.idle_add, render_input=self.render_input,
+            render_candidates=self.render_candidates, notify=self.notice,
+        )
+
+    def do_service_method_call(self, connection, sender, object_path, interface,
+                               method, parameters, invocation):
+        dispatch_native_key(self, (connection, sender, object_path, interface, method, parameters, invocation))
+
+    def do_process_key_event(self, keyval, keycode, state):
+        if (self.native_key_passthrough or self.destroyed or self.private
+                or not self.frontend.focused or self.native_key_reply is None):
+            return False
+        event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
+        if event is None:
+            if self.frontend.pending:
+                self.frontend.barrier(self.native_key_reply.defer())
+                return True
+            return False
+        if not self.frontend.pending and is_native_key(event, self.frontend.snapshot):
+            return False
+        if self.context_changed and not self.frontend.pending and not self.frontend.snapshot.get("preedit"):
+            self.frontend.focus_in(self.surroundings())
+            self.context_changed = False
+        previous, timestamp = self.last_language_key
+        now = time.monotonic()
+        language_key = event["keyCode"] in (102, 104)
+        double_tap = language_key and previous == event["keyCode"] and now - timestamp < LANGUAGE_DOUBLE_TAP_SECONDS
+        self.last_language_key = ((event["keyCode"], now) if language_key and not double_tap else (None, 0))
+        self.frontend.key(event, self.native_key_reply.defer(), double_tap=double_tap)
+        return True
+
+    def surroundings(self):
+        return {"leftContext": self.left, "rightContext": self.right, "privateInput": self.sensitive}
+
+    def do_focus_in(self):
+        self.activate(None)
+
+    def do_focus_in_id(self, object_path, client):
+        self.activate((object_path, client))
+
+    def activate(self, identity):
+        if self.frontend.focused and self.focus_identity == identity:
+            return
+        self.focus_identity = identity
+        self.get_surrounding_text()
+        self.frontend.focus_in(self.surroundings())
+        self.context_changed = False
+
+    def do_focus_out(self):
+        self.frontend.focus_out()
+        self.focus_identity = None
+        self.left = self.right = ""
+        self.last_language_key = (None, 0)
+
+    def do_focus_out_id(self, _object_path):
+        self.do_focus_out()
+
+    def do_reset(self):
+        self.frontend.reset()
+
+    def do_disable(self):
+        self.do_focus_out()
+
+    def do_set_surrounding_text(self, value, cursor, anchor):
+        IBus.Engine.do_set_surrounding_text(self, value, cursor, anchor)
+        content = value.get_text()
+        self.left = content[:min(cursor, anchor)][-SURROUNDING_CONTEXT_LIMIT:]
+        self.right = content[max(cursor, anchor):][:SURROUNDING_CONTEXT_LIMIT]
+        self.context_changed = True
+
+    def do_set_content_type(self, purpose, hints):
+        private = purpose in (IBus.InputPurpose.PASSWORD, IBus.InputPurpose.PIN)
+        sensitive = private or bool(hints & IBus.InputHints.PRIVATE)
+        if (private, sensitive) == (self.private, self.sensitive):
+            return
+        self.private, self.sensitive = private, sensitive
+        if self.frontend.focused:
+            # Do not let a pending candidate or learning request retain the old
+            # privacy authority when the client changes its content type.
+            self.frontend.reset()
+            self.frontend.focus_in(self.surroundings())
+        self.context_changed = False
+
+    def render_input(self, snapshot):
+        for committed in snapshot.get("commits", []):
+            self.commit_text(IBus.Text.new_from_string(committed))
+        preedit = snapshot.get("preedit", "")
+        focus_mode = (IBus.PreeditFocusMode.CLEAR if snapshot.get("inputState") == "unicodeInput"
+                      else IBus.PreeditFocusMode.COMMIT)
+        self.update_preedit_text_with_mode(
+            IBus.Text.new_from_string(preedit), snapshot.get("cursor", 0), bool(preedit), focus_mode,
+        )
+
+    def render_candidates(self, snapshot, batch):
+        self.table.clear()
+        candidates = batch["candidates"] if batch else []
+        for candidate in candidates:
+            self.table.append_candidate(IBus.Text.new_from_string(candidate["text"]))
+        for index in range(CANDIDATE_PAGE_SIZE):
+            label = str(index + 1) if snapshot.get("showCandidateIndex") else ""
+            self.table.set_label(index, IBus.Text.new_from_string(label))
+        selected = snapshot.get("selection")
+        if candidates:
+            self.table.set_cursor_pos(selected if selected is not None else 0)
+        self.table.set_cursor_visible(selected is not None)
+        self.update_lookup_table(self.table, bool(candidates))
+
+    def notice(self, notice):
+        if notice.code == "candidate_learning_completed":
+            return
+        if notice.code == "reading_view_unavailable":
+            key = "reading.displayUnavailable"
+        else:
+            key = "reading.resetRequired" if self.frontend.blocked else "reading.operationUnavailable"
+        self.update_auxiliary_text(IBus.Text.new_from_string(text(key)), True)
+
+    def close_worker(self):
+        self.frontend.close()
+
+    def do_destroy(self):
+        if self.destroyed:
+            return
+        self.destroyed = True
+        self.close_worker()
+        IBus.Engine.do_destroy(self)

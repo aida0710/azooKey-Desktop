@@ -167,5 +167,8 @@
   "settings.dictionary_separate_save": "辞書は専用の画面で編集し、その画面の「保存」で反映します。",
   "settings.dictionary_saved": "辞書を保存しました。次の変換から使用します。",
   "candidate.score.show": "相対スコアを表示",
-  "candidate.score.explanation": "同じ読み・消費範囲の取得候補を、同じ親から分かれる候補同士で比べた値です。非表示の候補も含みます。正解の確率ではありません。"
+  "candidate.score.explanation": "同じ読み・消費範囲の取得候補を、同じ親から分かれる候補同士で比べた値です。非表示の候補も含みます。正解の確率ではありません。",
+  "reading.resetRequired": "入力処理との接続を確認できませんでした。表示中の文字を確認し、入力を取り消すか別の入力欄へ移って再開してください。",
+  "reading.operationUnavailable": "この操作を完了できませんでした。未確定の文字は保持しています。",
+  "reading.displayUnavailable": "表示を更新できませんでした。入力欄を確認してください。"
 }
