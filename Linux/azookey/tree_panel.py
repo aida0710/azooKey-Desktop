@@ -60,8 +60,16 @@ class TreePanel(Gtk.Window):
         self.actions = {}
         self.location = (0, 0, 0, 0)
         self.focus_key = None
+        self.layout_diagnostics = {}
+        self.placement_side = None
         self.scroll_idle = None
         self.connect("destroy", self.cancel_scroll)
+        self.connect("hide", self.clear_placement)
+        self.connect("size-allocate", lambda *_: self.position() if self.get_visible() else None)
+
+    def clear_placement(self, *_args):
+        self.placement_side = None
+        self.layout_diagnostics = {}
 
     def cancel_scroll(self, *_args):
         if self.scroll_idle:
@@ -125,10 +133,10 @@ class TreePanel(Gtk.Window):
         self.surface.set_size_request(int(width + 0.5), height)
         monitor = self.get_display().get_monitor_at_point(self.location[0], self.location[1])
         area = monitor.get_workarea() if monitor else self.get_screen().get_monitor_workarea(0)
-        if aligned and (self.location[0] - 12 < area.x or self.location[0] - 12 + width > area.x + area.width):
+        if aligned and (self.location[0] - 12 < area.x or self.location[0] - 12 + max(320, width) > area.x + area.width):
             # Clamping or scrolling would invalidate the document coordinates.
             # Use the ordinary compact popup when the span cannot fit onscreen.
-            self.update({**snapshot, "wordGeometry": None})
+            self.update({**snapshot, "wordGeometry": None, "layoutReason": "outside-workarea"})
             return
         # Keep a useful detail line below even for a one-character candidate.
         popup_width = int(min(max(320, width), 760 if not aligned else max(320, width), area.width) + 0.5)
@@ -225,8 +233,18 @@ class TreePanel(Gtk.Window):
         width, popup_height = self.get_size()
         x = max(area.x, min(x, area.x + area.width - width))
         below = y + height
-        y = below if below + popup_height <= area.y + area.height else y - popup_height
-        self.move(x, max(area.y, min(y, area.y + area.height - popup_height)))
+        fits_above = y - popup_height >= area.y
+        above = fits_above and (self.placement_side == "above" or below + popup_height > area.y + area.height)
+        self.placement_side = "above" if above else "below"
+        y = max(area.y, min(y - popup_height if above else below, area.y + area.height - popup_height))
+        self.move(x, y)
+        self.layout_diagnostics = {
+            "renderer": "gtk", "source": "ibus-caret",
+            "mode": "aligned" if self.aligned else "compact",
+            "reason": self.snapshot.get("layoutReason", "estimated-inline" if self.aligned else "unavailable-or-narrow"),
+            "cursor": self.location, "workArea": [area.x, area.y, area.width, area.height],
+            "popup": [x, y, width, popup_height],
+        }
 
     def measure(self, text, *, font_size=None):
         # PreeditAnchor calibrates this reference font against the document caret.

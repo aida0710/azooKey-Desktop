@@ -6,6 +6,9 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {CandidateDetail} from './candidateDetail.js';
 import {messages} from './candidateMessages.js';
+import {candidatePlacement} from './candidatePlacement.js';
+import {ShellCursor} from './shellCursor.js';
+import {LayoutDiagnostics} from './layoutDiagnostics.js';
 
 const NAME = 'org.azookey.Tree';
 const PATH = '/org/azookey/Tree';
@@ -31,9 +34,18 @@ export default class AzooKeyTreeExtension extends Extension {
         this._interfaceSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
         Main.layoutManager.addTopChrome(this._popup);
         this._popup.hide();
+        this._layoutDiagnostics = new LayoutDiagnostics();
+        this._cursor = new ShellCursor(() => {
+            if (this._popup.visible && this._lastSnapshot) this._render(this._lastSnapshot);
+        });
         this._subscription = Gio.DBus.session.signal_subscribe(NAME, NAME, null, PATH, null,
             Gio.DBusSignalFlags.NONE, (_connection, _sender, _path, _interface, signal, parameters) => {
-                if (signal === 'Hide') this._popup.hide();
+                if (signal === 'Hide') {
+                    this._popup.hide();
+                    this._lastSnapshot = null;
+                    this._placementSide = null;
+                    this._layoutDiagnostics.clear();
+                }
                 if (signal === 'ScrollDetails' && this._popup.visible)
                     this._details.scrollPage(parameters.deepUnpack()[0]);
                 if (signal === 'Update') {
@@ -58,6 +70,8 @@ export default class AzooKeyTreeExtension extends Extension {
     }
 
     _render(data) {
+        this._lastSnapshot = data;
+        const anchor = this._cursor.anchor(data.location);
         const nodes = data.nodes ?? [];
         const candidateIdentity = JSON.stringify([data.contextId, data.reading, data.candidates,
             nodes.map(({relativeScore, preview, previewDescription, ...node}) => node)]);
@@ -68,6 +82,7 @@ export default class AzooKeyTreeExtension extends Extension {
         }
         if (!nodes.length) {
             this._popup.hide();
+            this._layoutDiagnostics.clear();
             this._canvas.destroy_all_children();
             this._buttons.clear();
             return;
@@ -80,20 +95,29 @@ export default class AzooKeyTreeExtension extends Extension {
         const visibleButtons = new Set();
         const byId = new Map(nodes.map(node => [node.id, node]));
         const columns = data.columns ?? [];
-        if (!columns.length) { this._popup.hide(); return; }
+        if (!columns.length) {
+            this._popup.hide();
+            this._layoutDiagnostics.clear();
+            return;
+        }
         const frames = new Map();
         const documentWidths = data.wordGeometry?.widths ?? [];
         const fontSize = (data.candidateTextSize === 'large' ? 24 : 18) *
             Math.max(1, this._interfaceSettings.get_double('text-scaling-factor'));
         const minimumWidth = fontSize + (data.showCandidateIndex ? 14 : 8);
-        const aligned = documentWidths.length === columns.length &&
+        const aligned = anchor.permitsWordAlignment && documentWidths.length === columns.length &&
             documentWidths.every(width => Number.isFinite(width) && width >= minimumWidth);
+        const alignmentReason = aligned ? 'estimated-inline' :
+            (data.layoutReason ?? (anchor.permitsWordAlignment
+                ? (documentWidths.length ? 'column-too-narrow' : 'missing-word-geometry') : 'caret-only'));
         const rowHeight = fontSize + 14;
         const rowPitch = rowHeight + (data.showCandidateIndex && aligned ? rowHeight + 20 : 20);
         const scoreColor = score => Number.isFinite(score) && score < 75 ? '#d4630f' : '#4073cc';
         let nextX = 12;
         for (const [depth, column] of columns.entries()) {
             const measure = new St.Label({text: byId.get(column[0]).text, style: `font-size: ${fontSize}px;`});
+            // St needs a stage-backed theme node even for a temporary measurement.
+            this._canvas.add_child(measure);
             const columnWidth = aligned ? documentWidths[depth] : Math.max(fontSize + 12, Math.min(240, measure.get_preferred_width(-1)[1] + 12));
             measure.destroy();
             column.forEach((id, row) => frames.set(id, {x: nextX, y: 6 + row * rowPitch, width: columnWidth, height: rowHeight}));
@@ -222,29 +246,30 @@ export default class AzooKeyTreeExtension extends Extension {
                 this._buttons.delete(identity);
             }
         }
-        let [x, y, , cursorHeight] = data.location ?? [0, 0, 0, 0];
-        if (aligned) x -= 12;
+        const [x, y] = anchor.location;
         const monitorIndex = Main.layoutManager.monitors.findIndex(m => x >= m.x && x < m.x + m.width && y >= m.y && y < m.y + m.height);
         const index = monitorIndex >= 0 ? monitorIndex : Main.layoutManager.primaryIndex;
         const bounds = global.workspace_manager.get_active_workspace().get_work_area_for_monitor(index);
-        if (aligned && (x < bounds.x || x + width > bounds.x + bounds.width)) {
-            this._render({...data, wordGeometry: null});
+        const detailHeight = Math.min(160, bounds.height / 3);
+        const placement = candidatePlacement({cursor: anchor.location, bounds,
+            contentWidth: width, contentHeight: height, detailHeight, aligned,
+            preferredSide: this._placementSide});
+        if (aligned && !placement.permitsAlignment) {
+            this._render({...data, wordGeometry: null, layoutReason: 'outside-workarea'});
             return;
         }
         // The popup follows the compact content; there is no full-window backdrop.
         // Reserve a bounded detail area, leaving the source document visible.
-        const detailHeight = Math.min(160, bounds.height / 3);
-        const popupWidth = Math.min(Math.max(320, width), aligned ? Math.max(320, width) : 760, bounds.width);
-        const treeHeight = Math.min(height, bounds.height - detailHeight);
-        const popupHeight = treeHeight + detailHeight;
+        const {width: popupWidth, height: popupHeight, treeHeight} = placement;
         this._treeScroll.set_size(popupWidth, treeHeight);
         this._details.actor.set_size(popupWidth, detailHeight);
         this._popup.set_size(popupWidth, popupHeight);
         this._detailState = {nodes: byId, fontSize, width: popupWidth};
         this._showDetails(data.focusedNode ?? columns[0][0]);
-        x = Math.max(bounds.x, Math.min(x, bounds.x + bounds.width - popupWidth));
-        y = y + cursorHeight + popupHeight <= bounds.y + bounds.height ? y + cursorHeight : y - popupHeight;
-        this._popup.set_position(x, Math.max(bounds.y, Math.min(y, bounds.y + bounds.height - popupHeight)));
+        this._popup.set_position(placement.x, placement.y);
+        this._placementSide = placement.side;
+        this._layoutDiagnostics.update({source: anchor.source, aligned, reason: alignmentReason,
+            cursor: anchor.location, bounds, placement});
         this._popup.show();
         const focus = frames.get(data.focusedNode);
         const focusKey = `${data.contextId}:${data.generation}:${data.selection}:${data.focusedNode}`;
@@ -282,6 +307,11 @@ export default class AzooKeyTreeExtension extends Extension {
         if (this._scrollIdle) GLib.source_remove(this._scrollIdle);
         this._scrollIdle = 0;
         this._focusKey = null;
+        this._cursor?.destroy();
+        this._cursor = null;
+        this._layoutDiagnostics?.destroy();
+        this._layoutDiagnostics = null;
+        this._lastSnapshot = null;
         this._popup?.destroy();
         this._buttons?.clear();
         this._popup = null;

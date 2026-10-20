@@ -152,6 +152,18 @@ final class CandidateTreeViewTests: XCTestCase {
         })
     }
 
+    func testDocumentAlignmentFallsBackWhenTheDetailWidthCrossesTheScreenEdge() throws {
+        let geometry = try XCTUnwrap(CandidateDocumentGeometry(words: ["語"], preedit: "語") { offset in
+            NSRect(x: 600 + offset * 32, y: 200, width: 1, height: 24)
+        })
+        XCTAssertFalse(geometry.fits(in: CGRect(x: 0, y: 0, width: 800, height: 600)))
+        XCTAssertTrue(geometry.fits(in: CGRect(x: 0, y: 0, width: 1200, height: 600)))
+        let secondScreen = try XCTUnwrap(CandidateDocumentGeometry(words: ["語"], preedit: "語") { offset in
+            NSRect(x: -600 + offset * 32, y: 200, width: 1, height: 24)
+        })
+        XCTAssertTrue(secondScreen.fits(in: CGRect(x: -800, y: 0, width: 800, height: 600)))
+    }
+
     func testReferenceLayoutKeepsChosenSentenceOnOneCompactRow() {
         let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 600, height: 160))
         let alternatives = (0..<100).map {

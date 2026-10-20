@@ -24,6 +24,7 @@ class CandidatesViewController: BaseCandidateViewController {
     private var treeEntries: [CandidateTree.Entry] = []
     private var lastCursorLocation: CGPoint?
     private var documentGeometry: CandidateDocumentGeometry?
+    private var alignmentReason = "client-rectangles-unavailable"
     private var usesTree: Bool { Config.TreeCandidates().value }
 
     override func loadView() {
@@ -88,6 +89,10 @@ class CandidatesViewController: BaseCandidateViewController {
             desiredSize: .init(width: min(size.width, screen.visibleFrame.width), height: min(size.height, screen.visibleFrame.height))
         ).cgRect
         window.setFrame(frame, display: true, animate: false)
+        CandidateLayoutDiagnostics.record(
+            reason: treeView.hasDocumentAlignment ? "client-rectangles" :
+                (documentGeometry == nil ? alignmentReason : "column-too-narrow"),
+            cursor: cursorLocation, popup: frame, workArea: screen.visibleFrame)
     }
 
     override func updateCandidatePresentations(_ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint) {
@@ -109,6 +114,7 @@ class CandidatesViewController: BaseCandidateViewController {
     func alignWithDocument(_ candidates: [CandidatePresentation], selectionIndex: Int?, preedit: String,
                            rectAtOffset: (Int) -> NSRect) {
         documentGeometry = nil
+        alignmentReason = "client-rectangles-unavailable"
         guard usesTree, let selectionIndex, candidates.indices.contains(selectionIndex) else {
             return
         }
@@ -117,9 +123,10 @@ class CandidatesViewController: BaseCandidateViewController {
         let geometry = CandidateDocumentGeometry(
             words: words, preedit: preedit, rectAtOffset: rectAtOffset
         )
-        if let geometry, let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(geometry.anchor) }),
-           geometry.anchor.x + max(60, geometry.widths.reduce(12, +)) <= screen.visibleFrame.maxX {
+        if let geometry, NSScreen.screens.contains(where: { geometry.fits(in: $0.visibleFrame) }) {
             documentGeometry = geometry
+        } else if geometry != nil {
+            alignmentReason = "outside-workarea"
         }
     }
 
