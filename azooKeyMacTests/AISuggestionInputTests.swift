@@ -83,6 +83,7 @@ final class AISuggestionInputTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
+        _ = NSApplication.shared
         let oldBackend = Config.AIBackendPreference().value
         let oldContext = Config.IncludeContextInAITransform().value
         let oldLive = Config.LiveConversion().value
