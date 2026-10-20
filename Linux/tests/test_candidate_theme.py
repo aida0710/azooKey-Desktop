@@ -100,10 +100,12 @@ class CandidateThemeTests(unittest.TestCase):
         settings = panel.get_settings()
         previous_theme = settings.get_property("gtk-theme-name")
         self.addCleanup(settings.set_property, "gtk-theme-name", previous_theme)
+        self.addCleanup(settings.set_property, "gtk-enable-animations", settings.get_property("gtk-enable-animations"))
         self.addCleanup(panel.theme.interface.set_string, "color-scheme", panel.theme.interface.get_string("color-scheme"))
         self.addCleanup(panel.theme.accessibility.set_boolean, "high-contrast",
                         panel.theme.accessibility.get_boolean("high-contrast"))
         settings.set_property("gtk-theme-name", "Adwaita")
+        settings.set_property("gtk-enable-animations", True)
         for dark, high_contrast, mode in [
             (False, False, "light"), (True, False, "dark"),
             (False, True, "highContrastLight"), (True, True, "highContrastDark"),
