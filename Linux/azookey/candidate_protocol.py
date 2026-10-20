@@ -1,6 +1,7 @@
 """Validate candidate identities without rebuilding formal input or candidates."""
 from copy import deepcopy
 from dataclasses import dataclass
+from . import worker_settings
 
 
 AUTHORITY_FIELDS = frozenset(("context", "readingProcessGeneration", "focusEpoch",
@@ -127,5 +128,10 @@ def settings_response(response):
         raise ValueError("invalid candidate settings")
     if any(not isinstance(name, str) or not isinstance(value, str) for name, value in tables.items()):
         raise ValueError("invalid candidate table revision")
-    return deepcopy({field: response[field] for field in
-                     ("workerGeneration", "settingsRevision", "learning", "customInputTableRevisions")})
+    settings = {field: response[field] for field in
+                ("workerGeneration", "settingsRevision", "learning", "customInputTableRevisions")}
+    if "settingsContract" in response:
+        settings.update(worker_settings.acknowledgement(response))
+        if "settings" in settings and settings["settings"]["learning"] != learning:
+            raise ValueError("candidate learning differs from applied settings")
+    return deepcopy(settings)
