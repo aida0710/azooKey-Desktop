@@ -133,8 +133,6 @@ final class TreeButton: NSButton {
                 .font: numberFont,
                 .foregroundColor: highlightedPath ? palette.selectionText : palette.text
             ]
-            (highlightedPath ? palette.selectionText : palette.border).setStroke()
-            NSBezierPath(roundedRect: badge, xRadius: 3, yRadius: 3).stroke()
             (candidateNumber as NSString).draw(at: NSPoint(x: badge.minX + numberTextInset, y: badge.minY), withAttributes: attributes)
         }
     }

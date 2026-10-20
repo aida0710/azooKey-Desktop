@@ -58,7 +58,8 @@ class CandidatesViewController: BaseCandidateViewController {
 
     private func refreshTree(selectionIndex: Int?) {
         var numbers: [Int: String] = [:]
-        if showCandidateIndex {
+        // Live numbers identify candidates without changing the input state's number-key behavior.
+        if showCandidateIndex || !enterConfirmsCandidate {
             for index in showedRows where candidates.indices.contains(index) {
                 numbers[index] = String(index - showedRows.lowerBound + 1)
             }
