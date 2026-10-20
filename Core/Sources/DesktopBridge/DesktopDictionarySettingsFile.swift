@@ -107,8 +107,12 @@ final class DesktopDictionarySettingsFile: @unchecked Sendable {
     }
 
     private static func requireRegularFile(_ url: URL) throws {
-        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-        guard values.isRegularFile == true, values.isSymbolicLink != true else {
+        // Re-read the path without following links; compilation may outlive a file replacement.
+        var fileStatus = stat()
+        guard lstat(url.path, &fileStatus) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard fileStatus.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
             throw Failure.invalidStagingFile
         }
     }

@@ -1,6 +1,7 @@
 """Keep deferred key delivery, recovery, and focus epochs on the main loop."""
 from collections import deque
 from dataclasses import dataclass, field
+import logging
 import math
 import threading
 import time
@@ -14,6 +15,7 @@ from .input_preview import InputPreview, is_core_input, is_native_key
 # Two-second replies still make progress; three seconds without a reply
 # recovers the input while the worker is allowed to finish a cold model load.
 INPUT_PROGRESS_TIMEOUT_MS = 3000
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -61,9 +63,10 @@ class InputCoordinator:
         if not self.pending:
             return False
         projection, unrepresented = self._project()
+        # Conversion can commit all or only part of the preedit. Recovery
+        # projection cannot decide whether a following shortcut becomes native.
         return bool(unrepresented) or is_native_key(event, {
-            "inputState": projection.state,
-            "preedit": projection.text if projection.state != "none" else "",
+            "inputState": "none",
             "language": projection.language,
         })
 
@@ -130,21 +133,41 @@ class InputCoordinator:
             return False
         self.pending.popleft()
         self._watch_progress()
+        finish_recovery = None
         if reply.generation != self.generation:
             self.generation = reply.generation
-            self.recover(self._recovery_preedit())
+            finish_recovery, recovered = self._try_recovery(self._recovery_preedit())
+            if not recovered:
+                self._finish_key(pending, True)
+                if epoch is self.cancelled and not epoch.is_set():
+                    self.cancel()
+                return False
+            if self.closed or epoch is not self.cancelled or epoch.is_set():
+                self._finish_key(pending, True)
+                if finish_recovery:
+                    finish_recovery()
+                return False
             self.snapshot = {}
         snapshot = reply.snapshot
         self._remember_language(snapshot)
-        if pending.completion:
-            try:
+        try:
+            if pending.completion:
                 pending.completion(snapshot)
-            except (OSError, RuntimeError, ValueError):
+            elif pending.operation is not None:
+                self.publish(snapshot)
+        except (OSError, RuntimeError, ValueError) as error:
+            LOGGER.error("Input presentation failed (%s)", type(error).__name__)
+            # A commit may already have reached the client. Never deliver the
+            # physical key a second time after a partially applied response.
+            self._finish_key(pending, True)
+            if epoch is self.cancelled and not epoch.is_set():
                 self.recover_pending()
-                return False
-        elif pending.operation is not None:
-            self.publish(snapshot)
-        self._finish_key(pending, bool(snapshot.get("consumed", False)))
+            if finish_recovery:
+                finish_recovery()
+            return False
+        self._finish_key(pending, epoch is not self.cancelled or bool(snapshot.get("consumed", False)))
+        if finish_recovery:
+            finish_recovery()
         self._forward_native()
         if not self.pending:
             self._stop_timeout()
@@ -187,10 +210,22 @@ class InputCoordinator:
         # U+... is an instruction to Core, never document text to recover.
         return "" if self.snapshot.get("inputState") == "unicodeInput" else self.snapshot.get("preedit", "")
 
-    def recover_pending(self):
+    def _try_recovery(self, text):
+        try:
+            return self.recover(text), True
+        except (OSError, RuntimeError, ValueError) as error:
+            # The client may still display its preedit, or a recovery commit
+            # may already have succeeded. Retrying either effect can duplicate
+            # text, so callers retire physical keys without native delivery.
+            LOGGER.error("Input recovery failed (%s)", type(error).__name__)
+            return None, False
+
+    def recover_pending(self, *, key=None, key_reply=None):
         # Only acknowledged snapshots reached the application. Preserve that
         # text once, then return each unacknowledged physical key in order.
         # Never retry a request whose converter-side effects are uncertain.
+        if key is not None:
+            self.pending.append(PendingInput(None, {}, key, key_reply=key_reply))
         original_pending = list(self.pending)
         recoverable = original_pending
         if self.snapshot.get("inputState") == "unicodeInput":
@@ -209,9 +244,17 @@ class InputCoordinator:
             return_ids = {id(pending) for pending in unrepresented if pending.key is not None}
         self.recovering = True
         self.cancel(discard_keys=False)
-        self.recover(preedit)
+        recovery_epoch = self.cancelled
+        finish_recovery, recovered = self._try_recovery(preedit)
+        if not recovered:
+            return_ids.clear()
         for pending in original_pending:
-            self._finish_key(pending, id(pending) not in return_ids)
+            consumed = recovery_epoch is not self.cancelled or id(pending) not in return_ids
+            self._finish_key(pending, consumed)
+        # Reconversion may still own later keys that have not reached this
+        # queue. Return those only after this queue and its current failed key.
+        if finish_recovery:
+            finish_recovery()
 
     def _resume(self, epoch, reply):
         if not self.closed and epoch is self.cancelled:
@@ -307,5 +350,13 @@ class InputCoordinator:
                 # A reset barrier has no render callback. Retire our recovery
                 # preedit before the client receives its original event, or a
                 # native edit can first commit that same preview in GTK.
-                self._show_preview("", 0)
+                epoch = self.cancelled
+                try:
+                    self._show_preview("", 0)
+                except (OSError, RuntimeError, ValueError) as error:
+                    LOGGER.error("Input preview retirement failed (%s)", type(error).__name__)
+                    self._finish_key(pending, True)
+                    if epoch is self.cancelled and not epoch.is_set():
+                        self.cancel()
+                    return
             self._finish_key(pending, False)

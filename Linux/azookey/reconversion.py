@@ -1,6 +1,8 @@
 """Acknowledge surrounding-text replacement before restoring composition."""
 from collections import deque
 
+from .input_preview import ENTER_KEYS
+from .reconversion_key import ReconversionKey, ReconversionRecovery
 from .reconversion_strings import message
 
 
@@ -8,6 +10,16 @@ CONTEXT_LIMIT = 256
 # A host that never acknowledges deletion must not hold later input indefinitely.
 # Expiry reports uncertainty; it never repeats deletion or assumes success.
 DELETION_ACK_TIMEOUT_MS = 3000
+
+
+def reconversion_operation(event):
+    if event is None or event.get("modifierFlags") != 3:
+        return None
+    if event.get("keyCode") == 51:
+        return "undo-commit"
+    if event.get("charactersIgnoringModifiers") == "r":
+        return "reconvert"
+    return None
 
 
 def utf16_count(text):
@@ -86,38 +98,81 @@ class ReconversionCoordinator:
         self.queued = deque()
         self.epoch = 0
         self.timeout_source = None
+        self.start_reply = None
+        self.menu_operation = None
 
     @property
     def active(self):
         return self.phase is not None
 
-    def process(self, event, key):
+    def process(self, event, key, *, key_reply=None):
+        if self.phase == "menu-confirmation":
+            return self._confirm_menu(event, key, key_reply=key_reply)
         if self.active:
-            if event is not None and self.phase == "reading":
-                self._request("reconversion-reading", event=event)
-            elif event is not None:
-                self.queued.append(key)
+            if self.phase == "reading":
+                # Reading entry consumes even unsupported keys. It never
+                # turns a reading command into a native document edit.
+                if event is not None:
+                    self.start_reply = key_reply.defer() if key_reply else None
+                    self._request("reconversion-reading", event=event)
+            else:
+                self.queued.append(ReconversionKey(
+                    key, key_reply.defer() if key_reply else None,
+                ))
             return True
-        if event is None or event.get("modifierFlags") != 3:
+        operation = reconversion_operation(event)
+        if operation is None:
             return False
-        if event.get("keyCode") == 51:
-            self.start(undo=True)
-            return True
-        if event.get("charactersIgnoringModifiers") == "r":
-            self.start(undo=False)
-            return True
-        return False
+        self.start(undo=operation == "undo-commit", key_reply=key_reply)
+        return True
 
-    def start(self, *, undo):
+    def _available_context(self):
         pending_input = any(pending.operation not in ("settings", "configure") for pending in self.inputs.pending)
         if self.active or pending_input or self.inputs.snapshot.get("preedit"):
             self.status(message("composition_active"))
-            return
+            return None
         source = self.context()
         if not source or not source["canReplace"] or source["isSensitive"]:
             self.status(message("replacement_unavailable"))
+            return None
+        return dict(source)
+
+    def prompt_menu(self, *, undo):
+        source = self._available_context()
+        if source is None:
             return
-        self.source = dict(source)
+        # A menu callback owns no key reply. Starting deletion here can
+        # deadlock a synchronous client's next key against its deletion ACK.
+        self.epoch += 1
+        self.source = source
+        self.phase = "menu-confirmation"
+        self.menu_operation = "undo-commit" if undo else "reconvert"
+        self.status(message("confirm_undo" if undo else "confirm_selection"))
+
+    def _confirm_menu(self, event, key, *, key_reply):
+        if event is None:
+            return False
+        if event["keyCode"] in ENTER_KEYS and event["modifierFlags"] == 0:
+            operation, self.menu_operation = self.menu_operation, None
+            self.start_reply = key_reply.defer() if key_reply else None
+            self._request(operation)
+            return True
+        self.cancel()
+        epoch = self.epoch
+        self.status("")
+        if epoch != self.epoch or self.active:
+            return True
+        if event["keyCode"] == 53 and event["modifierFlags"] == 0:
+            return True
+        return self.process(event, key, key_reply=key_reply)
+
+    def start(self, *, undo, key_reply=None):
+        source = self._available_context()
+        if source is None:
+            return
+        self.epoch += 1
+        self.source = source
+        self.start_reply = key_reply.defer() if key_reply else None
         self._request("undo-commit" if undo else "reconvert")
 
     def _request(self, operation, **payload):
@@ -137,15 +192,17 @@ class ReconversionCoordinator:
             return
         if "reconversionReading" in snapshot:
             self.phase = "reading"
+            self._finish_start(epoch)
+            if epoch != self.epoch or self.phase != "reading":
+                return
             self.status(message("reading_input", reading=snapshot["reconversionReading"]))
-            self._drain()
+            self._drain(epoch)
         elif snapshot.get("reconversion"):
             self._replace(snapshot["reconversion"])
         elif snapshot.get("reconversionError") or snapshot.get("error"):
             self._fail(snapshot.get("reconversionError", "replacement_unavailable"))
         else:
-            self.cancel(replay=True)
-            self.status("")
+            self._finish()
 
     def _replace(self, replacement):
         expected = removed_context(self.source, replacement)
@@ -155,8 +212,19 @@ class ReconversionCoordinator:
         self.phase = "deleting"
         self.expected = expected
         self.replacement = replacement
+        epoch = self.epoch
         self.timeout_source = self.schedule_timeout(DELETION_ACK_TIMEOUT_MS, self._expired)
         self.delete(replacement["offset"], replacement["count"])
+        # Synchronous clients apply deletion after this original call returns.
+        # Returning earlier lets its release key block the deletion ACK instead.
+        self._finish_start(epoch)
+
+    def _finish_start(self, epoch):
+        if epoch != self.epoch:
+            return
+        reply, self.start_reply = self.start_reply, None
+        if reply:
+            reply(True)
 
     def surrounding_changed(self):
         if self.phase == "confirming":
@@ -196,10 +264,25 @@ class ReconversionCoordinator:
         self.inputs.publish(snapshot)
         if not self._validate_confirmation(epoch):
             return
+        self._finish()
+
+    def _finish(self):
+        epoch = self.epoch
+        target = self.expected if self.phase == "confirming" else self.source
         self.phase = None
         self.source = self.expected = self.replacement = None
+        self.menu_operation = None
+        self._stop_timeout()
+        self._finish_start(epoch)
+        if epoch != self.epoch or self.active:
+            return
         self.status("")
-        self._drain()
+        if epoch != self.epoch or self.active:
+            return
+        if not same_document(target, self.context()):
+            self._fail("changed_context")
+            return
+        self._drain(epoch)
 
     def _validate_confirmation(self, epoch):
         if epoch != self.epoch or self.phase != "confirming":
@@ -214,32 +297,65 @@ class ReconversionCoordinator:
 
     def take_recovery(self, text):
         """Consume recovery text and buffered keys only for the same target."""
-        changed = self.phase == "confirming" and not same_document(self.expected, self.context())
-        queued = self.cancel()
+        target = self.expected if self.phase == "confirming" else self.source
+        changed = self.active and not same_document(target, self.context())
+        recovery = self._retire()
         if changed:
+            self.finish_recovery(recovery, allow_native=False)
             self.status(message("changed_context"))
-            return "", deque()
-        return text, queued
+            return "", recovery
+        return text, recovery
 
-    def _drain(self):
-        while self.queued and self.phase in (None, "reading"):
-            self.replay(*self.queued.popleft())
+    def finish_recovery(self, recovery, *, allow_native):
+        start_reply, recovery.start_reply = recovery.start_reply, None
+        if start_reply:
+            start_reply(True)
+        while recovery.keys:
+            pending = recovery.keys.popleft()
+            # A commit or native reply can synchronously change focus. The
+            # remaining invocations must then complete without native edits.
+            consumed = not allow_native or recovery.epoch != self.epoch
+            pending.finish(consumed, forward=self.forward)
 
-    def cancel(self, *, replay=False):
+    def is_current_recovery(self, recovery):
+        return recovery.epoch == self.epoch and (
+            recovery.target is None or same_document(recovery.target, self.context()))
+
+    def _drain(self, epoch):
+        while self.queued and epoch == self.epoch and self.phase in (None, "reading"):
+            if self.phase == "reading" and not same_document(self.source, self.context()):
+                self._fail("changed_context")
+                return
+            pending = self.queued.popleft()
+            self.replay(*pending.key, key_reply=pending.reply)
+
+    def cancel(self):
+        self.finish_recovery(self._retire(), allow_native=False)
+
+    def _retire(self):
+        target = self.expected if self.phase == "confirming" else self.source
         self.epoch += 1
         self._stop_timeout()
         self.phase = None
         self.source = self.expected = self.replacement = None
+        self.menu_operation = None
         queued, self.queued = self.queued, deque()
-        if replay:
-            for key in queued:
-                self.forward(*key)
-        return queued
+        start_reply, self.start_reply = self.start_reply, None
+        return ReconversionRecovery(
+            epoch=self.epoch, keys=queued, target=target, start_reply=start_reply,
+        )
 
     def _fail(self, reason):
-        self.cancel(replay=True)
-        self.inputs.cancel()
-        self.status(message(reason))
+        target = self.expected if self.phase == "confirming" else self.source
+        allow_native = reason != "changed_context" and same_document(target, self.context())
+        recovery = self._retire()
+        try:
+            if recovery.epoch == self.epoch:
+                self.inputs.cancel()
+                if recovery.epoch == self.epoch:
+                    self.status(message(reason))
+        finally:
+            self.finish_recovery(recovery, allow_native=allow_native and self.is_current_recovery(recovery))
 
     def _stop_timeout(self):
         if self.timeout_source is not None:

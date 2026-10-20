@@ -44,6 +44,14 @@ jobs:
         run: git submodule update --init
       - run: python3 Tools/fetch-models.py
       - run: bash Tools/test-docker.sh --zenzai
+      - name: Preserve native toolkit failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-toolkit-${{ matrix.runner }}
+          path: build/test-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
   macos:
     needs: select-checks
     if: needs.select-checks.outputs.run-checks == 'true'

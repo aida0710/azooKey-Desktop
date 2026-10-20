@@ -16,7 +16,10 @@ class Observation:
         self.events = []
 
     def event(self, name, **values):
-        self.events.append({"event": name, "seconds": time.monotonic() - self.started, **values})
+        now = time.monotonic()
+        self.events.append({
+            "event": name, "seconds": now - self.started, "monotonic": now, **values,
+        })
 
     def heartbeat(self):
         self.heartbeats.append(time.monotonic() - self.started)
@@ -28,7 +31,7 @@ class Observation:
         staged.replace(self.path)
 
 
-def gtk_editor(observation):
+def gtk_editor(observation, initial_text):
     import gi
     gi.require_version("Gtk", "4.0")
     gi.require_version("GdkX11", "4.0")
@@ -39,10 +42,13 @@ def gtk_editor(observation):
             super().__init__(application=application, title="azooKey native GTK4",
                              default_width=500, default_height=180)
             self.editor = Gtk.Entry()
+            self.editor.set_text(initial_text)
+            self.editor.set_position(len(initial_text))
             self.preedit = ""
             self.set_child(self.editor)
             self.editor.get_delegate().connect("preedit-changed", self.preedit_changed)
             self.editor.get_buffer().connect("inserted-text", self.inserted)
+            self.editor.get_buffer().connect("deleted-text", self.deleted)
             self.present()
             self.editor.grab_focus()
             GLib.timeout_add(HEARTBEAT_MILLISECONDS, self.heartbeat)
@@ -54,12 +60,18 @@ def gtk_editor(observation):
         def inserted(self, _buffer, position, text, _length):
             observation.event("insert", text=text, position=position)
 
+        def deleted(self, _buffer, position, count):
+            observation.event("delete", position=position, count=count)
+
         def heartbeat(self):
             observation.heartbeat()
             observation.write(
                 toolkit="GTK4", window=GdkX11.X11Surface.get_xid(self.get_surface()),
                 text=self.editor.get_text(), cursor=self.editor.get_position(),
+                anchor=self.editor.get_delegate().get_property("selection-bound"),
+                positionUnit="unicode-scalar",
                 preedit=self.preedit, active=self.is_active(),
+                focused=self.editor.get_delegate().has_focus(),
             )
             return GLib.SOURCE_CONTINUE
 
@@ -69,14 +81,17 @@ def gtk_editor(observation):
     return application.run([])
 
 
-def qt_editor(observation):
+def qt_editor(observation, initial_text):
     from PyQt6.QtCore import QTimer
     from PyQt6.QtWidgets import QApplication, QTextEdit
+    from PyQt6.QtGui import QTextCursor
 
     class Editor(QTextEdit):
         def __init__(self):
             super().__init__()
             self.preedit = ""
+            self.setPlainText(initial_text)
+            self.moveCursor(QTextCursor.MoveOperation.End)
             self.setWindowTitle("azooKey native Qt")
             self.resize(500, 180)
             self.show()
@@ -87,7 +102,10 @@ def qt_editor(observation):
 
         def inputMethodEvent(self, event):
             self.preedit = event.preeditString()
-            observation.event("input-method", commit=event.commitString(), preedit=self.preedit)
+            observation.event(
+                "input-method", commit=event.commitString(), preedit=self.preedit,
+                replacementStart=event.replacementStart(), replacementLength=event.replacementLength(),
+            )
             super().inputMethodEvent(event)
 
         def keyPressEvent(self, event):
@@ -100,7 +118,8 @@ def qt_editor(observation):
             observation.write(
                 toolkit="Qt", window=int(self.winId()), text=self.toPlainText(),
                 cursor=self.textCursor().position(), preedit=self.preedit,
-                active=self.isActiveWindow(),
+                anchor=self.textCursor().anchor(), positionUnit="utf16",
+                active=self.isActiveWindow(), focused=self.hasFocus(),
             )
 
     application = QApplication([])
@@ -112,6 +131,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("toolkit", choices=("gtk4", "qt"))
     parser.add_argument("state")
+    parser.add_argument("--text", default="")
     options = parser.parse_args()
     launch = gtk_editor if options.toolkit == "gtk4" else qt_editor
-    raise SystemExit(launch(Observation(options.state)))
+    raise SystemExit(launch(Observation(options.state), options.text))

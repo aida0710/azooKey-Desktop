@@ -9,80 +9,7 @@ from gi.repository import Gio, GLib, IBus
 from ibus_support import crash_converter
 
 
-WAIT_SECONDS = 15
-RESPONSIVE_SECONDS = 0.1
-
-
-def wait_for(predicate):
-    deadline = time.monotonic() + WAIT_SECONDS
-    while not predicate():
-        assert time.monotonic() < deadline, "native-key IBus observation did not complete"
-        GLib.MainContext.default().iteration(False)
-        time.sleep(.005)
-    while GLib.MainContext.default().pending():
-        GLib.MainContext.default().iteration(False)
-
-
-class Field:
-    def __init__(self, bus, name):
-        self.context = bus.create_input_context(name)
-        self.context.set_capabilities(IBus.Capabilite.PREEDIT_TEXT | IBus.Capabilite.FOCUS)
-        self.preedit = ""
-        self.commits = []
-        self.forwarded = []
-        self.deliveries = []
-        self.replies = []
-        self.document = ""
-        self.cursor = 0
-        self.context.connect("commit-text", self.commit)
-        self.context.connect("forward-key-event", self.forward)
-        self.context.connect("update-preedit-text", self.preedit_changed)
-
-    def focus(self):
-        self.context.focus_in()
-        self.context.call_sync("SetEngine", GLib.Variant("(s)", ("azookey-tree",)),
-                               Gio.DBusCallFlags.NONE, 5000, None)
-        assert self.context.get_engine()
-
-    def commit(self, _context, text):
-        self.commits.append(text.get_text())
-        self.insert(text.get_text())
-
-    def insert(self, text):
-        self.document = self.document[:self.cursor] + text + self.document[self.cursor:]
-        self.cursor += len(text)
-
-    def forward(self, _context, keyval, keycode, state):
-        self.forwarded.append((keyval, keycode, state))
-        self.deliver_native(keyval, state, route="forward")
-
-    def deliver_native(self, keyval, state, *, route):
-        self.deliveries.append({"keyval": keyval, "state": int(state), "route": route})
-        if state & IBus.ModifierType.RELEASE_MASK:
-            return
-        if keyval == IBus.KEY_Home:
-            self.cursor = 0
-        elif keyval == IBus.KEY_Left:
-            self.cursor = max(0, self.cursor - 1)
-        elif keyval == IBus.KEY_Return:
-            self.insert("\n")
-        elif 32 <= keyval <= 126 and not state & IBus.ModifierType.CONTROL_MASK:
-            self.insert(chr(keyval))
-
-    def preedit_changed(self, _context, text, _cursor, visible):
-        self.preedit = text.get_text() if visible else ""
-
-    def send(self, keyval, state=0):
-        started = time.monotonic()
-        def completed(context, response, _user_data):
-            consumed = context.process_key_event_async_finish(response)
-            self.replies.append({"keyval": keyval, "state": int(state), "consumed": consumed,
-                                 "elapsedSeconds": time.monotonic() - started})
-            if not consumed:
-                # This fixture models delivery of the saved original event,
-                # distinctly from receiving an Engine.ForwardKeyEvent signal.
-                self.deliver_native(keyval, state, route="original-reply")
-        self.context.process_key_event_async(keyval, 38, state, -1, None, completed, None)
+from ibus_native_field import Field, RESPONSIVE_SECONDS, wait_for
 
 
 IBus.init()
@@ -133,6 +60,7 @@ old.focus()
 old.send(IBus.KEY_Muhenkan)
 old.send(ord("A"), shift)
 wait_for(lambda: old.preedit == "A")
+assert old.replies == [], "focus-out must occur before the original delayed calls finish"
 old.context.focus_out()
 new.focus()
 wait_for(lambda: len(old.replies) == 2)
@@ -145,6 +73,7 @@ new.send(IBus.KEY_Return)
 new.send(IBus.KEY_Home, control)
 new.send(ord("b"))
 wait_for(lambda: new.preedit == "ab")
+assert new.replies == [], "the queued edit must still await Core when focus changes"
 new.context.focus_out()
 old.focus()
 wait_for(lambda: len(new.replies) == 5)
@@ -158,6 +87,7 @@ new.commits.clear()
 new.send(IBus.KEY_Muhenkan)
 new.send(ord("A"), shift)
 wait_for(lambda: new.preedit == "A")
+assert new.replies == [], "Reset must retire calls that have not replied"
 new.context.reset()
 wait_for(lambda: len(new.replies) == 2)
 assert new.commits == ["A"] and new.replies[-1]["consumed"]
@@ -182,9 +112,24 @@ crash_converter(Gio.bus_get_sync(Gio.BusType.SESSION, None), "delayed_bridge.py"
 new.send(IBus.KEY_Henkan)
 wait_for(lambda: len(new.replies) == reply_count + 1)
 assert not old.forwarded and old.commits == ["A"] and len(old.replies) == 2
+new.context.focus_out()
+
+cancelled = Field(bus, "azookey-native-pending-cancellation")
+cancelled.focus()
+cancelled.send(IBus.KEY_Henkan)
+wait_for(lambda: len(cancelled.replies) == 1)
+cancelled.send(ord("a"))
+wait_for(lambda: cancelled.preedit == "a")
+assert len(cancelled.replies) == 1, "Escape must arrive while the text key is unanswered"
+cancelled.send(IBus.KEY_Escape)
+wait_for(lambda: len(cancelled.replies) == 3)
+assert cancelled.preedit == cancelled.document == ""
+assert cancelled.commits == cancelled.forwarded == []
+cancelled.context.focus_out()
 print(json.dumps({
     "status": "PASS", "delaySeconds": float(os.environ["AZOOKEY_TEST_DELAY"]),
     "nativeReplyUsesOriginalEvent": True, "duplicateReplies": 0,
     "daemonQueryWhileWaitingSeconds": bus_query_seconds, "replies": field.replies,
     "failureDeliveries": failure_deliveries,
+    "pendingCancellationReplies": cancelled.replies,
 }))
