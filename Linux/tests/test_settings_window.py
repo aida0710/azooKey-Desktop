@@ -6,6 +6,7 @@ import pathlib
 import sys
 import tempfile
 import time
+import types
 import unittest
 from unittest.mock import patch
 
@@ -255,6 +256,60 @@ class SettingsWindowTests(unittest.TestCase):
                 editor.status_label.disconnect(status_handler)
             if editor.handler_is_connected(destroy_handler):
                 editor.disconnect(destroy_handler)
+
+    def test_failed_publication_and_failed_core_restore_require_restore_before_another_save(self):
+        window = self.window()
+        original = self.path.read_bytes()
+        original_backup = self.store.backup.read_bytes()
+        real_request = window.bridge.request
+        configured = []
+
+        def reject_restore(operation, **payload):
+            if operation == "configure":
+                configured.append(payload["settings"]["live"])
+                if payload["settings"]["live"] is False:
+                    return {"error": "synthetic rollback failure"}
+            return real_request(operation, **payload)
+
+        window.widgets["live"].set_active(True)
+        with patch.object(window.bridge, "request", side_effect=reject_restore), \
+                patch.object(pathlib.Path, "replace", side_effect=PermissionError("synthetic publication failure")):
+            window.save(None)
+            self.assertEqual(configured, [True, False])
+            self.assertTrue(window.backend_recovery_pending)
+            self.assertIn("復元に失敗", window.message.get_text())
+            self.assertTrue(real_request("settings")["settings"]["live"])
+            window.save(None)
+            self.assertEqual(configured, [True, False, False], "Only the pending restore may run on retry")
+        self.assertEqual(self.path.read_bytes(), original)
+        self.assertEqual(self.store.backup.read_bytes(), original_backup)
+        with patch.object(window.bridge, "request", wraps=real_request) as requests:
+            window.save(None)
+        self.assertEqual([call.kwargs["settings"]["live"] for call in requests.call_args_list
+                          if call.args[0] == "configure"], [False, True])
+        self.assertFalse(window.backend_recovery_pending)
+        self.assertTrue(json.loads(self.path.read_text())["live"])
+
+    def test_repair_during_queued_core_rejection_applies_new_settings_without_a_stale_warning(self):
+        from azookey.engine import Engine
+        pending = []
+        warnings = []
+        input_queue = types.SimpleNamespace(submit=lambda operation, **options: pending.append((operation, options)))
+        engine = types.SimpleNamespace(
+            settings=self.values, settings_store=self.store, settings_stamp=None, pending_settings_stamp=None,
+            settings_problem_stamp=None, input=input_queue, update_auxiliary_text=lambda *args: warnings.append(args),
+        )
+        engine.notify_settings_problem = types.MethodType(Engine.notify_settings_problem, engine)
+        self.path.write_text(json.dumps({**self.values, "customTable": "synthetic invalid table"}))
+        Engine.reload_settings(engine)
+        self.path.write_text(json.dumps({**self.values, "live": True}))
+        pending[0][1]["completion"]({"error": "invalid_request"})
+        self.assertEqual(warnings, [])
+        Engine.reload_settings(engine)
+        self.assertEqual(len(pending), 2)
+        pending[1][1]["completion"]({})
+        self.assertTrue(engine.settings["live"])
+        self.assertEqual(warnings, [])
 
 
 if __name__ == "__main__":
