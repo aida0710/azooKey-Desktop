@@ -7,10 +7,15 @@ SPECIAL = {
     0xFF22: 102, 0xFF23: 104, 0xFF25: 104, 0x20: 49,
 }
 DIGITS = dict(zip("1234567890", [18, 19, 20, 21, 23, 22, 26, 28, 25, 29]))
+# XKB modifier keysyms change keyboard state; their separate press events are
+# not edits. Sending them to the recovery buffer would flush pending text.
+NATIVE_MODIFIERS = frozenset(range(0xFFE1, 0xFFEF)) | {0xFF7F, 0xFE03, 0xFE11}
 
 
 def translate(keyval, state, unicode_scalar=None):
     if state & (1 << 30):  # Key release is never another insertion.
+        return None
+    if keyval in NATIVE_MODIFIERS:
         return None
     modifiers = (1 if state & 1 else 0) | (2 if state & 4 else 0)
     modifiers |= 4 if state & 8 else 0

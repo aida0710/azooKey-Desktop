@@ -144,6 +144,7 @@ def main():
     wait_until(lambda: second.commits == ["z", "c", "d", "y"])
     assert first.commits == ["abc", "b"]
     regression_fields = check_editing_during_delay(bus)
+    regression_fields.append(check_modifier_presses(bus))
     timings = [value * 1000 for value in first.timings + second.timings]
     timings += [value * 1000 for field in regression_fields for value in field.timings]
     print(json.dumps({
@@ -214,6 +215,46 @@ def check_editing_during_delay(bus):
     assert english.document == "ba"
     assert suggestion.commits == ["にほんごa"]
     return [conversion, editing, english, suggestion, broken_settings]
+
+
+def check_modifier_presses(bus):
+    """Include physical modifier events, not only masks on a later arrow."""
+    field = Field(bus, "azookey-delay-physical-modifiers")
+    field.focus()
+    modifiers = (
+        (IBus.KEY_Shift_L, IBus.ModifierType.SHIFT_MASK),
+        (IBus.KEY_Control_L, IBus.ModifierType.CONTROL_MASK),
+        (IBus.KEY_Alt_L, IBus.ModifierType.MOD1_MASK),
+        (IBus.KEY_Super_L, IBus.ModifierType.SUPER_MASK),
+    )
+
+    def modifier(keyval, state):
+        # A modifier can be returned immediately when idle, or ordered behind
+        # pending input. Neither path may commit or insert document text.
+        started = time.monotonic()
+        field.context.process_key_event(keyval, 0, state)
+        elapsed = time.monotonic() - started
+        field.timings.append(elapsed)
+        assert elapsed < CALLBACK_BUDGET_SECONDS
+        while GLib.MainContext.default().pending():
+            GLib.MainContext.default().iteration(False)
+
+    for pending in (False, True):
+        if pending:
+            field.type("abc")
+        for keyval, mask in modifiers:
+            modifier(keyval, 0)
+            modifier(keyval, mask | IBus.ModifierType.RELEASE_MASK)
+        assert field.commits == [], field.commits
+        assert not any(32 <= key[0] <= 126 for key in field.forwarded), field.forwarded
+    modifier(IBus.KEY_Shift_L, 0)
+    field.key(IBus.KEY_Left, IBus.ModifierType.SHIFT_MASK)
+    modifier(IBus.KEY_Shift_L, IBus.ModifierType.SHIFT_MASK | IBus.ModifierType.RELEASE_MASK)
+    field.key(IBus.KEY_Return)
+    wait_until(lambda: field.commits == ["abc"])
+    assert field.document == "abc", field.document
+    field.context.focus_out()
+    return field
 
 
 if __name__ == "__main__":
