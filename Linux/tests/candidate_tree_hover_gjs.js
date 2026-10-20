@@ -1,5 +1,6 @@
 import {attachCandidateAction} from '../gnome-extension/candidateAccessibility.js';
 import {messages} from '../gnome-extension/candidateMessages.js';
+import {candidateColumns} from '../gnome-extension/candidateColumns.js';
 import {Actor, ScrollableActor, ScrollViewActor, drainActions, loadShellClass} from './gnome_actor_fixture.js';
 
 function equal(actual, expected) {
@@ -37,7 +38,7 @@ const imports = {
     Main: {layoutManager: {monitors: [bounds], primaryIndex: 0}},
     global: {workspace_manager: {get_active_workspace: () => ({get_work_area_for_monitor: () => bounds})}},
     Extension: class {},
-    attachCandidateAction, messages,
+    attachCandidateAction, messages, candidateColumns,
     candidatePlacement: () => ({x: 100, y: 100, width: 400, height: 300, treeHeight: 80,
         side: 'below', permitsAlignment: true}),
 };
@@ -53,6 +54,13 @@ extension._definitionKey = null;
 extension._hoveredAction = null;
 extension._treeExpanded = true;
 extension._popup = new Actor();
+extension._columnsScroll = new ScrollViewActor();
+extension._columnsScroll.get_hscroll_bar = () => ({get_preferred_height: () => [14, 14]});
+extension._columns = new ScrollableActor();
+extension._candidateColumn = new ScrollableActor({vertical: true});
+extension._columns.add_child(extension._candidateColumn);
+extension._columnsScroll.set_child(extension._columns);
+extension._popup.add_child(extension._columnsScroll);
 extension._canvas = new Actor();
 extension._treeScroll = new ScrollViewActor();
 extension._content = new ScrollableActor();

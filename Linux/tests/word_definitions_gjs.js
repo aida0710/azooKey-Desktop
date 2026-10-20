@@ -3,6 +3,7 @@ import {Actor, ScrollableActor, ScrollViewActor, drainActions, loadShellClass} f
 import {attachCandidateAction} from '../gnome-extension/candidateAccessibility.js';
 import {messages} from '../gnome-extension/candidateMessages.js';
 import {candidatePlacement} from '../gnome-extension/candidatePlacement.js';
+import {candidateColumns} from '../gnome-extension/candidateColumns.js';
 
 function equal(actual, expected) {
     if (JSON.stringify(actual) !== JSON.stringify(expected))
@@ -20,7 +21,7 @@ class MeasuredBox extends ScrollableActor {
         return [height, height];
     }
 }
-const imports = {Gio, candidatePlacement, St: {Button: Actor, BoxLayout: MeasuredBox, Label: Actor, ScrollView: ScrollViewActor,
+const imports = {Gio, candidatePlacement, candidateColumns, St: {Button: Actor, BoxLayout: MeasuredBox, Label: Actor, ScrollView: ScrollViewActor,
     PolicyType: {NEVER: 0, AUTOMATIC: 1}}, Pango: {WrapMode: {WORD_CHAR: 0}, EllipsizeMode: {NONE: 0, END: 1}},
     Clutter: {ActorAlign: {START: 0, CENTER: 1}}, attachCandidateAction, messages,
     GLib: {Variant: class { constructor(signature, values) { this.signature = signature; this.values = values; } }},
@@ -39,10 +40,11 @@ assert(detail._definitionPreview.is_mapped(), 'The short meaning must have its o
 assert(detail._definitionHeading.text.includes(messages.definitionSourceShort), 'The heading must name the source');
 assert(detail._definitionPreview.accessible_name.includes('義務が果たされる'), 'AT must read the current meaning without an AT-SPI Text interface');
 assert(detail._definitionFull.accessible_name.includes('保証を求める'), 'AT must read the full definition and examples');
-equal(detail._definitionPreview.wrap, false);
+equal(detail._definitionPreview.wrap, true);
 equal(detail._definitionHeading.wrap, false);
-assert(detail._scrollContent.get_children()[0] === detail._definitionFull &&
-    detail._scrollContent.get_children()[1] === detail.label, 'The full meaning must precede candidate metadata');
+assert(detail._scrollContent.get_children()[0] === detail._definitionSummary &&
+    detail._scrollContent.get_children()[1] === detail._definitionFull &&
+    detail._scrollContent.get_children()[2] === detail.label, 'Short and full meanings must precede candidate metadata in the right scrollable column');
 assert(detail._definitionFull.text.includes('保証を求める') && detail._definitionFull.text.includes('確約'), 'Examples and read-only synonyms must render');
 assert(detail._definitionFull.text.includes(messages.definitionReadingNote) && detail._definitionFull.text.includes('NICT'), 'Reading caveat and attribution must render');
 equal(external, []);
@@ -77,7 +79,7 @@ for (const expanded of [false, true]) {
     if (!expanded) {
         assert(detail._definitionHeading.visible && detail._definitionPreview.visible, 'Long words must not displace the meaning line');
         equal(detail._definitionHeading.ellipsize, imports.Pango.EllipsizeMode.END);
-        equal(detail._definitionPreview.ellipsize, imports.Pango.EllipsizeMode.END);
+        equal(detail._definitionPreview.ellipsize, imports.Pango.EllipsizeMode.NONE);
         assert(detail._definitionPreview.accessible_name.includes('語釈'.repeat(300)), 'Ellipsis must preserve the full source meaning in AT');
         assert(!detail._definitionSource.is_mapped(), 'Folded entries must not expose hidden source controls');
     } else {
@@ -96,19 +98,19 @@ for (const label of [measured._definitionHeading, measured._definitionPreview])
     label.get_preferred_height = () => [41, 41];
 const measuredHeight = measured.layout({identity: 'theme', treeExpanded: false,
     fontSize: 24, width: 200, maximumHeight: 96, availableHeight: 190});
-assert(measuredHeight >= 44 + 41 * 2 && measuredHeight <= 190,
-    'Actual heading/meaning metrics must be reserved before list space, within the remaining work area');
+assert(measuredHeight <= 96 && measured._scroll.height <= 96 - 44,
+    'Measured heading/meaning metrics must stay inside the independently scrollable right column');
 assert(measured._definitionPreview.is_mapped() && measured._definitionHeading.is_mapped(),
-    'Both independent single-line labels must stay visible under a larger theme');
+    'Separate word and wrapped meaning actors must remain readable through the scroll viewport');
 const oneLineHeight = measured.layout({identity: 'theme', treeExpanded: false,
     fontSize: 24, width: 200, maximumHeight: 60, availableHeight: 90});
-assert(oneLineHeight <= 90 && measured._definitionPreview.is_mapped() && !measured._definitionHeading.visible,
-    'When only one measured line fits, the actual meaning takes priority over the heading');
+assert(oneLineHeight <= 60 && measured._definitionPreview.is_mapped() && measured._definitionHeading.visible,
+    'A short right column must retain both fields inside its scrollable content');
 equal(measured._definitionPreview.accessible_name, `${messages.definitionWord('保証', 'ホショウ')}\n義務が果たされるという保証`);
 measured.setWordDefinitions({...response, word: '保障', senses: [{definitions: ['新しい語釈'], examples: [], synonyms: []}]});
 assert(measured._definitionPreview.accessible_name.includes('新しい語釈') &&
     !measured._definitionFull.accessible_name.includes('保証を求める'), 'AT names must replace old meanings on target changes');
-print('GNOME native regression model: separate single-line meanings, measured theme budget and current/full AT names PASS');
+print('GNOME right column: separate heading and wrapped meaning, bounded viewport and current/full AT names PASS');
 
 detail._scroll.get_vadjustment().value = 29;
 detail.setWordDefinitions(null);
@@ -166,6 +168,33 @@ equal(pending.length, 4);
 equal(displayed.at(-1), null);
 print('GNOME composing: the branch tree remains compact and starts no dictionary query PASS');
 
+const inspection = new ExtensionClass();
+const inspectedTargets = [];
+inspection._popup = {hover: true};
+inspection._detailState = {nodes: new Map([[0, {id: 0, text: '保証', reading: 'ホショウ'}]])};
+inspection._lastSnapshot = {focusedNode: 0};
+inspection._buttons = new Map();
+inspection._details = {update() {}};
+inspection._lookupWordDefinitions = (kind, index) => inspectedTargets.push([kind, index]);
+inspection._navigation = {expanded: true, hoveredItem: {index: 2, detailDescription: '補償'}};
+inspection._refreshDetails();
+inspection._navigation.hoveredItem = null;
+inspection._refreshDetails();
+equal(inspectedTargets, [['candidate', 2], ['candidate', 2]]);
+inspection._navigation.expanded = false;
+inspection._refreshDetails();
+equal(inspectedTargets.at(-1), ['node', 0]);
+equal(inspection._dictionaryHoverTarget, null);
+inspection._navigation.expanded = true;
+inspection._navigation.hoveredItem = {index: 2, detailDescription: '補償'};
+inspection._refreshDetails();
+inspection._navigation.hoveredItem = null;
+inspection._popup.hover = false;
+inspection._refreshDetails();
+equal(inspectedTargets.at(-1), ['node', 0]);
+equal(inspection._lastSnapshot, {focusedNode: 0});
+print('GNOME pointer-to-definition: crossing preserves the inspected word; collapse/exit restore the selected word without selection PASS');
+
 
 const Composition = loadShellClass({fileName: 'candidateComposition.js', imports, className: 'CandidateComposition'});
 const Navigation = loadShellClass({fileName: 'candidateNavigation.js', imports, className: 'CandidateNavigation'});
@@ -175,62 +204,70 @@ const budgetSnapshot = {contextId: 'budget', generation: 1, selection: 0, inputS
     reading: 'ホショウ', showCandidateIndex: true, candidates: [{index: 0, text: '保証'}],
     candidatePage: {start: 0, position: 1, totalCount: 9, previousIndex: null, nextIndex: null,
         items: Array.from({length: 9}, (_, index) => ({index, text: '保証'}))}};
-for (const workAreaHeight of [800, 320]) {
-    for (const treeExpanded of [false, true]) {
-        const card = new ExtensionClass();
-        const commits = [];
-        card._presentationMode = 'menu';
-        card._treeExpanded = treeExpanded;
-        card._popup = new Actor();
-        card._treeScroll = new Actor();
-        card._composition = new Composition(selection => commits.push(selection.values));
-        card._navigation = new Navigation({select() {}, changed() {}, preview() {}});
-        card._details = new Detail({changed() {}, toggleTree() {}});
-        card._details.setWordDefinitions(longResponse);
-        // Model a full long entry rather than the fixture actor's short natural height.
-        card._details._scrollContent.get_preferred_height = () => [1000, 1000];
-        card._refreshDetails = () => {};
-        const navigationHeights = [];
-        const updateNavigation = card._navigation.update.bind(card._navigation);
-        card._navigation.update = (snapshot, options) => {
-            const height = updateNavigation(snapshot, options);
-            navigationHeights.push(height);
-            return height;
-        };
-        const options = {bounds: {x: 0, y: 0, width: 640, height: workAreaHeight}, fontSize: 24,
-            treeContentWidth: 400, treeContentHeight: 600, nodes: new Map(),
-            actionIdentity: 'budget', location: [100, 50, 0, 20], palette};
-        card._layoutCard(budgetSnapshot, options);
-        const confirm = card._composition._confirm;
-        const compositionHeight = card._composition.actor.height;
-        const compactListHeight = card._navigation._scroll.height;
-        const minimumNavigationHeight = navigationHeights[0];
-        card._details.expanded = true;
-        card._layoutCard(budgetSnapshot, options);
-        assert(card._composition._confirm === confirm && confirm.is_mapped() && confirm.reactive,
-            'Opening the entry must preserve the current explicit confirm action');
-        equal(card._composition.actor.height, compositionHeight);
-        assert(card._navigation.actor.height >= minimumNavigationHeight,
-            'Expanded details must preserve the page controls and navigation minimum');
-        assert(card._navigation._scroll.height < compactListHeight,
-            'The sentence list must yield its excess rows to the explicitly opened entry');
-        const contentHeight = compositionHeight + card._navigation.actor.height +
-            card._details.actor.height + card._treeScroll.height;
-        assert(contentHeight <= workAreaHeight && card._popup.height <= workAreaHeight,
-            'Expanded details and remaining list/tree must fit the work area');
-        if (workAreaHeight === 800) {
-            const lineHeight = card._details._definitionPreview.get_preferred_height(560)[1];
-            assert(card._details._scroll.height >= lineHeight * 4,
-                'A long full entry must show several example lines on a normal desktop');
+for (const [workAreaWidth, workAreaHeight] of [[1280, 800], [640, 320], [320, 320]]) {
+    for (const fontSize of [18, 24]) {
+        for (const treeExpanded of [false, true]) {
+            const card = new ExtensionClass();
+            const commits = [];
+            card._presentationMode = 'menu';
+            card._treeExpanded = treeExpanded;
+            card._popup = new Actor();
+            card._treeScroll = new Actor();
+            card._columnsScroll = new ScrollViewActor();
+            card._columnsScroll.get_hscroll_bar = () => ({get_preferred_height: () => [14, 14]});
+            card._columns = new MeasuredBox();
+            card._candidateColumn = new MeasuredBox({vertical: true});
+            card._columns.add_child(card._candidateColumn);
+            card._columnsScroll.set_child(card._columns);
+            card._composition = new Composition(selection => commits.push(selection.values));
+            card._navigation = new Navigation({select() {}, changed() {}, preview() {}});
+            card._details = new Detail({changed() {}, toggleTree() {}});
+            card._candidateColumn.add_child(card._navigation.actor);
+            card._candidateColumn.add_child(card._treeScroll);
+            card._columns.add_child(card._details.actor);
+            card._details.setWordDefinitions(longResponse);
+            card._details._scrollContent.get_preferred_height = () => [1000, 1000];
+            card._refreshDetails = () => {};
+            const options = {bounds: {x: 0, y: 0, width: workAreaWidth, height: workAreaHeight}, fontSize,
+                treeContentWidth: 400, treeContentHeight: 600, nodes: new Map(),
+                actionIdentity: 'budget', location: [workAreaWidth - 1, workAreaHeight - 22, 0, 20], palette};
+            card._layoutCard(budgetSnapshot, options);
+            const confirm = card._composition._confirm;
+            const compositionHeight = card._composition.actor.height;
+            const compactListHeight = card._navigation._scroll.height;
+            card._details.expanded = true;
+            const placement = card._layoutCard(budgetSnapshot, options);
+            assert(card._composition._confirm === confirm && confirm.is_mapped() && confirm.reactive,
+                'Opening the right entry must preserve the current explicit confirm action');
+            equal(card._composition.actor.height, compositionHeight);
+            equal(card._navigation._scroll.height, compactListHeight);
+            assert(card._columns.get_children()[0] === card._candidateColumn &&
+                card._columns.get_children()[1] === card._details.actor && !card._columns.vertical,
+                'The definition must remain the right sibling of the candidate list');
+            assert(card._candidateColumn.width >= 360 && card._details.actor.width >= 280,
+                'Narrow screens must scroll both legible columns instead of shrinking fonts');
+            assert(card._details._definitionPreview.style.includes(`font-size: ${fontSize}px`),
+                'The definition must preserve the selected font size');
+            const totalHeight = compositionHeight + card._columnsScroll.height + 2;
+            assert(totalHeight <= workAreaHeight && card._popup.height <= workAreaHeight,
+                'The composition plus the maximum of both columns must fit the work area');
+            assert(placement.x >= 0 && placement.y >= 0 && placement.x + placement.width <= workAreaWidth &&
+                placement.y + placement.height <= workAreaHeight, 'The whole paired card must stay inside the right/bottom edge');
+            if (workAreaWidth === 320)
+                assert(card._columns.width > card._columnsScroll.width,
+                    'The narrow viewport must expose horizontal scrolling to the right column');
+            if (workAreaHeight === 800)
+                assert(card._details._scroll.height >= fontSize * 4,
+                    'A normal desktop must show several lines in the right entry');
+            equal(commits, []);
+            confirm.get_accessible().do_action();
+            confirm.get_accessible().do_action();
+            drainActions();
+            equal(commits, [['select', 0, true, 1, 'budget']]);
         }
-        equal(commits, []);
-        confirm.get_accessible().do_action();
-        confirm.get_accessible().do_action();
-        drainActions();
-        equal(commits, [['select', 0, true, 1, 'budget']]);
     }
 }
-print('GNOME expanded entry: examples gain readable space at 800px, 320px stays bounded, and composition/page controls/confirm-once survive PASS');
+print('GNOME paired columns: normal/large text, narrow scroll, right/bottom bounds, independent list height and confirm-once PASS');
 
 
 const fractional = new Detail({changed() {}, toggleTree() {}});
@@ -243,7 +280,7 @@ fractional._header.get_preferred_height = () => [fractionalHeaderHeight, fractio
 fractional._definitionHeading.get_preferred_height = () => [fractionalHeadingHeight, fractionalHeadingHeight];
 fractional._definitionPreview.get_preferred_height = () => [fractionalPreviewHeight, fractionalPreviewHeight];
 fractional._scrollContent.get_preferred_height = () => [900.3, 900.3];
-const separatorHeight = Number(fractional.actor.style.match(/border-top: ([\d.]+)px/)[1]);
+const separatorWidth = Number(fractional.actor.style.match(/border-left: ([\d.]+)px/)[1]);
 for (const [expanded, maximumHeight, availableHeight] of [
     [true, 345.6, 500.8], [true, 345.6, 160.9], [true, 120.1, 70.9],
     [false, 120.7, 150.8], [false, 120.7, 100.9], [false, 120.7, 70.9],
@@ -251,15 +288,26 @@ for (const [expanded, maximumHeight, availableHeight] of [
     fractional.expanded = expanded;
     const height = fractional.layout({identity: 'fractional', treeExpanded: false,
         fontSize: 24, width: 558, maximumHeight, availableHeight});
-    for (const allocation of [height, fractional.actor.height, fractional._scroll.height, fractional._definitionSummary.height])
+    for (const allocation of [height, fractional.actor.height, fractional._scroll.height])
         assert(Number.isInteger(allocation) && allocation >= 0, 'Every detail allocation must use whole pixels');
-    const previewHeight = fractional._definitionSummary.visible ? Math.ceil(fractionalPreviewHeight) +
-        (fractional._definitionHeading.visible ? Math.ceil(fractionalHeadingHeight) : 0) : 0;
-    const childrenAndBorder = Math.ceil(fractionalHeaderHeight) + separatorHeight +
-        Math.ceil(fractional._scroll.height) + previewHeight;
-    assert(childrenAndBorder <= height, 'Independently rounded children plus the separator must fit the parent');
+    const childrenHeight = Math.ceil(fractionalHeaderHeight) + fractional._scroll.height;
+    assert(childrenHeight <= height, 'Rounded header and scrolling text must fit the parent');
+    assert(fractional._scroll.width + separatorWidth <= fractional.actor.width,
+        'The right column must reserve its separator outside the scroll viewport');
     assert(height <= Math.floor(availableHeight), 'The parent must stay inside the remaining work area');
     if (expanded)
         assert(height <= Math.floor(maximumHeight), 'The expanded viewport must stay inside its fractional maximum');
 }
-print('GNOME fractional theme metrics: rounded child heights and the separator stay within whole-pixel parent/work-area bounds PASS');
+print('GNOME fractional theme metrics: rounded heights and side separator stay within whole-pixel parent/work-area bounds PASS');
+
+const enlargedControls = new Detail({changed() {}, toggleTree() {}});
+enlargedControls.setWordDefinitions(response);
+enlargedControls.layout({identity: 'scaled', treeExpanded: false, fontSize: 48, width: 360, maximumHeight: 500});
+for (const button of [enlargedControls._tree, enlargedControls._toggle])
+    button.get_preferred_width = () => [240, 240];
+const enlargedHeight = enlargedControls.layout({identity: 'scaled', treeExpanded: false,
+    fontSize: 48, width: 360, maximumHeight: 500});
+assert(enlargedControls._header.vertical && enlargedHeight <= 500,
+    'When enlarged controls do not fit side by side they must remain inside the right column');
+assert(enlargedControls._definitionPreview.style.includes('font-size: 48px'), 'Control wrapping must not shrink the meaning');
+print('GNOME enlarged side controls: measured buttons stack inside the right column without shrinking meanings PASS');

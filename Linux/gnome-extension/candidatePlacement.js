@@ -1,4 +1,5 @@
 // Geometry contains only rectangles; never pass document text to diagnostics.
+const MAXIMUM_COMPACT_WIDTH = 760; // Bound the original single-column card.
 export function validCursorLocation(location) {
     return Array.isArray(location) && location.length === 4 &&
         location.every(Number.isFinite) && location[2] >= 0 && location[3] > 0;
@@ -25,13 +26,12 @@ export function resolveCursorAnchor({engineLocation, shellLocation, relative, wi
 }
 
 export function candidatePlacement({cursor, bounds, contentWidth, contentHeight,
-    detailHeight, aligned, preferredSide = 'below'}) {
+    detailHeight, aligned, preferredSide = 'below', maximumWidth = MAXIMUM_COMPACT_WIDTH}) {
     // Keep details legible for a one-character candidate while bounding long rows.
     const minimumWidth = 320;
-    const maximumCompactWidth = 760;
     const requiredWidth = Math.max(minimumWidth, contentWidth);
     const width = Math.min(bounds.width,
-        aligned ? requiredWidth : Math.min(maximumCompactWidth, requiredWidth));
+        aligned ? requiredWidth : Math.min(maximumWidth, requiredWidth));
     const treeHeight = Math.max(1, Math.min(contentHeight, bounds.height - detailHeight));
     const height = Math.min(bounds.height, treeHeight + detailHeight);
     const desiredX = cursor[0] - (aligned ? 12 : 0);

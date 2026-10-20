@@ -7,7 +7,7 @@ import {createWrappingLabel} from './candidateText.js';
 
 // Secondary controls use less padding but retain their action target height.
 const DETAILS_INSET = 8;
-// The painted separator belongs outside the children's content allocation.
+// Reserve the right column's separator before measuring its wrapped text.
 const DETAILS_BORDER_WIDTH = 1;
 // Only the first short meaning is visible before the user opens the full entry.
 const DEFINITION_SUMMARY_CHARACTERS = 96;
@@ -23,13 +23,13 @@ export class CandidateDetail {
         this.actor.add_child(this._header);
         this._definitionSummary = new St.BoxLayout({vertical: true, can_focus: false});
         this._definitionHeading = this._summaryLine();
-        this._definitionPreview = this._summaryLine();
+        this._definitionPreview = createWrappingLabel({can_focus: false});
         this._definitionSummary.add_child(this._definitionHeading);
         this._definitionSummary.add_child(this._definitionPreview);
-        this.actor.add_child(this._definitionSummary);
         this._scroll = new St.ScrollView({can_focus: false,
             hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC});
         this._scrollContent = new St.BoxLayout({vertical: true});
+        this._scrollContent.add_child(this._definitionSummary);
         this._definitionFull = createWrappingLabel({});
         this._scrollContent.add_child(this._definitionFull);
         this.label = createWrappingLabel({accessible_name: messages.detail});
@@ -41,8 +41,7 @@ export class CandidateDetail {
 
     _summaryLine() {
         const label = new St.Label({can_focus: false});
-        // Pango multiline ellipsis can leave only the heading visible. Each
-        // preview line has its own measured height and single-line ellipsis.
+        // A long word stays on one line; its meaning wraps independently below.
         label.clutter_text.set_line_wrap(false);
         label.clutter_text.set_ellipsize(Pango.EllipsizeMode.END);
         return label;
@@ -53,14 +52,23 @@ export class CandidateDetail {
             this.retire();
             this._identity = identity;
             this._tree = this._button(() => this._toggleTree());
-            this._toggle = this._button(() => { this.expanded = !this.expanded; this._changed(); });
+            this._toggle = this._button(() => {
+                this.expanded = !this.expanded;
+                this._scroll.get_vadjustment().value = 0;
+                this._changed();
+            });
         }
         this._tree.label = treeExpanded ? messages.closeTree : messages.openTree;
-        this._toggle.label = this.expanded ? messages.closeDetails : messages.openDetails;
+        this._toggle.label = this.expanded ? messages.definitionCloseFull : messages.definitionOpenFull;
         for (const button of [this._tree, this._toggle])
             button.set_style(`font-size: ${Math.max(12, fontSize - 4)}px; padding: 5px 8px; min-height: 34px;`);
-        this._scroll.visible = this.expanded;
-        const textWidth = Math.max(1, width - DETAILS_INSET * 2);
+        this._scroll.show();
+        const contentWidth = Math.max(1, width - DETAILS_BORDER_WIDTH);
+        // A large text scale can make the two controls wider than the side
+        // column. Stack only its controls; the definition stays to the right.
+        this._header.vertical = [this._tree, this._toggle].reduce((sum, button) =>
+            sum + Math.ceil(button.get_preferred_width(-1)[1]), 0) > contentWidth;
+        const textWidth = Math.max(1, contentWidth - DETAILS_INSET * 2);
         for (const label of [this.label, this._definitionFull]) {
             label.set_width(textWidth);
             label.set_style(`font-size: ${fontSize}px; padding: 0 ${DETAILS_INSET}px ${DETAILS_INSET}px;`);
@@ -71,32 +79,26 @@ export class CandidateDetail {
             label.set_style(`font-size: ${fontSize}px; padding: 0;`);
             label.show();
         }
-        this._definitionSource.visible = this._definition?.status === 'found';
+        this._definitionSummary.visible = !this.expanded;
+        this._definitionFull.visible = this.expanded;
+        this.label.visible = this.expanded;
+        this._definitionSource.visible = this.expanded && this._definition?.status === 'found';
         this._definitionSource.set_style(`font-size: ${Math.max(12, fontSize - 4)}px; padding: 5px 8px; min-height: 34px;`);
         // Clutter rounds children independently; reserve natural heights upward
         // and allocate whole pixels downward so their sum stays inside the actor.
-        const headerHeight = Math.ceil(this._header.get_preferred_height(width)[1]);
-        const headingHeight = Math.ceil(this._definitionHeading.get_preferred_height(textWidth)[1]);
-        const previewHeight = Math.ceil(this._definitionPreview.get_preferred_height(textWidth)[1]);
-        const headerAndBorderHeight = headerHeight + DETAILS_BORDER_WIDTH;
+        const headerHeight = Math.ceil(this._header.get_preferred_height(contentWidth)[1]);
         const maximumPixelHeight = Math.max(0, Math.floor(maximumHeight));
         const availablePixelHeight = Math.max(0, Math.floor(availableHeight));
-        const summaryNaturalHeight = headingHeight + previewHeight;
-        // Give the measured preview priority over list rows, within the remaining
-        // work area; a theme's actual font metrics need not equal a pixel multiplier.
-        const preferredHeight = this.expanded ? maximumPixelHeight : Math.max(maximumPixelHeight, headerAndBorderHeight + summaryNaturalHeight);
-        const heightBudget = Math.max(headerAndBorderHeight, Math.min(availablePixelHeight, preferredHeight));
-        const contentBudget = Math.max(0, heightBudget - headerAndBorderHeight);
-        const showPreview = !this.expanded && previewHeight <= contentBudget;
-        this._definitionPreview.visible = showPreview;
-        this._definitionHeading.visible = showPreview && headingHeight + previewHeight <= contentBudget;
-        this._definitionSummary.visible = showPreview;
-        const detailHeight = this.expanded ? Math.min(contentBudget,
-            Math.ceil(this._scrollContent.get_preferred_height(width)[1])) : 0;
-        const summaryHeight = showPreview ? previewHeight + (this._definitionHeading.visible ? headingHeight : 0) : 0;
-        this._definitionSummary.set_size(width, summaryHeight);
-        this._scroll.height = detailHeight;
-        const height = headerAndBorderHeight + detailHeight + summaryHeight;
+        const heightBudget = Math.min(availablePixelHeight, maximumPixelHeight);
+        const contentBudget = Math.max(0, heightBudget - headerHeight);
+        // Both the short meaning and full entry scroll within the right column;
+        // opening the dictionary never consumes rows from the candidate list.
+        this._definitionSummary.set_width(contentWidth);
+        this._scrollContent.set_width(contentWidth);
+        const detailHeight = Math.min(contentBudget,
+            Math.ceil(this._scrollContent.get_preferred_height(contentWidth)[1]));
+        this._scroll.set_size(contentWidth, detailHeight);
+        const height = Math.min(heightBudget, headerHeight + detailHeight);
         this.actor.set_size(width, height);
         return height;
     }
@@ -186,7 +188,7 @@ export class CandidateDetail {
 
     applyPalette(palette) {
         this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text};
-            border-top: ${DETAILS_BORDER_WIDTH}px solid ${palette.border};`);
+            border-left: ${DETAILS_BORDER_WIDTH}px solid ${palette.border};`);
     }
 
     reset() { this.expanded = false; this.setWordDefinitions(null); this.retire(); }
