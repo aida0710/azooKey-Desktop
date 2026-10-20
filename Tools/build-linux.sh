@@ -1,5 +1,7 @@
 #!/bin/bash
 set -euo pipefail
+# Staging directories must be readable by the desktop user after root installs them.
+umask 022
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 [[ "$(uname -s)" == Linux ]] || { echo 'Build in the Ubuntu Docker image.' >&2; exit 2; }
 VERSION="${1:?Pass MAJOR.MINOR.PATCH}"
@@ -71,9 +73,13 @@ Description: Japanese input with azooKey Zenzai and tree candidates
 CONTROL
 python3 Tools/collect-licenses.py Core/.build/checkouts "$DEST/licenses"
 printf '%s\n' "version=$VERSION" "architecture=$ARCH" "source=${AZOOKEY_BUILD_COMMIT:-unknown}" > "$DEST/build-info.txt"
+# cp -a preserves a checkout's restrictive modes; these are public package assets.
+chmod a+rx "$STAGE"
+chmod -R a+rX "$STAGE/opt" "$STAGE/usr"
 OUTPUT="${AZOOKEY_OUTPUT_DIR:-build/dist}"
 mkdir -p "$OUTPUT"
 PACKAGE="$OUTPUT/azookey-tree_${VERSION}_${ARCH}.deb"
 dpkg-deb --root-owner-group --build "$STAGE" "$PACKAGE"
+python3 Tools/tests/check-linux-package.py "$PACKAGE"
 (cd "$(dirname "$PACKAGE")" && sha256sum "$(basename "$PACKAGE")") > "$PACKAGE.sha256"
 echo "Built $PACKAGE"
