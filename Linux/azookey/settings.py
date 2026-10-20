@@ -56,6 +56,10 @@ class SettingsWindow(Gtk.Window):
             self.widgets[key] = button
         self.combo(basic, "candidateTextSize", message("candidate.textSize"),
                    [("standard", message("candidate.textSize.standard")), ("large", message("candidate.textSize.large"))])
+        scores = Gtk.CheckButton(label=message("candidate.score.show"), active=self.values["showRelativeScores"])
+        basic.pack_start(scores, False, False, 0)
+        self.widgets["showRelativeScores"] = scores
+        basic.pack_start(Gtk.Label(label=message("candidate.score.explanation"), xalign=0, wrap=True), False, False, 0)
         self.combo(basic, "inputStyle", "入力配列", [("default", "ローマ字"), ("defaultAZIK", "AZIK"), ("defaultKanaJIS", "かな JIS"), ("defaultKanaUS", "かな US"), ("custom", "カスタム")])
         self.combo(basic, "learning", "学習", [("inputAndOutput", "入力と変換結果"), ("onlyOutput", "変換結果のみ"), ("nothing", "しない")])
         self.combo(basic, "punctuation", "句読点", [(1, "、。"), (2, "，。"), (3, "、．"), (4, "，．")])

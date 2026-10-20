@@ -7,5 +7,7 @@
   "candidate.textSize": "候補の文字サイズ",
   "candidate.textSize.standard": "標準",
   "candidate.textSize.large": "大きい",
-  "candidate.detailKeys": "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール"
+  "candidate.detailKeys": "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール",
+  "candidate.score.show": "相対スコアを表示",
+  "candidate.score.explanation": "同じ読み・消費範囲の取得候補を、同じ親から分かれる候補同士で比べた値です。非表示の候補も含みます。正解の確率ではありません。"
 }
