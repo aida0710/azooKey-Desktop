@@ -102,7 +102,8 @@ struct DesktopReadingCandidates {
         }
         guard !batch.workerGeneration.isEmpty, !batch.batchID.isEmpty,
               batch.candidates.allSatisfy({ !$0.candidateID.isEmpty && !$0.text.isEmpty }),
-              Set(batch.candidates.map(\.candidateID)).count == batch.candidates.count else {
+              Set(batch.candidates.map(\.candidateID)).count == batch.candidates.count,
+              batch.mainCandidateID.map({ mainID in batch.candidates.contains { $0.candidateID == mainID } }) ?? true else {
             throw Failure.invalidBatch
         }
         // Validate the complete list before replacing the previous accepted batch.

@@ -29,6 +29,7 @@ final class DesktopCandidateConversion: SegmentManagerDelegate {
     private let converter: KanaKanjiConverter
     private let segments: SegmentsManager
     private(set) var items: [StoredItem] = []
+    private(set) var mainCandidateID: String?
     private(set) var retained = false
 
     init(request: DesktopCandidateRequest, composition: CompositionState,
@@ -50,7 +51,29 @@ final class DesktopCandidateConversion: SegmentManagerDelegate {
                 items = segments.makeCandidatePresentations(candidates).compactMap {
                     try? StoredItem(presentation: $0, composition: composition)
                 }
+                mainCandidateID = Self.mainCandidateID(segments.mainCandidate, in: items)
             }
+        }
+    }
+
+    static func mainCandidateID(_ candidate: Candidate?, in items: [StoredItem]) -> String? {
+        guard let candidate else {
+            return nil
+        }
+        // Selection lists may omit a main result with the same text as a prefix.
+        // Another consumption or analysis must never stand in for that original candidate.
+        return items.first(where: { matchesOriginalCandidate($0.candidate, original: candidate) })?.item.candidateID
+    }
+
+    private static func matchesOriginalCandidate(_ stored: Candidate, original: Candidate) -> Bool {
+        guard stored == original, stored.text.utf8.elementsEqual(original.text.utf8) else {
+            return false
+        }
+        // Candidate equality accepts canonically equivalent strings. Keep the original
+        // token bytes as well, matching the tree's text/reading identity contract.
+        return zip(stored.data, original.data).allSatisfy { storedToken, originalToken in
+            storedToken.word.utf8.elementsEqual(originalToken.word.utf8)
+                && storedToken.ruby.utf8.elementsEqual(originalToken.ruby.utf8)
         }
     }
 

@@ -60,6 +60,7 @@ enum DesktopReadingProtocolValidation {
     static func batch(_ batch: DesktopCandidateBatch) throws {
         try reference(.init(authority: batch.authority, workerGeneration: batch.workerGeneration, batchID: batch.batchID))
         for candidate in batch.candidates { try identifier(candidate.candidateID) }
+        if let mainCandidateID = batch.mainCandidateID { try identifier(mainCandidateID) }
     }
 
     static func surroundings(_ surroundings: DesktopReadingSurroundings) throws {
