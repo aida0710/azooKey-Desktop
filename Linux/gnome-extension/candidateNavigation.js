@@ -5,6 +5,11 @@ import {messages} from './candidateMessages.js';
 import {createWrappingLabel} from './candidateText.js';
 import {attachCandidateAction} from './candidateAccessibility.js';
 
+// Reduce row whitespace while keeping a 44px target for single-line candidates.
+const ROW_VERTICAL_INSET = 5;
+const ROW_HORIZONTAL_INSET = 8;
+const MINIMUM_CONTENT_HEIGHT = 32;
+
 export class CandidateNavigation {
     constructor({select, changed, preview}) {
         this._select = select;
@@ -110,7 +115,7 @@ export class CandidateNavigation {
                 const row = new St.BoxLayout();
                 if (snapshot.showCandidateIndex) {
                     const number = new St.Label({text: String(offset + 1), y_align: Clutter.ActorAlign.START,
-                        style: `font-size: ${Math.max(12, fontSize - 4)}px; padding: 3px 12px 0 0;`});
+                        style: `font-size: ${Math.max(12, fontSize - 4)}px; padding: 3px 8px 0 0;`});
                     row.add_child(number);
                 }
                 const label = createWrappingLabel({text: item.text, x_expand: true,
@@ -153,7 +158,7 @@ export class CandidateNavigation {
             this._revealIdentity = revealIdentity;
             this._revealPending = true;
         }
-        this._hint.set_style(`font-size: ${Math.max(12, fontSize - 4)}px; padding: 4px 10px;`);
+        this._hint.set_style(`font-size: ${Math.max(12, fontSize - 4)}px; padding: 3px 8px;`);
         if (palette) this.applyPalette(palette);
         const height = Math.min(listHeight, this._rows.get_preferred_height(width)[1]);
         this._scroll.height = height;
@@ -215,7 +220,8 @@ export class CandidateNavigation {
             button.set_style(`background-color: ${background}; color: ${foreground};
                 background-gradient-direction: none; box-shadow: none;
                 border: 1px solid ${button.checked ? palette.text : palette.border}; border-radius: 8px;
-                padding: 8px 10px; min-height: 0; min-width: 0;`);
+                padding: ${ROW_VERTICAL_INSET}px ${ROW_HORIZONTAL_INSET}px;
+                min-height: ${MINIMUM_CONTENT_HEIGHT}px; min-width: 0;`);
         }
     }
 }
