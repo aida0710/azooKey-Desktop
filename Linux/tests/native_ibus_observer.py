@@ -8,6 +8,20 @@ import time
 
 MONITOR_START_SECONDS = 5
 MONITOR_POLL_SECONDS = .01
+NATIVE_CLIENT_PREFIXES = {"gtk4": "gtk4-im:", "qt": "QIBusInputContext"}
+
+
+def has_native_focus(directory, toolkit):
+    """Recognize the real client in this case's isolated IBus focus history."""
+    observed = (directory / "ibus-events.log").read_text()
+    changes = list(re.finditer(
+        r'^method call [^\n]*interface=org.freedesktop.IBus.Engine; member=Focus(InId|OutId)\n'
+        r'\s+string "([^"]+)"(?:\n\s+string "([^"]+)")?', observed, flags=re.M,
+    ))
+    if not changes:
+        return False
+    direction, _context, client = changes[-1].groups()
+    return direction == "InId" and client is not None and client.startswith(NATIVE_CLIENT_PREFIXES[toolkit])
 
 
 def assert_reply_between_delete_and_ack(directory, *, keyval, removed_text, sent_after):

@@ -7,7 +7,7 @@ import subprocess
 import time
 
 from azookey.reconversion_strings import message
-from native_ibus_observer import assert_reply_between_delete_and_ack, observe_ibus
+from native_ibus_observer import assert_reply_between_delete_and_ack, has_native_focus, observe_ibus
 from native_ibus_property import activate_focused_property
 from native_toolkit_support import (
     BACKSPACE, CONTROL, ESCAPE, F10, HENKAN, HOME, RETURN, RIGHT, SHIFT,
@@ -166,6 +166,9 @@ def run(toolkit, scenario, directory, *, activation):
             ready = wait_for(state, process, lambda value: len(value["heartbeats"]) >= 2)
             keyboard.focus(ready["window"])
             wait_for(state, process, lambda value: value["active"] and value["focused"])
+            # GTK can focus before its async IBus context exists. Its startup
+            # queue discards native FALSE replies, so wait before the first key.
+            wait_for(state, process, lambda _value: has_native_focus(directory, toolkit))
             # GTK Entry can select all initial text when it first gains focus.
             # Collapse that real selection before testing IME preedit.
             keyboard.key(RIGHT)
