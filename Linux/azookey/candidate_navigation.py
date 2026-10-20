@@ -16,7 +16,7 @@ class CandidateNavigation(Gtk.Box):
     # Composing Enter commits the marked reading, while this button explicitly selects a candidate.
     KEYBOARD_CONFIRM_STATES = frozenset(("selecting", "previewing", "replaceSuggestion"))
 
-    def __init__(self, select, changed, preview):
+    def __init__(self, select, changed, preview, *, keep_preview=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.set_no_show_all(True)
         self.get_style_context().add_class("candidate-navigation")
@@ -28,6 +28,7 @@ class CandidateNavigation(Gtk.Box):
         self.select = select
         self.changed = changed
         self.preview = preview
+        self.keep_preview = keep_preview
         self.expanded = True
         self.active = False
         self.expanded_on_update = None
@@ -208,8 +209,13 @@ class CandidateNavigation(Gtk.Box):
         button.add(content)
         button.set_tooltip_text(item.get("detailDescription", item["text"]))
         button.connect("enter-notify-event", lambda source, _event: self.preview_current(item, source))
-        button.connect("leave-notify-event", lambda source, _event: self.clear_preview(source))
+        button.connect("leave-notify-event", self.leave_candidate)
         return button
+
+    def leave_candidate(self, source, event):
+        if self.keep_preview and self.keep_preview(source, event):
+            return False
+        return self.clear_preview(source)
 
     def toggle_list(self):
         self.expanded = not self.expanded

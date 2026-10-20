@@ -5,12 +5,33 @@ import sys
 import tempfile
 import time
 import unittest
+from copy import deepcopy
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from Linux.tests.test_word_definitions import dictionary
 from azookey.word_definition_provider import WordDefinitionProvider, WORDNET_URL
 from azookey.word_definition_lookup import WordDefinitionWorker
+from azookey.word_definition_layout import word_definition_columns, pointer_in_definition_corridor
+
+
+class WordDefinitionColumnLayoutTests(unittest.TestCase):
+    def test_narrow_width_keeps_two_readable_columns_instead_of_stacking_or_shrinking_text(self):
+        for font_size in (18, 24, 48):
+            wide = word_definition_columns(candidate_width=420, font_size=font_size, available_width=960)
+            narrow = word_definition_columns(candidate_width=420, font_size=font_size, available_width=320)
+            self.assertLessEqual(wide.width, 960)
+            self.assertGreaterEqual(narrow.candidate_width, 360)
+            self.assertGreaterEqual(narrow.definition_width, 280)
+            self.assertGreater(narrow.width, 320)
+            self.assertEqual(narrow.gap, 10)
+
+    def test_pointer_can_cross_the_gap_and_read_the_entry_but_not_leave_into_other_regions(self):
+        rectangles = {"row": (100, 200, 300, 44), "definition": (420, 160, 320, 300)}
+        for pointer in ((400, 220), (410, 220), (430, 180), (700, 430)):
+            self.assertTrue(pointer_in_definition_corridor(pointer=pointer, **rectangles))
+        for pointer in ((250, 246), (410, 100), (740, 220), (410, 470)):
+            self.assertFalse(pointer_in_definition_corridor(pointer=pointer, **rectangles))
 
 
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires isolated GTK display")
@@ -64,6 +85,28 @@ class WordDefinitionGtkTests(unittest.TestCase):
         while context.pending():
             context.iteration(False)
 
+    def paint(self):
+        from Linux.tests.test_candidate_theme import CandidateThemeTests
+        CandidateThemeTests.wait_for_paint(self.panel, self.GLib)
+        # A style update can schedule a measured relayout after this frame.
+        self.flush()
+        CandidateThemeTests.wait_for_paint(self.panel, self.GLib)
+
+    def assert_widget_inside_popup(self, widget):
+        x, y, width, height = self.panel.screen_rectangle(widget)
+        popup_x, popup_y = self.panel.get_position()
+        popup_width, popup_height = self.panel.get_size()
+        self.assertGreaterEqual(x, popup_x)
+        self.assertGreaterEqual(y, popup_y)
+        self.assertLessEqual(x + width, popup_x + popup_width)
+        self.assertLessEqual(y + height, popup_y + popup_height)
+
+    def reveal_widget(self, widget):
+        x, y = widget.translate_coordinates(self.panel.card, 0, 0)
+        self.panel.viewport.get_hadjustment().clamp_page(x, x + widget.get_allocated_width())
+        self.panel.viewport.get_vadjustment().clamp_page(y, y + widget.get_allocated_height())
+        self.paint()
+
     def wait_found(self):
         deadline = time.monotonic() + 4
         while self.panel.definition_lookup.result.get("status") == "loading":
@@ -100,7 +143,7 @@ class WordDefinitionGtkTests(unittest.TestCase):
         CandidateThemeTests.wait_for_paint(self.panel, self.GLib)
         toggle = self.panel.definitions.toggle
         self.assertTrue(toggle.get_mapped())
-        self.assertIn("意味・用例", toggle.get_label())
+        self.assertIn("全文を表示", toggle.get_label())
         self.assertGreaterEqual(toggle.get_allocated_height(), 44)
         self.assertEqual(self.panel.definitions.source.get_label(), "WordNet 1.1")
         self.assertEqual(self.panel.definitions.source.get_accessible().get_name(), "日本語ワードネット 1.1")
@@ -134,7 +177,7 @@ class WordDefinitionGtkTests(unittest.TestCase):
         self.panel.definitions.toggle_details(old_toggle); self.flush()
         self.assertFalse(self.panel.definitions.expanded)
         self.assertTrue(old_source_action())
-        self.assertIn("保障", self.panel.definitions.summary.displayed_text)
+        self.assertIn("保障", self.panel.definitions.word_heading.get_text())
         self.assertEqual(self.commits, [])
 
     def test_source_link_only_opens_after_the_current_visible_explicit_action(self):
@@ -157,7 +200,8 @@ class WordDefinitionGtkTests(unittest.TestCase):
         from Linux.tests.test_candidate_theme import CandidateThemeTests
         with sqlite3.connect(self.path) as connection:
             connection.executemany("INSERT INTO synset_ex VALUES('assurance','jpn',?,?)",
-                                   [("長い用例を読んでいる位置を保つ。" * 10, index) for index in range(2, 30)])
+                                   [(f"{index}. " + "長い用例を読んでいる位置を保つ。" * 10, index)
+                                    for index in range(2, 30)])
         self.panel.update(self.snapshot); self.wait_found()
         old_toggle = self.panel.definitions.toggle
         old_source_action = self.panel.definitions.source.do_activate_link
@@ -165,6 +209,7 @@ class WordDefinitionGtkTests(unittest.TestCase):
         self.assertTrue(self.panel.definitions.expanded)
         CandidateThemeTests.wait_for_paint(self.panel, self.GLib)
         scroll = self.panel.definitions.details.get_vadjustment()
+        self.assertGreater(scroll.get_upper(), scroll.get_page_size())
         scroll.set_value(30)
         reading_position = scroll.get_value()
         self.assertGreater(reading_position, 0)
@@ -193,6 +238,161 @@ class WordDefinitionGtkTests(unittest.TestCase):
         self.assertGreaterEqual(popup[1], area.y)
         self.assertLessEqual(popup[0] + popup[2], area.x + area.width)
         self.assertLessEqual(popup[1] + popup[3], area.y + area.height)
+        self.assertEqual(self.commits, [])
+
+    def test_dictionary_is_right_of_the_candidate_list_at_both_text_sizes_and_both_detail_states(self):
+        area = self.panel.work_area()
+        self.panel.location = (area.x + area.width - 24, area.y + 40, 1, 24)
+        for size in ("standard", "large"):
+            self.panel.update({**self.snapshot, "candidateTextSize": size}); self.wait_found()
+            for expanded in (False, True):
+                with self.subTest(size=size, expanded=expanded):
+                    if self.panel.definitions.expanded != expanded:
+                        self.panel.definitions.toggle.clicked()
+                    self.paint()
+                    left = self.panel.screen_rectangle(self.panel.navigation)
+                    right = self.panel.screen_rectangle(self.panel.definition_column)
+                    self.assertGreaterEqual(right[0], left[0] + left[2])
+                    self.assertLessEqual(abs(right[1] - left[1]), 1)
+                    self.assert_widget_inside_popup(self.panel.definitions.header)
+                    x, y = self.panel.get_position()
+                    width, height = self.panel.get_size()
+                    self.assertGreaterEqual(x, area.x)
+                    self.assertGreaterEqual(y, area.y)
+                    self.assertLessEqual(x + width, area.x + area.width)
+                    self.assertLessEqual(y + height, area.y + area.height)
+                    for control in (self.panel.navigation.confirm, self.panel.definitions.toggle,
+                                    self.panel.definitions.source):
+                        self.assertGreaterEqual(control.get_allocated_height(), 44)
+                        self.assertFalse(control.get_can_focus())
+                    self.assertIs(self.document.get_focus(), self.entry)
+                    self.assertEqual(self.commits, [])
+
+    def test_long_word_heading_does_not_push_the_wrapped_meaning_out_of_the_summary(self):
+        import sqlite3
+        word = "保証という非常に長い語名" * 20
+        with sqlite3.connect(self.path) as connection:
+            connection.execute("UPDATE word SET lemma=? WHERE lemma='保証'", (word,))
+            connection.execute("UPDATE synset_def SET def=? WHERE synset='assurance' AND lang='jpn'",
+                               ("義務が果たされるという保証。詳しい語釈を読みやすく折り返す。" * 5,))
+        snapshot = deepcopy(self.snapshot)
+        snapshot["nodes"][0]["text"] = word
+        snapshot["candidates"][0]["text"] = word
+        snapshot["candidatePage"]["items"][0]["text"] = word
+        self.panel.update({**snapshot, "candidateTextSize": "large"}); self.wait_found(); self.paint()
+        heading = self.panel.definitions.word_heading
+        summary = self.panel.definitions.summary
+        self.assertEqual(heading.get_layout().get_line_count(), 1)
+        self.assertTrue(heading.get_layout().is_ellipsized())
+        self.assertIn("義務が果たされるという保証", summary.displayed_text)
+        self.assertGreater(summary.label.get_layout().get_line_count(), 1)
+        layout = summary.label.create_pango_layout("あ")
+        layout.set_attributes(heading.get_attributes())
+        self.assertGreaterEqual(summary.get_allocated_height(), layout.get_pixel_size()[1] * 2)
+        self.assertGreaterEqual(self.panel.font_size, 24)
+        self.assertEqual(self.commits, [])
+
+    def test_system_text_scaling_keeps_header_controls_inside_the_right_column_and_confirm_visible(self):
+        from gi.repository import Pango
+        settings = self.panel.get_settings()
+        previous_dpi = settings.get_property("gtk-xft-dpi")
+        try:
+            for size in ("standard", "large"):
+                for scale in (1, 2):
+                    with self.subTest(size=size, scale=scale):
+                        settings.set_property("gtk-xft-dpi", round(96 * Pango.SCALE * scale))
+                        self.panel.update({**self.snapshot, "candidateTextSize": size}); self.wait_found(); self.paint()
+                        right = self.panel.screen_rectangle(self.panel.definition_column)
+                        for control in (self.panel.definitions.toggle, self.panel.definitions.source):
+                            x, y, width, height = self.panel.screen_rectangle(control)
+                            self.assertGreaterEqual(x, right[0])
+                            self.assertLessEqual(x + width, right[0] + right[2])
+                            self.assertGreaterEqual(height, 44)
+                            self.assertFalse(control.get_can_focus())
+                        self.assert_widget_inside_popup(self.panel.navigation.confirm)
+                        self.assertIs(self.document.get_focus(), self.entry)
+                        self.assertEqual(self.commits, [])
+        finally:
+            settings.set_property("gtk-xft-dpi", previous_dpi)
+
+    def test_narrow_viewport_scrolls_to_each_column_and_keeps_confirm_and_source_reachable(self):
+        from gi.repository import Gdk
+        area = self.panel.work_area()
+        narrow = Gdk.Rectangle()
+        narrow.x, narrow.y, narrow.width, narrow.height = area.x, area.y, 320, min(400, area.height)
+        self.panel.location = (area.x + 100, area.y + 20, 1, 24)
+        with patch.object(self.panel, "work_area", return_value=narrow):
+            for size in ("standard", "large"):
+                self.panel.update({**self.snapshot, "candidateTextSize": size}); self.wait_found()
+                if not self.panel.definitions.expanded:
+                    self.panel.definitions.toggle.clicked()
+                self.paint()
+                horizontal = self.panel.viewport.get_hadjustment()
+                self.assertGreater(horizontal.get_upper(), horizontal.get_page_size())
+                self.assertGreaterEqual(self.panel.candidate_width, 360)
+                self.assertGreaterEqual(self.panel.definition_width, 280)
+                horizontal.set_value(horizontal.get_upper() - horizontal.get_page_size()); self.paint()
+                self.assert_widget_inside_popup(self.panel.definitions.source)
+                self.reveal_widget(self.panel.navigation.confirm)
+                self.assert_widget_inside_popup(self.panel.navigation.confirm)
+                x, y = self.panel.get_position()
+                width, height = self.panel.get_size()
+                self.assertGreaterEqual(x, narrow.x)
+                self.assertGreaterEqual(y, narrow.y)
+                self.assertLessEqual(x + width, narrow.x + narrow.width)
+                self.assertLessEqual(y + height, narrow.y + narrow.height)
+                self.assertIs(self.document.get_focus(), self.entry)
+            self.panel.navigation.confirm.clicked()
+            self.panel.navigation.confirm.clicked()
+            self.assertEqual(self.commits, [("select", 0, True)])
+
+    def enter_definition_from_alternative(self):
+        from gi.repository import Gdk
+        self.panel.update(self.snapshot); self.wait_found(); self.paint()
+        row = self.panel.navigation.row_buttons[1]
+        row.emit("enter-notify-event", Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY))
+        self.wait_found(); self.paint()
+        x, y, width, height = self.panel.screen_rectangle(row)
+        right = self.panel.screen_rectangle(self.panel.definition_column)
+        event = Gdk.Event.new(Gdk.EventType.LEAVE_NOTIFY)
+        event.x_root = (x + width + right[0]) / 2
+        event.y_root = y + height / 2
+        row.emit("leave-notify-event", event)
+        self.assertTrue(self.panel.definition_pointer_active)
+        return right
+
+    def test_pointer_crossing_the_real_gap_and_reading_the_right_column_preserves_the_word_until_exit(self):
+        from gi.repository import Gdk
+        right = self.enter_definition_from_alternative()
+        motion = Gdk.Event.new(Gdk.EventType.MOTION_NOTIFY)
+        motion.x_root, motion.y_root = right[0] + 20, right[1] + 20
+        self.panel.definition_column.emit("motion-notify-event", motion)
+        self.wait_found()
+        self.assertEqual(self.panel.definition_lookup.result["word"], "保障")
+        self.assertEqual(self.panel.snapshot["selection"], 0)
+        left = Gdk.Event.new(Gdk.EventType.LEAVE_NOTIFY)
+        popup_x, popup_y = self.panel.get_position()
+        popup_width, _ = self.panel.get_size()
+        left.x_root, left.y_root = popup_x + popup_width + 1, popup_y + 20
+        self.panel.emit("leave-notify-event", left)
+        self.wait_found()
+        self.assertEqual(self.panel.definition_lookup.result["word"], "保証")
+        self.assertFalse(self.panel.definition_pointer_active)
+        self.assertIs(self.document.get_focus(), self.entry)
+        self.assertEqual(self.commits, [])
+
+    def test_retained_dictionary_preview_is_retired_by_generation_word_context_changes_and_suspend(self):
+        for update in ({"generation": 2}, {"focusedNode": 2, "selectedPath": [2]}, {"contextId": "other"}):
+            with self.subTest(update=update):
+                self.enter_definition_from_alternative()
+                self.panel.update({**self.snapshot, **update}); self.wait_found()
+                self.assertFalse(self.panel.definition_pointer_active)
+                self.assertIsNone(self.panel.navigation.hovered_item)
+        self.enter_definition_from_alternative()
+        self.panel.suspend(); self.flush()
+        self.assertFalse(self.panel.definition_pointer_active)
+        self.assertIsNone(self.panel.navigation.hovered_item)
+        self.assertFalse(self.panel.get_visible())
         self.assertEqual(self.commits, [])
 
     @unittest.skipUnless(os.environ.get("AZOOKEY_WORDNET_TEST_DB"), "requires fixed official WordNet")

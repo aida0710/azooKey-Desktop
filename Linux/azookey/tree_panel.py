@@ -11,7 +11,8 @@ from .candidate_announcements import CandidateAnnouncements
 from .candidate_detail import CandidateDetail
 from .word_definition_target import word_definition_target
 from .word_definition_lookup import WordDefinitionLookup, word_definition_worker
-from .word_definition_view import WordDefinitionView, SUMMARY_MAXIMUM_HEIGHT
+from .word_definition_view import WordDefinitionView
+from .word_definition_layout import word_definition_columns, pointer_in_definition_corridor, pointer_in_rectangle
 from .candidate_navigation import CandidateNavigation
 from .candidate_placement import COLUMN_START_INSET, popup_placement
 from .ibus_coordinates import logical_cursor_rectangle
@@ -82,7 +83,8 @@ class TreePanel(Gtk.Window):
         self.remaining.get_accessible().set_name(message("candidate.announceRemaining", reading="").strip())
         self.remaining.set_no_show_all(True)
         self.content.pack_start(self.remaining, False, False, 0)
-        self.navigation = CandidateNavigation(select, lambda: self.update(self.snapshot), self.show_candidate_details)
+        self.navigation = CandidateNavigation(select, lambda: self.update(self.snapshot), self.show_candidate_details,
+                                              keep_preview=self.keep_definition_preview)
         self.content.pack_start(self.navigation, False, False, 0)
         self.disclosures = Gtk.Box(spacing=6, margin_start=8, margin_end=8)
         self.disclosures.set_no_show_all(True)
@@ -91,23 +93,46 @@ class TreePanel(Gtk.Window):
         self.details = CandidateDetail()
         self.details.set_no_show_all(True)
         self.content.pack_start(self.details, False, False, 0)
+        # A taller entry may scroll the whole card. Keep confirmation at the
+        # bottom of the left column so that it remains reachable at that end.
+        self.navigation.remove(self.navigation.footer)
+        self.navigation.footer.get_style_context().add_class("candidate-navigation")
+        self.content.pack_end(self.navigation.footer, False, False, 0)
         self.definitions = WordDefinitionView(lambda: self.update(self.snapshot))
-        # A short screen may scroll the whole menu: keep explicit confirmation
-        # after the dictionary, so reading an entry cannot leave it above the viewport.
-        self.navigation.pack_start(self.definitions, False, False, 0)
-        self.navigation.reorder_child(self.definitions, 2)
+        self.definition_column = Gtk.EventBox(visible_window=False)
+        self.definition_column.set_can_focus(False)
+        self.definition_column.set_no_show_all(True)
+        self.definition_column.set_margin_bottom(8)
+        self.definition_column.add(self.definitions)
+        self.definition_column.get_style_context().add_class("candidate-content")
+        self.card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.card.pack_start(self.content, False, False, 0)
+        self.card.pack_start(self.definition_column, False, False, 0)
+        self.candidate_width = MINIMUM_POPUP_WIDTH
+        self.definition_width = 0
+        self.popup_content_width = MINIMUM_POPUP_WIDTH
+        self.definition_pointer_active = False
+        self.definition_pointer_token = None
         self.definition_lookup = WordDefinitionLookup(word_definition_worker(), self.definition_changed)
         self.definition_layout_idle = None
+        self.definition_relayout_required = False
+        self.candidate_metrics = None
+        for widget in (self.navigation.header, self.navigation.footer, self.definitions.header):
+            widget.connect("style-updated", self.candidate_metrics_changed)
         self.connect("destroy", self.destroy_definitions)
         # If a very short work area cannot hold the fixed controls, the entire
         # popup remains scrollable instead of covering the document caret.
         self.viewport = Gtk.ScrolledWindow()
         self.viewport.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         self.viewport.set_can_focus(False)
-        self.viewport.set_propagate_natural_width(True)
-        self.viewport.set_propagate_natural_height(True)
-        self.viewport.add(self.content)
+        self.viewport.set_propagate_natural_width(False)
+        self.viewport.set_propagate_natural_height(False)
+        self.viewport.add(self.card)
         self.add(self.viewport)
+        for widget in (self, self.definition_column):
+            widget.add_events(Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
+            widget.connect("motion-notify-event", self.definition_pointer_moved)
+            widget.connect("leave-notify-event", self.definition_pointer_moved)
         self.canvas = Gtk.DrawingArea()
         self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.canvas.connect("draw", self.draw)
@@ -157,6 +182,7 @@ class TreePanel(Gtk.Window):
     def suspend(self):
         """Hide pending conversion while retaining the user's list and page state."""
         self.cancel_scroll()
+        self.definition_pointer_active = False
         self.definition_lookup.invalidate()
         self.definitions.replace_actions()
         self.clear_actions()
@@ -175,6 +201,10 @@ class TreePanel(Gtk.Window):
         self.dismiss()
 
     def reset_presentation(self):
+        self.definition_pointer_active = False
+        self.definition_pointer_token = None
+        self.candidate_metrics = None
+        self.definition_relayout_required = False
         self.definition_lookup.invalidate()
         self.definitions.reset()
         self.cancel_scroll()
@@ -222,6 +252,12 @@ class TreePanel(Gtk.Window):
     def update(self, snapshot):
         # The engine uses this renderer only when tree display is enabled.
         mode = "live" if snapshot.get("inputState") == "composing" else "menu"
+        pointer_token = (snapshot.get("contextId"), snapshot.get("generation"), snapshot.get("selection"),
+                         snapshot.get("focusedNode"), mode)
+        if self.definition_pointer_active and pointer_token != self.definition_pointer_token:
+            self.definition_pointer_active = False
+            self.navigation.clear_preview()
+        self.definition_pointer_token = pointer_token
         identity = json.dumps([
             snapshot.get("contextId"), snapshot.get("reading"), snapshot.get("candidates", []),
             [{key: value for key, value in node.items() if key not in ("relativeScore", "scorePresentation", "preview", "previewDescription")}
@@ -230,6 +266,7 @@ class TreePanel(Gtk.Window):
         if identity != self.candidate_identity or mode != self.presentation_mode:
             self.clear_actions()
             self.navigation.clear_preview()
+            self.definition_pointer_active = False
             self.navigation.dismiss(expanded_on_update=mode != "live")
             self.tree_expanded = mode == "live"
             self.details_expanded = False
@@ -306,13 +343,23 @@ class TreePanel(Gtk.Window):
         live = mode == "live"
         minimum_popup_width = MINIMUM_LIVE_WIDTH if live and not self.navigation.expanded else MINIMUM_POPUP_WIDTH
         aligned_x = self.column_anchor_x - COLUMN_START_INSET
-        if aligned and (aligned_x < area.x or aligned_x + max(minimum_popup_width, width) > area.x + area.width):
+        candidate_width = int(min(max(minimum_popup_width, width),
+                                  760 if not aligned else max(minimum_popup_width, width), area.width) + 0.5)
+        columns_layout = (word_definition_columns(candidate_width=candidate_width, font_size=self.font_size,
+                                                  available_width=area.width) if not live else None)
+        self.candidate_width = columns_layout.candidate_width if columns_layout else candidate_width
+        self.definition_width = columns_layout.definition_width if columns_layout else 0
+        self.popup_content_width = columns_layout.width if columns_layout else candidate_width
+        if aligned and (aligned_x < area.x or aligned_x + self.popup_content_width > area.x + area.width
+                        or width > self.candidate_width):
             # Clamping or scrolling would invalidate the document coordinates.
             # Use the ordinary compact popup when the span cannot fit onscreen.
             self.update({**snapshot, "wordGeometry": None, "layoutReason": "outside-workarea"})
             return
-        # Keep a useful detail line below even for a one-character candidate.
-        popup_width = int(min(max(minimum_popup_width, width), 760 if not aligned else max(minimum_popup_width, width), area.width) + 0.5)
+        popup_width = min(area.width, self.popup_content_width)
+        self.content.set_size_request(self.candidate_width, -1)
+        self.definition_column.set_size_request(self.definition_width, -1)
+        self.card.set_spacing(columns_layout.gap if columns_layout else 0)
         list_height = min(CandidateNavigation.MAXIMUM_LIST_HEIGHT, area.height // 3)
         self.navigation.update(snapshot, font_size=self.font_size, list_height=list_height, compact=live)
         show_menu = not live or self.navigation.expanded
@@ -320,9 +367,9 @@ class TreePanel(Gtk.Window):
         self.composition.set_visible(show_menu)
         self.disclosures.set_visible(show_menu)
         self.content.reorder_child(self.scroll, 5 if show_menu else 0)
-        self.update_composition(popup_width)
+        self.update_composition(self.candidate_width)
         self.update_disclosures()
-        self.scroll.set_min_content_width(popup_width)
+        self.scroll.set_min_content_width(self.candidate_width)
         if self.tree_expanded:
             self.update_actions()
             self.surface.show_all()
@@ -330,11 +377,14 @@ class TreePanel(Gtk.Window):
         self.refresh_details()
         self.details.get_child().show_all()
         self.viewport.show_all()
+        self.navigation.footer.set_visible(self.navigation.get_visible())
         self.scroll.set_visible(self.tree_expanded)
         self.details.set_visible(self.details_expanded)
-        self.update_definition_view(width=popup_width, active=not live)
+        self.update_definition_view(width=self.definition_width, active=not live)
+        self.definition_column.set_visible(not live)
         self.fit_content_height(width=popup_width, available_height=area.height)
-        requested_height = self.content.get_preferred_height_for_width(popup_width)[1]
+        requested_height = (self.card.get_preferred_height_for_width(self.popup_content_width)[1]
+                            + self.horizontal_scrollbar_height(popup_width))
         placement = popup_placement(
             cursor=self.current_caret, work_area=(area.x, area.y, area.width, area.height),
             popup_size=(popup_width, requested_height), preferred_side=self.placement_side,
@@ -369,6 +419,7 @@ class TreePanel(Gtk.Window):
                         break
                 return GLib.SOURCE_REMOVE
             self.scroll_idle = GLib.idle_add(reveal)
+        self.candidate_metrics = self.measure_candidate_metrics()
 
     def update_composition(self, width):
         title_key = ("candidate.composition" if self.navigation.keyboard_confirms_candidate else "candidate.proposal")
@@ -390,24 +441,33 @@ class TreePanel(Gtk.Window):
         self.remaining.set_visible(bool(remaining))
 
     def fit_content_height(self, *, width, available_height):
+        available_height -= self.horizontal_scrollbar_height(width)
+        self.fit_candidate_height(width=self.candidate_width, available_height=available_height)
+        if self.definition_column.get_visible():
+            offset = self.content.get_margin_top()
+            for child in self.content.get_children():
+                if child is self.navigation:
+                    break
+                if child.get_visible():
+                    offset += child.get_preferred_height_for_width(self.candidate_width)[1] + self.content.get_spacing()
+            self.definition_column.set_margin_top(offset)
+            self.definitions.fit_height(width=self.definition_width,
+                                        available_height=available_height - offset - self.definition_column.get_margin_bottom())
+
+    def fit_candidate_height(self, *, width, available_height):
         # Share the remaining work area between scrollable content. Long full
         # sentences and remaining readings never increase the popup offscreen.
-        controls = (self.composition_title, self.navigation.header, self.navigation.footer, self.disclosures, self.definitions.header)
+        controls = (self.composition_title, self.navigation.header, self.navigation.footer, self.disclosures)
         control_height = sum(widget.get_preferred_height_for_width(width)[1] for widget in controls if widget.get_visible())
         visible_children = sum(child.get_visible() for child in self.content.get_children())
         control_height += self.content.get_margin_top() + self.content.get_margin_bottom()
         control_height += max(0, visible_children - 1) * self.content.get_spacing()
         navigation_children = sum(child.get_visible() for child in self.navigation.get_children())
         control_height += max(0, navigation_children - 1) * self.navigation.get_spacing()
-        if self.definitions.get_visible():
-            definition_children = sum(child.get_visible() for child in self.definitions.get_children())
-            control_height += max(0, definition_children - 1) * self.definitions.get_spacing()
         panes = [(self.composition, 1, COMPOSITION_MAXIMUM_HEIGHT), (self.remaining, 1, REMAINING_MAXIMUM_HEIGHT),
                  (self.navigation.scroll, PRIMARY_LIST_HEIGHT_SHARE, CandidateNavigation.MAXIMUM_LIST_HEIGHT),
                  (self.scroll, SUPPLEMENT_HEIGHT_SHARE, TREE_MAXIMUM_HEIGHT),
-                 (self.details, SUPPLEMENT_HEIGHT_SHARE, CandidateDetail.MAXIMUM_HEIGHT),
-                 (self.definitions.summary, 1, SUMMARY_MAXIMUM_HEIGHT),
-                 (self.definitions.details, SUPPLEMENT_HEIGHT_SHARE, CandidateDetail.MAXIMUM_HEIGHT)]
+                 (self.details, SUPPLEMENT_HEIGHT_SHARE, CandidateDetail.MAXIMUM_HEIGHT)]
         panes = [pane for pane in panes if pane[0].get_visible()]
         weight = sum(pane[1] for pane in panes)
         available = max(weight, available_height - control_height)
@@ -419,7 +479,7 @@ class TreePanel(Gtk.Window):
             pane.set_min_content_height(min(limit, natural_height))
         # GTK scrollbars have their own minimum sizes, separate from content.
         # Reduce supplementary panes first if those minima exceed the budget.
-        for pane in (self.scroll, self.details, self.definitions.details, self.definitions.summary, self.navigation.scroll, self.composition, self.remaining):
+        for pane in (self.scroll, self.details, self.navigation.scroll, self.composition, self.remaining):
             overflow = self.content.get_preferred_height_for_width(width)[0] - available_height
             if overflow <= 0:
                 break
@@ -514,6 +574,36 @@ class TreePanel(Gtk.Window):
             self.refresh_details()
         return False
 
+    def screen_rectangle(self, widget):
+        offset = widget.translate_coordinates(self, 0, 0)
+        if offset is None:
+            return (0, 0, 0, 0)
+        x, y = self.get_position()
+        return (x + offset[0], y + offset[1], widget.get_allocated_width(), widget.get_allocated_height())
+
+    def keep_definition_preview(self, source, event):
+        if (self.presentation_mode != "menu" or not self.definition_column.get_mapped()
+                or source is not self.navigation.hovered_button or source not in self.navigation.row_buttons):
+            return False
+        pointer = (event.x_root, event.y_root)
+        inside = (pointer_in_rectangle(pointer, self.screen_rectangle(self.viewport))
+                  and pointer_in_definition_corridor(pointer=pointer, row=self.screen_rectangle(source),
+                                                    definition=self.screen_rectangle(self.definition_column)))
+        self.definition_pointer_active = inside
+        return inside
+
+    def definition_pointer_moved(self, _widget, event):
+        if not self.definition_pointer_active:
+            return False
+        source = self.navigation.hovered_button
+        pointer = (event.x_root, event.y_root)
+        if source in self.navigation.row_buttons and pointer_in_rectangle(pointer, self.screen_rectangle(source)):
+            self.definition_pointer_active = False
+        elif source not in self.navigation.row_buttons or not self.keep_definition_preview(source, event):
+            self.definition_pointer_active = False
+            self.navigation.clear_preview()
+        return False
+
     def refresh_details(self):
         if self.navigation.expanded and self.navigation.hovered_item:
             return self.show_candidate_details(self.navigation.hovered_item)
@@ -540,6 +630,7 @@ class TreePanel(Gtk.Window):
 
     def show_candidate_details(self, item):
         if item is None:
+            self.definition_pointer_active = False
             return self.refresh_details()
         self.request_definition(candidate_index=item.get("index"))
         content = item.get("detailDescription", item["text"])
@@ -556,11 +647,30 @@ class TreePanel(Gtk.Window):
                                 font_size=self.font_size, width=width, target_identity=self.definition_lookup.target)
 
     def definition_changed(self, _response):
+        self.definition_relayout_required = True
+        self.queue_definition_layout()
+
+    def measure_candidate_metrics(self):
+        return (self.candidate_identity, self.presentation_mode, self.candidate_width, self.definition_width,
+                self.get_settings().get_property("gtk-xft-dpi"),
+                tuple(self.content.get_preferred_height_for_width(self.candidate_width)),
+                tuple(self.definitions.get_preferred_height_for_width(max(1, self.definition_width))))
+
+    def candidate_metrics_changed(self, *_args):
+        if self.get_visible() and self.presentation_mode == "menu":
+            self.queue_definition_layout()
+
+    def queue_definition_layout(self):
         if self.definition_layout_idle is not None:
             return
         def layout():
             self.definition_layout_idle = None
-            if self.get_visible() and self.presentation_mode == "menu":
+            changed = self.definition_relayout_required or self.measure_candidate_metrics() != self.candidate_metrics
+            self.definition_relayout_required = False
+            # Native styles can finish changing after update() measured them.
+            # Self-generated style notifications with identical dimensions do
+            # not create a second rendering loop.
+            if self.get_visible() and self.presentation_mode == "menu" and changed:
                 self.update(self.snapshot)
             return GLib.SOURCE_REMOVE
         self.definition_layout_idle = GLib.idle_add(layout)
@@ -611,14 +721,19 @@ class TreePanel(Gtk.Window):
         monitor = self.get_display().get_monitor_at_point(*self.current_caret[:2])
         return monitor.get_workarea() if monitor else self.get_screen().get_monitor_workarea(0)
 
+    def horizontal_scrollbar_height(self, width):
+        if self.popup_content_width <= width:
+            return 0
+        return self.viewport.get_hscrollbar().get_preferred_height()[1]
+
     def limit_viewport(self, *, width, height):
+        # Size the entire viewport, not just its content. GTK then reserves its
+        # real theme scrollbar sizes inside the work-area rectangle.
         self.viewport.set_min_content_width(0)
         self.viewport.set_max_content_width(width)
-        self.viewport.set_min_content_width(width)
         self.viewport.set_min_content_height(0)
         self.viewport.set_max_content_height(height)
-        natural_height = self.content.get_preferred_height_for_width(width)[1]
-        self.viewport.set_min_content_height(min(height, natural_height))
+        self.viewport.set_size_request(width, height)
 
     def position(self):
         area = self.work_area()
