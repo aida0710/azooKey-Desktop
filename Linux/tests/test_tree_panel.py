@@ -116,6 +116,63 @@ class TreePanelTests(unittest.TestCase):
                 else:
                     os.environ["AZOOKEY_DATA_DIR"] = previous
 
+    def test_composing_enter_commits_reading_while_candidate_button_explicitly_commits_the_preview(self):
+        from azookey.bridge import Bridge
+        from azookey.keymap import translate
+        from azookey.tree_panel import TreePanel
+
+        previous = os.environ.get("AZOOKEY_DATA_DIR")
+        with tempfile.TemporaryDirectory() as directory:
+            os.environ["AZOOKEY_DATA_DIR"] = directory
+            bridge = Bridge()
+            panel = None
+            original_settings = bridge.request("settings")["settings"]
+            commits = []
+            try:
+                # Compare two confirmation paths without the first commit changing the second candidate's rank.
+                bridge.request("configure", settings={**original_settings, "tree": True, "live": False, "learning": "nothing"})
+
+                def type_reading():
+                    bridge.request("reset", submit=False)
+                    for character in "nihongo":
+                        snapshot = bridge.request("key", event=translate(ord(character), 0))
+                    self.assertEqual(snapshot["inputState"], "composing")
+                    self.assertEqual(snapshot["preedit"], "にほんご")
+                    return snapshot
+
+                snapshot = type_reading()
+                selected_candidate = next(candidate["text"] for candidate in snapshot["candidates"]
+                                          if candidate["index"] == snapshot["selection"])
+                entered = bridge.request("key", event=translate(0xFF0D, 0))
+                self.assertEqual(entered["commits"], ["にほんご"])
+                snapshot = type_reading()
+                self.assertEqual(next(candidate["text"] for candidate in snapshot["candidates"]
+                                      if candidate["index"] == snapshot["selection"]), selected_candidate)
+
+                def choose(operation, index, submit):
+                    nonlocal snapshot
+                    snapshot = bridge.request(operation, index=index, generation=snapshot["generation"], submit=submit)
+                    commits.extend(snapshot["commits"])
+                    panel.update(snapshot)
+
+                panel = TreePanel(choose)
+                panel.update(snapshot)
+                self.assertEqual(panel.composition_title.get_text(), "候補のプレビュー")
+                self.assertEqual(panel.composition.displayed_text, selected_candidate)
+                self.assertEqual(panel.navigation.confirm.get_label(), "この候補を確定")
+                panel.navigation.confirm.clicked()
+                self.assertEqual(commits, [selected_candidate])
+                self.assertEqual(snapshot["preedit"], "")
+            finally:
+                if panel:
+                    panel.destroy()
+                bridge.request("configure", settings=original_settings)
+                bridge.close()
+                if previous is None:
+                    os.environ.pop("AZOOKEY_DATA_DIR", None)
+                else:
+                    os.environ["AZOOKEY_DATA_DIR"] = previous
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -58,10 +58,10 @@ class TreePanel(Gtk.Window):
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         self.scroll.set_no_show_all(True)
-        self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12)
+        self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=8, margin_bottom=8)
         self.content.get_style_context().add_class("candidate-content")
         self.composition_title = Gtk.Label(label=message("candidate.composition"), xalign=0,
-                                           margin_start=12, margin_end=12)
+                                           margin_start=8, margin_end=8)
         self.composition_title.get_style_context().add_class("candidate-secondary")
         self.content.pack_start(self.composition_title, False, False, 0)
         self.composition = CandidateDetail(minimum_height=44, maximum_height=COMPOSITION_MAXIMUM_HEIGHT)
@@ -73,7 +73,7 @@ class TreePanel(Gtk.Window):
         self.content.pack_start(self.remaining, False, False, 0)
         self.navigation = CandidateNavigation(select, lambda: self.update(self.snapshot), self.show_candidate_details)
         self.content.pack_start(self.navigation, False, False, 0)
-        self.disclosures = Gtk.Box(spacing=8, margin_start=12, margin_end=12)
+        self.disclosures = Gtk.Box(spacing=6, margin_start=8, margin_end=8)
         self.content.pack_start(self.disclosures, False, False, 0)
         self.content.pack_start(self.scroll, False, False, 0)
         self.details = CandidateDetail()
@@ -178,9 +178,11 @@ class TreePanel(Gtk.Window):
         if identity != self.candidate_identity:
             self.clear_actions()
             self.navigation.clear_preview()
-            if snapshot.get("contextId") != self.snapshot.get("contextId") or self.candidate_identity is None:
-                self.tree_expanded = False
-                self.details_expanded = False
+            if self.candidate_identity is not None:
+                # Keep open/scroll state only while the same candidate set is pending.
+                self.navigation.dismiss()
+            self.tree_expanded = False
+            self.details_expanded = False
             self.retire_disclosures()
             self.candidate_identity = identity
         elif (snapshot.get("selection") is not None and snapshot.get("selection") == self.snapshot.get("selection")
@@ -281,6 +283,9 @@ class TreePanel(Gtk.Window):
             self.scroll_idle = GLib.idle_add(reveal)
 
     def update_composition(self, width):
+        title_key = ("candidate.composition" if self.navigation.keyboard_confirms_candidate else "candidate.proposal")
+        self.composition_title.set_text(message(title_key))
+        self.composition.get_accessible().set_name(message(title_key))
         selection = self.snapshot.get("selection")
         candidate = next((item for item in self.snapshot.get("candidates", []) if item.get("index") == selection), None)
         candidate = candidate or self.numbered_candidate(selection)

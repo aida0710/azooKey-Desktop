@@ -12,9 +12,12 @@ from .i18n import text as message
 class CandidateNavigation(Gtk.Box):
     # The nine source number-key candidates scroll instead of extending offscreen.
     MAXIMUM_LIST_HEIGHT = 280
+    MINIMUM_CANDIDATE_HEIGHT = 44  # Keep sentence rows and confirmation easy to activate after compacting padding.
+    # Composing Enter commits the marked reading, while this button explicitly selects a candidate.
+    KEYBOARD_CONFIRM_STATES = frozenset(("selecting", "previewing", "replaceSuggestion"))
 
     def __init__(self, select, changed, preview):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.set_no_show_all(True)
         self.get_style_context().add_class("candidate-navigation")
         self.palette_css = Gtk.CssProvider()
@@ -39,21 +42,21 @@ class CandidateNavigation(Gtk.Box):
         self.saved_scroll = None
         self.reveal_index = None
         self.scroll_idle = None
-        self.header = Gtk.Box(spacing=6, margin_start=12, margin_end=12)
+        self.header = Gtk.Box(spacing=4, margin_start=8, margin_end=8)
         self.status = Gtk.Label(xalign=0)
         self.status.get_style_context().add_class("candidate-secondary")
         self.status.set_ellipsize(Pango.EllipsizeMode.END)
         self.status.set_width_chars(1)
         self.header.pack_start(self.status, True, True, 0)
         self.pack_start(self.header, False, False, 0)
-        self.rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_start=8, margin_end=8)
+        self.rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, margin_start=6, margin_end=6)
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.scroll.set_propagate_natural_height(True)
         self.scroll.add(self.rows)
         self.scroll.set_no_show_all(True)
         self.pack_start(self.scroll, False, False, 0)
-        self.footer = Gtk.Box(spacing=8, margin_start=12, margin_end=12)
+        self.footer = Gtk.Box(spacing=6, margin_start=8, margin_end=8)
         self.hint = Gtk.Label(label=message("candidate.selectHint"), xalign=0, wrap=True)
         self.hint.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.hint.set_width_chars(1)
@@ -73,8 +76,8 @@ class CandidateNavigation(Gtk.Box):
             f"background-color: {palette['background']}; color: {palette['text']}; }}"
             f".candidate-navigation button {{ background-image: none; box-shadow: none; transition-property: none;"
             f"background-color: {palette['surface']}; color: {palette['text']};"
-            f"border: 1px solid {palette['border']}; border-radius: 7px; padding: 5px 10px; }}"
-            f".candidate-navigation .candidate-row {{ padding: 9px 10px; border-color: transparent; }}"
+            f"border: 1px solid {palette['border']}; border-radius: 7px; padding: 4px 7px; }}"
+            f".candidate-navigation .candidate-row {{ padding: 6px 7px; border-color: transparent; }}"
             f".candidate-navigation button:disabled {{ opacity: 0.45; }}"
             f".candidate-navigation button:selected, .candidate-navigation .candidate-submit {{"
             f"background-color: {palette['selection']}; color: {palette['selectionText']};"
@@ -93,8 +96,9 @@ class CandidateNavigation(Gtk.Box):
         previous_selection = self.token[2] if self.token else None
         selected_candidate = next((item for item in snapshot.get("candidates") or self.page.get("items", [])
                                    if item.get("index") == snapshot.get("selection")), None)
+        self.keyboard_confirms_candidate = snapshot.get("inputState") in self.KEYBOARD_CONFIRM_STATES
         token = (snapshot.get("contextId"), snapshot.get("generation"), snapshot.get("selection"),
-                 json.dumps(selected_candidate, sort_keys=True, ensure_ascii=False))
+                 json.dumps(selected_candidate, sort_keys=True, ensure_ascii=False), snapshot.get("inputState"))
         if token != self.token or not self.controls:
             self.token = token
             self.replace_controls()
@@ -151,16 +155,17 @@ class CandidateNavigation(Gtk.Box):
             ("toggle", "candidate.closeList", self.header),
             ("previous", "candidate.previousPage", self.header),
             ("next", "candidate.nextPage", self.header),
-            ("confirm", "candidate.submit", self.footer),
+            ("confirm", "candidate.submit" if self.keyboard_confirms_candidate else "candidate.submitCandidate", self.footer),
         )
         for name, label, container in definitions:
             button = self.button(lambda source, name=name: self.activate_control(name, source))
-            button.set_label(message(label) + ("  ↵" if name == "confirm" else ""))
+            button.set_label(message(label) + ("  ↵" if name == "confirm" and self.keyboard_confirms_candidate else ""))
             button.activation_token = self.token
             self.controls[name] = button
             setattr(self, name, button)
             container.pack_start(button, False, False, 0)
         self.confirm.get_style_context().add_class("candidate-submit")
+        self.confirm.set_size_request(-1, self.MINIMUM_CANDIDATE_HEIGHT)
         self.confirm.get_accessible().set_description(message("candidate.confirm"))
 
     def activate_control(self, name, source):
@@ -180,7 +185,8 @@ class CandidateNavigation(Gtk.Box):
     def candidate_button(self, item, *, number, font_size):
         button = self.button(lambda source: self.select_candidate(item, source))
         button.get_style_context().add_class("candidate-row")
-        content = Gtk.Box(spacing=10)
+        button.set_size_request(-1, self.MINIMUM_CANDIDATE_HEIGHT)
+        content = Gtk.Box(spacing=7)
         button.number_label = Gtk.Label(label=str(number) if number is not None else "", yalign=0.5)
         button.number_label.get_style_context().add_class("candidate-secondary")
         button.number_label.set_no_show_all(number is None)
