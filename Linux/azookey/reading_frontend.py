@@ -21,7 +21,7 @@ class ReadingInputOwner:
 
 class ReadingFrontend:
     def __init__(self, dispatch, *, render_input, render_candidates, notify,
-                 environment=None, coordinator_factory=ReadingCoordinator):
+                 environment=None, coordinator_factory=ReadingCoordinator, settings_provider=None):
         self.context = str(uuid.uuid4())
         self.dispatch = dispatch
         self.render_input = render_input
@@ -29,6 +29,7 @@ class ReadingFrontend:
         self.notify = notify
         self.environment = environment
         self.coordinator_factory = coordinator_factory
+        self.settings_provider = settings_provider
         self.focus = object()
         self.focused = False
         self.blocked = False
@@ -45,6 +46,7 @@ class ReadingFrontend:
             self.dispatch, publish_input=self._publish_input,
             publish_candidates=self._publish_candidates, notify=self._notice,
             environment=self.environment,
+            settings_provider=self.settings_provider,
         )
         coordinator.open_context(self.context, self._opened)
         return coordinator

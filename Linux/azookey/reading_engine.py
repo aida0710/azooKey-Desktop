@@ -1,4 +1,5 @@
 """Explicit development IBus adapter for independent reading and candidate workers."""
+import logging
 import time
 
 import gi
@@ -11,11 +12,14 @@ from .input_preview import is_native_key
 from .keymap import translate
 from .native_key_dispatch import dispatch_native_key
 from .reading_frontend import ReadingFrontend
+from .reading_protocol import ReadingNotice
+from .reading_settings_bootstrap import ReadingSettingsBootstrap
 
 
 CANDIDATE_PAGE_SIZE = 9  # Match the shared Core number-key selection page.
 LANGUAGE_DOUBLE_TAP_SECONDS = 0.5  # Preserve the existing desktop language-key gesture.
 SURROUNDING_CONTEXT_LIMIT = 100  # Use the same bounded context as the ordinary IBus adapter.
+LOGGER = logging.getLogger(__name__)
 
 
 class ReadingEngine(IBus.Engine):
@@ -35,10 +39,21 @@ class ReadingEngine(IBus.Engine):
         self.context_changed = False
         self.table = IBus.LookupTable.new(CANDIDATE_PAGE_SIZE, 0, True, True)
         self.table.set_orientation(IBus.Orientation.VERTICAL)
+        self.settings_bootstrap = ReadingSettingsBootstrap()
         self.frontend = ReadingFrontend(
             GLib.idle_add, render_input=self.render_input,
             render_candidates=self.render_candidates, notify=self.notice,
+            settings_provider=self.load_settings,
         )
+
+    def load_settings(self, defaults):
+        values = self.settings_bootstrap.load(defaults)
+        if self.settings_bootstrap.problem is not None:
+            try:
+                self.notice(ReadingNotice("reading_settings_recovery"))
+            except Exception:
+                LOGGER.exception("Could not display settings recovery notice")
+        return values
 
     def do_service_method_call(self, connection, sender, object_path, interface,
                                method, parameters, invocation):
@@ -146,7 +161,14 @@ class ReadingEngine(IBus.Engine):
     def notice(self, notice):
         if notice.code == "candidate_learning_completed":
             return
-        if notice.code == "reading_view_unavailable":
+        settings_messages = {
+            "reading_settings_unsupported": "reading.settingsUnsupported",
+            "reading_settings_unavailable": "reading.settingsUnavailable",
+            "reading_settings_recovery": "reading.settingsRecovery",
+        }
+        if notice.code in settings_messages:
+            key = settings_messages[notice.code]
+        elif notice.code == "reading_view_unavailable":
             key = "reading.displayUnavailable"
         else:
             key = "reading.resetRequired" if self.frontend.blocked else "reading.operationUnavailable"
