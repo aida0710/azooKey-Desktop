@@ -7,10 +7,10 @@ final class CandidateRowButton: CandidatePresentationButton {
     let candidateIndex: Int
     private let candidateText: String
     private let number: String?
-    private let horizontalInset: CGFloat = 12
+    private let horizontalInset: CGFloat = 8
     private let numberWidth: CGFloat = 28
     private let checkWidth: CGFloat = 24
-    private let verticalInset: CGFloat = 12
+    private let verticalInset: CGFloat = 8
 
     init(item: CandidatePage.Item, number: String?, fontSize: CGFloat) {
         candidateIndex = item.index
@@ -41,8 +41,8 @@ final class CandidateRowButton: CandidatePresentationButton {
             with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: textAttributes
         ).height
-        // 52 points gives the standard 18-point text a comfortable pointer target.
-        return max(52, ceil(height) + verticalInset * 2)
+        // Keep a 44-point pointer target while reducing the space around each line.
+        return max(44, ceil(height) + verticalInset * 2)
     }
 
     override func draw(_ dirtyRect: NSRect) {

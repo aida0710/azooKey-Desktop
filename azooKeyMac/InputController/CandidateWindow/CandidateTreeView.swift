@@ -48,6 +48,7 @@ final class CandidateTreeView: NSView {
     private var treeExpanded = false
     private var detailsExpanded = false
     private var generation: UInt = 0
+    private var enterConfirmsCandidate = false
     // Optional branches stay scrollable without displacing the primary candidate list.
     private let maximumTreeHeight: CGFloat = 220
     // Detail text needs a readable line even when the selected word is one character.
@@ -57,7 +58,7 @@ final class CandidateTreeView: NSView {
     var preferredSize: NSSize {
         let width = treeExpanded ? treePreferredSize.width : minimumDetailWidth
         let height = composition.preferredHeight(width: width) + navigation.preferredHeight(width: width) +
-            actions.preferredHeight + (treeExpanded ? min(maximumTreeHeight, treePreferredSize.height) : 0) +
+            actions.preferredHeight(width: width) + (treeExpanded ? min(maximumTreeHeight, treePreferredSize.height) : 0) +
             (detailsExpanded ? CandidateDetailView.maximumHeight : 0)
         return NSSize(width: width, height: height)
     }
@@ -108,7 +109,7 @@ final class CandidateTreeView: NSView {
         details.isHidden = true
         details.setAccessibilityIdentifier("candidate-details")
         scrollView.setAccessibilityIdentifier("candidate-segments")
-        setAccessibilityLabel(Localization.text("candidate.composition"))
+        setAccessibilityLabel(Localization.text("candidate.proposal"))
         refreshAppearance()
     }
 
@@ -117,7 +118,7 @@ final class CandidateTreeView: NSView {
 
     override func layout() {
         super.layout()
-        let actionHeight = min(actions.preferredHeight, bounds.height)
+        let actionHeight = min(actions.preferredHeight(width: bounds.width), bounds.height)
         let available = max(0, bounds.height - actionHeight)
         let compositionHeight = composition.preferredHeight(width: bounds.width)
         let navigationHeight = navigation.preferredHeight(width: bounds.width)
@@ -160,14 +161,14 @@ final class CandidateTreeView: NSView {
     }
 
     func update(entries: [CandidateTree.Entry], selectionIndex: Int?, numbers: [Int: String] = [:],
-                documentWidths: [CGFloat]? = nil) {
+                documentWidths: [CGFloat]? = nil, enterConfirmsCandidate: Bool = false) {
         let updatedTree = CandidateTree(entries: entries)
         let size = Config.CandidateTextSize().value
         let scoresVisible = Config.ShowRelativeScores().value
         let minimumColumnWidth = CGFloat(size.pointSize) + (numbers.isEmpty ? 8 : 14)
         let readableWidths = documentWidths?.allSatisfy { $0 >= minimumColumnWidth } == true ? documentWidths : nil
         let changed = updatedTree != tree || self.documentWidths != readableWidths || textSize != size || showsScores != scoresVisible
-        if updatedTree != tree {
+        if updatedTree != tree || self.enterConfirmsCandidate != enterConfirmsCandidate {
             generation &+= 1
             nodeButtons.values.forEach { $0.removeFromSuperview() }
             terminalButtons.values.forEach { $0.removeFromSuperview() }
@@ -178,6 +179,8 @@ final class CandidateTreeView: NSView {
         textSize = size
         showsScores = scoresVisible
         self.entries = entries
+        self.enterConfirmsCandidate = enterConfirmsCandidate
+        setAccessibilityLabel(Localization.text(enterConfirmsCandidate ? "candidate.composition" : "candidate.proposal"))
         tree = updatedTree
         if entries.isEmpty {
             treeExpanded = false
@@ -431,9 +434,9 @@ final class CandidateTreeView: NSView {
                                       pageStart: numberLabels.keys.min())
         navigation.update(page: candidatePage, numbers: numberLabels, fontSize: textSize.pointSize, generation: generation)
         let currentEntry = selection.selectedCandidateIndex.flatMap { tree.entry(candidateIndex: $0) }
-        composition.update(entry: currentEntry, fontSize: textSize.pointSize)
+        composition.update(entry: currentEntry, fontSize: textSize.pointSize, enterConfirmsCandidate: enterConfirmsCandidate)
         actions.update(candidateIndex: selection.selectedCandidateIndex, generation: generation,
-                       treeExpanded: treeExpanded, detailsExpanded: detailsExpanded)
+                       treeExpanded: treeExpanded, detailsExpanded: detailsExpanded, enterConfirmsCandidate: enterConfirmsCandidate)
         scrollView.isHidden = !treeExpanded
         details.isHidden = !detailsExpanded
         needsLayout = true

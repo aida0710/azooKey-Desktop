@@ -12,10 +12,20 @@ final class CandidateActionsView: NSView {
     private var confirm = CandidatePresentationButton()
     private var candidateIndex: Int?
     private var generation: UInt = 0
-    private let inset: CGFloat = 12
-    private let gap: CGFloat = 8
+    private var enterConfirmsCandidate = false
+    private let inset: CGFloat = 8
+    private let gap: CGFloat = 6
     private let buttonHeight: CGFloat = 38
-    var preferredHeight: CGFloat { buttonHeight + inset * 2 }
+    private let buttonTextInset: CGFloat = 16
+
+    private var buttonWidths: [CGFloat] {
+        [treeToggle, detailsToggle, confirm].map { $0.intrinsicContentSize.width + buttonTextInset }
+    }
+
+    func preferredHeight(width: CGFloat) -> CGFloat {
+        let stacked = buttonWidths.reduce(0, +) + gap * 2 + inset * 2 > width
+        return (stacked ? buttonHeight * 2 + gap : buttonHeight) + inset * 2
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -28,10 +38,13 @@ final class CandidateActionsView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func update(candidateIndex: Int?, generation: UInt, treeExpanded: Bool, detailsExpanded: Bool) {
-        if self.candidateIndex != candidateIndex || self.generation != generation {
+    func update(candidateIndex: Int?, generation: UInt, treeExpanded: Bool, detailsExpanded: Bool,
+                enterConfirmsCandidate: Bool) {
+        if self.candidateIndex != candidateIndex || self.generation != generation ||
+            self.enterConfirmsCandidate != enterConfirmsCandidate {
             self.candidateIndex = candidateIndex
             self.generation = generation
+            self.enterConfirmsCandidate = enterConfirmsCandidate
             // An assistive action queued for an old candidate must not acquire the new target.
             confirm.activate = nil
             confirm.removeFromSuperview()
@@ -50,8 +63,10 @@ final class CandidateActionsView: NSView {
         let button = CandidatePresentationButton()
         confirm = button
         button.primary = true
-        button.title = Localization.text("candidate.submit") + "  ↵"
-        button.setAccessibilityLabel(Localization.text("candidate.submit"))
+        let titleKey = enterConfirmsCandidate ? "candidate.submit" : "candidate.submitCandidate"
+        button.title = Localization.text(titleKey) + (enterConfirmsCandidate ? "  ↵" : "")
+        button.setAccessibilityLabel(Localization.text(titleKey))
+        button.setAccessibilityIdentifier("candidate-confirm")
         button.isEnabled = candidateIndex != nil
         button.activate = { [weak self, weak button] in
             guard let self, let button, self.confirm === button, let index = self.candidateIndex else {
@@ -67,12 +82,16 @@ final class CandidateActionsView: NSView {
 
     override func layout() {
         super.layout()
-        let confirmWidth = max(98, confirm.intrinsicContentSize.width + 24)
-        let remaining = max(0, bounds.width - inset * 2 - confirmWidth - gap * 2)
-        let treeWidth = min(remaining / 2, treeToggle.intrinsicContentSize.width + 16)
-        treeToggle.frame = NSRect(x: inset, y: inset, width: treeWidth, height: buttonHeight)
-        detailsToggle.frame = NSRect(x: treeToggle.frame.maxX + gap, y: inset,
-                                     width: max(0, remaining - treeWidth), height: buttonHeight)
+        let widths = buttonWidths
+        let available = max(0, bounds.width - inset * 2)
+        let stacked = widths.reduce(0, +) + gap * 2 > available
+        let confirmWidth = stacked ? available : widths[2]
+        let toggleWidth = stacked ? available : max(0, available - confirmWidth - gap)
+        let treeWidth = min(max(0, toggleWidth - gap) / 2, widths[0])
+        let toggleY = inset + (stacked ? buttonHeight + gap : 0)
+        treeToggle.frame = NSRect(x: inset, y: toggleY, width: treeWidth, height: buttonHeight)
+        detailsToggle.frame = NSRect(x: treeToggle.frame.maxX + gap, y: toggleY,
+                                     width: max(0, toggleWidth - treeWidth - gap), height: buttonHeight)
         confirm.frame = NSRect(x: bounds.width - inset - confirmWidth, y: inset,
                                width: confirmWidth, height: buttonHeight)
     }
