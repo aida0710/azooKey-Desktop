@@ -70,6 +70,6 @@ enum CandidatePaletteData {
             scoreHigh: NSColor(srgbRed: 0.745098039, green: 0.858823529, blue: 1.000000000, alpha: 1),
             scoreUnknown: NSColor(srgbRed: 0.870588235, green: 0.870588235, blue: 0.870588235, alpha: 1),
             scoreText: NSColor(srgbRed: 0.000000000, green: 0.000000000, blue: 0.000000000, alpha: 1)
-        ),
+        )
     ]
 }

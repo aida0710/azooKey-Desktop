@@ -30,13 +30,13 @@ def swift_source(palettes):
     lines = [f"// {GENERATED_NOTICE}", "import AppKit", "", "@MainActor", "struct CandidatePalette {"]
     lines += [f"    let {role}: NSColor" for role in roles]
     lines += ["}", "", "@MainActor", "enum CandidatePaletteData {", "    static let palettes: [String: CandidatePalette] = ["]
-    for mode, colors in palettes.items():
+    for mode_index, (mode, colors) in enumerate(palettes.items()):
         lines.append(f'        "{mode}": CandidatePalette(')
         for index, (role, color) in enumerate(colors.items()):
             red, green, blue = (int(color[start:start + 2], 16) / 255 for start in (1, 3, 5))
             comma = "," if index + 1 < len(roles) else ""
             lines.append(f"            {role}: NSColor(srgbRed: {red:.9f}, green: {green:.9f}, blue: {blue:.9f}, alpha: 1){comma}")
-        lines.append("        ),")
+        lines.append("        )" + ("," if mode_index + 1 < len(palettes) else ""))
     lines += ["    ]", "}", ""]
     return "\n".join(lines)
 
