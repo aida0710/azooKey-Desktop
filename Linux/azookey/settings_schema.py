@@ -3,7 +3,7 @@ import copy
 import urllib.parse
 import uuid
 
-from .localization import message
+from .i18n import text
 from .graphemes import cursor_boundaries
 
 
@@ -40,7 +40,7 @@ PRESERVED_SETTINGS = frozenset({
 
 
 def invalid_setting(field):
-    return ValueError(message("settings.invalid_value", field=field))
+    return ValueError(text("settings.invalid_value", field=field))
 
 
 def _mapping(value, fields, *, path):
@@ -48,7 +48,7 @@ def _mapping(value, fields, *, path):
         raise invalid_setting(path)
     unknown = value.keys() - fields
     if unknown:
-        raise ValueError(message("settings.unknown_key", field=f"{path}{next(iter(unknown))}"[:100]))
+        raise ValueError(text("settings.unknown_key", field=f"{path}{next(iter(unknown))}"[:100]))
 
 
 def _text(value, *, path, nonempty=False):

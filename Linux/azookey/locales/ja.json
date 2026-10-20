@@ -1,4 +1,13 @@
 {
+  "candidate.withReading": "{text}（{reading}）",
+  "candidate.confirm": "押すと候補を確定",
+  "candidate.focusedConfirm": "操作対象。押すと候補を確定",
+  "candidate.numberConfirm": "候補 {number} を確定",
+  "candidate.detail": "候補の詳細",
+  "candidate.textSize": "候補の文字サイズ",
+  "candidate.textSize.standard": "標準",
+  "candidate.textSize.large": "大きい",
+  "candidate.detailKeys": "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール",
   "settings.invalid_value": "設定項目「{field}」の型または値を確認してください。",
   "settings.unknown_key": "未対応の設定項目「{field}」があります。",
   "settings.invalid_json": "JSONの構文を確認してください（{line}行目、{column}列目）。",
