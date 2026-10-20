@@ -28,9 +28,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     var replaceSuggestionWindow: NSWindow
     var replaceSuggestionsViewController: ReplaceSuggestionsViewController
     @MainActor lazy var aiSuggestionSession = AISuggestionSession()
-    let aiSuggestionStatusPanel = AISuggestionStatusPanel()
+    let aiSuggestionStatusPanel = InputStatusPanel()
     let aiSuggestionConfirmationPanel = AISuggestionConfirmationPanel()
     var aiSuggestionConfirmation: AISuggestionConfirmation?
+    @MainActor lazy var reconversionClient = MacReconversionSession()
+    let reconversionStatusPanel = InputStatusPanel()
 
     var promptInputWindow: PromptInputWindow
     var isPromptWindowVisible: Bool = false
@@ -162,6 +164,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     @MainActor
     override func activateServer(_ sender: Any!) {
         super.activateServer(sender)
+        self.reconversionClient.clear()
+        self.reconversionStatusPanel.orderOut(nil)
         self.cancelReplaceSuggestion()
         // アプリケーションサポートのディレクトリを準備しておく
         self.prepareApplicationSupportDirectory()
@@ -191,6 +195,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
     @MainActor
     override func deactivateServer(_ sender: Any!) {
+        self.reconversionClient.clear()
+        self.reconversionStatusPanel.orderOut(nil)
         self.cancelReplaceSuggestion()
         self.segmentsManager.deactivate(flushLearningData: false)
         (NSApplication.shared.delegate as? AppDelegate)?.scheduleLearningDataCommit()
@@ -290,6 +296,14 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         if let consumed = self.handleAISuggestionConfirmationKey(event) {
             return consumed
         }
+        if self.handleReconversionReading(event.keyEventCore, client: client) {
+            return true
+        }
+        if let shortcut = ReconversionShortcut.resolve(event.keyEventCore) {
+            self.requestReconversion(undo: shortcut == .undoCommit, client: client)
+            return true
+        }
+        self.reconversionStatusPanel.orderOut(nil)
 
         // カスタムプロンプトショートカットのチェック
         if let matchedPrompt = checkCustomPromptShortcut(event: event) {
@@ -429,6 +443,16 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     // この種のコードは複雑にしかならないので、lintを無効にする
     // swiftlint:disable:next cyclomatic_complexity
     @MainActor func handleClientAction(_ clientAction: ClientAction, clientActionCallback: ClientActionCallback, client: IMKTextInput) -> Bool {
+        self.reconversionClient.beginInput()
+        let commitSource: MacReconversionSession.CommitSource?
+        switch clientAction {
+        case .commitMarkedText, .commitMarkedTextAndAppendToMarkedText, .commitMarkedTextAndAppendPieceToMarkedText,
+             .commitMarkedTextAndSelectInputLanguage, .stopComposition:
+            commitSource = self.reconversionClient.captureCommit(from: self.segmentsManager, client: client)
+        default:
+            commitSource = nil
+        }
+        defer { self.reconversionClient.rememberCommit(commitSource, manager: self.segmentsManager, client: client) }
         switch clientAction {
         case .requestPredictiveSuggestion, .requestReplaceSuggestion, .consume:
             break
@@ -443,7 +467,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .showCandidateWindow:
             self.segmentsManager.requestSetCandidateWindowState(visible: true)
         case .hideCandidateWindow:
-            self.segmentsManager.requestSetCandidateWindowState(visible: false)
+            self.segmentsManager.cancelCandidateSelection()
         case .enterFirstCandidatePreviewMode:
             self.segmentsManager.insertCompositionSeparator(inputStyle: self.inputStyle, skipUpdate: false)
             self.segmentsManager.requestSetCandidateWindowState(visible: false)
@@ -462,6 +486,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             client.insertText(string, replacementRange: NSRange(location: NSNotFound, length: 0))
         case .editSegment(let count):
             self.segmentsManager.editSegment(count: count)
+        case .moveCompositionCursor(let movement):
+            self.segmentsManager.moveCompositionCursor(movement)
         case .commitMarkedText:
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
             client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -481,6 +507,9 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.submitSelectedCandidate()
         case .removeLastMarkedText:
             self.segmentsManager.deleteBackwardFromCursorPosition()
+            self.segmentsManager.requestResettingSelection()
+        case .removeNextMarkedText:
+            self.segmentsManager.deleteForwardFromCursorPosition()
             self.segmentsManager.requestResettingSelection()
         case .selectPrevCandidate:
             self.segmentsManager.requestSelectingPrevCandidate()
@@ -503,11 +532,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 $0.toKatakana().applyingTransform(.fullwidthToHalfwidth, reverse: false)!
             })
         case .submitFullWidthRomanCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate {
+            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate(inputState: self.inputState) {
                 $0.applyingTransform(.fullwidthToHalfwidth, reverse: true)!
             })
         case .submitHalfWidthRomanCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate {
+            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate(inputState: self.inputState) {
                 $0.applyingTransform(.fullwidthToHalfwidth, reverse: false)!
             })
         case .enableDebugWindow:
@@ -515,6 +544,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .disableDebugWindow:
             self.segmentsManager.requestDebugWindowMode(enabled: false)
         case .stopComposition:
+            self.reconversionClient.restoreOriginal(client: client)
             self.segmentsManager.stopComposition()
         case .forgetMemory:
             self.segmentsManager.forgetMemory()
@@ -603,6 +633,9 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         if self.inputState != .replaceSuggestion, !self.aiSuggestionSession.isLoading, self.aiSuggestionConfirmation == nil {
             self.aiSuggestionSession.cancel()
             self.clearReplaceSuggestionCandidates()
+        }
+        if self.segmentsManager.isEmpty {
+            self.reconversionClient.restoreOriginal(client: client)
         }
         self.refreshMarkedText()
         self.refreshCandidateWindow()
@@ -855,11 +888,17 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     func submitCandidate(_ candidate: Candidate) {
         self.cancelReplaceSuggestion()
         if let client = self.client() {
+            guard self.reconversionClient.originalText == nil || self.segmentsManager.consumesWholeComposition(candidate) else {
+                self.showReconversionFailure(.wholeSelectionRequired)
+                return
+            }
+            let commitSource = self.reconversionClient.captureCommit(from: self.segmentsManager, client: client)
             // インサートを行う前にコンテキストを取得する
             let cleanLeftSideContext = self.segmentsManager.getCleanLeftSideContext(maxCount: 30)
             client.insertText(candidate.text, replacementRange: NSRange(location: NSNotFound, length: 0))
             // アプリケーションサポートのディレクトリを準備しておく
             self.segmentsManager.prefixCandidateCommited(candidate, leftSideContext: cleanLeftSideContext ?? "")
+            self.reconversionClient.rememberCommit(commitSource, manager: self.segmentsManager, client: client)
         }
     }
 

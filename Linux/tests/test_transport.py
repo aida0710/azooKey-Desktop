@@ -36,3 +36,17 @@ class TransportTests(unittest.TestCase):
                 self.assertLess(time.monotonic() - start, 2)
             finally:
                 bridge.close()
+
+    def test_converter_that_never_reads_cannot_block_a_large_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = pathlib.Path(directory) / "unresponsive"
+            executable.write_text("#!/usr/bin/env python3\nimport time\ntime.sleep(10)\n")
+            executable.chmod(0o700)
+            bridge = Bridge(str(executable), timeout=0.1)
+            start = time.monotonic()
+            try:
+                with self.assertRaisesRegex(RuntimeError, "timed out"):
+                    bridge.request("configure", settings={"fixture": "x" * 1024 * 1024})
+                self.assertLess(time.monotonic() - start, 2)
+            finally:
+                bridge.close()
