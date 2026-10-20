@@ -12,8 +12,11 @@ fi
 # Reproduce only the first controller-boundary case under the debugger.
 xcrun lldb --batch \
     -o 'settings set target.disable-aslr false' \
+    -o 'breakpoint set --name objc_exception_throw' \
     -o run \
+    -o 'expression --language objc --object-description -- (NSException *)$x0' \
     -o 'thread backtrace all' \
+    -k 'thread backtrace all' \
     -- "$(xcrun -f xctest)" \
     -XCTest azooKeyMacTests.AISuggestionInputTests/testEmptyReplacementRequestLeavesEnterToTheApplication \
     "$TEST_BUNDLE"
