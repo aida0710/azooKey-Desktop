@@ -901,9 +901,14 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 )
             )
         }
+        var selectionRange = currentMarkedText.selectionRange
+        if selectionRange.location == NSNotFound {
+            // NSTextView moves an unspecified selection to the document end, beyond any unmarked suffix.
+            selectionRange = NSRange(location: text.length, length: 0)
+        }
         self.client()?.setMarkedText(
             text,
-            selectionRange: currentMarkedText.selectionRange,
+            selectionRange: selectionRange,
             replacementRange: NSRange(location: NSNotFound, length: 0)
         )
     }
