@@ -20,6 +20,7 @@ export const messages = {
     select: '押すと候補を選択',
     focusedSelect: '操作対象。押すと候補を選択',
     numberSelect: number => `候補 ${number} を選択`,
+    numberBadge: number => `候補番号 ${number}`,
     activate: '実行',
     reading: reading => `読み ${reading}`,
     wordPosition: (position, total) => `語 ${position} / ${total}`,
