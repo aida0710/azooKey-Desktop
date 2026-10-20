@@ -54,6 +54,8 @@
   "settings.invalid_value": "設定項目「{field}」の型または値を確認してください。",
   "settings.unknown_key": "未対応の設定項目「{field}」があります。",
   "settings.invalid_json": "JSONの構文を確認してください（{line}行目、{column}列目）。",
+  "settings.invalid_structure": "JSONの入れ子が深すぎます。設定の構造を確認してください。",
+  "settings.backend_recovery_failed": "設定ファイルの保存と、変換器の元の設定への復元に失敗しました。もう一度保存すると、元の設定の復元から再試行します。",
   "settings.read_failed": "設定ファイルを読み取れません。ファイルの権限と種類を確認してください。",
   "settings.changed": "別の操作で設定ファイルが変わりました。設定画面を開き直してください。",
   "settings.recovery_required": "設定ファイルの復旧が必要です。設定画面で元ファイルを保全してから復旧してください。",
