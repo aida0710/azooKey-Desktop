@@ -37,6 +37,7 @@ class InputPreview:
     """
     def __init__(self, snapshot, *, settings=None):
         self.settings = settings or {}
+        self.live_conversion = self.settings.get("live", True)
         self.prefix = ""
         self.text = snapshot.get("preedit", "")
         self.cursor = min(snapshot.get("cursor", len(self.text)), len(self.text))
@@ -132,7 +133,7 @@ class InputPreview:
         self.restored_reading = True
 
     def _escape(self):
-        if self.state == "selecting" and not self.settings.get("live"):
+        if self.state == "selecting" and not self.live_conversion:
             self.state = "previewing"
         elif self.state in SELECTION_STATES:
             self._restore_reading()
@@ -144,13 +145,13 @@ class InputPreview:
 
     def _space(self, shifted):
         if self.state == "none":
-            half = self.settings.get("halfSpace", True)
+            half = self.settings.get("halfSpace", False)
             full = self.language != "english" and half == shifted
             self._insert("　" if full else " ")
         elif self.language == "english":
             self._insert(" ")
         else:
-            self.state = "selecting" if self.settings.get("live") or self.state != "composing" else "previewing"
+            self.state = "selecting" if self.live_conversion or self.state != "composing" else "previewing"
 
     def _move(self, key, shifted):
         if key in (115, 119) and self.state != "none":
