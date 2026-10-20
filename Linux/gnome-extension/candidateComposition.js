@@ -5,6 +5,12 @@ import {attachCandidateAction} from './candidateAccessibility.js';
 import {messages} from './candidateMessages.js';
 import {createWrappingLabel} from './candidateText.js';
 
+// Compact spacing leaves the sentence readable without enlarging the popup.
+const COMPOSITION_INSET = 8;
+const SENTENCE_GAP = 6;
+// A long proposal must not scroll its unconverted remainder out of sight.
+const REMAINING_HEIGHT_FRACTION = 0.35;
+
 // The selected sentence stays visible while hover explains another candidate below.
 export class CandidateComposition {
     constructor(select) {
@@ -22,19 +28,25 @@ export class CandidateComposition {
         this._sentence = createWrappingLabel({x_align: Clutter.ActorAlign.START});
         this._reading = createWrappingLabel({x_align: Clutter.ActorAlign.START});
         this._remaining = createWrappingLabel({x_align: Clutter.ActorAlign.START});
-        for (const label of [this._sentence, this._reading, this._remaining]) this._content.add_child(label);
+        for (const label of [this._sentence, this._reading]) this._content.add_child(label);
         this._scroll.set_child(this._content);
         this.actor.add_child(this._scroll);
+        this._remainingScroll = new St.ScrollView({can_focus: false,
+            hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC});
+        this._remainingScroll.set_child(this._remaining);
+        this.actor.add_child(this._remainingScroll);
     }
 
     update(snapshot, {fontSize, width, maximumHeight, palette}) {
         const candidate = snapshot.candidates?.find(item => item.index === snapshot.selection);
-        const identity = JSON.stringify([snapshot.contextId, snapshot.generation, snapshot.selection]);
+        const enterConfirmsCandidate = ['selecting', 'previewing', 'replaceSuggestion'].includes(snapshot.inputState);
+        const identity = JSON.stringify([snapshot.contextId, snapshot.generation, snapshot.selection, enterConfirmsCandidate]);
         if (this._identity !== identity) {
             this.retire();
             this._identity = identity;
-            if (candidate) this._createConfirm(snapshot, candidate);
+            if (candidate) this._createConfirm(snapshot, candidate, enterConfirmsCandidate);
         }
+        this._title.text = enterConfirmsCandidate ? messages.composition : messages.proposal;
         const sentence = candidate?.text ?? snapshot.preedit ?? '';
         if (sentence !== this._sentence.text) {
             this._sentence.text = sentence;
@@ -44,27 +56,39 @@ export class CandidateComposition {
         this._reading.text = reading ? messages.reading(reading) : '';
         this._reading.visible = Boolean(reading);
         const remaining = candidate?.commitScope?.remainingReading;
-        this._remaining.text = remaining ? messages.remaining(remaining) : '';
+        const remainingText = remaining ? messages.remaining(remaining) : '';
+        if (remainingText !== this._remaining.text) {
+            this._remaining.text = remainingText;
+            this._remainingScroll.get_vadjustment().value = 0;
+        }
         this._remaining.visible = Boolean(remaining);
-        this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text}; padding: 12px;`);
+        this._remainingScroll.visible = Boolean(remaining);
+        this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text}; padding: ${COMPOSITION_INSET}px;`);
         this._title.set_style(`font-size: ${Math.max(12, fontSize - 4)}px;`);
-        this._sentence.set_style(`font-size: ${fontSize + 2}px; font-weight: 600; padding-top: 8px;`);
+        this._sentence.set_style(`font-size: ${fontSize + 2}px; font-weight: 600; padding-top: ${SENTENCE_GAP}px;`);
         for (const label of [this._reading, this._remaining])
             label.set_style(`font-size: ${Math.max(14, fontSize - 2)}px; padding-top: 4px;`);
-        for (const label of [this._sentence, this._reading, this._remaining]) label.set_width(Math.max(1, width - 24));
+        const innerWidth = Math.max(1, width - COMPOSITION_INSET * 2);
+        for (const label of [this._sentence, this._reading, this._remaining]) label.set_width(innerWidth);
         if (this._confirm) this._confirm.set_style(`color: ${palette.selectionText}; background-color: ${palette.selection};
-            border: 2px solid ${palette.text}; border-radius: 8px; padding: 7px 16px; font-size: ${fontSize}px;`);
-        const headerHeight = this._header.get_preferred_height(width - 24)[1];
-        const contentHeight = this._content.get_preferred_height(width - 24)[1];
-        const height = Math.min(maximumHeight, headerHeight + contentHeight + 24);
-        this._scroll.height = Math.max(1, height - headerHeight - 24);
+            border: 2px solid ${palette.text}; border-radius: 8px; padding: 4px 12px; min-height: 32px; font-size: ${fontSize}px;`);
+        const headerHeight = this._header.get_preferred_height(innerWidth)[1];
+        const remainingHeight = remaining ? Math.min(this._remaining.get_preferred_height(innerWidth)[1],
+            maximumHeight * REMAINING_HEIGHT_FRACTION) : 0;
+        const contentHeight = this._content.get_preferred_height(innerWidth)[1];
+        const textHeight = Math.min(contentHeight,
+            Math.max(1, maximumHeight - headerHeight - remainingHeight - COMPOSITION_INSET * 2));
+        const height = Math.min(maximumHeight, headerHeight + textHeight + remainingHeight + COMPOSITION_INSET * 2);
+        this._scroll.height = textHeight;
+        this._remainingScroll.height = remainingHeight;
         this.actor.set_size(width, height);
         return height;
     }
 
-    _createConfirm(snapshot, candidate) {
-        const button = new St.Button({can_focus: false, reactive: true, label: `${messages.submit} ↵`,
-            accessible_name: `${messages.submit} ${candidate.text}`});
+    _createConfirm(snapshot, candidate, enterConfirmsCandidate) {
+        const label = enterConfirmsCandidate ? `${messages.submit} ↵` : messages.submitCandidate;
+        const button = new St.Button({can_focus: false, reactive: true, label,
+            accessible_name: `${enterConfirmsCandidate ? messages.submit : messages.submitCandidate} ${candidate.text}`});
         const selection = new GLib.Variant('(sibis)',
             ['select', candidate.index, true, snapshot.generation, snapshot.contextId]);
         attachCandidateAction(button);

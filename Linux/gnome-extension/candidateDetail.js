@@ -3,6 +3,9 @@ import {attachCandidateAction} from './candidateAccessibility.js';
 import {messages} from './candidateMessages.js';
 import {createWrappingLabel} from './candidateText.js';
 
+// Secondary controls use less padding but retain their action target height.
+const DETAILS_INSET = 8;
+
 export class CandidateDetail {
     constructor({changed, toggleTree}) {
         this._changed = changed;
@@ -30,12 +33,13 @@ export class CandidateDetail {
         this._tree.label = treeExpanded ? messages.closeTree : messages.openTree;
         this._toggle.label = this.expanded ? messages.closeDetails : messages.openDetails;
         for (const button of [this._tree, this._toggle])
-            button.set_style(`font-size: ${Math.max(12, fontSize - 4)}px; padding: 8px;`);
+            button.set_style(`font-size: ${Math.max(12, fontSize - 4)}px; padding: 5px 8px; min-height: 34px;`);
         this._scroll.visible = this.expanded;
-        this.label.set_width(Math.max(1, width - 24));
-        this.label.set_style(`font-size: ${fontSize}px; padding: 0 12px 12px;`);
+        this.label.set_width(Math.max(1, width - DETAILS_INSET * 2));
+        this.label.set_style(`font-size: ${fontSize}px; padding: 0 ${DETAILS_INSET}px ${DETAILS_INSET}px;`);
         const headerHeight = this._header.get_preferred_height(width)[1];
-        const detailHeight = this.expanded ? Math.min(maximumHeight, this.label.get_preferred_height(width - 24)[1] + 12) : 0;
+        const detailHeight = this.expanded ? Math.min(maximumHeight,
+            this.label.get_preferred_height(width - DETAILS_INSET * 2)[1] + DETAILS_INSET) : 0;
         this._scroll.height = detailHeight;
         this.actor.set_size(width, headerHeight + detailHeight);
         return headerHeight + detailHeight;
