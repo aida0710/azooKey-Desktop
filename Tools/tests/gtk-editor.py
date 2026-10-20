@@ -8,6 +8,7 @@ import time
 
 import gi
 from fixture_events import FixtureEvents
+from fixture_reset import observe_reset
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
@@ -17,6 +18,8 @@ from gi.repository import Gdk, Gtk
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", required=True, type=pathlib.Path)
 parser.add_argument("--events", type=pathlib.Path)
+parser.add_argument("--reset-controls", action="store_true",
+                    help="Expose non-focusing test actions for each real GtkTextView input context")
 arguments = parser.parse_args()
 arguments.output.parent.mkdir(parents=True, exist_ok=True)
 event_log = FixtureEvents(arguments.events)
@@ -90,6 +93,21 @@ for index in range(2):
     container.set_min_content_height(180)
     container.add(editor)
     layout.pack_start(container, True, True, 0)
+if arguments.reset_controls:
+    reset_controls = Gtk.Box(spacing=12)
+    reset_buttons = []
+    for index, editor in enumerate(editors):
+        button = Gtk.Button(label=f"Reset input context {index + 1}")
+        # AT activation must exercise the retained widget's own connection
+        # without moving focus away from the AI preview under test.
+        button.set_focus_on_click(False)
+        button.connect("clicked", lambda _button, field_index=index, target=editor: observe_reset(
+            event_log, api="Gtk.TextView.reset_im_context", field_index=field_index,
+            reset=target.reset_im_context,
+        ))
+        reset_controls.pack_start(button, False, False, 0)
+        reset_buttons.append(button)
+    layout.pack_start(reset_controls, False, False, 0)
 style = Gtk.CssProvider()
 style.load_from_data(b"textview { font-size: 24px; }")
 Gtk.StyleContext.add_provider_for_screen(window.get_screen(), style, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
