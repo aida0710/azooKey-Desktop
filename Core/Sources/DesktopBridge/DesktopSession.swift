@@ -587,7 +587,9 @@ final class DesktopSession: SegmentManagerDelegate {
         result.candidatePage = CandidatePage(
             entries: presentations.enumerated().map { $0.element.treeEntry(index: $0.offset) },
             selectionIndex: result.selection, pageStart: pageStart)
-        result.showCandidateIndex = state == .selecting || state == .replaceSuggestion
+        // AI suggestions keep number keys as reading input, so only ordinary
+        // candidate selection can advertise numeric shortcuts.
+        result.showCandidateIndex = state == .selecting
         return result
     }
 }

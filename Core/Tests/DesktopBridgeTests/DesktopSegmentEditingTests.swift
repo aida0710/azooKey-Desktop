@@ -87,6 +87,7 @@ import Testing
     @Test func pageNavigationAndNumberKeysConfirmTheSameRealCandidate() throws {
         try withSession(liveConversion: false, treeCandidates: true) { session in
             var snapshot = try beginSelecting(session)
+            #expect(snapshot.showCandidateIndex)
             #expect(snapshot.candidatePage.totalCount == snapshot.candidates.count)
             let next = try #require(snapshot.candidatePage.nextIndex)
             snapshot = session.select(candidateIndex: next, submit: false, expectedGeneration: snapshot.generation)
@@ -97,6 +98,38 @@ import Testing
                                                charactersIgnoringModifiers: "2", keyCode: 19))
             #expect(committed.commits == [second.text])
             #expect(second.index == snapshot.pageStart + 1)
+        }
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func aiSuggestionsHideNumberShortcutsAndKeepDigitsInTheOriginalReading(live: Bool, tree: Bool) throws {
+        try withSession(liveConversion: live, treeCandidates: tree) { session in
+            var snapshot = try beginSelecting(session)
+            #expect(snapshot.showCandidateIndex)
+            let originalReading = snapshot.reading
+            let suggestions = (0..<12).map { "AI提案\($0)" }
+            snapshot = session.applySuggestions(
+                suggestions, reading: originalReading, expectedGeneration: snapshot.generation)
+            #expect(snapshot.inputState == "replaceSuggestion")
+            #expect(!snapshot.showCandidateIndex)
+            let next = try #require(snapshot.candidatePage.nextIndex)
+            snapshot = session.select(candidateIndex: next, submit: false, expectedGeneration: snapshot.generation)
+            #expect(snapshot.candidatePage.start == next)
+            #expect(snapshot.preedit == suggestions[next])
+            #expect(!snapshot.showCandidateIndex)
+
+            let typed = session.key(.init(modifierFlags: [], characters: "1",
+                                          charactersIgnoringModifiers: "1", keyCode: 18))
+            #expect(typed.reading == originalReading + "1")
+            #expect(typed.inputState == "composing")
+            #expect(typed.commits.isEmpty)
+            #expect(!typed.showCandidateIndex)
+
+            snapshot = session.applySuggestions(
+                suggestions, reading: typed.reading, expectedGeneration: typed.generation)
+            let selected = session.select(candidateIndex: next + 1, submit: true, expectedGeneration: snapshot.generation)
+            #expect(selected.commits == [suggestions[next + 1]])
+            #expect(selected.reading.isEmpty)
         }
     }
 

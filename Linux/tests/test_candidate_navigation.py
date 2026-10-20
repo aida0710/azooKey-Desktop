@@ -10,8 +10,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires a GTK display")
 class CandidateNavigationTests(unittest.TestCase):
     def setUp(self):
-        from gi.repository import Gtk
         from azookey.candidate_navigation import CandidateNavigation
+        from gi.repository import Gtk
 
         self.actions = []
         self.previews = []
@@ -100,6 +100,18 @@ class CandidateNavigationTests(unittest.TestCase):
         self.assertFalse(self.navigation.scroll.get_visible())
         self.navigation.next.clicked()
         self.assertEqual(self.actions, [])
+
+    def test_disabling_number_shortcuts_removes_prefixes_without_changing_pointer_actions(self):
+        self.navigation.toggle.clicked()
+        self.assertEqual(self.navigation.row_buttons[0].get_child().get_text(), "1. 候補0")
+        old = self.navigation.row_buttons[0]
+        self.navigation.update({**self.snapshot(), "showCandidateIndex": False}, font_size=18, list_height=160)
+        self.assertEqual([button.get_child().get_text() for button in self.navigation.row_buttons],
+                         [f"候補{index}" for index in range(9)])
+        old.clicked()
+        self.assertEqual(self.actions, [])
+        self.navigation.row_buttons[1].clicked()
+        self.assertEqual(self.actions, [("select", 1, True)])
 
 
 if __name__ == "__main__":
