@@ -38,15 +38,14 @@ def component_version():
 def renderer_status(*, tree_enabled, session, engine_status):
     if not tree_enabled:
         return message("support.renderer.ibus-list"), message("support.fallback.setting")
-    if engine_status is None:
+    if engine_status is None or session not in ("x11", "wayland"):
         return message("support.unknown"), message("support.fallback.unavailable")
+    # Engine.render prefers a registered GNOME renderer on either display server.
+    if engine_status.get("rendererRegistered") is True:
+        return message("support.renderer.shell-tree"), message("support.none")
     if session == "x11":
         return message("support.renderer.gtk-tree"), message("support.none")
-    if session == "wayland" and engine_status is not None:
-        if engine_status.get("rendererRegistered") is True:
-            return message("support.renderer.shell-tree"), message("support.none")
-        return message("support.renderer.ibus-list"), message("support.fallback.extension")
-    return message("support.unknown"), message("support.fallback.unavailable")
+    return message("support.renderer.ibus-list"), message("support.fallback.extension")
 
 
 def diagnostics(*, tree_enabled, engine_status, build_info=None, environment=None, os_release=None, architecture=None):
