@@ -60,6 +60,7 @@ old.focus()
 old.send(IBus.KEY_Muhenkan)
 old.send(ord("A"), shift)
 wait_for(lambda: old.preedit == "A")
+assert old.replies == [], "focus-out must occur before the original delayed calls finish"
 old.context.focus_out()
 new.focus()
 wait_for(lambda: len(old.replies) == 2)
@@ -72,6 +73,7 @@ new.send(IBus.KEY_Return)
 new.send(IBus.KEY_Home, control)
 new.send(ord("b"))
 wait_for(lambda: new.preedit == "ab")
+assert new.replies == [], "the queued edit must still await Core when focus changes"
 new.context.focus_out()
 old.focus()
 wait_for(lambda: len(new.replies) == 5)
@@ -85,6 +87,7 @@ new.commits.clear()
 new.send(IBus.KEY_Muhenkan)
 new.send(ord("A"), shift)
 wait_for(lambda: new.preedit == "A")
+assert new.replies == [], "Reset must retire calls that have not replied"
 new.context.reset()
 wait_for(lambda: len(new.replies) == 2)
 assert new.commits == ["A"] and new.replies[-1]["consumed"]
@@ -109,9 +112,24 @@ crash_converter(Gio.bus_get_sync(Gio.BusType.SESSION, None), "delayed_bridge.py"
 new.send(IBus.KEY_Henkan)
 wait_for(lambda: len(new.replies) == reply_count + 1)
 assert not old.forwarded and old.commits == ["A"] and len(old.replies) == 2
+new.context.focus_out()
+
+cancelled = Field(bus, "azookey-native-pending-cancellation")
+cancelled.focus()
+cancelled.send(IBus.KEY_Henkan)
+wait_for(lambda: len(cancelled.replies) == 1)
+cancelled.send(ord("a"))
+wait_for(lambda: cancelled.preedit == "a")
+assert len(cancelled.replies) == 1, "Escape must arrive while the text key is unanswered"
+cancelled.send(IBus.KEY_Escape)
+wait_for(lambda: len(cancelled.replies) == 3)
+assert cancelled.preedit == cancelled.document == ""
+assert cancelled.commits == cancelled.forwarded == []
+cancelled.context.focus_out()
 print(json.dumps({
     "status": "PASS", "delaySeconds": float(os.environ["AZOOKEY_TEST_DELAY"]),
     "nativeReplyUsesOriginalEvent": True, "duplicateReplies": 0,
     "daemonQueryWhileWaitingSeconds": bus_query_seconds, "replies": field.replies,
     "failureDeliveries": failure_deliveries,
+    "pendingCancellationReplies": cancelled.replies,
 }))

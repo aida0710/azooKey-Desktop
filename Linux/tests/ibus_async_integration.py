@@ -149,7 +149,8 @@ def main():
     assert first.native == [(IBus.KEY_Return, 38, 0)], first.native
     assert first.forwarded == []
 
-    # Cancellation and an application switch are handled while I/O is waiting.
+    # These sequential edits wait for their replies. ibus_native_keys.py
+    # separately changes focus, resets and cancels before original replies.
     first.type("a")
     first.cancel()
     first.type("b")
@@ -171,15 +172,16 @@ def main():
     assert second.preedit == ""
 
     # A nonresponding conversion recovers the last acknowledged text once and
-    # forwards only the two unacknowledged keys. New input then works normally.
+    # returns the two original keys without reconstructing them.
     second.type("d")
     # Reset keeps the language, but its authoritative reply may still be
     # pending. Enter needs that reply to distinguish commit from native Enter.
     second.key(IBus.KEY_Return)
     wait_until(lambda: second.commits == ["z", "c", "d"])
     second.type("hx")
-    wait_until(lambda: len(second.forwarded) == 2)
-    assert second.forwarded == [(ord("h"), 38, 0), (ord("x"), 38, 0)]
+    assert second.native == [(ord("h"), 38, 0), (ord("x"), 38, 0)]
+    assert second.forwarded == []
+    assert second.document == "zcdhx"
     assert not second.context.process_key_event(ord("q"), 38, 0), "recovery must allow immediate application input"
     crash_converter(Gio.bus_get_sync(Gio.BusType.SESSION, None), "delayed_bridge.py")
     # The language key changes no document text and lets the test observe that
@@ -209,7 +211,7 @@ def main():
 
 
 def check_editing_during_delay(bus):
-    """Exercise the independent review's regressions through real IBus signals."""
+    """Exercise acknowledged editing with a delayed backend through real IBus."""
     conversion = Field(bus, "azookey-delay-escape")
     conversion.focus()
     conversion.type("kana")
@@ -283,8 +285,8 @@ def check_modifier_presses(bus):
         # pending input. Neither path may commit or insert document text.
         field.key(keyval, state, keycode=0)
 
-    for pending in (False, True):
-        if pending:
+    for composing in (False, True):
+        if composing:
             field.type("abc")
         for keyval, mask in modifiers:
             modifier(keyval, 0)

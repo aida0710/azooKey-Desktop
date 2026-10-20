@@ -29,7 +29,7 @@ from .ai_scope import AIRequestConfiguration, AIRequestScope, MODIFIER_KEYS
 from .ai_review import AISuggestionReview
 from .i18n import text as message
 from .settings_store import update_settings
-from .reconversion import ReconversionCoordinator, reconversion_operation, surrounding_context
+from .reconversion import ReconversionCoordinator, surrounding_context
 from .reconversion_strings import message as reconversion_message
 
 
@@ -216,17 +216,23 @@ class Engine(IBus.Engine):
         self.lookup_announcements.reset()
         self.ai_review.cancel()
         text, recovery = self.reconversion.take_recovery(text)
-        self.pending_settings_stamp = None
-        self.snapshot = {}
-        self.anchor.update("", 0)
-        self.update_preedit_text_with_mode(IBus.Text.new_from_string(""), 0, False, IBus.PreeditFocusMode.COMMIT)
-        surface().hide(self)
-        self.panel.dismiss()
-        self.hide_preedit_text()
-        self.hide_lookup_table()
-        can_restore = self.reconversion.is_current_recovery(recovery)
-        if text and self.focused and not self.private and can_restore:
-            self.commit_text(IBus.Text.new_from_string(text))
+        try:
+            self.pending_settings_stamp = None
+            self.snapshot = {}
+            self.anchor.update("", 0)
+            self.update_preedit_text_with_mode(IBus.Text.new_from_string(""), 0, False, IBus.PreeditFocusMode.COMMIT)
+            surface().hide(self)
+            self.panel.dismiss()
+            self.hide_preedit_text()
+            self.hide_lookup_table()
+            can_restore = self.reconversion.is_current_recovery(recovery)
+            if text and self.focused and not self.private and can_restore:
+                self.commit_text(IBus.Text.new_from_string(text))
+        except (OSError, RuntimeError, ValueError):
+            # take_recovery transferred these calls out of the reconversion
+            # queue; a failed display must not leave their replies orphaned.
+            self.reconversion.finish_recovery(recovery, allow_native=False)
+            raise
         return lambda: self.reconversion.finish_recovery(
             recovery, allow_native=can_restore and self.focused and not self.private)
 
@@ -246,20 +252,18 @@ class Engine(IBus.Engine):
         arguments = (connection, sender, object_path, interface, method, parameters, invocation)
         if (method == "ProcessKeyEvent" and interface == "org.freedesktop.IBus.Engine"
                 and connection == self.get_connection()):
-            keyval, _keycode, state = parameters.unpack()
-            event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
-            if (self.reconversion.active or reconversion_operation(event) is not None
-                    or any(pending.key_reply for pending in self.input.pending)
-                    or self.input.pending_native_key(event)):
-                reply = NativeKeyReply(lambda consumed: self.finish_native_key(consumed, arguments))
-                previous, self.native_key_reply = self.native_key_reply, reply
-                try:
-                    consumed = self.emit("process-key-event", keyval, _keycode, state)
-                    if not reply.deferred:
-                        reply.finish(consumed)
-                finally:
-                    self.native_key_reply = previous
-                return
+            # GTK's synchronous client applies preedit from this invocation
+            # before earlier asynchronous signals. Keep every key's Core
+            # display changes inside its original reply, including plain text.
+            reply = NativeKeyReply(lambda consumed: self.finish_native_key(consumed, arguments))
+            previous, self.native_key_reply = self.native_key_reply, reply
+            try:
+                consumed = self.emit("process-key-event", *parameters.unpack())
+                if not reply.deferred:
+                    reply.finish(consumed)
+            finally:
+                self.native_key_reply = previous
+            return
         IBus.Engine.do_service_method_call(self, *arguments)
 
     def finish_native_key(self, consumed, arguments):

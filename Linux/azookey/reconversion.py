@@ -349,11 +349,13 @@ class ReconversionCoordinator:
         target = self.expected if self.phase == "confirming" else self.source
         allow_native = reason != "changed_context" and same_document(target, self.context())
         recovery = self._retire()
-        if recovery.epoch == self.epoch:
-            self.inputs.cancel()
+        try:
             if recovery.epoch == self.epoch:
-                self.status(message(reason))
-        self.finish_recovery(recovery, allow_native=allow_native and self.is_current_recovery(recovery))
+                self.inputs.cancel()
+                if recovery.epoch == self.epoch:
+                    self.status(message(reason))
+        finally:
+            self.finish_recovery(recovery, allow_native=allow_native and self.is_current_recovery(recovery))
 
     def _stop_timeout(self):
         if self.timeout_source is not None:
