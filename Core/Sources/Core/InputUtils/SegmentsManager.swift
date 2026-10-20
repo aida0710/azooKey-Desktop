@@ -599,9 +599,13 @@ public final class SegmentsManager {
 
         let leftSideContext = forcedLeftSideContext ?? self.getCleanLeftSideContext(maxCount: ContextLength.conversion)
         let rightSideContext = forcedRightSideContext ?? self.getCleanRightSideContext(maxCount: ContextLength.conversion)
-        let result = self.withConverter { converter in
+        // 文節の後半は未確定の読みとして保持し、候補の消費範囲を指定した文節に揃える。
+        let conversionTarget = self.didExperienceSegmentEdition
+            ? self.composingText.prefixToCursorPosition()
+            : self.composingText
+        var result = self.withConverter { converter in
             converter.requestCandidates(
-                self.composingText,
+                conversionTarget,
                 options: options(
                     leftSideContext: leftSideContext,
                     rightSideContext: rightSideContext,
@@ -610,6 +614,21 @@ public final class SegmentsManager {
                     requireEnglishPrediction: Config.DebugPredictiveTyping().value ? .manualMix : .disabled
                 )
             )
+        }
+        if self.didExperienceSegmentEdition {
+            // 「き|ょ」のような境界ではprefixToCursorPositionが入力要素を書き換えるため、
+            // 切り出した入力の要素数ではなく、元の読みに対する消費範囲へ戻す。
+            func restoreOriginalRange(_ candidate: Candidate) -> Candidate {
+                var remaining = conversionTarget
+                remaining.prefixComplete(composingCount: candidate.composingCount)
+                var candidate = candidate
+                candidate.composingCount = .surfaceCount(conversionTarget.convertTarget.count - remaining.convertTarget.count)
+                return candidate
+            }
+            result.mainResults = result.mainResults.map(restoreOriginalRange)
+            result.firstClauseResults = result.firstClauseResults.map(restoreOriginalRange)
+            result.predictionResults = result.predictionResults.map(restoreOriginalRange)
+            result.englishPredictionResults = result.englishPredictionResults.map(restoreOriginalRange)
         }
         self.rawCandidates = result
     }
