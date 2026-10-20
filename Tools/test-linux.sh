@@ -15,3 +15,4 @@ export AZOOKEY_BRIDGE="$(swift build --package-path Core --show-bin-path)/azooke
 python3 -m unittest discover -s Linux/tests -v
 xvfb-run -a python3 Linux/tests/test_tree_panel.py -v
 dbus-run-session -- xvfb-run -a bash Tools/tests/linux-desktop.sh
+bash Tools/tests/linux-async.sh
