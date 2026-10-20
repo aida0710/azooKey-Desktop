@@ -7,7 +7,8 @@ import sys
 
 os.environ.pop("NO_AT_BRIDGE", None)
 os.environ["GTK_MODULES"] = "atk-bridge"
-os.environ["GTK_IM_MODULE"] = "simple"
+# An unknown module ID falls back to installed modules, including IBus.
+os.environ["GTK_IM_MODULE"] = "gtk-im-context-simple"
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from focused_text_gtk import TextFields, wait_until
 import gi
