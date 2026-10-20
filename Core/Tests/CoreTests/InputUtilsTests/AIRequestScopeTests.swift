@@ -1,9 +1,9 @@
+@testable import Core
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 import Testing
-@testable import Core
 
 private final class RequestBodyRecorder: @unchecked Sendable {
     private let lock = NSLock()
@@ -26,8 +26,8 @@ private final class RequestBodyRecorder: @unchecked Sendable {
 private final class ScopeMockProtocol: URLProtocol {
     static let recorder = RequestBodyRecorder()
 
-    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "mock.invalid" }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override static func canInit(with request: URLRequest) -> Bool { request.url?.host == "mock.invalid" }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         do {
@@ -35,8 +35,9 @@ private final class ScopeMockProtocol: URLProtocol {
             let content: [String: Any] = request.url?.path == "/transform"
                 ? ["result": "模擬の変換結果"] : ["predictions": ["模擬の候補"]]
             let contentData = try JSONSerialization.data(withJSONObject: content)
+            let contentJSON = try #require(String(bytes: contentData, encoding: .utf8))
             let body = try JSONSerialization.data(withJSONObject: [
-                "choices": [["message": ["content": String(decoding: contentData, as: UTF8.self)]]]
+                "choices": [["message": ["content": contentJSON]]]
             ])
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -144,7 +145,7 @@ struct AIRequestScopeTests {
         let messages = try #require(payload["messages"] as? [[String: String]])
         let userMessage = try #require(messages.first { $0["role"] == "user" }?["content"])
         #expect(userMessage.contains("TARGET_TEXT"))
-        let entireBody = String(decoding: body, as: UTF8.self)
+        let entireBody = try #require(String(bytes: body, encoding: .utf8))
         #expect(entireBody.contains("PRIVATE_BEFORE") == includeContext)
         #expect(entireBody.contains("PRIVATE_AFTER") == includeContext)
     }

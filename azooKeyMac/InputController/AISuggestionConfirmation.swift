@@ -8,4 +8,3 @@ struct AISuggestionConfirmation {
     let configuration: AIRequestConfiguration
     var includeContext: Bool
 }
-
