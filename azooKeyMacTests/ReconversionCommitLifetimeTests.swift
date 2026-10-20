@@ -11,7 +11,6 @@ final class ReconversionCommitLifetimeTests: XCTestCase {
     private var session: MacReconversionSession!
     private var client: DocumentTextInput!
     private var controller: azooKeyMacInputController?
-    private var serverFixture: InputMethodTestServer?
     private var directory: URL!
     private var restoreSettings: (() -> Void)?
 
@@ -43,7 +42,6 @@ final class ReconversionCommitLifetimeTests: XCTestCase {
     override func tearDown() {
         controller?.cancelReplaceSuggestion()
         controller = nil
-        serverFixture = nil
         session = nil
         manager = nil
         client = nil
@@ -127,12 +125,11 @@ final class ReconversionCommitLifetimeTests: XCTestCase {
     }
 
     private func makeReconversionController() throws -> azooKeyMacInputController {
-        serverFixture = try InputMethodTestServer(
-            directoryURL: directory, controllerClass: azooKeyMacInputController.self
-        )
-        let controller = try XCTUnwrap(azooKeyMacInputController(
-            server: serverFixture?.server, delegate: nil, client: client, segmentsManager: manager
+        let serverFixture = try InputMethodTestServer.shared
+        let controller = try XCTUnwrap(InputMethodTestController(
+            server: serverFixture.server, client: client, segmentsManager: manager
         ))
+        XCTAssertTrue(controller.client() === client)
         self.controller = controller
         controller.reconversionClient = session
         controller.requestReconversion(undo: false, reading: "にほんご", client: client)
