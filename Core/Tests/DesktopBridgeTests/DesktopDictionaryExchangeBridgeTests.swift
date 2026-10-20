@@ -28,7 +28,7 @@ struct DesktopDictionaryExchangeBridgeTests {
         #expect(draft[0]["id"] as? String == existing.id.uuidString)
         #expect(draft[1]["word"] as? String == imported.word)
         #expect(draft[1]["reading"] as? String == imported.reading)
-        #expect(draft[1]["hint"] as? String == imported.hint)
+        #expect(draft[1]["hint"] as? String == imported.nonNullHint)
         #expect(try Data(contentsOf: source) == content)
         #expect(!FileManager.default.fileExists(atPath: fixture.settingsURL.path))
         #expect(!FileManager.default.fileExists(atPath: fixture.dataURL.path))
@@ -36,7 +36,7 @@ struct DesktopDictionaryExchangeBridgeTests {
         let roundtrip = try UserDictionaryExchange.parse(Data(exported.utf8), format: .json)
         #expect(roundtrip.rows.first?.item?.word == existing.word)
         #expect(roundtrip.rows.first?.item?.reading == existing.reading)
-        #expect(roundtrip.rows.first?.item?.hint == nil)
+        #expect(roundtrip.rows.first?.item?.nonNullHint.isEmpty == true)
     }
 
     @Test("未対応の版や文字コードと読めないファイルは内容を含まない理由だけ返す")
