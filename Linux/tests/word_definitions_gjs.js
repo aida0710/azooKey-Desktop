@@ -152,6 +152,57 @@ equal(JSON.stringify(extension._lastSnapshot), snapshotBefore);
 equal(renders.length, 1);
 print('GNOME asynchronous dictionary: request is separate from selection and candidate identity PASS');
 
+const cachedDisplay = new ExtensionClass();
+const pendingCountBeforeRetentionTests = pending.length;
+const cachedDefinitions = [];
+cachedDisplay._details = {setWordDefinitions: value => cachedDefinitions.push(value)};
+cachedDisplay._popup = {visible: true};
+cachedDisplay._presentationMode = 'menu';
+cachedDisplay._definitionEpoch = 0;
+cachedDisplay._candidateIdentity = 'identical-candidates-and-reading';
+cachedDisplay._lastSnapshot = {contextId: 'cached-field', generation: 1};
+cachedDisplay._render = () => {};
+function finishLatest(value) {
+    pending.at(-1).at(-1)({call_finish: () => ({deepUnpack: () => [JSON.stringify(value)]})}, {});
+}
+for (const terminal of [response, {status: 'notFound', word: '保証'}]) {
+    cachedDisplay._clearWordDefinitions();
+    cachedDisplay._lookupWordDefinitions('node', 0);
+    finishLatest(terminal);
+    cachedDisplay._clearWordDefinitions({preserveDefinition: true});
+    cachedDisplay._lastSnapshot.generation++;
+    cachedDisplay._lookupWordDefinitions('node', 0);
+    equal(cachedDefinitions.at(-1), terminal);
+    finishLatest(terminal);
+    for (const change of ['target', 'candidates', 'context']) {
+        cachedDisplay._clearWordDefinitions({preserveDefinition: true});
+        const savedIdentity = cachedDisplay._candidateIdentity;
+        const savedContext = cachedDisplay._lastSnapshot.contextId;
+        if (change === 'candidates') cachedDisplay._candidateIdentity = 'replaced-candidates';
+        if (change === 'context') cachedDisplay._lastSnapshot.contextId = 'other-field';
+        cachedDisplay._lookupWordDefinitions('node', change === 'target' ? 1 : 0);
+        equal(cachedDefinitions.at(-1), {status: 'loading'});
+        cachedDisplay._candidateIdentity = savedIdentity;
+        cachedDisplay._lastSnapshot.contextId = savedContext;
+    }
+    cachedDisplay._clearWordDefinitions();
+    cachedDisplay._lookupWordDefinitions('node', 0);
+    equal(cachedDefinitions.at(-1), {status: 'loading'});
+}
+cachedDisplay._clearWordDefinitions();
+cachedDisplay._lookupWordDefinitions('node', 0);
+finishLatest(response);
+for (const terminal of [{status: 'notFound', word: '保証'}, {status: 'error'}]) {
+    cachedDisplay._clearWordDefinitions({preserveDefinition: true});
+    cachedDisplay._lastSnapshot.generation++;
+    cachedDisplay._lookupWordDefinitions('node', 0);
+    finishLatest(terminal);
+    equal(cachedDefinitions.at(-1), terminal);
+}
+// Keep subsequent lifecycle assertions local to their original request sequence.
+pending.splice(pendingCountBeforeRetentionTests);
+print('GNOME pending dictionary: identical found/notFound text survives a new generation; changed target/candidates/context and Hide never reuse it PASS');
+
 extension._lookupWordDefinitions('node', 1);
 extension._clearWordDefinitions();
 const afterHide = displayed.length;

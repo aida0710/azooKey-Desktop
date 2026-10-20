@@ -36,6 +36,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._buttons = new Map();
         this._definitionEpoch = 0;
         this._definitionKey = null;
+        this._retainedDefinition = null;
         this._hoveredAction = null;
         this._treeExpanded = false;
         this._presentationMode = null;
@@ -156,7 +157,7 @@ export default class AzooKeyTreeExtension extends Extension {
     }
 
     _suspendCandidates() {
-        this._clearWordDefinitions();
+        this._clearWordDefinitions({preserveDefinition: true});
         // Keep only presentation preferences. No old action survives the pending interval.
         this._popup.hide();
         this._lastSnapshot = null;
@@ -529,9 +530,10 @@ export default class AzooKeyTreeExtension extends Extension {
         this._details.update({text});
     }
 
-    _clearWordDefinitions() {
+    _clearWordDefinitions({preserveDefinition = false} = {}) {
         this._definitionEpoch++;
         this._definitionKey = null;
+        if (!preserveDefinition) this._retainedDefinition = null;
         this._details?.setWordDefinitions(null);
     }
 
@@ -545,7 +547,11 @@ export default class AzooKeyTreeExtension extends Extension {
         if (key === this._definitionKey) return;
         this._definitionKey = key;
         const epoch = ++this._definitionEpoch;
-        this._details.setWordDefinitions({status: 'loading'});
+        // A pending generation of the identical word must not collapse its full
+        // card and clamp the reader's scroll position before the cached reply.
+        const displayKey = JSON.stringify([data.contextId, this._candidateIdentity, kind, index]);
+        this._details.setWordDefinitions(this._retainedDefinition?.key === displayKey ?
+            this._retainedDefinition.response : {status: 'loading'});
         Gio.DBus.session.call(NAME, PATH, NAME, 'LookupWordDefinitions',
             new GLib.Variant('(sisi)', [data.contextId, data.generation, kind, index]), null,
             Gio.DBusCallFlags.NONE, DEFINITION_TIMEOUT_MILLISECONDS, null, (connection, result) => {
@@ -554,6 +560,7 @@ export default class AzooKeyTreeExtension extends Extension {
                 catch { response = {status: 'error'}; }
                 if (epoch !== this._definitionEpoch || key !== this._definitionKey || !this._lastSnapshot || !this._popup.visible)
                     return;
+                this._retainedDefinition = ['found', 'notFound'].includes(response.status) ? {key: displayKey, response} : null;
                 this._details.setWordDefinitions(response);
                 // Data remains outside the candidate snapshot and its action identity.
                 this._render(this._lastSnapshot);
