@@ -175,11 +175,14 @@ class CandidatePopupPlacementTests(unittest.TestCase):
         self.assertIsNotNone(snapshot["wordGeometry"])
         self.assertEqual(self.panel.location, (100, 350, 0, 35))
         self.assertEqual(self.panel.caret_location, (600, 350, 0, 35))
-        self.panel.update(snapshot)
-        area = self.panel.get_display().get_monitor(0).get_workarea()
-        self.assert_visible_beside_caret(area, cursor=anchor.location)
-        self.assertFalse(self.panel.aligned, "Moving sideways must not claim document alignment")
-        self.assertEqual(self.panel.layout_diagnostics["side"], "right")
+        # Keep both vertical regions too short for the menu. A taller Xvfb
+        # screen can correctly keep the popup aligned below.
+        area = SimpleNamespace(x=0, y=0, width=1280, height=800)
+        with patch.object(self.panel, "work_area", return_value=area):
+            self.panel.update(snapshot)
+            self.assert_visible_beside_caret(area, cursor=anchor.location)
+            self.assertFalse(self.panel.aligned, "Moving sideways must not claim document alignment")
+            self.assertEqual(self.panel.layout_diagnostics["side"], "right")
 
         area = SimpleNamespace(x=640, y=0, width=640, height=320)
         with patch.object(self.panel, "work_area", return_value=area):
