@@ -12,7 +12,7 @@ final class CandidateDetailView: NSScrollView {
     private let label = NSTextField(wrappingLabelWithString: "")
     private let content = CandidateDetailDocument()
     private var displayedText = ""
-    private let inset: CGFloat = 16
+    private let inset: CGFloat = 11
     static let maximumHeight: CGFloat = 160
     // A complete sentence and the three footer actions need more room than a word column.
     nonisolated static let minimumWidth: CGFloat = 480

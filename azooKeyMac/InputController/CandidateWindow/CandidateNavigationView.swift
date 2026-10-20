@@ -25,9 +25,9 @@ final class CandidateNavigationView: NSView {
     private var revealSelection = false
     // The list scrolls instead of hiding long candidates behind ellipses.
     private let maximumListHeight: CGFloat = 260
-    private let headerHeight: CGFloat = 42
-    private let hintHeight: CGFloat = 26
-    private let inset: CGFloat = 12
+    private let headerHeight: CGFloat = 36
+    private let hintHeight: CGFloat = 22
+    private let inset: CGFloat = 8
     var selectedCandidateControls: [NSButton] { rows.filter(\.selected) }
 
     func preferredHeight(width: CGFloat) -> CGFloat {
@@ -140,9 +140,9 @@ final class CandidateNavigationView: NSView {
         super.layout()
         let pageWidth: CGFloat = 62
         let controlsWidth = pageWidth * 2 + 8
-        status.frame = NSRect(x: inset, y: bounds.height - headerHeight + 12,
+        status.frame = NSRect(x: inset, y: bounds.height - headerHeight + 8,
                               width: max(1, bounds.width - inset * 2 - controlsWidth), height: 20)
-        previous.frame = NSRect(x: bounds.width - inset - controlsWidth, y: bounds.height - headerHeight + 4,
+        previous.frame = NSRect(x: bounds.width - inset - controlsWidth, y: bounds.height - headerHeight + 2,
                                 width: pageWidth, height: 32)
         next.frame = NSRect(x: bounds.width - inset - pageWidth, y: previous.frame.minY,
                             width: pageWidth, height: 32)

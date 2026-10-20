@@ -49,7 +49,7 @@ final class CandidateTreeViewTests: XCTestCase {
     }
 
     private func confirm(in view: CandidateTreeView, file: StaticString = #filePath, line: UInt = #line) {
-        let button = buttons(in: view).first { $0.accessibilityLabel() == Localization.text("candidate.submit") }
+        let button = buttons(in: view).first { $0.accessibilityIdentifier() == "candidate-confirm" }
         XCTAssertNotNil(button, file: file, line: line)
         button?.performClick(nil)
     }
@@ -683,14 +683,14 @@ final class CandidateTreeViewTests: XCTestCase {
         view.onCandidateSubmitted = { submitted.append($0) }
         view.update(entries: entries, selectionIndex: 0)
         let oldConfirm = try XCTUnwrap(buttons(in: view).first {
-            $0.accessibilityLabel() == Localization.text("candidate.submit")
+            $0.accessibilityIdentifier() == "candidate-confirm"
         })
         try XCTUnwrap(buttons(in: view).compactMap { $0 as? CandidateRowButton }
             .first { $0.candidateIndex == 1 }).performClick(nil)
         oldConfirm.performClick(nil)
         XCTAssertEqual(submitted, [])
         let current = try XCTUnwrap(buttons(in: view).first {
-            $0.accessibilityLabel() == Localization.text("candidate.submit")
+            $0.accessibilityIdentifier() == "candidate-confirm"
         })
         current.performClick(nil)
         current.performClick(nil)
@@ -708,7 +708,7 @@ final class CandidateTreeViewTests: XCTestCase {
         }
         view.update(entries: [.init(text: "前の候補", tokens: [], candidateIndex: 7)], selectionIndex: 7)
         let oldConfirm = try XCTUnwrap(buttons(in: view).first {
-            $0.accessibilityLabel() == Localization.text("candidate.submit")
+            $0.accessibilityIdentifier() == "candidate-confirm"
         })
         view.update(entries: [.init(text: "新しい候補", tokens: [], candidateIndex: 7)], selectionIndex: 7)
         oldConfirm.performClick(nil)
@@ -750,7 +750,7 @@ final class CandidateTreeViewTests: XCTestCase {
         view.onCandidateSubmitted = { submitted.append($0) }
         view.update(entries: entries, selectionIndex: nil)
         let initialConfirm = try XCTUnwrap(buttons(in: view).first {
-            $0.accessibilityLabel() == Localization.text("candidate.submit")
+            $0.accessibilityIdentifier() == "candidate-confirm"
         })
         XCTAssertFalse(initialConfirm.isEnabled)
         XCTAssertTrue(view.navigate(.down))
