@@ -10,6 +10,7 @@ from .candidate_accessibility import CandidateAction
 from .candidate_announcements import CandidateAnnouncements
 from .candidate_detail import CandidateDetail
 from .candidate_navigation import CandidateNavigation
+from .candidate_placement import COLUMN_START_INSET, popup_placement
 from .candidate_theme import CandidateTheme
 from .candidate_score import SCORE_LINE_HEIGHT, draw_score_badge, score_presentation
 from .i18n import text as message
@@ -86,7 +87,15 @@ class TreePanel(Gtk.Window):
         self.details = CandidateDetail()
         self.details.set_no_show_all(True)
         self.content.pack_start(self.details, False, False, 0)
-        self.add(self.content)
+        # If a very short work area cannot hold the fixed controls, the entire
+        # popup remains scrollable instead of covering the document caret.
+        self.viewport = Gtk.ScrolledWindow()
+        self.viewport.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        self.viewport.set_can_focus(False)
+        self.viewport.set_propagate_natural_width(True)
+        self.viewport.set_propagate_natural_height(True)
+        self.viewport.add(self.content)
+        self.add(self.viewport)
         self.canvas = Gtk.DrawingArea()
         self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.canvas.connect("draw", self.draw)
@@ -100,6 +109,7 @@ class TreePanel(Gtk.Window):
         self.actions = {}
         self.hovered_action = None
         self.location = (0, 0, 0, 0)
+        self.caret_location = None
         self.focus_key = None
         self.layout_diagnostics = {}
         self.placement_side = None
@@ -155,6 +165,11 @@ class TreePanel(Gtk.Window):
         self.focus_key = None
         self.placement_side = None
         self.layout_diagnostics = {}
+        self.reset_popup_scroll()
+
+    def reset_popup_scroll(self):
+        self.viewport.get_hadjustment().set_value(0)
+        self.viewport.get_vadjustment().set_value(0)
 
     def refresh_appearance(self):
         palette = self.theme.palette
@@ -196,6 +211,7 @@ class TreePanel(Gtk.Window):
             self.candidate_identity = identity
             self.presentation_mode = mode
             self.focus_key = None
+            self.reset_popup_scroll()
         elif (snapshot.get("selection") is not None and snapshot.get("selection") == self.snapshot.get("selection")
               and self.snapshot.get("focusedNode") is not None
               and snapshot.get("focusedNode") is not None
@@ -244,7 +260,7 @@ class TreePanel(Gtk.Window):
         score_height = SCORE_LINE_HEIGHT if snapshot.get("showRelativeScores") else 0
         row_height = max(MINIMUM_NODE_SIZE, self.word_height + score_height + self.number_height)
         row_pitch = row_height + CANDIDATE_ROW_GAP
-        x = 12
+        x = COLUMN_START_INSET
         for depth, column in enumerate(columns):
             # Other candidates may cover the entire sentence. They must never
             # change the chosen word's position or cover the following column.
@@ -258,11 +274,11 @@ class TreePanel(Gtk.Window):
         height = max(32, max(map(len, columns)) * row_pitch + 6)
         self.canvas.set_size_request(int(width + 0.5), height)
         self.surface.set_size_request(int(width + 0.5), height)
-        monitor = self.get_display().get_monitor_at_point(self.location[0], self.location[1])
-        area = monitor.get_workarea() if monitor else self.get_screen().get_monitor_workarea(0)
+        area = self.work_area()
         live = mode == "live"
         minimum_popup_width = MINIMUM_LIVE_WIDTH if live and not self.navigation.expanded else MINIMUM_POPUP_WIDTH
-        if aligned and (self.location[0] - 12 < area.x or self.location[0] - 12 + max(minimum_popup_width, width) > area.x + area.width):
+        aligned_x = self.location[0] - COLUMN_START_INSET
+        if aligned and (aligned_x < area.x or aligned_x + max(minimum_popup_width, width) > area.x + area.width):
             # Clamping or scrolling would invalidate the document coordinates.
             # Use the ordinary compact popup when the span cannot fit onscreen.
             self.update({**snapshot, "wordGeometry": None, "layoutReason": "outside-workarea"})
@@ -285,11 +301,28 @@ class TreePanel(Gtk.Window):
             self.scroll.get_child().show()
         self.refresh_details()
         self.details.get_child().show_all()
-        self.show_all()
+        self.viewport.show_all()
         self.scroll.set_visible(self.tree_expanded)
         self.details.set_visible(self.details_expanded)
         self.fit_content_height(width=popup_width, available_height=area.height)
-        self.resize(popup_width, 1)
+        requested_height = self.content.get_preferred_height_for_width(popup_width)[1]
+        placement = popup_placement(
+            cursor=self.current_caret, work_area=(area.x, area.y, area.width, area.height),
+            popup_size=(popup_width, requested_height), preferred_side=self.placement_side,
+            column_anchor_x=self.location[0] if self.aligned else None,
+        )
+        if placement is None:
+            self.suspend()
+            return
+        if self.aligned and placement.side in ("left", "right"):
+            self.update({**snapshot, "wordGeometry": None, "layoutReason": "outside-workarea"})
+            return
+        self.placement_side = placement.side
+        if placement.height < requested_height:
+            self.fit_content_height(width=placement.width, available_height=placement.height)
+        self.limit_viewport(width=placement.width, height=placement.height)
+        self.resize(placement.width, placement.height)
+        self.show()
         self.announcements.update(snapshot)
         self.position()
         self.canvas.queue_draw()
@@ -494,26 +527,53 @@ class TreePanel(Gtk.Window):
         if self.get_visible() and self.tree_expanded and self.actions.get(identity) is source:
             self.select(*identity, False)
 
+    @property
+    def current_caret(self):
+        # Word alignment uses the composition start; exclusion uses the actual
+        # IBus insertion caret, including after that estimated geometry expires.
+        return self.caret_location or self.location
+
+    def work_area(self):
+        monitor = self.get_display().get_monitor_at_point(*self.current_caret[:2])
+        return monitor.get_workarea() if monitor else self.get_screen().get_monitor_workarea(0)
+
+    def limit_viewport(self, *, width, height):
+        self.viewport.set_min_content_width(0)
+        self.viewport.set_max_content_width(width)
+        self.viewport.set_min_content_width(width)
+        self.viewport.set_min_content_height(0)
+        self.viewport.set_max_content_height(height)
+        natural_height = self.content.get_preferred_height_for_width(width)[1]
+        self.viewport.set_min_content_height(min(height, natural_height))
+
     def position(self):
-        x, y, _, height = self.location
-        if getattr(self, "aligned", False):
-            x -= 12
-        monitor = self.get_display().get_monitor_at_point(x, y)
-        area = monitor.get_workarea() if monitor else self.get_screen().get_monitor_workarea(0)
+        area = self.work_area()
         width, popup_height = self.get_size()
-        x = max(area.x, min(x, area.x + area.width - width))
-        below = y + height
-        fits_above = y - popup_height >= area.y
-        above = fits_above and (self.placement_side == "above" or below + popup_height > area.y + area.height)
-        self.placement_side = "above" if above else "below"
-        y = max(area.y, min(y - popup_height if above else below, area.y + area.height - popup_height))
-        self.move(x, y)
+        placement = popup_placement(
+            cursor=self.current_caret, work_area=(area.x, area.y, area.width, area.height),
+            popup_size=(width, popup_height), preferred_side=self.placement_side,
+            column_anchor_x=self.location[0] if self.aligned else None,
+        )
+        if placement is None:
+            self.suspend()
+            return
+        if self.aligned and placement.side in ("left", "right"):
+            # A sideways popup no longer follows the document's word positions.
+            self.update({**self.snapshot, "wordGeometry": None, "layoutReason": "outside-workarea"})
+            return
+        self.placement_side = placement.side
+        if (placement.width, placement.height) != (width, popup_height):
+            self.fit_content_height(width=placement.width, available_height=placement.height)
+            self.limit_viewport(width=placement.width, height=placement.height)
+            self.resize(placement.width, placement.height)
+        self.move(placement.x, placement.y)
         self.layout_diagnostics = {
             "renderer": "gtk", "source": "ibus-caret",
             "mode": "aligned" if self.aligned else "compact",
             "reason": self.snapshot.get("layoutReason", "estimated-inline" if self.aligned else "unavailable-or-narrow"),
-            "cursor": self.location, "workArea": [area.x, area.y, area.width, area.height],
-            "popup": [x, y, width, popup_height],
+            "cursor": self.current_caret, "workArea": [area.x, area.y, area.width, area.height],
+            "popup": [placement.x, placement.y, width, popup_height],
+            "side": placement.side,
         }
 
     def measure(self, text, *, font_size=None):
