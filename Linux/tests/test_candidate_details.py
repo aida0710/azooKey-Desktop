@@ -106,6 +106,7 @@ class CandidateDetailTests(unittest.TestCase):
 
     def test_keyboard_can_scroll_all_of_a_long_candidate(self):
         self.panel.update({**self.snapshot, "focusedNode": 1})
+        self.panel.disclosure_actions["details"].clicked()
         self.flush()
         adjustment = self.panel.details.get_vadjustment()
         self.assertGreater(adjustment.get_upper(), adjustment.get_page_size())
@@ -125,6 +126,7 @@ class CandidateDetailTests(unittest.TestCase):
         preview = "確定予定: 日本画鑑賞\n確定する読み: にほんがかんしょう\n後続の変更: 入力 → 鑑賞\n全角英数"
         self.snapshot["nodes"][1]["previewDescription"] = preview
         self.panel.update(self.snapshot)
+        self.panel.disclosure_actions["tree"].clicked()
         self.panel.show_details(1)
         self.assertIn(preview, self.panel.details.displayed_text)
         self.assertIn(preview, self.panel.actions[("node", 1)].get_accessible().get_description())
@@ -155,7 +157,7 @@ class CandidateDetailTests(unittest.TestCase):
             ]},
         }
 
-    def test_hovering_a_number_previews_its_partial_candidate_and_commits_it_once(self):
+    def test_hovering_a_number_previews_then_selects_its_partial_candidate_before_confirmation(self):
         from copy import deepcopy
         from gi.repository import Gdk
 
@@ -163,6 +165,7 @@ class CandidateDetailTests(unittest.TestCase):
         partial, full = [item["detailDescription"] for item in snapshot["candidatePage"]["items"][:2]]
         original = deepcopy(snapshot)
         self.panel.update(snapshot)
+        self.panel.disclosure_actions["tree"].clicked()
         word = self.panel.actions[("node", 0)]
         number = self.panel.actions[("select", 0)]
         entered = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
@@ -179,7 +182,10 @@ class CandidateDetailTests(unittest.TestCase):
         self.assertEqual(self.commits, [])
         self.assertFalse(self.panel.get_accept_focus())
         number.clicked()
-        self.assertEqual(self.commits, [("select", 0, True)])
+        self.assertEqual(self.commits, [("select", 0, False)])
+        self.panel.update({**snapshot, "selection": 0})
+        self.panel.navigation.confirm.clicked()
+        self.assertEqual(self.commits, [("select", 0, False), ("select", 0, True)])
 
     def test_stationary_hover_stays_on_its_target_after_keyboard_updates_and_leave_restores_selection(self):
         from gi.repository import Gdk
@@ -191,6 +197,7 @@ class CandidateDetailTests(unittest.TestCase):
                 original = self.shared_word_snapshot()
                 self.panel.update(original)
                 self.panel.navigation.expanded = True
+                self.panel.tree_expanded = True
                 self.panel.update(original)
                 target = (self.panel.navigation.row_buttons[0] if kind == "list"
                           else self.panel.actions[(kind, 0)])
@@ -218,6 +225,7 @@ class CandidateDetailTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.panel.update(self.shared_word_snapshot())
                 self.panel.navigation.expanded = True
+                self.panel.tree_expanded = True
                 self.panel.update(self.shared_word_snapshot())
                 target = (self.panel.navigation.row_buttons[0] if kind == "list"
                           else self.panel.actions[(kind, 0)])
