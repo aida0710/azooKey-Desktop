@@ -12,11 +12,11 @@ struct AccessibleStatusMessage: View {
     }
 
     private func announce() {
-        guard !text.isEmpty else {
+        guard !text.isEmpty, let application = NSApp else {
             return
         }
         NSAccessibility.post(
-            element: NSApp as Any,
+            element: application,
             notification: .announcementRequested,
             userInfo: [
                 .announcement: text,
