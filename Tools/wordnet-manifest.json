@@ -1,0 +1,29 @@
+{
+  "name": "Japanese WordNet",
+  "version": "1.1",
+  "source": "https://bond-lab.github.io/wnja/index.ja.html",
+  "archive": {
+    "url": "https://github.com/bond-lab/wnja/releases/download/v1.1/wnjpn.db.gz",
+    "size": 60390049,
+    "sha256": "64a14dcfe3ba296566e91a70a2fc0616e85cf2ee7b7fd8cdcbc66c8b12a505a5"
+  },
+  "database": {
+    "filename": "wnjpn.db",
+    "size": 203110400,
+    "sha256": "a8e749c4a356bf93d0b5de505bca8b21e13746f5728f76819728e8b4c3305a12"
+  },
+  "licenses": [
+    {
+      "filename": "japanese-wordnet.txt",
+      "source": "https://raw.githubusercontent.com/bond-lab/wnja/36dc40e50986dd49748e46df687f13b0f82584a3/docs/license.txt",
+      "size": 1817,
+      "sha256": "e5136420f2e6ec65c41295a942b99edc1f34b88cbf24b515696bf3411953ea70"
+    },
+    {
+      "filename": "princeton-wordnet-3.0.txt",
+      "source": "https://wordnetcode.princeton.edu/3.0/LICENSE",
+      "size": 1625,
+      "sha256": "7731175a77952e259390b496fab905e57118b8d19ad3a8383c67eee724ff443f"
+    }
+  ]
+}

@@ -20,6 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: GIT_LFS_SKIP_SMUDGE=1 git submodule update --init
       - run: python3 Tools/fetch-models.py
+      - run: python3 Tools/fetch-wordnet.py
       - run: bash Tools/test-docker.sh --zenzai
       - name: Build Debian package
         env:

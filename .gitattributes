@@ -1,0 +1,3 @@
+# Preserve the original third-party license texts, including their whitespace.
+packaging/licenses/japanese-wordnet.txt -whitespace
+packaging/licenses/princeton-wordnet-3.0.txt -whitespace
