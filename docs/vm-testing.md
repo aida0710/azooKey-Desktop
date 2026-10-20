@@ -71,3 +71,10 @@ UbuntuのQt/Chromium用のローカル入力欄は `Tools/tests/qt-editor.py` �
 Safariなど通常のブラウザでは `Tools/tests/ime-editor.html` をVMにコピーして開きます。入力中／確定済みの状態とフォーカス、入力結果をページ内に表示します。通信・保存は行いません。候補の番号クリック後に `a` を入力して確定し、全文に「あ」が続くこと、`Composing: false` と `Focused: true` を確認してください。
 
 テストスクリプトはホストのATOK削除・入力ソース切替・ログアウトを行いません。VMで確認してからホスト導入へ進みます。
+
+
+### 固定の入力欄の結果を記録する
+
+GTK用の`Tools/tests/gtk-editor.py`とQt/Chromium用の`Tools/tests/qt-editor.py`は、2つの入力欄を持ちます。どちらも`--output /home/azookey/ux-gui/state.json`を付けると、その画面内の確定文字列・カーソル位置・フォーカスをJSONへ記録します。Qt版はQtの版と表示方式、Chromium欄の選択範囲も記録します。外部サイトや他のアプリの本文は読みません。
+
+候補クリック後の追加入力、欄を切り替えたときの誤確定、重複確定を、画面とJSONの両方で確認してください。ここで得たJSONだけでは、候補の見やすさや読み上げの合格とは判定できません。録画やログに残す入力は固定の検証文に限ります。
