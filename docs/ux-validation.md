@@ -70,7 +70,11 @@ python3 Tools/ux-validation.py record build/ux-validation/ubuntu.json \
 | 長文・絵文字・画面配置 | `A👨‍👩‍👧‍👦é日本語`と長い学習文を使い、カーソル位置・部分確定・折返し・画面端・複数画面を確認します。候補文字の標準/大きい設定と100・150・200%表示で、省略された表記・読みへキー操作でも到達できることを確かめます。 |
 | 暗色・高コントラスト | 標準・暗色・高コントラストで候補を撮影し、選択経路と操作対象が色以外でも分かることを確認します。文字と背景の測定値を添え、ソースRGBの計算と画面上の測定を区別します。 |
 
-ブラウザの固定入力欄は[ime-editor.html](../Tools/tests/ime-editor.html)、UbuntuのQt/Chromium用は[qt-editor.py](../Tools/tests/qt-editor.py)を利用できます。アプリ名だけでなく版、表示方式、OSの版、画面倍率、使った配布物を証跡に残します。複数の操作を一つのログにまとめる場合も、どの操作の合否かを追えるようにしてください。
+ブラウザの固定入力欄は[ime-editor.html](../Tools/tests/ime-editor.html)、UbuntuのQt/QtWebEngine用は[qt-editor.py](../Tools/tests/qt-editor.py)を利用できます。アプリ名だけでなく版、表示方式、OSの版、画面倍率、使った配布物を証跡に残します。複数の操作を一つのログにまとめる場合も、どの操作の合否かを追えるようにしてください。
+
+実Chromiumは `ime-editor.html` を独立したブラウザで開きます。Qt fixtureのQtWebEngineタブを実Chromiumの代わりにはしません。ブラウザページには二つの入力欄があり、`window.imeFixture.snapshot()` から本文・実フォーカス・未確定入力・UTF-16選択範囲・表示倍率を、`observations()` から上限2000件の入力イベントを読み取れます。これらはメモリ内の観測専用で、入力やcompositionを生成しません。実キーボードで入力し、観測結果と全画面の証跡を保存します。観測JSON自体を繰り返し読み上げないよう、状態表示はlive regionにしていません。
+
+GTK・Qt fixtureのJSONにはactive window、各欄の確定本文・未確定文字列・選択範囲を記録します。GTKの選択範囲はUnicode scalar、QtとブラウザはUTF-16単位です。ブラウザの `value` は未確定文字を含む場合があるので `composition` と併読し、GTK/Qtの確定本文と直接同一視しません。Python fixtureは記録ファイルをatomic replaceし、読取側に書きかけのJSONを渡しません。時刻は観測点の記録であり、文字描画やキー受付の完了時刻を自動的に意味しません。
 
 ## 応答時間は受付・表示・確定を分ける
 

@@ -1,11 +1,12 @@
 #!/usr/bin/python3
-"""Guest-only Qt/Chromium fixture; records only text entered into its own fields."""
+"""Guest-only Qt/QtWebEngine fixture; records only its own synthetic input."""
 import argparse
 import json
 import pathlib
 import sys
+import time
 
-from PyQt6.QtCore import QT_VERSION_STR
+from PyQt6.QtCore import QEvent, QTimer, QT_VERSION_STR
 from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QTextEdit, QVBoxLayout, QWidget
@@ -17,9 +18,17 @@ arguments = parser.parse_args()
 if arguments.output:
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
 
+class TestWindow(QMainWindow):
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange:
+            # Observe after Qt finishes updating focus and active-window state.
+            QTimer.singleShot(0, record)
+
+
 application = QApplication(sys.argv)
-window = QMainWindow()
-window.setWindowTitle("azooKey UX validation — Qt / Chromium")
+window = TestWindow()
+window.setWindowTitle("azooKey UX validation — Qt / QtWebEngine")
 tabs = QTabWidget()
 native_page = QWidget()
 native_layout = QVBoxLayout(native_page)
@@ -32,17 +41,33 @@ BROWSER_EVENT_PREFIX = "AZOOKEY_FIXTURE:"
 def record():
     if arguments.output:
         state = {
+            "observedAt": time.time(), "monotonicNS": time.monotonic_ns(),
+            "windowActive": window.isActiveWindow(),
             "qt_version": QT_VERSION_STR,
             "platform": application.platformName(),
             "tab": tabs.currentIndex(),
             "fields": [
-                {"text": editor.toPlainText(), "focused": editor.hasFocus(),
-                 "cursor": editor.textCursor().position()}
+                {"text": editor.toPlainText(), "focused": window.isActiveWindow() and editor.hasFocus(),
+                 "cursor": editor.textCursor().position(), "preedit": editor.preedit,
+                 "selection": {"startUTF16": editor.textCursor().selectionStart(),
+                               "endUTF16": editor.textCursor().selectionEnd()}}
                 for editor in editors
             ],
             "browser_fields": browser_fields,
         }
-        arguments.output.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        pending_output = arguments.output.with_suffix(arguments.output.suffix + ".pending")
+        pending_output.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        pending_output.replace(arguments.output)
+
+
+class TestEditor(QTextEdit):
+    preedit = ""
+
+    def inputMethodEvent(self, event):
+        # Observe the native event, then let QTextEdit apply it unchanged.
+        self.preedit = event.preeditString()
+        super().inputMethodEvent(event)
+        record()
 
 
 class TestPage(QWebEnginePage):
@@ -56,12 +81,13 @@ class TestPage(QWebEnginePage):
 
 
 for index in range(2):
-    editor = QTextEdit()
+    editor = TestEditor()
     editor.setAccessibleName(f"Test input {index + 1}")
     editor.setPlaceholderText("日本語を入力し、候補クリック後に続けて入力")
     editor.setStyleSheet("font-size: 24px")
     editor.textChanged.connect(record)
     editor.cursorPositionChanged.connect(record)
+    editor.selectionChanged.connect(record)
     editors.append(editor)
     native_layout.addWidget(editor)
 tabs.addTab(native_page, "Qt")
@@ -89,9 +115,10 @@ for (const editor of editors) {
 }
 report();
 </script></html>""")
-tabs.addTab(browser, "Chromium")
+tabs.addTab(browser, "QtWebEngine")
 tabs.currentChanged.connect(record)
 application.focusChanged.connect(lambda _old, _new: record())
+application.focusWindowChanged.connect(lambda _window: record())
 window.setCentralWidget(tabs)
 window.resize(900, 600)
 window.show()
