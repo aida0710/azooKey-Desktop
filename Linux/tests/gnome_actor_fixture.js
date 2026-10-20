@@ -12,11 +12,15 @@ export class Actor {
         Object.assign(this, {visible: true, reactive: true}, properties);
         this.children = [];
         this.signals = new Map();
+        this.allocated = false;
         this.clutter_text = {set_attributes() {},
             set_line_wrap: value => { this.wrap = value; },
             set_line_wrap_mode: value => { this.wrapMode = value; },
             set_ellipsize: value => { this.ellipsize = value; }};
-        this.adjustment = {value: 0, lower: 0, upper: 600, page_size: 160, connect() {}};
+        const adjustmentSignals = new Map();
+        this.adjustment = {value: 0, lower: 0, upper: 600, page_size: 160,
+            connect(signal, callback) { adjustmentSignals.set(signal, callback); },
+            emit(signal) { adjustmentSignals.get(signal)?.(); }};
         this.accessible = {
             add_action: (_name, _description, _key, callback) => {
                 this.action = () => callback(this.accessible);
@@ -37,8 +41,10 @@ export class Actor {
     }
     connect_after(signal, callback) { this.connect(signal, callback); }
     emit(signal, ...args) {
+        if (signal === 'notify::allocation') this.allocated = true;
         for (const callback of this.signals.get(signal) ?? []) callback(this, ...args);
     }
+    has_allocation() { return this.allocated; }
     get_accessible() { return this.accessible; }
     is_mapped() { return this.visible && (!this.parent || this.parent.is_mapped()); }
     get_parent() { return this.parent; }

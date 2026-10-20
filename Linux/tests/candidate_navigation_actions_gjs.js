@@ -1,6 +1,7 @@
 // Real navigation code with a model of Cally 46's deferred action delivery.
 import {attachCandidateAction} from '../gnome-extension/candidateAccessibility.js';
 import {messages} from '../gnome-extension/candidateMessages.js';
+import {serializeCandidateIdentity} from '../gnome-extension/candidateIdentity.js';
 import {Actor, ScrollableActor, ScrollViewActor, drainActions, loadShellClass} from './gnome_actor_fixture.js';
 
 function equal(actual, expected) {
@@ -15,7 +16,7 @@ const imports = {
     Clutter: {ActorAlign: {CENTER: 0, START: 1}, EVENT_PROPAGATE: false},
     Pango: {WrapMode: {WORD_CHAR: 0}, EllipsizeMode: {NONE: 0}},
     GLib: {Variant: class { constructor(_signature, values) { this.values = values; } }},
-    attachCandidateAction, messages,
+    attachCandidateAction, messages, serializeCandidateIdentity,
 };
 imports.createWrappingLabel = loadShellClass({fileName: 'candidateText.js', imports, className: 'createWrappingLabel'});
 const Navigation = loadShellClass({fileName: 'candidateNavigation.js', className: 'CandidateNavigation', imports});
@@ -153,3 +154,46 @@ longRow.height = 150;
 longRow.emit('notify::allocation');
 equal(scroll.value, 400);
 print('GNOME selected row: allocation reveals keyboard selection once, preserves manual scrolling and shows the start of long rows PASS');
+
+// Clutter 46 returns a natural height and y=0 before a new actor is allocated.
+// A positive height therefore does not mean the selected row is in view.
+class RequestedHeightButton extends Actor {
+    constructor(properties) {
+        super(properties);
+        this.height = 44;
+        this.y = 0;
+    }
+}
+const requestedImports = {...imports, St: {...imports.St, Button: RequestedHeightButton}};
+const RequestedNavigation = loadShellClass({fileName: 'candidateNavigation.js',
+    className: 'CandidateNavigation', imports: requestedImports});
+const awaitingLayout = new RequestedNavigation({select() {}, changed() {}, preview() {}});
+awaitingLayout.update({...snapshot(0, 1), selection: 8}, layout);
+const pendingRow = awaitingLayout._rows.get_children()[8];
+const pendingScroll = awaitingLayout._scroll.get_vadjustment();
+pendingScroll.page_size = 100;
+pendingScroll.upper = 396;
+pendingRow.y = 352;
+pendingRow.emit('notify::allocation');
+equal(pendingScroll.value, 296);
+pendingScroll.value = 180;
+pendingRow.emit('notify::allocation');
+equal(pendingScroll.value, 180);
+print('GNOME newly created row: natural height does not consume the pending reveal before allocation PASS');
+
+const growingPage = new RequestedNavigation({select() {}, changed() {}, preview() {}});
+growingPage.update({...snapshot(0, 1), selection: 8}, layout);
+const growingRow = growingPage._rows.get_children()[8];
+const growingScroll = growingPage._scroll.get_vadjustment();
+growingScroll.page_size = 100;
+growingScroll.upper = 160;
+growingRow.y = 352;
+growingRow.emit('notify::allocation');
+equal(growingScroll.value, 0);
+growingScroll.upper = 396;
+growingScroll.emit('notify::upper');
+equal(growingScroll.value, 296);
+growingScroll.value = 180;
+growingScroll.emit('notify::upper');
+equal(growingScroll.value, 180);
+print('GNOME growing page: allocation waits for its scroll range, then reveals once without overriding manual scroll PASS');
