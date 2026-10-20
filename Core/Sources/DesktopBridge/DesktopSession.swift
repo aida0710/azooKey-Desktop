@@ -442,16 +442,12 @@ final class DesktopSession: SegmentManagerDelegate {
             segments.requestSelectingRow(index)
             commitSelected(into: &result.commits)
             segments.requestResettingSelection()
-        case .submitHiraganaCandidate:
-            commit(segments.getModifiedRubyCandidate(inputState: state) { $0.toHiragana() }, into: &result.commits)
-        case .submitKatakanaCandidate:
-            commit(segments.getModifiedRubyCandidate(inputState: state) { $0.toKatakana() }, into: &result.commits)
-        case .submitHankakuKatakanaCandidate:
-            commit(segments.getModifiedRubyCandidate(inputState: state) { $0.toKatakana().applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &result.commits)
-        case .submitFullWidthRomanCandidate:
-            commit(segments.getModifiedRomanCandidate(inputState: state) { $0.applyingTransform(.fullwidthToHalfwidth, reverse: true) ?? $0 }, into: &result.commits)
-        case .submitHalfWidthRomanCandidate:
-            commit(segments.getModifiedRomanCandidate(inputState: state) { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &result.commits)
+        case .submitHiraganaCandidate, .submitKatakanaCandidate, .submitHankakuKatakanaCandidate,
+             .submitFullWidthRomanCandidate, .submitHalfWidthRomanCandidate:
+            guard let conversion = FunctionKeyConversion(action: clientAction) else {
+                return snapshot()
+            }
+            commit(segments.getFunctionKeyCandidate(inputState: state, conversion: conversion), into: &result.commits)
         case .enableDebugWindow: segments.requestDebugWindowMode(enabled: true)
         case .disableDebugWindow: segments.requestDebugWindowMode(enabled: false)
         case .stopComposition:

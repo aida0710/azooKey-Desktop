@@ -144,7 +144,8 @@ import Testing
         _ = try session.selectCurrentCandidate(index: 0)
         let before = session.snapshot()
         #expect(throws: DesktopReadingSession.Failure.unsupportedAction) {
-            try session.key(key(101))
+            try session.key(.init(modifierFlags: .control, characters: nil,
+                                  charactersIgnoringModifiers: nil, keyCode: 51))
         }
         #expect(session.snapshot().preedit == before.preedit)
         #expect(session.snapshot().generation == before.generation)

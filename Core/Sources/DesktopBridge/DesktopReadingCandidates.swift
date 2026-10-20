@@ -49,6 +49,13 @@ struct DesktopReadingCandidates {
     var selectedCount: ComposingCountSnapshot? {
         selection.map { $0.accepted.batch.candidates[$0.index].composingCount }
     }
+    var selectedReading: String? {
+        guard let selection else {
+            return nil
+        }
+        let reading = selection.accepted.batch.candidates[selection.index].presentation.tokens.map(\.reading).joined()
+        return reading.isEmpty ? selection.accepted.consumption[selection.index].consumedReading : reading
+    }
     var preferredSelectionIndex: Int? {
         guard let available, !available.batch.candidates.isEmpty else {
             return nil
