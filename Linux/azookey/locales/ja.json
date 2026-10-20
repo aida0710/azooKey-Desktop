@@ -167,5 +167,20 @@
   "settings.dictionary_separate_save": "辞書は専用の画面で編集し、その画面の「保存」で反映します。",
   "settings.dictionary_saved": "辞書を保存しました。次の変換から使用します。",
   "candidate.score.show": "相対スコアを表示",
-  "candidate.score.explanation": "同じ読み・消費範囲の取得候補を、同じ親から分かれる候補同士で比べた値です。非表示の候補も含みます。正解の確率ではありません。"
+  "candidate.score.explanation": "同じ読み・消費範囲の取得候補を、同じ親から分かれる候補同士で比べた値です。非表示の候補も含みます。正解の確率ではありません。",
+  "candidate.definition.title": "意味・用例",
+  "candidate.definition.loading": "辞典を検索しています…",
+  "candidate.definition.notFound": "「{word}」の語義は見つかりませんでした",
+  "candidate.definition.unavailable": "辞典データを利用できません",
+  "candidate.definition.error": "辞典を検索できませんでした",
+  "candidate.definition.examples": "用例",
+  "candidate.definition.source": "日本語ワードネット 1.1",
+  "candidate.definition.sourceShort": "WordNet 1.1",
+  "candidate.definition.open": "意味・用例の詳細を表示",
+  "candidate.definition.close": "閉じる",
+  "candidate.definition.word": "{word}（{reading}）",
+  "candidate.definition.chooseWord": "語を選ぶと意味を表示します",
+  "candidate.definition.readingNote": "辞典に読みの区別がないため、同じ表記の語義を表示しています。",
+  "candidate.definition.attribution": "日本語ワードネット（1.1版）© 2009-2011 NICT, 2012-2015 Francis Bond and 2016-2024 Francis Bond, Takayuki Kuribayashi",
+  "candidate.definition.synonyms": "辞典に載っている類語（最大8語）"
 }

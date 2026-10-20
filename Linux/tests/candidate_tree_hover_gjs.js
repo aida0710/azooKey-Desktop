@@ -24,6 +24,8 @@ class MeasuredLabelActor extends Actor {
     }
 }
 const imports = {
+    // Keep the old hover scenarios independent of dictionary I/O; new dictionary tests deliver replies.
+    Gio: {DBus: {session: {call() {}}}, DBusCallFlags: {NONE: 0}},
     St: {Button: Actor, BoxLayout: ScrollableActor, Label: MeasuredLabelActor, ScrollView: ScrollViewActor, DrawingArea: Actor,
         PolicyType: {NEVER: 0, AUTOMATIC: 1}},
     Clutter: {ActorAlign: {CENTER: 0, START: 1}, EVENT_PROPAGATE: false},
@@ -31,7 +33,7 @@ const imports = {
         idle_add: (_priority, reveal) => { const identity = nextReveal++; pendingReveals.set(identity, reveal); return identity; },
         source_remove: identity => pendingReveals.delete(identity)},
     Pango: {AttrList: class { insert() {} }, attr_underline_new() {}, Underline: {SINGLE: 0},
-        WrapMode: {WORD_CHAR: 0}, EllipsizeMode: {NONE: 0}},
+        WrapMode: {WORD_CHAR: 0}, EllipsizeMode: {NONE: 0, END: 1}},
     Main: {layoutManager: {monitors: [bounds], primaryIndex: 0}},
     global: {workspace_manager: {get_active_workspace: () => ({get_work_area_for_monitor: () => bounds})}},
     Extension: class {},
@@ -46,6 +48,8 @@ const Detail = loadShellClass({fileName: 'candidateDetail.js', imports, classNam
 const TreeExtension = loadShellClass({fileName: 'extension.js', imports, className: 'AzooKeyTreeExtension'});
 const extension = new TreeExtension();
 extension._buttons = new Map();
+extension._definitionEpoch = 0;
+extension._definitionKey = null;
 extension._hoveredAction = null;
 extension._treeExpanded = true;
 extension._popup = new Actor();

@@ -21,6 +21,7 @@ const NAME = 'org.azookey.Tree';
 const PATH = '/org/azookey/Tree';
 const CANDIDATE_ROW_GAP = 4; // Separate actions even when the score line is hidden.
 const MINIMUM_NODE_HEIGHT = 44; // A number badge shares the word's pointer/AT target.
+const DEFINITION_TIMEOUT_MILLISECONDS = 5000; // A dictionary result may fail without delaying input.
 const NODE_BORDER_WIDTH = 2; // Reserve both borders outside the measured label heights.
 // Bound each scrollable section so the source document remains visible around the card.
 const CARD_LAYOUT = {minimumWidth: 360, maximumWidth: 560, lineCharacters: 26,
@@ -29,6 +30,8 @@ const CARD_LAYOUT = {minimumWidth: 360, maximumWidth: 560, lineCharacters: 26,
 export default class AzooKeyTreeExtension extends Extension {
     enable() {
         this._buttons = new Map();
+        this._definitionEpoch = 0;
+        this._definitionKey = null;
         this._hoveredAction = null;
         this._treeExpanded = false;
         this._presentationMode = null;
@@ -103,6 +106,7 @@ export default class AzooKeyTreeExtension extends Extension {
     }
 
     _hideCandidates() {
+        this._clearWordDefinitions();
         this._hoveredAction = null;
         this._candidateIdentity = null;
         this._announcements.reset();
@@ -127,6 +131,7 @@ export default class AzooKeyTreeExtension extends Extension {
     }
 
     _suspendCandidates() {
+        this._clearWordDefinitions();
         // Keep only presentation preferences. No old action survives the pending interval.
         this._popup.hide();
         this._lastSnapshot = null;
@@ -398,6 +403,7 @@ export default class AzooKeyTreeExtension extends Extension {
         const isMenu = this._presentationMode === 'menu';
         for (const actor of [this._composition.actor, this._navigation.actor, this._details.actor]) actor.visible = isMenu;
         if (!isMenu) {
+            this._clearWordDefinitions();
             this._detailState = null;
             const treeWidth = Math.min(bounds.width, treeContentWidth, CARD_LAYOUT.maximumWidth);
             const treeHeight = Math.min(treeContentHeight, bounds.height * CARD_LAYOUT.treeFraction);
@@ -437,16 +443,49 @@ export default class AzooKeyTreeExtension extends Extension {
     _showDetails(nodeID) {
         const state = this._detailState;
         const node = state?.nodes.get(nodeID);
-        if (!node) return;
+        if (!node) { this._clearWordDefinitions(); return; }
+        this._lookupWordDefinitions('node', nodeID);
         const scoreDescription = state.showScores ? node.scorePresentation?.detailDescription : null;
         const text = [node.text, node.reading, node.previewDescription, scoreDescription, messages.detailKeys].filter(Boolean).join('\n');
         this._details.update({text});
+    }
+
+    _clearWordDefinitions() {
+        this._definitionEpoch++;
+        this._definitionKey = null;
+        this._details?.setWordDefinitions(null);
+    }
+
+    _lookupWordDefinitions(kind, index) {
+        const data = this._lastSnapshot;
+        if (!data || this._presentationMode !== 'menu' || !Number.isInteger(index)) {
+            this._clearWordDefinitions();
+            return;
+        }
+        const key = JSON.stringify([data.contextId, data.generation, kind, index]);
+        if (key === this._definitionKey) return;
+        this._definitionKey = key;
+        const epoch = ++this._definitionEpoch;
+        this._details.setWordDefinitions({status: 'loading'});
+        Gio.DBus.session.call(NAME, PATH, NAME, 'LookupWordDefinitions',
+            new GLib.Variant('(sisi)', [data.contextId, data.generation, kind, index]), null,
+            Gio.DBusCallFlags.NONE, DEFINITION_TIMEOUT_MILLISECONDS, null, (connection, result) => {
+                let response;
+                try { response = JSON.parse(connection.call_finish(result).deepUnpack()[0]); }
+                catch { response = {status: 'error'}; }
+                if (epoch !== this._definitionEpoch || key !== this._definitionKey || !this._lastSnapshot || !this._popup.visible)
+                    return;
+                this._details.setWordDefinitions(response);
+                // Data remains outside the candidate snapshot and its action identity.
+                this._render(this._lastSnapshot);
+            });
     }
 
     _refreshDetails() {
         if (!this._detailState) return;
         const item = this._navigation.expanded ? this._navigation.hoveredItem : null;
         if (item) {
+            this._lookupWordDefinitions('candidate', item.index);
             this._details.update({text: item.detailDescription});
             return;
         }

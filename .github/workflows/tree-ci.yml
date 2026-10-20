@@ -37,7 +37,11 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Check offline dictionary preparation
+        run: python3 Tools/tests/test-fetch-wordnet.py
       - run: bash Tools/test-docker.sh
+      - name: Check dictionary lookup and candidate surfaces
+        run: bash Tools/test-docker.sh bash Tools/tests/linux-word-definitions.sh
       - name: Fetch pinned model pointers without LFS installation
         env:
           GIT_LFS_SKIP_SMUDGE: '1'
