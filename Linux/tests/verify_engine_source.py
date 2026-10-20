@@ -19,7 +19,7 @@ def verify_source(expected_pid, source):
     arguments = [argument.decode() for argument in arguments if argument]
     source = source.resolve()
     assert source in [pathlib.Path(argument).resolve() for argument in arguments], arguments
-    engine = source.parent / "azookey/engine.py"
+    engine = pathlib.Path(__file__).resolve().parents[1] / "azookey/engine.py"
     print(json.dumps({
         "source_engine_pid": process_id,
         "source_entrypoint": str(source),
