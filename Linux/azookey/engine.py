@@ -6,6 +6,7 @@ import uuid
 import gi
 gi.require_version("IBus", "1.0")
 gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
 gi.require_version("Atk", "1.0")
 from gi.repository import Atk, IBus, Gdk, GLib, Gtk
 from .bridge import Bridge
