@@ -539,26 +539,12 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.segmentsManager.requestSelectingRow(index)
             self.submitSelectedCandidate()
             self.segmentsManager.requestResettingSelection()
-        case .submitHiraganaCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRubyCandidate(inputState: self.inputState) {
-                $0.toHiragana()
-            })
-        case .submitKatakanaCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRubyCandidate(inputState: self.inputState) {
-                $0.toKatakana()
-            })
-        case .submitHankakuKatakanaCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRubyCandidate(inputState: self.inputState) {
-                $0.toKatakana().applyingTransform(.fullwidthToHalfwidth, reverse: false)!
-            })
-        case .submitFullWidthRomanCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate(inputState: self.inputState) {
-                $0.applyingTransform(.fullwidthToHalfwidth, reverse: true)!
-            })
-        case .submitHalfWidthRomanCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate(inputState: self.inputState) {
-                $0.applyingTransform(.fullwidthToHalfwidth, reverse: false)!
-            })
+        case .submitHiraganaCandidate, .submitKatakanaCandidate, .submitHankakuKatakanaCandidate,
+             .submitFullWidthRomanCandidate, .submitHalfWidthRomanCandidate:
+            guard let conversion = FunctionKeyConversion(action: clientAction) else {
+                return true
+            }
+            self.submitCandidate(self.segmentsManager.getFunctionKeyCandidate(inputState: self.inputState, conversion: conversion))
         case .enableDebugWindow:
             self.segmentsManager.requestDebugWindowMode(enabled: true)
         case .disableDebugWindow:

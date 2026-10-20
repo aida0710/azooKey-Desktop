@@ -106,7 +106,7 @@ import Testing
         #expect(nextInput.preedit == "い")
     }
 
-    @Test(arguments: [UInt16(48), UInt16(101), UInt16(109)])
+    @Test(arguments: [UInt16(48)])
     func unsupportedActionsPreserveReadingStateAndCursor(keyCode: UInt16) throws {
         var session = DesktopReadingSession()
         _ = try type("nihongo", into: &session)

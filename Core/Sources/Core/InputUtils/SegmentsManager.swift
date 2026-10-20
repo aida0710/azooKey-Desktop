@@ -843,6 +843,14 @@ public final class SegmentsManager {
     }
 
     @MainActor
+    public func getFunctionKeyCandidate(inputState: InputState, conversion: FunctionKeyConversion) -> Candidate {
+        if conversion.isRoman {
+            return self.getModifiedRomanCandidate(inputState: inputState, conversion.convert)
+        }
+        return self.getModifiedRubyCandidate(inputState: inputState, conversion.convert)
+    }
+
+    @MainActor
     public func getModifiedRubyCandidate(inputState: InputState, _ transform: (String) -> String) -> Candidate {
         let (ruby, composingCount): (String, ComposingCount) = switch inputState {
         case .selecting:

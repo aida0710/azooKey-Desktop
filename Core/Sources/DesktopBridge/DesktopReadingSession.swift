@@ -157,6 +157,8 @@ struct DesktopReadingSession {
         response.reading = composition.convertTarget
         response.readingCursor = unicodeScalarOffset(in: response.reading, utf16Offset: composition.readingCursorUTF16Offset)
         response.inputState = state.bridgeName
+        response.showCandidateIndex = state == .selecting && candidates.batch != nil
+        response.pageStart = (candidates.selectionIndex ?? 0) / CandidatePage.size * CandidatePage.size
         switch state {
         case .unicodeInput(let codePoint):
             response.preedit = "U+" + codePoint
@@ -198,6 +200,9 @@ struct DesktopReadingSession {
         let (clientAction, callback) = state.event(
             eventCore: event, userAction: action, inputLanguage: language,
             liveConversionEnabled: false, enableDebugWindow: false, enableSuggestion: false)
+        if let conversion = FunctionKeyConversion(action: clientAction) {
+            return try commitConvertedText(conversion)
+        }
         var commits: [String] = []
         var consumed = true
         switch clientAction {
@@ -243,6 +248,16 @@ struct DesktopReadingSession {
             try moveCandidateSelection(by: 1)
         case .selectPrevCandidate:
             try moveCandidateSelection(by: -1)
+        case .selectNumberCandidate(let number):
+            guard let selectedIndex = candidates.selectionIndex, let batch = candidates.batch else {
+                throw DesktopReadingCandidates.Failure.unavailableCandidate
+            }
+            let index = selectedIndex / CandidatePage.size * CandidatePage.size + number - 1
+            guard batch.candidates.indices.contains(index) else {
+                return snapshot()
+            }
+            try selectCandidate(at: index)
+            return try commitSelectedCandidate(callback: callback)
         case .hideCandidateWindow:
             cancelConversion()
         case .stopComposition:
@@ -335,6 +350,32 @@ struct DesktopReadingSession {
         }
         // A suffix has no selected identity until its own candidate batch is explicitly selected.
         return requestConversion(state: state, commits: [committed.text])
+    }
+
+    private mutating func commitConvertedText(_ conversion: FunctionKeyConversion) throws -> DesktopSnapshot {
+        let isSelectingRange = state == .selecting || pendingConversionState == .selecting
+        let count = isSelectingRange
+            ? candidates.selectedCount?.composingCount ?? .surfaceCount(composition.conversionRangeEnd ?? composition.convertTarget.count)
+            : .inputCount(composition.composingText.input.count)
+        let source: String
+        let consumed: ComposingCount
+        if conversion.isRoman {
+            (source, consumed) = composition.romanInputForSelection(composingCount: count)
+        } else {
+            let consumption = try CandidateConsumption(composition: composition, count: .init(count))
+            source = isSelectingRange ? candidates.selectedReading ?? consumption.consumedReading : composition.convertTarget
+            consumed = count
+        }
+        let text = conversion.convert(source)
+        composition.prefixComplete(composingCount: consumed)
+        candidates.invalidate()
+        pendingConversionState = nil
+        // This transforms the formal input; it is not a selection of a stored conversion candidate.
+        if composition.isEmpty {
+            state = .none
+            return snapshot(commits: [text])
+        }
+        return requestConversion(state: .selecting, commits: [text])
     }
 
     private mutating func cancelConversion() {

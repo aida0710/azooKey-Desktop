@@ -6,6 +6,41 @@ from Linux.tests.reading_worker_fixture import ReadingWorkerCase
 
 
 class ReadingCandidateWorkerTests(ReadingWorkerCase):
+    def test_function_keys_convert_only_the_selected_prefix_after_candidate_worker_stop(self):
+        for keyval, expected in ((0xFFC3, "に"), (0xFFC4, "ニ"), (0xFFC5, "ﾆ"),
+                                 (0xFFC6, "ｎｉ"), (0xFFC7, "ni")):
+            with self.subTest(keyval=keyval):
+                self.type("nihongo")
+                batch = self.batch(text="荷", count=2)
+                self.adopt(batch)
+                self.select(batch)
+                self.request("candidate-worker-stopped", reference=self.reference,
+                             candidateWorkerGeneration="converter")
+                committed = self.key(keyval)["snapshot"]
+                self.assertEqual(committed["commits"], [expected])
+                self.assertEqual(committed["preedit"], "ほんご")
+                self.assertEqual(committed["request"], "candidates")
+                self.assertNotIn("candidateCompletions", committed)
+                self.assertEqual(self.key(0xFF0D)["snapshot"]["commits"], ["ほんご"])
+
+    def test_number_selects_a_retained_identity_and_enter_finishes_the_suffix(self):
+        self.type("nihongo")
+        batch = self.batch(text="荷", count=2)
+        second = copy.deepcopy(batch["candidates"][0])
+        second.update(candidateID="second", text="二")
+        batch["candidates"].append(second)
+        self.adopt(batch)
+        selected = self.select(batch)["snapshot"]
+        self.assertTrue(selected["showCandidateIndex"])
+        committed = self.key(ord("2"))["snapshot"]
+        self.assertEqual(committed["commits"], ["二"])
+        self.assertEqual(committed["preedit"], "ほんご")
+        self.assertEqual(committed["candidateCompletions"][0]["candidateID"], "second")
+        self.assertEqual(committed["candidateCompletions"][0]["batchID"], batch["batchID"])
+        suffix = self.key(0xFF0D)["snapshot"]
+        self.assertEqual(suffix["commits"], ["ほんご"])
+        self.assertNotIn("candidateCompletions", suffix)
+
     def test_focus_out_input_and_completion_keep_old_authority_but_next_operation_uses_new_reference(self):
         self.type("nihongo")
         batch = self.batch()
