@@ -7,4 +7,9 @@ export const messages = {
     closeList: '閉じる',
     previousPage: '前へ',
     nextPage: '次へ',
+    activate: '実行',
+    reading: reading => `読み ${reading}`,
+    wordPosition: (position, total) => `語 ${position} / ${total}`,
+    commit: text => `確定予定 ${text}`,
+    remaining: reading => `残る読み ${reading}`,
 };
