@@ -34,6 +34,9 @@ class Field:
         self.context.set_capabilities(IBus.Capabilite.PREEDIT_TEXT | IBus.Capabilite.FOCUS)
         self.commits = []
         self.forwarded = []
+        self.native = []
+        self.native_reply_timings = []
+        self.ordered_reply_timings = []
         self.preedit = ""
         self.document = ""
         self.cursor = 0
@@ -44,6 +47,9 @@ class Field:
 
     def forward_key(self, _context, keyval, keycode, state):
         self.forwarded.append((keyval, keycode, state & ~IBus.ModifierType.FORWARD_MASK))
+        self.deliver_native(keyval, state)
+
+    def deliver_native(self, keyval, state):
         if keyval == IBus.KEY_Left:
             self.cursor = max(0, self.cursor - 1)
         elif keyval == IBus.KEY_Right:
@@ -70,12 +76,24 @@ class Field:
                                Gio.DBusCallFlags.NONE, 5000, None)
         wait_until(lambda: self.context.get_engine() is not None)
 
-    def key(self, keyval, state=0):
+    def key(self, keyval, state=0, *, ordered=False):
         start = time.monotonic()
-        assert self.context.process_key_event(keyval, 38, state)
+        consumed = self.context.process_key_event(keyval, 38, state)
         duration = time.monotonic() - start
-        self.timings.append(duration)
-        assert duration < CALLBACK_BUDGET_SECONDS, f"key callback blocked for {duration:.3f}s"
+        if ordered:
+            self.ordered_reply_timings.append({
+                "keyval": keyval, "state": int(state), "consumed": consumed, "seconds": duration,
+            })
+        if consumed:
+            if not ordered:
+                self.timings.append(duration)
+                assert duration < CALLBACK_BUDGET_SECONDS, f"consumed key callback blocked for {duration:.3f}s"
+        else:
+            # A native reply may wait for a preceding commit. Exercise that
+            # original event, separately from engine-generated ForwardKeyEvent.
+            self.native.append((keyval, 38, state))
+            self.native_reply_timings.append(duration)
+            self.deliver_native(keyval, state)
         while GLib.MainContext.default().pending():
             GLib.MainContext.default().iteration(False)
 
@@ -97,13 +115,14 @@ def main():
     first.focus()
 
     # Each key is accepted before the delayed converter can return. A second
-    # Enter must be forwarded only after the first Enter committed the text.
+    # Enter must return its original event after the first Enter committed text.
     first.type("abc")
     first.key(IBus.KEY_Return)
     first.key(IBus.KEY_Return)
-    wait_until(lambda: len(first.forwarded) == 1)
+    wait_until(lambda: len(first.native) == 1)
     assert first.commits == ["abc"], first.commits
-    assert first.forwarded == [(IBus.KEY_Return, 38, 0)], first.forwarded
+    assert first.native == [(IBus.KEY_Return, 38, 0)], first.native
+    assert first.forwarded == []
 
     # Cancellation and an application switch are handled while I/O is waiting.
     first.type("a")
@@ -129,7 +148,9 @@ def main():
     # A nonresponding conversion recovers the last acknowledged text once and
     # forwards only the two unacknowledged keys. New input then works normally.
     second.type("d")
-    second.key(IBus.KEY_Return)
+    # Reset keeps the language, but its authoritative reply may still be
+    # pending. Enter needs that reply to distinguish commit from native Enter.
+    second.key(IBus.KEY_Return, ordered=True)
     wait_until(lambda: second.commits == ["z", "c", "d"])
     second.type("hx")
     wait_until(lambda: len(second.forwarded) == 2)
@@ -153,6 +174,10 @@ def main():
         "callback_p50_ms": round(statistics.median(timings), 3),
         "callback_p95_ms": round(sorted(timings)[int(len(timings) * 0.95)], 3),
         "callback_max_ms": round(max(timings), 3),
+        "native_reply_seconds": first.native_reply_timings,
+        "ordered_reply_timings": [
+            reply for field in [first, second, *regression_fields] for reply in field.ordered_reply_timings
+        ],
         "status": "PASS",
     }))
     second.context.focus_out()

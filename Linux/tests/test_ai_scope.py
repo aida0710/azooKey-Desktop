@@ -100,6 +100,7 @@ class AIScopeDialogTests(unittest.TestCase):
         from gi.repository import Gdk
         engine = SimpleNamespace(
             private=False, sensitive=False, focused=True,
+            native_key_passthrough=False, native_key_reply=None,
             input=SimpleNamespace(recovering=False, pending=[], cancelled=object(), generation=1),
             transformation=SimpleNamespace(input_changed=lambda: None),
             snapshot={"generation": 2, "reading": "よみ"},

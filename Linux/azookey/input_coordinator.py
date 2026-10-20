@@ -7,7 +7,7 @@ import time
 from typing import Callable
 
 from .async_bridge import Request
-from .input_preview import InputPreview, is_native_key
+from .input_preview import InputPreview, is_core_input, is_native_key
 
 
 # Two-second replies still make progress; three seconds without a reply
@@ -21,6 +21,7 @@ class PendingInput:
     payload: dict
     key: tuple | None
     completion: Callable[[dict], object] | None = None
+    key_reply: Callable[[bool], None] | None = None
     cancelled: threading.Event = field(default_factory=threading.Event)
 
 
@@ -40,15 +41,37 @@ class InputCoordinator:
         self.generation = 0
         self.closed = False
         self.recovering = False
+        self.is_resetting = False
+        self.has_recovery_preedit = False
         self.schedule_timeout = schedule_timeout
         self.remove_timeout = remove_timeout
         self.timeout_source = None
 
-    def submit(self, operation, *, payload=None, key=None, completion=None, persist=None):
+    def pending_native_key(self, event):
+        """A projected native key must wait for an authoritative Core reply."""
+        if event is None:
+            return False
+        if self.is_resetting:
+            # These keys remain consumed in either reset language. Accept
+            # them immediately and let Core produce their composition/commit.
+            return not is_core_input(event)
+        if not self.pending:
+            return False
+        projection, unrepresented = self._project()
+        return bool(unrepresented) or is_native_key(event, {
+            "inputState": projection.state,
+            "preedit": projection.text if projection.state != "none" else "",
+            "language": projection.language,
+        })
+
+    def submit(self, operation, *, payload=None, key=None, completion=None, persist=None, key_reply=None):
         if self.recovering and key is not None:
-            self.forward(*key)
+            if key_reply:
+                key_reply(False)
+            else:
+                self.forward(*key)
             return
-        pending = PendingInput(operation, payload or {}, key, completion=completion)
+        pending = PendingInput(operation, payload or {}, key, completion=completion, key_reply=key_reply)
         self.pending.append(pending)
         epoch = self.cancelled
         self._forward_native()
@@ -62,15 +85,21 @@ class InputCoordinator:
             self._watch_progress()
         self._preview()
 
-    def cancel(self):
+    def cancel(self, *, discard_keys=True):
         """Discard this epoch without replaying effects into a new input field."""
         self.cancelled.set()
         self.cancelled = threading.Event()
         epoch = self.cancelled
         for pending in self.pending:
             pending.cancelled.set()
+            if discard_keys:
+                self._finish_key(pending, True)
         self.pending.clear()
-        self.snapshot = {}
+        self.has_recovery_preedit = False
+        # Reset clears composition, but Core keeps its input language. Do not
+        # guess Japanese while a native client is still typing in English.
+        self.snapshot = {key: value for key, value in self.snapshot.items() if key == "language"}
+        self.is_resetting = True
         self._stop_timeout()
         # A barrier clears the converter after an already running request. Its
         # response has no application effects and cannot resurrect old preedit.
@@ -97,6 +126,7 @@ class InputCoordinator:
             self.recover(self.snapshot.get("preedit", ""))
             self.snapshot = {}
         snapshot = reply.snapshot
+        self._remember_language(snapshot)
         if pending.completion:
             try:
                 pending.completion(snapshot)
@@ -105,18 +135,29 @@ class InputCoordinator:
                 return False
         elif pending.operation is not None:
             self.publish(snapshot)
-        if pending.key is not None and not snapshot.get("consumed", False):
-            self.forward(*pending.key)
+        self._finish_key(pending, bool(snapshot.get("consumed", False)))
         self._forward_native()
         if not self.pending:
             self._stop_timeout()
         self._preview()
         return False
 
+    def _finish_key(self, pending, consumed):
+        if pending.key_reply:
+            reply, pending.key_reply = pending.key_reply, None
+            reply(consumed)
+        elif pending.key is not None and not consumed:
+            self.forward(*pending.key)
+
     def publish(self, snapshot):
         """Keep recovery aligned with an explicitly acknowledged composition."""
+        self.has_recovery_preedit = False
         self.snapshot = {**snapshot, "commits": [], "request": None}
         self.render(snapshot)
+
+    def _remember_language(self, snapshot):
+        if snapshot and snapshot.get("language") in ("english", "japanese"):
+            self.snapshot["language"] = snapshot["language"]
 
     @property
     def has_pending_preview(self):
@@ -126,26 +167,34 @@ class InputCoordinator:
         # Only acknowledged snapshots reached the application. Preserve that
         # text once, then return each unacknowledged physical key in order.
         # Never retry a request whose converter-side effects are uncertain.
-        keys = [pending.key for pending in self.pending if pending.key is not None]
+        original_pending = list(self.pending)
+        return_ids = {id(pending) for pending in original_pending if pending.key is not None}
         preedit = self.snapshot.get("preedit", "")
         projection, unrepresented = self._project()
         if projection.discarded or projection.restored_reading:
             # A canceled composition must not be resurrected by replaying its
             # physical keys after a converter failure.
             preedit = projection.visible_text
-            keys = [pending.key for pending in unrepresented if pending.key is not None]
+            return_ids = {id(pending) for pending in unrepresented if pending.key is not None}
         self.recovering = True
-        self.cancel()
+        self.cancel(discard_keys=False)
         self.recover(preedit)
-        for key in keys:
-            self.forward(*key)
+        for pending in original_pending:
+            self._finish_key(pending, id(pending) not in return_ids)
 
     def _resume(self, epoch, reply):
         if not self.closed and epoch is self.cancelled:
             # Even a failed reset has left the worker's I/O wait. The next key
             # may start a fresh process; no background retry loop is needed.
             self.recovering = False
+            self.is_resetting = False
+            if not reply.failed:
+                self._remember_language(reply.snapshot)
+            else:
+                self.snapshot.pop("language", None)
+            self._forward_native()
             self._watch_progress()
+            self._preview()
         return False
 
     def _watch_progress(self):
@@ -177,11 +226,25 @@ class InputCoordinator:
             return
         projection, unrepresented = self._project()
         if unrepresented:
+            if unrepresented[0].key_reply:
+                # A host shortcut cannot be projected into our preedit, but
+                # its original native call can wait without reconstructing it.
+                # Keep later literal edits visible for IBus focus-out recovery:
+                # canceled host shortcuts never run in the next input field.
+                for pending in unrepresented[1:]:
+                    if pending.operation == "key":
+                        projection.apply(pending.payload.get("event", {}))
+                self._show_preview(projection.visible_text, projection.visible_cursor)
+                return
             # A native operation outside this buffer (for example Left before
             # its start) belongs to the application. Recover first, in order.
             self.recover_pending()
             return
-        self.preview(projection.visible_text, projection.visible_cursor)
+        self._show_preview(projection.visible_text, projection.visible_cursor)
+
+    def _show_preview(self, text, cursor):
+        self.has_recovery_preedit = bool(text)
+        self.preview(text, cursor)
 
     def _project(self):
         projection = InputPreview(self.snapshot, settings=self.settings)
@@ -192,14 +255,22 @@ class InputCoordinator:
         return projection, []
 
     def _forward_native(self):
+        if self.is_resetting:
+            return
         while self.pending:
             pending = self.pending[0]
             if pending.key is None or pending.completion is not None:
                 break
             if pending.operation is not None and not (
-                pending.operation == "key" and is_native_key(pending.payload.get("event", {}), self.snapshot)
+                pending.operation == "key" and pending.key_reply
+                and is_native_key(pending.payload.get("event", {}), self.snapshot)
             ):
                 break
             pending.cancelled.set()
             self.pending.popleft()
-            self.forward(*pending.key)
+            if self.has_recovery_preedit:
+                # A reset barrier has no render callback. Retire our recovery
+                # preedit before the client receives its original event, or a
+                # native edit can first commit that same preview in GTK.
+                self._show_preview("", 0)
+            self._finish_key(pending, False)

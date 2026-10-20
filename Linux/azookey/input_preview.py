@@ -11,17 +11,31 @@ SELECTION_STATES = ("previewing", "selecting", "replaceSuggestion")
 CONTROL_KEYS = {"h": 51, "m": 36, "p": 126, "n": 125, "f": 124, "i": 123, "o": 124}
 
 
+def is_core_input(event):
+    """Text and language keys are consumed in either language after Reset."""
+    modifiers = event.get("modifierFlags", 0)
+    return (bool(event.get("characters")) and modifiers in (0, SHIFT)
+            or event.get("keyCode") in (102, 104) and modifiers == 0)
+
+
 def is_native_key(event, snapshot):
-    """Whether Core passes this event through without changing composition."""
+    """Whether an idle key can use the application's original native event."""
     if snapshot.get("preedit") or snapshot.get("inputState", "none") != "none":
         return False
     modifiers = event.get("modifierFlags", 0)
     key = event.get("keyCode")
     if modifiers & COMMAND:
         return True
-    if modifiers & (CONTROL | OPTION):
+    if modifiers & CONTROL:
+        logical = event.get("charactersIgnoringModifiers")
+        # These two shortcuts can start an IME operation even with no preedit.
+        return not ((modifiers == CONTROL and logical == "s")
+                    or (modifiers == (CONTROL | SHIFT) and logical == "u"))
+    if modifiers & OPTION:
         return False
-    if key in (48, 51, 53, 115, 117, 119, 123, 124, 125, 126, *ENTER_KEYS):
+    if key in (48, 51, 53, 97, 98, 100, 101, 109, 115, 117, 119, 123, 124, 125, 126, *ENTER_KEYS):
+        return True
+    if key == 0xFFFF and not event.get("characters"):
         return True
     return snapshot.get("language") == "english" and (
         key == 49 or bool(event.get("characters")) and event.get("characters") not in ("\\", "¥")
