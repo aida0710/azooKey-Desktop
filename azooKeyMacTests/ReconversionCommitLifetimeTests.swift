@@ -128,11 +128,12 @@ final class ReconversionCommitLifetimeTests: XCTestCase {
 
     private func makeReconversionController() throws -> azooKeyMacInputController {
         serverFixture = try InputMethodTestServer(
-            directoryURL: directory, controllerClass: azooKeyMacInputController.self
+            directoryURL: directory, controllerClass: InputMethodTestController.self
         )
-        let controller = try XCTUnwrap(azooKeyMacInputController(
-            server: serverFixture?.server, delegate: nil, client: client, segmentsManager: manager
+        let controller = try XCTUnwrap(InputMethodTestController(
+            server: try XCTUnwrap(serverFixture?.server), client: client, segmentsManager: manager
         ))
+        XCTAssertTrue(controller.client() === client)
         self.controller = controller
         controller.reconversionClient = session
         controller.requestReconversion(undo: false, reading: "にほんご", client: client)
