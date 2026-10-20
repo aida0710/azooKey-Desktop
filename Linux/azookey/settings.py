@@ -1,6 +1,3 @@
-import json
-import os
-import pathlib
 import uuid
 import threading
 import gi
@@ -9,11 +6,10 @@ from gi.repository import Gtk, GLib, Gio
 from .bridge import Bridge
 from .prompts import parse_shortcut, shortcut_text
 from .personalization import import_model
-
-
-def config_path():
-    base = pathlib.Path(os.environ.get("XDG_CONFIG_HOME", pathlib.Path.home() / ".config"))
-    return base / "azookey-tree/settings.json"
+from .i18n import text as message
+from .settings_store import SettingsStore, config_path
+from .settings_schema import input_defaults, validate_settings
+from .settings_recovery import SettingsRecoveryBar, confirm_restore
 
 
 def read_key():
@@ -38,12 +34,19 @@ class SettingsWindow(Gtk.Window):
         self.set_default_size(620, 620)
         self.bridge = Bridge()
         self.values = self.bridge.request("settings")["settings"]
-        if config_path().is_file():
-            self.values.update(json.loads(config_path().read_text()))
+        self.settings_store = SettingsStore()
+        loaded = self.settings_store.load(self.values)
+        self.values = loaded.values
+        self.settings_stamp = loaded.stamp
+        self.backend_recovery_pending = False
+        self.recovery_bar = None
         self.widgets = {}
         self.closed = False
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=18)
         self.add(box)
+        if loaded.problem:
+            self.recovery_bar = SettingsRecoveryBar(loaded.problem, path=self.settings_store.path, restore=self.restore_settings)
+            box.pack_start(self.recovery_bar, False, False, 0)
         book = Gtk.Notebook()
         box.pack_start(book, True, True, 0)
         basic = self.page(book, "入力・変換")
@@ -94,11 +97,82 @@ class SettingsWindow(Gtk.Window):
         save.connect("clicked", self.save)
         box.pack_start(save, False, False, 0)
         self.connect("destroy", self.destroyed)
+        if self.recovery_bar:
+            self.set_focus(self.recovery_bar.restore_button)
 
     def destroyed(self, _window):
         self.closed = True
         self.bridge.close()
-        Gtk.main_quit()
+        if Gtk.main_level():
+            Gtk.main_quit()
+
+    def restore_settings(self, use_defaults):
+        if not confirm_restore(self):
+            return
+        values = self.settings_store.recovery_values(self.values)
+        if use_defaults:
+            values = input_defaults(values)
+        try:
+            saved = self.apply_settings(values, recover=True)
+            self.refresh_widgets(saved.values)
+            self.recovery_bar.hide()
+            self.message.set_text(message("settings.restored", backup=saved.backup_path))
+            if saved.backup_warning:
+                self.message.set_text(message("settings.backup_warning"))
+        except (ValueError, OSError, RuntimeError) as error:
+            self.message.set_text(str(error))
+
+    def refresh_widgets(self, values):
+        for key, widget in self.widgets.items():
+            if isinstance(widget, Gtk.CheckButton):
+                widget.set_active(values[key])
+            elif isinstance(widget, Gtk.ComboBoxText):
+                widget.set_active_id(str(values[key]))
+            else:
+                widget.set_text(str(values[key]))
+        entries = values["userDictionary"]["items"]
+        text = "\n".join("\t".join([item["reading"], item["word"], item.get("hint") or ""]) for item in entries)
+        self.dictionary.get_buffer().set_text(text)
+        self.custom_table.get_buffer().set_text(values["customTable"])
+        self.transform_shortcut.set_text(shortcut_text(values["transformShortcut"]))
+
+    def apply_settings(self, values, *, recover=False):
+        values = validate_settings(values)
+
+        def apply_staged(staged):
+            if self.backend_recovery_pending:
+                self.restore_backend_settings()
+            reply = self.bridge.request("configure", settings=values)
+            if reply.get("error"):
+                raise ValueError(message("settings.engine_rejected"))
+            try:
+                staged.replace(self.settings_store.path)
+            except OSError as publication_error:
+                try:
+                    self.restore_backend_settings()
+                except RuntimeError as recovery_error:
+                    raise recovery_error from publication_error
+                raise
+
+        # Check conflicts and hold the writer lock before mutating Core.
+        saved = self.settings_store.save_with_backend(
+            values, apply_staged=apply_staged, expected_stamp=self.settings_stamp, recover=recover,
+        )
+        self.values = saved.values
+        self.settings_stamp = saved.stamp
+        return saved
+
+    def restore_backend_settings(self):
+        # Until Core confirms the old values, another save must not compound
+        # an interrupted publication with a second unverified configuration.
+        self.backend_recovery_pending = True
+        try:
+            reply = self.bridge.request("configure", settings=self.values)
+            if reply.get("error"):
+                raise ValueError(message("settings.engine_rejected"))
+        except (ValueError, OSError, RuntimeError) as error:
+            raise RuntimeError(message("settings.backend_recovery_failed")) from error
+        self.backend_recovery_pending = False
 
     def reset_learning(self, _button):
         dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
@@ -215,17 +289,8 @@ class SettingsWindow(Gtk.Window):
             values["transformShortcut"] = parse_shortcut(self.transform_shortcut.get_text())
             if values["transformShortcut"] is None:
                 raise ValueError("いい感じ変換のショートカットを指定してください。")
-            result = self.bridge.request("configure", settings=values)
-            if result.get("error"):
-                raise ValueError("設定を保存できません。推論回数・URL・カスタム入力表を確認してください。")
-            path = config_path()
-            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            temporary = path.with_suffix(".tmp")
-            with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as stream:
-                json.dump(values, stream, ensure_ascii=False)
-            temporary.replace(path)
-            self.values = values
-            self.message.set_text("保存しました。次の入力から反映します。")
+            saved = self.apply_settings(values)
+            self.message.set_text(message("settings.backup_warning" if saved.backup_warning else "settings.saved"))
             if self.api_key.get_text():
                 try:
                     save_key(self.api_key.get_text())
