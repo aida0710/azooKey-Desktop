@@ -96,13 +96,21 @@ public final class AISuggestionSession {
         selectedIndex = nil
     }
 
+    public func waitForPendingRequest() async {
+        await requestTask?.value
+    }
+
     public func select(_ index: Int) {
-        guard suggestions.indices.contains(index) else { return }
+        guard suggestions.indices.contains(index) else {
+            return
+        }
         selectedIndex = index
     }
 
     public var selectedSuggestion: String? {
-        guard let selectedIndex, suggestions.indices.contains(selectedIndex) else { return nil }
+        guard let selectedIndex, suggestions.indices.contains(selectedIndex) else {
+            return nil
+        }
         return suggestions[selectedIndex]
     }
 }

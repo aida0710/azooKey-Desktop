@@ -12,7 +12,9 @@ extension azooKeyMacInputController {
     func requestReplaceSuggestion() -> Task<Void, Never>? {
         cancelReplaceSuggestion()
         inputState = segmentsManager.isEmpty ? .none : .composing
-        guard !segmentsManager.isEmpty, let client = self.client() else { return nil }
+        guard !segmentsManager.isEmpty, let client = self.client() else {
+            return nil
+        }
         let backend: AIBackend
         switch Config.AIBackendPreference().value {
         case .off: return nil
@@ -50,7 +52,9 @@ extension azooKeyMacInputController {
         )
         aiSuggestionStatusPanel.show(key: "ai.suggestion.loading", cursorLocation: getCursorLocation())
         return aiSuggestionSession.request(request) { [weak self] completion in
-            guard let self else { return }
+            guard let self else {
+                return
+            }
             guard self.inputState == .composing,
                   self.segmentsManager.convertTarget == reading,
                   let currentClient = self.client(),

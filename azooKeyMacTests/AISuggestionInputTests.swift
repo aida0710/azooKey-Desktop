@@ -149,6 +149,40 @@ final class AISuggestionInputTests: XCTestCase {
         XCTAssertEqual(client.marked, "")
     }
 
+    func testMenuRequestKeepsOriginalInputUntilCandidatesArrive() async {
+        type("nihongo")
+        controller.performTransformSelectedText(NSMenuItem())
+        await sender.waitForRequests(1)
+        XCTAssertEqual(controller.inputState, .composing)
+        XCTAssertEqual(client.marked, "にほんご")
+        sender.finish(0, with: .success(["日本語"]))
+        await controller.aiSuggestionSession.waitForPendingRequest()
+        XCTAssertEqual(controller.inputState, .replaceSuggestion)
+        send(.enter)
+        XCTAssertEqual(client.inserted, ["日本語"])
+    }
+
+    func testEnterDuringMenuRequestCommitsOriginalInputOnce() async {
+        type("nihongo")
+        controller.performTransformSelectedText(NSMenuItem())
+        await sender.waitForRequests(1)
+        send(.enter)
+        XCTAssertEqual(client.inserted, ["にほんご"])
+        XCTAssertTrue(controller.segmentsManager.isEmpty)
+        sender.finish(0, with: .success(["日本語"]))
+    }
+
+    func testMenuPredictionKeepsItsInsertedReadingUntilCandidatesArrive() async {
+        controller.performTransformSelectedText(NSMenuItem())
+        await sender.waitForRequests(1)
+        XCTAssertEqual(controller.inputState, .composing)
+        XCTAssertEqual(client.marked, "つづき")
+        sender.finish(0, with: .success(["続きの文章"]))
+        await controller.aiSuggestionSession.waitForPendingRequest()
+        send(.enter)
+        XCTAssertEqual(client.inserted, ["続きの文章"])
+    }
+
     func testEnterWhileNewRequestIsPendingCannotCommitPreviouslyDisplayedCandidate() async throws {
         type("mae")
         let first = try XCTUnwrap(controller.requestReplaceSuggestion())

@@ -18,7 +18,9 @@ private final class DeferredSuggestionSender {
     }
 
     func waitForRequests(_ count: Int) async {
-        if continuations.count >= count { return }
+        if continuations.count >= count {
+            return
+        }
         await withCheckedContinuation { requestWaiters.append((count, $0)) }
     }
 

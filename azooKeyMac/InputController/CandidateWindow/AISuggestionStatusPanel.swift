@@ -32,7 +32,9 @@ final class AISuggestionStatusPanel: NSPanel {
             width: label.frame.width + Self.horizontalInset * 2,
             height: label.frame.height + Self.verticalInset * 2
         )
-        guard let screen = ScreenLookup.screen(containing: cursorLocation, fallbackWindow: self) else { return }
+        guard let screen = ScreenLookup.screen(containing: cursorLocation, fallbackWindow: self) else {
+            return
+        }
         let frame = WindowPositioning.frameNearCursor(
             currentFrame: .init(self.frame), screenRect: .init(screen.visibleFrame),
             cursorLocation: .init(cursorLocation), desiredSize: .init(size)

@@ -27,7 +27,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
     var replaceSuggestionWindow: NSWindow
     var replaceSuggestionsViewController: ReplaceSuggestionsViewController
-    let aiSuggestionSession = AISuggestionSession()
+    @MainActor lazy var aiSuggestionSession = AISuggestionSession()
     let aiSuggestionStatusPanel = AISuggestionStatusPanel()
 
     var promptInputWindow: PromptInputWindow
@@ -937,7 +937,9 @@ extension azooKeyMacInputController: ReplaceSuggestionsViewControllerDelegate {
 
     func replaceSuggestionSubmitted() {
         Task { @MainActor in
-            guard let client = self.client() else { return }
+            guard let client = self.client() else {
+                return
+            }
             self.submitSelectedSuggestionCandidate(client: client)
         }
     }
