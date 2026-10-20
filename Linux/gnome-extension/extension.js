@@ -1,11 +1,13 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {CandidateDetail} from './candidateDetail.js';
 import {messages} from './candidateMessages.js';
+import {CandidateTheme, scoreRole} from './candidateTheme.js';
 
 const NAME = 'org.azookey.Tree';
 const PATH = '/org/azookey/Tree';
@@ -21,14 +23,16 @@ export default class AzooKeyTreeExtension extends Extension {
             style: 'background-color: transparent; border: none; box-shadow: none;',
         });
         this._content = new St.BoxLayout({vertical: true});
-        this._canvas = new St.Widget({layout_manager: new Clutter.FixedLayout(),
-            style: 'background-color: #202124; border-radius: 6px;'});
+        this._canvas = new St.Widget({layout_manager: new Clutter.FixedLayout()});
         this._content.add_child(this._canvas);
         this._treeScroll.set_child(this._content);
         this._popup.add_child(this._treeScroll);
         this._details = new CandidateDetail();
         this._popup.add_child(this._details.actor);
         this._interfaceSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+        this._theme = new CandidateTheme(() => {
+            if (this._popup.visible && this._lastData) this._render(this._lastData);
+        });
         Main.layoutManager.addTopChrome(this._popup);
         this._popup.hide();
         this._subscription = Gio.DBus.session.signal_subscribe(NAME, NAME, null, PATH, null,
@@ -58,6 +62,10 @@ export default class AzooKeyTreeExtension extends Extension {
     }
 
     _render(data) {
+        this._lastData = data;
+        const palette = this._theme.palette;
+        this._canvas.set_style(`background-color: ${palette.background}; border-radius: 6px;`);
+        this._details.applyPalette(palette);
         const nodes = data.nodes ?? [];
         const candidateIdentity = JSON.stringify([data.contextId, data.reading, data.candidates,
             nodes.map(({relativeScore, preview, previewDescription, ...node}) => node)]);
@@ -90,7 +98,6 @@ export default class AzooKeyTreeExtension extends Extension {
             documentWidths.every(width => Number.isFinite(width) && width >= minimumWidth);
         const rowHeight = fontSize + 14;
         const rowPitch = rowHeight + (data.showCandidateIndex && aligned ? rowHeight + 20 : 20);
-        const scoreColor = score => Number.isFinite(score) && score < 75 ? '#d4630f' : '#4073cc';
         let nextX = 12;
         for (const [depth, column] of columns.entries()) {
             const measure = new St.Label({text: byId.get(column[0]).text, style: `font-size: ${fontSize}px;`});
@@ -107,8 +114,7 @@ export default class AzooKeyTreeExtension extends Extension {
             const node = byId.get(id);
             const parent = frames.get(node.parent), target = frames.get(id);
             return {x1: parent ? parent.x + parent.width : 4, y1: parent ? parent.y + rowHeight / 2 : 6 + rowHeight / 2,
-                x2: target.x, y2: target.y + rowHeight / 2, active: selected.has(id),
-                orange: Number.isFinite(node.relativeScore) && node.relativeScore < 75};
+                x2: target.x, y2: target.y + rowHeight / 2, active: selected.has(id)};
         });
         // A long phrase can have > 300 candidates and exceed the GPU's maximum
         // texture height. St.DrawingArea uses a texture; draw bounded tiles so
@@ -127,16 +133,15 @@ export default class AzooKeyTreeExtension extends Extension {
                     cr.translate(-left, -top);
                     for (const edge of visibleEdges) {
                         const middle = (edge.x1 + edge.x2) / 2;
-                        if (edge.active && edge.orange) cr.setSourceRGBA(0.83, 0.39, 0.06, 1);
-                        else if (edge.active) cr.setSourceRGBA(0.25, 0.45, 0.8, 1);
-                        else cr.setSourceRGBA(0.5, 0.5, 0.55, 0.55);
-                        cr.setLineWidth(edge.active ? 2 : 0.75);
+                        cr.setSourceRGBA(...this._theme.rgb(edge.active ? 'text' : 'border'), 1);
+                        cr.setLineWidth(edge.active ? 3 : 1);
+                        cr.setDash(edge.active ? [] : [2, 3], 0);
                         cr.moveTo(edge.x1, edge.y1);
                         cr.curveTo(middle, edge.y1, middle, edge.y2, edge.x2, edge.y2);
                         cr.stroke();
                     }
                     if (left === 0 && top === 0) {
-                        cr.setSourceRGBA(0.5, 0.5, 0.55, 1);
+                        cr.setSourceRGBA(...this._theme.rgb('text'), 1);
                         cr.arc(4, 18, 3, 0, Math.PI * 2);
                         cr.fill();
                     }
@@ -146,8 +151,7 @@ export default class AzooKeyTreeExtension extends Extension {
                 lines.queue_repaint();
             }
         }
-        const button = ({operation, index, label, frame, active, focused, accessibleName, score}) => {
-            const compactBadge = operation === 'select' && aligned;
+        const button = ({operation, index, label, frame, active, focused, accessibleName}) => {
             const identity = JSON.stringify([operation, index]);
             let widget = this._buttons.get(identity);
             if (!widget) {
@@ -177,12 +181,21 @@ export default class AzooKeyTreeExtension extends Extension {
             visibleButtons.add(identity);
             widget._selection = new GLib.Variant('(sibis)', [operation, index, true, data.generation, data.contextId]);
             widget.set_checked(active);
-            widget.set_style(`color: ${active ? '#ffffff' : '#eeeeef'}; background-color: ${active ? scoreColor(score) : '#24252b'}; border: none; border-bottom: ${compactBadge ? '0' : (focused ? '2px solid #ffffff' : '2px solid transparent')}; border-radius: 4px; padding: ${compactBadge ? 0 : 2}px; font-size: 12px;`);
+            const textColor = active ? palette.selectionText : palette.text;
+            const borderWidth = 2;
+            widget.set_style(`color: ${textColor}; background-color: ${active ? palette.selection : palette.surface}; border: ${borderWidth}px solid ${active ? palette.text : 'transparent'}; border-radius: 4px; padding: 0;`);
             const captions = new St.BoxLayout({vertical: true, y_align: Clutter.ActorAlign.CENTER});
             const caption = new St.Label({text: label, x_align: aligned ? Clutter.ActorAlign.START : Clutter.ActorAlign.CENTER});
             const size = operation === 'select' ? Math.max(14, fontSize - 4) : fontSize;
             caption.set_style(`font-size: ${size}px;`);
-            caption.set_width(Math.max(1, frame.width - 4));
+            if (focused) {
+                // Text attributes keep the underline inside the glyph layout;
+                // an extra CSS border clips enlarged 200% captions.
+                const attributes = new Pango.AttrList();
+                attributes.insert(Pango.attr_underline_new(Pango.Underline.SINGLE));
+                caption.clutter_text.set_attributes(attributes);
+            }
+            caption.set_width(Math.max(1, frame.width - borderWidth * 2));
             captions.add_child(caption);
             widget.set_child(captions);
             widget.set_position(frame.x, frame.y);
@@ -196,14 +209,15 @@ export default class AzooKeyTreeExtension extends Extension {
                 ? `相対スコア ${score}（取得候補内の評価。正解の確率ではありません）` : '比較可能なスコアなし';
             button({operation: 'node', index: id, label: node.text, frame,
                 active: selected.has(id), focused: id === data.focusedNode,
-                accessibleName: `${node.text} ${node.reading}\n${node.previewDescription ?? ''}`, score});
+                accessibleName: `${node.text} ${node.reading}\n${node.previewDescription ?? ''}`});
             const scoreText = Number.isFinite(score) ? String(score) : '—';
             const scoreLabel = new St.Label({text: scoreText, accessible_name: detail,
-                style: 'color: #a9a9b0; font-size: 12px;',
+                style: `color: ${palette.scoreText}; background-color: ${palette[scoreRole(score)]}; font-size: 12px; text-align: center;`,
                 x_align: Clutter.ActorAlign.CENTER});
-            scoreLabel.set_position(frame.x, frame.y + frame.height);
-            scoreLabel.set_size(frame.width, 16);
             this._canvas.add_child(scoreLabel);
+            const badgeWidth = Math.min(frame.width, Math.max(22, scoreLabel.get_preferred_width(-1)[1] + 6));
+            scoreLabel.set_position(frame.x + (frame.width - badgeWidth) / 2, frame.y + frame.height);
+            scoreLabel.set_size(badgeWidth, 16);
             const index = node.terminals.includes(data.selection) ? data.selection : node.terminals[0];
             if (data.showCandidateIndex && index !== undefined) {
                 const number = index - (data.pageStart ?? 0) + 1;
@@ -282,6 +296,9 @@ export default class AzooKeyTreeExtension extends Extension {
         if (this._scrollIdle) GLib.source_remove(this._scrollIdle);
         this._scrollIdle = 0;
         this._focusKey = null;
+        this._theme?.destroy();
+        this._theme = null;
+        this._lastData = null;
         this._popup?.destroy();
         this._buttons?.clear();
         this._popup = null;
