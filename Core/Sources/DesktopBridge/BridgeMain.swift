@@ -20,6 +20,9 @@ struct BridgeRequest: Decodable {
     var suggestions: [String]?
     var reading: String?
     var apiKey: String?
+    var aiModel: String?
+    var aiEndpoint: String?
+    var includeContext: Bool?
     var prompt: String?
     var target: String?
     var privateInput: Bool?
@@ -110,20 +113,25 @@ struct BridgeMain {
                     guard let texts = request.suggestions, let generation = request.generation, let reading = request.reading else { throw ProtocolError.invalidRequest }
                     response = session.applySuggestions(texts, reading: reading, expectedGeneration: generation)
                 case "ai":
-                    guard !session.privateInput, let apiKey = request.apiKey, let target = request.target else { throw ProtocolError.invalidRequest }
-                    let model = Config.OpenAiModelName().value
+                    guard !session.privateInput, let apiKey = request.apiKey, let target = request.target,
+                          let model = request.aiModel, let endpoint = request.aiEndpoint else { throw ProtocolError.invalidRequest }
+                    let scope = AIRequestScope(target: target, before: request.leftContext ?? "", after: request.rightContext ?? "",
+                                               includeContext: request.includeContext ?? false)
                     let modelName = model.isEmpty ? Config.OpenAiModelName.default : model
                     response = DesktopSnapshot()
                     response.suggestions = try await OpenAIClient.sendRequest(
-                        .init(prompt: request.prompt ?? "", target: target, modelName: modelName), apiKey: apiKey,
-                        apiEndpoint: Config.OpenAiApiEndpoint().value)
+                        .init(prompt: scope.suggestionContext, target: target, modelName: modelName), apiKey: apiKey,
+                        apiEndpoint: endpoint)
                 case "transform":
-                    guard !session.privateInput, let apiKey = request.apiKey, let prompt = request.prompt else { throw ProtocolError.invalidRequest }
-                    let model = Config.OpenAiModelName().value
+                    guard !session.privateInput, let apiKey = request.apiKey, let prompt = request.prompt, let target = request.target,
+                          let model = request.aiModel, let endpoint = request.aiEndpoint else { throw ProtocolError.invalidRequest }
+                    let scope = AIRequestScope(target: target, before: request.leftContext ?? "", after: request.rightContext ?? "",
+                                               includeContext: request.includeContext ?? false)
+                    let modelName = model.isEmpty ? Config.OpenAiModelName.default : model
                     response = DesktopSnapshot()
                     response.suggestions = [try await OpenAIClient.sendTextTransformRequest(
-                        prompt: prompt, modelName: model.isEmpty ? Config.OpenAiModelName.default : model,
-                        apiKey: apiKey, apiEndpoint: Config.OpenAiApiEndpoint().value)]
+                        prompt: scope.transformationPrompt(instructions: prompt), modelName: modelName,
+                        apiKey: apiKey, apiEndpoint: endpoint)]
                 default: throw ProtocolError.invalidRequest
                 }
             } catch {

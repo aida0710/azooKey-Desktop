@@ -36,7 +36,7 @@ def main():
                 snapshot["consumed"] = bool(text)
                 text, cursor, state = "", 0, "none"
             elif key == 53 and not modifiers:
-                if state in ("previewing", "selecting"):
+                if state in ("previewing", "selecting", "replaceSuggestion"):
                     state = "composing"
                 else:
                     text, cursor, state = "", 0, "none"
@@ -52,6 +52,9 @@ def main():
                 snapshot["consumed"] = bool(text)
             elif key in (102, 104):
                 session["language"] = "english" if key == 102 else "japanese"
+            elif key == 98:
+                # F7 selects a synthetic AI state only in this fixture.
+                text, cursor, state = "にほんご", 4, "replaceSuggestion"
             elif characters and session["language"] == "english" and state == "none":
                 snapshot["commits"] = [characters]
             elif characters:
@@ -66,7 +69,8 @@ def main():
             session["generation"] += 1
         session.update(text=text, cursor=cursor, state=state)
         snapshot.update(
-            preedit=text, cursor=cursor, reading=text, readingCursor=cursor,
+            preedit="人工知能の候補" if state == "replaceSuggestion" else text,
+            cursor=cursor, reading=text, readingCursor=cursor,
             generation=session["generation"], inputState=state, language=session["language"],
         )
         print(json.dumps(snapshot), flush=True)

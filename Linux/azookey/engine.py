@@ -18,6 +18,10 @@ from .settings import config_path, read_key
 from .shell_surface import surface
 from .prompts import PromptHistory, matches
 from .prompt_dialog import PromptDialog
+from .ai_scope import AIRequestConfiguration, AIRequestScope, MODIFIER_KEYS
+from .ai_review import AISuggestionReview
+from .i18n import text as message
+from .settings_store import update_settings
 
 
 class Engine(IBus.Engine):
@@ -51,7 +55,34 @@ class Engine(IBus.Engine):
             recover=self.recover_composition, preview=self.preview_pending,
             schedule_timeout=GLib.timeout_add, remove_timeout=GLib.source_remove,
         )
+        self.ai_review = AISuggestionReview(
+            current_state=self.ai_review_state, send=self.start_ai, save_context=self.save_ai_context,
+        )
         self.input.submit("settings", completion=self.load_settings)
+
+    def ai_review_state(self):
+        return {
+            "snapshot": self.snapshot, "input_epoch": self.input.cancelled,
+            "bridge_generation": self.input.generation, "focused": self.focused,
+            "pending_input": any(pending.key is not None for pending in self.input.pending),
+        }
+
+    def make_ai_scope(self, target):
+        return AIRequestScope(
+            AIRequestConfiguration.from_settings(self.settings), target,
+            before=self.left, after=self.right, include_context=self.settings.get("includeContext", False),
+        )
+
+    def save_ai_context(self, value):
+        try:
+            # Other screens may have changed conversion or dictionary settings.
+            # Leave those for reload_settings and its Core acknowledgement.
+            update_settings({"includeContext": value}, defaults=self.settings)
+            self.settings = {**self.settings, "includeContext": value}
+            self.input.settings = self.settings
+            return True
+        except (OSError, ValueError):
+            return False
 
     def load_settings(self, snapshot):
         if "settings" in snapshot:
@@ -83,12 +114,14 @@ class Engine(IBus.Engine):
     def request(self, operation, *, original_key=None, **values):
         if self.destroyed or self.private:
             return False
+        self.ai_review.cancel()
         self.input.submit(operation, payload={
             "leftContext": self.left, "rightContext": self.right, "privateInput": self.sensitive, **values,
         }, key=original_key)
         return True
 
     def recover_composition(self, text=""):
+        self.ai_review.cancel()
         self.pending_settings_stamp = None
         self.snapshot = {}
         self.anchor.update("", 0)
@@ -114,6 +147,10 @@ class Engine(IBus.Engine):
         event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
         if self.private or not self.focused or self.input.recovering:
             return False
+        if self.ai_review.confirmation and keyval in MODIFIER_KEYS:
+            return False
+        if self.ai_review.key(event):
+            return True
         if (event and event["modifierFlags"] == 0 and not self.input.pending
                 and keyval in (Gdk.KEY_Page_Up, Gdk.KEY_Page_Down)
                 and self.settings.get("tree", True) and self.snapshot.get("nodes")):
@@ -158,6 +195,8 @@ class Engine(IBus.Engine):
     def do_set_content_type(self, purpose, hints):
         self.private = purpose in (IBus.InputPurpose.PASSWORD, IBus.InputPurpose.PIN)
         self.sensitive = self.private or bool(hints & IBus.InputHints.PRIVATE)
+        if self.sensitive:
+            self.ai_review.cancel()
         if self.private:
             self.input.cancel()
             self.pending_settings_stamp = None
@@ -217,6 +256,7 @@ class Engine(IBus.Engine):
             self.request("key", event=translate(keyval, 0))
 
     def do_focus_out(self):
+        self.ai_review.cancel()
         self.focused = False
         surface().hide(self)
         self.input.cancel()
@@ -226,6 +266,7 @@ class Engine(IBus.Engine):
         self.panel.hide()
 
     def do_reset(self):
+        self.ai_review.cancel()
         self.input.cancel()
         self.pending_settings_stamp = None
         self.recover_composition()
@@ -239,6 +280,7 @@ class Engine(IBus.Engine):
         if self.destroyed:
             return
         self.destroyed = True
+        self.ai_review.cancel()
         surface().hide(self)
         self.panel.destroy()
         self.input.close()
@@ -307,9 +349,11 @@ class Engine(IBus.Engine):
             if snapshot["request"] == "prompt" and self.selected_text:
                 self.prompt()
             else:
-                self.start_ai(snapshot)
+                if self.settings.get("aiEnabled") and not self.sensitive:
+                    scope = self.make_ai_scope(snapshot.get("reading") or "つづき")
+                    self.ai_review.show(scope, snapshot, self.panel.location)
 
-    def start_ai(self, snapshot, prompt=None, selected_target=None, completion=None):
+    def start_ai(self, snapshot, scope, *, prompt=None, completion=None):
         if self.ai_pending or self.sensitive or not self.settings.get("aiEnabled"):
             if completion:
                 completion(None)
@@ -319,7 +363,7 @@ class Engine(IBus.Engine):
         except (ValueError, GLib.Error):
             api_key = ""
         if not api_key:
-            self.update_auxiliary_text(IBus.Text.new_from_string("設定でAPIキーを登録してください。"), True)
+            self.update_auxiliary_text(IBus.Text.new_from_string(message("ai.error.missing-key")), True)
             if completion:
                 completion(None)
             return
@@ -328,19 +372,16 @@ class Engine(IBus.Engine):
         generation = snapshot.get("generation", -1)
         bridge_generation = self.input.generation
         focus_epoch = self.input.cancelled
-        context = ""
-        if self.settings.get("includeContext"):
-            context = f"Text before: {self.left}\nText after: {self.right}"
+        arguments = scope.bridge_arguments()
 
         def work():
             connection = None
             try:
                 connection = Bridge(timeout=90)
-                if selected_target is not None:
-                    result = connection.request("transform", apiKey=api_key, prompt=f"{prompt}\n\n{selected_target}\n\n{context}")
+                if prompt is not None:
+                    result = connection.request("transform", apiKey=api_key, prompt=prompt, **arguments)
                 else:
-                    target = reading if reading else "つづき"
-                    result = connection.request("ai", apiKey=api_key, target=target, prompt=context)
+                    result = connection.request("ai", apiKey=api_key, **arguments)
                 texts = result.get("suggestions", [])
                 GLib.idle_add(self.finish_ai, texts, generation, reading, completion, bridge_generation, focus_epoch)
             except (OSError, RuntimeError, ValueError):
@@ -370,12 +411,16 @@ class Engine(IBus.Engine):
     def prompt(self, initial_prompt=""):
         if self.prompt_open:
             return
+        self.ai_review.cancel()
         target = self.selected_text
+        scope = self.make_ai_scope(target)
         expected_context = (self.left, self.right, target)
         snapshot = dict(self.snapshot)
         self.prompt_open = True
-        dialog = PromptDialog(lambda prompt, completion: self.start_ai(snapshot, prompt=prompt, selected_target=target,
-                                                                       completion=completion), initial_prompt)
+        dialog = PromptDialog(
+            lambda prompt, selected_scope, completion: self.start_ai(snapshot, selected_scope, prompt=prompt, completion=completion),
+            initial_prompt, scope=scope, on_context_changed=self.save_ai_context,
+        )
         dialog.show_all()
         response = dialog.run()
         result = dialog.result

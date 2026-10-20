@@ -29,6 +29,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     var replaceSuggestionsViewController: ReplaceSuggestionsViewController
     @MainActor lazy var aiSuggestionSession = AISuggestionSession()
     let aiSuggestionStatusPanel = AISuggestionStatusPanel()
+    let aiSuggestionConfirmationPanel = AISuggestionConfirmationPanel()
+    var aiSuggestionConfirmation: AISuggestionConfirmation?
 
     var promptInputWindow: PromptInputWindow
     var isPromptWindowVisible: Bool = false
@@ -240,7 +242,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 // メニューバーやshortcut経由の切り替えに対応する。
                 // composing中でも英数キーMarkedTextを保ったまま英語入力へ移る。
                 if self.inputLanguage == .japanese {
-                    if self.aiSuggestionSession.isLoading {
+                    if self.aiSuggestionSession.isLoading || self.aiSuggestionConfirmation != nil {
                         self.cancelReplaceSuggestion()
                     }
                     self.inputLanguage = .english
@@ -284,6 +286,9 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         }
         guard event.type == .keyDown else {
             return false
+        }
+        if let consumed = self.handleAISuggestionConfirmationKey(event) {
+            return consumed
         }
 
         // カスタムプロンプトショートカットのチェック
@@ -434,7 +439,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .requestPredictiveSuggestion, .requestReplaceSuggestion, .consume:
             break
         default:
-            if self.aiSuggestionSession.isLoading {
+            if self.aiSuggestionSession.isLoading || self.aiSuggestionConfirmation != nil {
                 self.cancelReplaceSuggestion()
             }
             self.aiSuggestionStatusPanel.orderOut(nil)
@@ -553,7 +558,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.segmentsManager.appendDebugMessage("Executing showPromptInputWindow")
             self.showPromptInputWindow()
         case .transformSelectedText(let selectedText, let prompt):
-            self.segmentsManager.appendDebugMessage("Executing transformSelectedText with text: '\(selectedText)' and prompt: '\(prompt)'")
+            self.segmentsManager.appendDebugMessage("Executing transformSelectedText")
             self.transformSelectedText(selectedText: selectedText, prompt: prompt)
         // Unicode Input (Shift+Ctrl+U)
         case .enterUnicodeInputMode:
@@ -606,7 +611,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.inputState = self.segmentsManager.isEmpty ? ifIsEmpty : ifIsNotEmpty
         }
 
-        if self.inputState != .replaceSuggestion, !self.aiSuggestionSession.isLoading {
+        if self.inputState != .replaceSuggestion, !self.aiSuggestionSession.isLoading, self.aiSuggestionConfirmation == nil {
             self.aiSuggestionSession.cancel()
             self.clearReplaceSuggestionCandidates()
         }
@@ -617,7 +622,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     }
 
     @MainActor func switchInputLanguage(_ language: InputLanguage, client: IMKTextInput) {
-        if self.aiSuggestionSession.isLoading {
+        if self.aiSuggestionSession.isLoading || self.aiSuggestionConfirmation != nil {
             self.cancelReplaceSuggestion()
         }
         self.inputLanguage = language
@@ -908,7 +913,6 @@ extension azooKeyMacInputController: SegmentManagerDelegate {
         var actual = NSRange()
         // 同じ行の文字のみコンテキストに含める
         let leftSideContext = self.client().string(from: leftRange, actualRange: &actual)
-        self.segmentsManager.appendDebugMessage("\(#function): leftSideContext=\(leftSideContext ?? "nil")")
         return leftSideContext
     }
 
@@ -922,7 +926,6 @@ extension azooKeyMacInputController: SegmentManagerDelegate {
         let rightRange = NSRange(location: startIndex, length: min(documentLength - startIndex, maxCount))
         var actual = NSRange()
         let rightSideContext = self.client().string(from: rightRange, actualRange: &actual)
-        self.segmentsManager.appendDebugMessage("\(#function): rightSideContext=\(rightSideContext ?? "nil")")
         return rightSideContext
     }
 

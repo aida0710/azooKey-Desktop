@@ -9,10 +9,12 @@ import XCTest
 @MainActor
 private final class DeferredAIClient {
     private var requests: [CheckedContinuation<[String], Error>] = []
+    private(set) var capturedRequests: [AISuggestionRequest] = []
     private var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     func send(_ request: AISuggestionRequest) async throws -> [String] {
-        try await withCheckedThrowingContinuation { continuation in
+        capturedRequests.append(request)
+        return try await withCheckedThrowingContinuation { continuation in
             requests.append(continuation)
             for waiter in waiters where requests.count >= waiter.count { waiter.continuation.resume() }
             waiters.removeAll { requests.count >= $0.count }
@@ -86,11 +88,13 @@ final class AISuggestionInputTests: XCTestCase {
         _ = NSApplication.shared
         let oldBackend = Config.AIBackendPreference().value
         let oldContext = Config.IncludeContextInAITransform().value
+        let oldEndpoint = Config.OpenAiApiEndpoint().value
         let oldLive = Config.LiveConversion().value
         let oldTree = Config.TreeCandidates().value
         restoreSettings = {
             Config.AIBackendPreference().value = oldBackend
             Config.IncludeContextInAITransform().value = oldContext
+            Config.OpenAiApiEndpoint().value = oldEndpoint
             Config.LiveConversion().value = oldLive
             Config.TreeCandidates().value = oldTree
         }
@@ -136,9 +140,14 @@ final class AISuggestionInputTests: XCTestCase {
         return controller.handleClientAction(action, clientActionCallback: callback, client: client)
     }
 
+    private func beginRequest() throws -> Task<Void, Never> {
+        controller.requestReplaceSuggestion()
+        return try XCTUnwrap(controller.confirmReplaceSuggestion())
+    }
+
     func testEnterDuringFirstRequestCommitsOriginalInputOnce() async throws {
         type("nihongo")
-        let task = try XCTUnwrap(controller.requestReplaceSuggestion())
+        let task = try beginRequest()
         await sender.waitForRequests(1)
 
         send(.enter)
@@ -154,9 +163,10 @@ final class AISuggestionInputTests: XCTestCase {
         XCTAssertEqual(client.marked, "")
     }
 
-    func testMenuRequestKeepsOriginalInputUntilCandidatesArrive() async {
+    func testMenuRequestKeepsOriginalInputUntilCandidatesArrive() async throws {
         type("nihongo")
         controller.performTransformSelectedText(NSMenuItem())
+        _ = try XCTUnwrap(controller.confirmReplaceSuggestion())
         await sender.waitForRequests(1)
         XCTAssertEqual(controller.inputState, .composing)
         XCTAssertEqual(client.marked, "にほんご")
@@ -167,9 +177,10 @@ final class AISuggestionInputTests: XCTestCase {
         XCTAssertEqual(client.inserted, ["日本語"])
     }
 
-    func testEnterDuringMenuRequestCommitsOriginalInputOnce() async {
+    func testEnterDuringMenuRequestCommitsOriginalInputOnce() async throws {
         type("nihongo")
         controller.performTransformSelectedText(NSMenuItem())
+        _ = try XCTUnwrap(controller.confirmReplaceSuggestion())
         await sender.waitForRequests(1)
         send(.enter)
         XCTAssertEqual(client.inserted, ["にほんご"])
@@ -177,8 +188,9 @@ final class AISuggestionInputTests: XCTestCase {
         sender.finish(0, with: .success(["日本語"]))
     }
 
-    func testMenuPredictionKeepsItsInsertedReadingUntilCandidatesArrive() async {
+    func testMenuPredictionKeepsItsInsertedReadingUntilCandidatesArrive() async throws {
         controller.performTransformSelectedText(NSMenuItem())
+        _ = try XCTUnwrap(controller.confirmReplaceSuggestion())
         await sender.waitForRequests(1)
         XCTAssertEqual(controller.inputState, .composing)
         XCTAssertEqual(client.marked, "つづき")
@@ -190,7 +202,7 @@ final class AISuggestionInputTests: XCTestCase {
 
     func testEnterWhileNewRequestIsPendingCannotCommitPreviouslyDisplayedCandidate() async throws {
         type("mae")
-        let first = try XCTUnwrap(controller.requestReplaceSuggestion())
+        let first = try beginRequest()
         await sender.waitForRequests(1)
         sender.finish(0, with: .success(["旧候補 A"]))
         await first.value
@@ -199,7 +211,7 @@ final class AISuggestionInputTests: XCTestCase {
         send(.escape)
         send(.escape)
         type("nihongo")
-        let second = try XCTUnwrap(controller.requestReplaceSuggestion())
+        let second = try beginRequest()
         await sender.waitForRequests(2)
         XCTAssertTrue(controller.replaceSuggestionsViewController.candidates.isEmpty)
         send(.enter)
@@ -213,10 +225,10 @@ final class AISuggestionInputTests: XCTestCase {
 
     func testSameReadingRequestsReturnedInReverseOrderKeepOnlyTheNewCandidate() async throws {
         type("nihongo")
-        let first = try XCTUnwrap(controller.requestReplaceSuggestion())
+        let first = try beginRequest()
         await sender.waitForRequests(1)
         controller.cancelReplaceSuggestion()
-        let second = try XCTUnwrap(controller.requestReplaceSuggestion())
+        let second = try beginRequest()
         await sender.waitForRequests(2)
         sender.finish(1, with: .success(["新しい候補 B"]))
         await second.value
@@ -231,7 +243,7 @@ final class AISuggestionInputTests: XCTestCase {
 
     func testEmptyResultsPreserveOriginalInputForEnter() async throws {
         type("nihongo")
-        let task = try XCTUnwrap(controller.requestReplaceSuggestion())
+        let task = try beginRequest()
         await sender.waitForRequests(1)
         sender.finish(0, with: .success([]))
         await task.value
@@ -245,7 +257,7 @@ final class AISuggestionInputTests: XCTestCase {
 
     func testFailureKeepsNumbersBackspaceEscapeAndEnterUsable() async throws {
         type("nihongo")
-        let task = try XCTUnwrap(controller.requestReplaceSuggestion())
+        let task = try beginRequest()
         await sender.waitForRequests(1)
         sender.finish(0, with: .failure(URLError(.timedOut)))
         await task.value
@@ -267,7 +279,7 @@ final class AISuggestionInputTests: XCTestCase {
 
     func testMovingTheClientSelectionDiscardsAPendingResult() async throws {
         type("nihongo")
-        let task = try XCTUnwrap(controller.requestReplaceSuggestion())
+        let task = try beginRequest()
         await sender.waitForRequests(1)
         client.selection = NSRange(location: 1, length: 0)
         sender.finish(0, with: .success(["別の位置への候補"]))
@@ -288,8 +300,9 @@ final class AISuggestionInputTests: XCTestCase {
         XCTAssertEqual(controller.segmentsManager.convertTarget, "にほんご")
     }
 
-    func testPredictionFromEmptyInputKeepsItsInsertedReadingWhileWaiting() async {
+    func testPredictionFromEmptyInputKeepsItsInsertedReadingWhileWaiting() async throws {
         XCTAssertTrue(send(.suggest))
+        _ = try XCTUnwrap(controller.confirmReplaceSuggestion())
         await sender.waitForRequests(1)
         XCTAssertEqual(controller.inputState, .composing)
         XCTAssertEqual(controller.segmentsManager.convertTarget, "つづき")
@@ -300,10 +313,66 @@ final class AISuggestionInputTests: XCTestCase {
         sender.finish(0, with: .success([]))
     }
 
+    func testReviewingTheSendScopeDoesNotSendAndEnterStillCommitsOriginalInput() {
+        type("nihongo")
+        XCTAssertNil(controller.requestReplaceSuggestion())
+        XCTAssertNotNil(controller.aiSuggestionConfirmation)
+        XCTAssertNil(controller.requestReplaceSuggestion())
+        XCTAssertTrue(sender.capturedRequests.isEmpty)
+        send(.enter)
+        XCTAssertEqual(client.inserted, ["にほんご"])
+        XCTAssertNil(controller.aiSuggestionConfirmation)
+        XCTAssertTrue(sender.capturedRequests.isEmpty)
+    }
+
+    func testKeyboardCanToggleSurroundingTextAndCancelWithoutLosingInput() throws {
+        type("nihongo")
+        controller.requestReplaceSuggestion()
+        let toggle = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.control, .shift], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "S", charactersIgnoringModifiers: "s",
+            isARepeat: false, keyCode: 1
+        ))
+        XCTAssertEqual(controller.handleAISuggestionConfirmationKey(toggle), true)
+        XCTAssertEqual(controller.aiSuggestionConfirmation?.includeContext, true)
+        XCTAssertTrue(Config.IncludeContextInAITransform().value)
+        let cancel = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false, keyCode: 53
+        ))
+        XCTAssertEqual(controller.handleAISuggestionConfirmationKey(cancel), true)
+        XCTAssertNil(controller.aiSuggestionConfirmation)
+        XCTAssertEqual(controller.segmentsManager.convertTarget, "にほんご")
+        XCTAssertTrue(sender.capturedRequests.isEmpty)
+    }
+
+    func testKeyboardSendUsesTheDestinationShownBeforeSettingsChanged() async throws {
+        let endpoint = "https://user:credential@before.example.invalid/path?token=private"
+        Config.OpenAiApiEndpoint().value = endpoint
+        type("nihongo")
+        controller.requestReplaceSuggestion()
+        XCTAssertEqual(controller.aiSuggestionConfirmation?.configuration.destinationLabel, "before.example.invalid")
+        Config.OpenAiApiEndpoint().value = "https://after.example.invalid"
+        let send = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.control], timestamp: 0,
+            windowNumber: 0, context: nil, characters: "s", charactersIgnoringModifiers: "s",
+            isARepeat: false, keyCode: 1
+        ))
+        XCTAssertEqual(controller.handleAISuggestionConfirmationKey(send), true)
+        await sender.waitForRequests(1)
+        XCTAssertEqual(sender.capturedRequests.first?.apiEndpoint, endpoint)
+        sender.finish(0, with: .success([]))
+        await controller.aiSuggestionSession.waitForPendingRequest()
+        XCTAssertEqual(controller.inputState, .composing)
+    }
+
     func testSuggestionAndStatusPanelsCannotTakeKeyboardFocus() {
         XCTAssertFalse(controller.replaceSuggestionWindow.canBecomeKey)
         XCTAssertFalse(controller.replaceSuggestionWindow.canBecomeMain)
         XCTAssertFalse(controller.aiSuggestionStatusPanel.canBecomeKey)
         XCTAssertFalse(controller.aiSuggestionStatusPanel.canBecomeMain)
+        XCTAssertFalse(controller.aiSuggestionConfirmationPanel.canBecomeKey)
+        XCTAssertFalse(controller.aiSuggestionConfirmationPanel.canBecomeMain)
     }
 }

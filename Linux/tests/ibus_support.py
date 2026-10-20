@@ -2,8 +2,14 @@
 import os
 import pathlib
 import signal
+import time
 
 from gi.repository import Gio, GLib
+
+
+# Only fixture process exit is polled; conversion timing is not inferred.
+PROCESS_EXIT_WAIT_SECONDS = 3
+PROCESS_EXIT_POLL_SECONDS = 0.005
 
 
 def crash_converter(connection, executable_name):
@@ -25,3 +31,16 @@ def crash_converter(connection, executable_name):
     ]
     assert len(targets) == 1, "test must identify exactly one converter belonging to its own service"
     os.kill(targets[0], signal.SIGKILL)
+    # A sent SIGKILL is not yet an observed exit. The next key should exercise
+    # process restart, rather than race a write into a still-closing pipe.
+    status_path = pathlib.Path(f"/proc/{targets[0]}/stat")
+    exit_deadline = time.monotonic() + PROCESS_EXIT_WAIT_SECONDS
+    while True:
+        try:
+            state = status_path.read_text().rpartition(")")[2].split()[0]
+        except FileNotFoundError:
+            return
+        if state == "Z":
+            return
+        assert time.monotonic() < exit_deadline, "the fixture converter did not exit after SIGKILL"
+        time.sleep(PROCESS_EXIT_POLL_SECONDS)
