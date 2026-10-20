@@ -3,11 +3,13 @@
 import argparse
 import json
 import pathlib
+import time
 
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, Gtk
 
 
 parser = argparse.ArgumentParser()
@@ -27,21 +29,44 @@ def record(*_arguments):
     fields = []
     for editor in editors:
         buffer = editor.get_buffer()
+        selection = buffer.get_selection_bounds()
+        start, end = [position.get_offset() for position in selection] if selection else (
+            buffer.get_property("cursor-position"), buffer.get_property("cursor-position"),
+        )
         fields.append({
             "text": buffer.get_text(*buffer.get_bounds(), True),
-            "focused": editor.has_focus(),
+            "focused": window.is_active() and editor.has_focus(),
             "cursor": buffer.get_property("cursor-position"),
+            "selection": {"startScalar": start, "endScalar": end},
+            "preedit": editor.preedit,
         })
-    arguments.output.write_text(json.dumps({"fields": fields}, ensure_ascii=False), encoding="utf-8")
+    state = {
+        "observedAt": time.time(), "monotonicNS": time.monotonic_ns(),
+        "windowActive": window.is_active(),
+        "gtk_version": f"{Gtk.get_major_version()}.{Gtk.get_minor_version()}.{Gtk.get_micro_version()}",
+        "platform": "wayland" if "Wayland" in type(Gdk.Display.get_default()).__name__ else "x11",
+        "fields": fields,
+    }
+    pending_output = arguments.output.with_suffix(arguments.output.suffix + ".pending")
+    pending_output.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    pending_output.replace(arguments.output)
     return False
+
+
+def record_preedit(editor, preedit):
+    editor.preedit = preedit
+    record()
 
 
 for index in range(2):
     editor = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
+    editor.preedit = ""
     editor.get_accessible().set_name(f"Test input {index + 1}")
     editor.get_buffer().connect("changed", record)
     editor.get_buffer().connect("notify::cursor-position", record)
+    editor.get_buffer().connect("notify::has-selection", record)
     editor.connect("notify::has-focus", record)
+    editor.connect("preedit-changed", record_preedit)
     editors.append(editor)
     container = Gtk.ScrolledWindow()
     container.set_min_content_height(180)
@@ -51,6 +76,7 @@ style = Gtk.CssProvider()
 style.load_from_data(b"textview { font-size: 24px; }")
 Gtk.StyleContext.add_provider_for_screen(window.get_screen(), style, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 window.add(layout)
+window.connect("notify::is-active", record)
 window.show_all()
 editors[0].grab_focus()
 record()
