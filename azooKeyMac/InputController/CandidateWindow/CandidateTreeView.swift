@@ -27,6 +27,8 @@ final class CandidateTreeView: NSView {
     private var layoutShowsNumbers = false
     private var documentWidths: [CGFloat]?
     private var scores: [Int: Int] = [:]
+    private var scorePresentations: [Int: CandidateScorePresentation] = [:]
+    private var showsScores = Config.ShowRelativeScores().value
     private var announcedCandidate: Int?
     private var announcedNode: Int?
     private var textSize = Config.CandidateTextSize.Value.standard
@@ -91,9 +93,10 @@ final class CandidateTreeView: NSView {
                 documentWidths: [CGFloat]? = nil) {
         let updatedTree = CandidateTree(entries: entries)
         let size = Config.CandidateTextSize().value
+        let scoresVisible = Config.ShowRelativeScores().value
         let minimumColumnWidth = CGFloat(size.pointSize) + (numbers.isEmpty ? 8 : 14)
         let readableWidths = documentWidths?.allSatisfy { $0 >= minimumColumnWidth } == true ? documentWidths : nil
-        let changed = updatedTree != tree || self.documentWidths != readableWidths || textSize != size
+        let changed = updatedTree != tree || self.documentWidths != readableWidths || textSize != size || showsScores != scoresVisible
         if updatedTree != tree {
             nodeButtons.values.forEach { $0.removeFromSuperview() }
             terminalButtons.values.forEach { $0.removeFromSuperview() }
@@ -102,6 +105,7 @@ final class CandidateTreeView: NSView {
         }
         self.documentWidths = readableWidths
         textSize = size
+        showsScores = scoresVisible
         tree = updatedTree
         numberLabels = numbers
         selection.synchronize(tree: tree, candidateIndex: selectionIndex)
@@ -165,7 +169,9 @@ final class CandidateTreeView: NSView {
         var widths: [Int: CGFloat] = [:]
         let aligned = documentWidths?.count == displayedColumns.count
         let rowHeight = CGFloat(textSize.pointSize) + 14
-        let rowPitch: CGFloat = rowHeight + (aligned && layoutShowsNumbers ? rowHeight + 20 : 20)
+        let scoreHeight = showsScores ? CandidateScoreBadge.lineHeight : 0
+        let rowGap: CGFloat = 4 // Separate candidate actions even when the score line is hidden.
+        let rowPitch: CGFloat = rowHeight + scoreHeight + rowGap + (aligned && layoutShowsNumbers ? rowHeight : 0)
         for (depth, column) in displayedColumns.enumerated() {
             for (row, id) in column.enumerated() {
                 rows[id] = CGFloat(row)
@@ -193,7 +199,7 @@ final class CandidateTreeView: NSView {
             nodeFrames[node.id] = frame
             for index in node.terminalCandidateIndices {
                 terminalFrames[index] = aligned
-                    ? NSRect(x: frame.maxX - rowHeight, y: frame.maxY + 16, width: rowHeight, height: rowHeight)
+                    ? NSRect(x: frame.maxX - rowHeight, y: frame.maxY + scoreHeight, width: rowHeight, height: rowHeight)
                     : NSRect(x: frame.maxX + 1, y: frame.minY, width: rowHeight, height: rowHeight)
             }
         }
@@ -278,7 +284,9 @@ final class CandidateTreeView: NSView {
             button.font = .systemFont(ofSize: textSize.pointSize)
             button.toolTip = token.reading.isEmpty ? token.text : "\(token.text)（\(token.reading)）"
             button.setAccessibilityLabel(button.toolTip)
-            button.toolTip! += scores[id].map { "\n相対スコア \($0)（取得候補内の評価。正解の確率ではありません）" } ?? "\n比較可能なスコアなし"
+            if let presentation = scorePresentations[id] {
+                button.toolTip! += "\n" + presentation.detailDescription
+            }
             if let preview = tree.preview(at: id, preserving: selection.selectedCandidateIndex) {
                 button.toolTip! += "\n" + preview.detailDescription
             }
@@ -305,7 +313,11 @@ final class CandidateTreeView: NSView {
     private func refreshSelection() {
         if displayedColumns != tree.compactColumns(candidateIndex: selection.selectedCandidateIndex) || layoutShowsNumbers != !numberLabels.isEmpty { rebuild() }
         scores = tree.relativeScores(candidateIndex: selection.selectedCandidateIndex)
+        scorePresentations = showsScores ? Dictionary(uniqueKeysWithValues: nodeFrames.keys.map {
+            ($0, CandidateScorePresentation(relativeScore: scores[$0]))
+        }) : [:]
         canvas.scores = scores
+        canvas.scorePresentations = scorePresentations
         canvas.nodeFrames = nodeFrames
         canvas.selectedPath = Set(displayedColumns.compactMap(\.first))
         canvas.needsDisplay = true
@@ -337,7 +349,8 @@ final class CandidateTreeView: NSView {
         let token = tree.nodes[nodeID].token
         let word = token.reading.isEmpty ? token.text : "\(token.text)\n\(token.reading)"
         let preview = tree.preview(at: nodeID, preserving: selection.selectedCandidateIndex)?.detailDescription
-        let description = [word, preview, Localization.text("candidate.detailKeys")].compactMap { $0 }.joined(separator: "\n")
+        let description = [word, preview, scorePresentations[nodeID]?.detailDescription, Localization.text("candidate.detailKeys")]
+            .compactMap { $0 }.joined(separator: "\n")
         details.update(text: description, fontSize: CGFloat(textSize.pointSize))
     }
 }
@@ -348,6 +361,7 @@ private final class TreeCanvas: NSView {
     var edges: [Edge] = []
     var selectedPath: Set<Int> = []
     var scores: [Int: Int] = [:]
+    var scorePresentations: [Int: CandidateScorePresentation] = [:]
     var nodeFrames: [Int: NSRect] = [:]
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
@@ -367,19 +381,9 @@ private final class TreeCanvas: NSView {
         }
         palette.text.setFill()
         NSBezierPath(ovalIn: NSRect(x: 1, y: 15, width: 6, height: 6)).fill()
-        let style = NSMutableParagraphStyle()
-        style.alignment = .center
         for (id, frame) in nodeFrames {
-            let label = scores[id].map(String.init) ?? "—"
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
-                .foregroundColor: palette.scoreText, .paragraphStyle: style
-            ]
-            let width = min(frame.width, max(22, (label as NSString).size(withAttributes: attributes).width + 6))
-            let badge = NSRect(x: frame.midX - width / 2, y: frame.maxY, width: width, height: 16)
-            CandidateTheme.scoreColor(scores[id], palette: palette).setFill()
-            NSBezierPath(rect: badge).fill()
-            (label as NSString).draw(in: badge, withAttributes: attributes)
+            guard let presentation = scorePresentations[id] else { continue }
+            CandidateScoreBadge.draw(presentation: presentation, score: scores[id], frame: frame, palette: palette)
         }
     }
 }
