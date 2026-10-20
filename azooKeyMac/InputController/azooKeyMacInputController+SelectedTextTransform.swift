@@ -51,6 +51,14 @@ extension azooKeyMacInputController {
     }
 
     @MainActor
+    private func isSelectionUnchanged(client: IMKTextInput, range: NSRange, text: String) -> Bool {
+        var actualRange = NSRange()
+        return client.selectedRange() == range
+            && client.string(from: range, actualRange: &actualRange) == text
+            && actualRange == range
+    }
+
+    @MainActor
     func showPromptInputWindow(initialPrompt: String? = nil) {
         self.appendDebugMessage("showPromptInputWindow: Starting")
         guard let requestConfiguration = AIRequestConfiguration.current() else {
@@ -112,14 +120,11 @@ extension azooKeyMacInputController {
 
                 Task {
                     do {
-                        if includeContext {
-                            var actualRange = NSRange()
-                            guard client.selectedRange() == storedSelectedRange,
-                                  client.string(from: storedSelectedRange, actualRange: &actualRange) == selectedText,
-                                  actualRange == storedSelectedRange else {
-                                callback(.failure(.targetChanged))
-                                return
-                            }
+                        guard !includeContext || self.isSelectionUnchanged(
+                            client: client, range: storedSelectedRange, text: selectedText
+                        ) else {
+                            callback(.failure(.targetChanged))
+                            return
                         }
                         let context = includeContext
                             ? self.getContextAroundSelection(client: client, selectedRange: storedSelectedRange)
