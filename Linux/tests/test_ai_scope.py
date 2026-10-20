@@ -101,6 +101,7 @@ class AIScopeDialogTests(unittest.TestCase):
         engine = SimpleNamespace(
             private=False, sensitive=False, focused=True,
             input=SimpleNamespace(recovering=False, pending=[], cancelled=object(), generation=1),
+            transformation=SimpleNamespace(input_changed=lambda: None),
             snapshot={"generation": 2, "reading": "よみ"},
         )
         sent = []
