@@ -51,6 +51,17 @@ class InputPreviewTests(unittest.TestCase):
         }, [(0xFF51, 0), (ord("a"), 0)])
         self.assertEqual(preview.visible_text, "にほaんご")
 
+    def test_typing_after_ai_suggestion_restores_reading_before_focus_loss(self):
+        for cursor, expected in ((4, "にほんごa"), (2, "にほaんご")):
+            with self.subTest(cursor=cursor):
+                preview = self.preview({
+                    "preedit": "人工知能の候補", "reading": "にほんご", "inputState": "replaceSuggestion",
+                    "readingCursor": cursor,
+                }, [(ord("a"), 0)])
+                self.assertEqual(preview.visible_text, expected)
+                self.assertEqual(preview.state, "composing")
+                self.assertTrue(preview.restored_reading)
+
     def test_cursor_and_backspace_keep_combining_and_emoji_clusters_whole(self):
         for cluster in ("e\u0301", "👩\u200d🚀", "🇯🇵", "か\u3099"):
             with self.subTest(cluster=cluster):
@@ -73,6 +84,10 @@ class InputPreviewTests(unittest.TestCase):
     def test_up_does_not_turn_composition_cancellation_into_candidate_cancellation(self):
         preview = self.preview({"preedit": "あ", "inputState": "composing"}, [(0xFF52, 0), (0xFF1B, 0)])
         self.assertEqual(preview.visible_text, "")
+
+    def test_initial_preview_uses_core_default_full_width_space(self):
+        preview = self.preview({}, [(32, 0)])
+        self.assertEqual(preview.visible_text, "　")
 
 
 if __name__ == "__main__":
