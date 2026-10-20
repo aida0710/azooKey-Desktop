@@ -189,7 +189,7 @@ class Engine(IBus.Engine):
         self.anchor.update("", 0)
         self.update_preedit_text_with_mode(IBus.Text.new_from_string(""), 0, False, IBus.PreeditFocusMode.COMMIT)
         surface().hide(self)
-        self.panel.hide()
+        self.panel.dismiss()
         self.hide_preedit_text()
         self.hide_lookup_table()
         if text and self.focused and not self.private:
@@ -204,8 +204,9 @@ class Engine(IBus.Engine):
         # IBus commits this visible text to the old input context on focus-out,
         # before notifying the engine. No asynchronous commit may follow it.
         self.update_preedit_text_with_mode(IBus.Text.new_from_string(text), cursor, bool(text), IBus.PreeditFocusMode.COMMIT)
-        surface().hide(self)
-        self.panel.hide()
+        # A pending key retires old actions while preserving the user's open list.
+        surface().suspend(self)
+        self.panel.suspend()
         self.hide_lookup_table()
 
     def do_process_key_event(self, keyval, keycode, state):
@@ -351,7 +352,7 @@ class Engine(IBus.Engine):
         self.pending_settings_stamp = None
         self.snapshot = {}
         self.left = self.right = self.selected_text = ""
-        self.panel.hide()
+        self.panel.dismiss()
 
     def do_focus_out_id(self, _object_path):
         self.do_focus_out()
@@ -436,10 +437,10 @@ class Engine(IBus.Engine):
         shell_tree = self.focused and self.settings.get("tree", True) and surface().show(self, snapshot, self.panel.location)
         if shell_tree:
             self.lookup_announcements.reset()
-            self.panel.hide()
+            self.panel.dismiss()
             self.hide_lookup_table()
         elif is_wayland or not self.settings.get("tree", True):
-            self.panel.hide()
+            self.panel.dismiss()
             self.update_lookup_table(self.table, bool(snapshot.get("candidates")))
             self.lookup_announcements.update(snapshot)
         else:
