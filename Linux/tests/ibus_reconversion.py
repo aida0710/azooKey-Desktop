@@ -94,8 +94,10 @@ type_text("nihongo")
 key(IBus.KEY_Return)
 wait_until(lambda: len(deletions) == 1 and preedit["text"] == "日本語", "Selection must be replaced only after reading submission")
 assert document["text"] == "前後"
-for _ in range(3):
-    key(IBus.KEY_Escape)
+# Later Esc presses are native once an earlier press ends composition.
+# The original replies now report that decision instead of acknowledging early.
+cancellation_replies = [context.process_key_event(IBus.KEY_Escape, 0, 0) for _ in range(3)]
+assert cancellation_replies[0], cancellation_replies
 wait_until(lambda: commits == ["日本語"] and preedit["text"] == "", "Cancel must restore original once")
 assert document["text"] == "前日本語後"
 
