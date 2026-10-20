@@ -4,68 +4,105 @@ import InputMethodKit
 import KanaKanjiConverterModuleWithDefaultDictionary
 
 extension azooKeyMacInputController {
-    // Match the desktop bridge's context limit.
-    private static let aiSuggestionContextLength = 100
-
     @MainActor
     @discardableResult
     func requestReplaceSuggestion() -> Task<Void, Never>? {
-        cancelReplaceSuggestion()
-        inputState = segmentsManager.isEmpty ? .none : .composing
-        guard !segmentsManager.isEmpty, let client = self.client() else {
+        if aiSuggestionConfirmation != nil {
             return nil
         }
-        let backend: AIBackend
-        switch Config.AIBackendPreference().value {
-        case .off: return nil
-        case .foundationModels: backend = .foundationModels
-        case .openAI: backend = .openAI
+        cancelReplaceSuggestion()
+        inputState = segmentsManager.isEmpty ? .none : .composing
+        guard !segmentsManager.isEmpty, let client = self.client(),
+              let configuration = AIRequestConfiguration.current() else {
+            return nil
         }
 
         // Repeating a request restores the original reading before capturing
         // the client's selection; the previous AI candidate can be longer.
         refreshMarkedText()
-        let reading = segmentsManager.convertTarget
-        let clientIdentity = ObjectIdentifier(client)
-        let selectedRange = client.selectedRange()
-        let prompt: String
-        if Config.IncludeContextInAITransform().value {
-            let before = getLeftSideContext(maxCount: Self.aiSuggestionContextLength) ?? ""
-            let after = getRightSideContext(maxCount: Self.aiSuggestionContextLength) ?? ""
-            prompt = [
-                before.isEmpty ? nil : "Text before: ...\(before)",
-                after.isEmpty ? nil : "Text after: \(after)..."
-            ].compactMap(\.self).joined(separator: "\n")
-        } else {
-            prompt = ""
+        let confirmation = AISuggestionConfirmation(
+            reading: segmentsManager.convertTarget,
+            clientIdentity: ObjectIdentifier(client), selectedRange: client.selectedRange(),
+            configuration: configuration, includeContext: Config.IncludeContextInAITransform().value
+        )
+        aiSuggestionConfirmation = confirmation
+        aiSuggestionConfirmationPanel.onSend = { [weak self] in self?.confirmReplaceSuggestion() }
+        aiSuggestionConfirmationPanel.onCancel = { [weak self] in self?.cancelReplaceSuggestion() }
+        aiSuggestionConfirmationPanel.onContextChanged = { [weak self] in self?.setSuggestionContextIncluded($0) }
+        aiSuggestionConfirmationPanel.show(
+            configuration: configuration, reading: confirmation.reading,
+            includeContext: confirmation.includeContext, cursorLocation: getCursorLocation()
+        )
+        return nil
+    }
+
+    @MainActor
+    func setSuggestionContextIncluded(_ value: Bool) {
+        aiSuggestionConfirmation?.includeContext = value
+        Config.IncludeContextInAITransform().value = value
+        aiSuggestionConfirmationPanel.setIncludesContext(value)
+    }
+
+    @MainActor
+    func handleAISuggestionConfirmationKey(_ event: NSEvent) -> Bool? {
+        guard let confirmation = aiSuggestionConfirmation else {
+            return nil
         }
-        let model = Config.OpenAiModelName().value
-        let endpoint = Config.OpenAiApiEndpoint().value
-        let request = AISuggestionRequest(
-            conversion: OpenAIRequest(
-                prompt: prompt, target: reading,
-                modelName: model.isEmpty ? Config.OpenAiModelName.default : model
-            ),
-            backend: backend,
-            apiKey: Config.OpenAiApiKey().value,
-            apiEndpoint: endpoint.isEmpty ? Config.OpenAiApiEndpoint.default : endpoint
+        let modifiers = event.keyEventCore.modifierFlags
+        if event.charactersIgnoringModifiers == "\u{1b}", modifiers.isEmpty {
+            cancelReplaceSuggestion()
+            return true
+        }
+        guard event.charactersIgnoringModifiers?.lowercased() == "s" else {
+            return nil
+        }
+        if modifiers == [.control, .shift] {
+            setSuggestionContextIncluded(!confirmation.includeContext)
+            return true
+        }
+        if modifiers == [.control] {
+            confirmReplaceSuggestion()
+            return true
+        }
+        return nil
+    }
+
+    @MainActor
+    @discardableResult
+    func confirmReplaceSuggestion() -> Task<Void, Never>? {
+        guard let confirmation = aiSuggestionConfirmation,
+              let client = self.client(),
+              ObjectIdentifier(client) == confirmation.clientIdentity,
+              client.selectedRange() == confirmation.selectedRange,
+              segmentsManager.convertTarget == confirmation.reading else {
+            cancelReplaceSuggestion()
+            return nil
+        }
+        aiSuggestionConfirmation = nil
+        aiSuggestionConfirmationPanel.orderOut(nil)
+        let scope = AIRequestScope(
+            target: confirmation.reading,
+            before: confirmation.includeContext ? getLeftSideContext(maxCount: AIRequestScope.contextCharacterLimit) ?? "" : "",
+            after: confirmation.includeContext ? getRightSideContext(maxCount: AIRequestScope.contextCharacterLimit) ?? "" : "",
+            includeContext: confirmation.includeContext
         )
         aiSuggestionStatusPanel.show(key: "ai.suggestion.loading", cursorLocation: getCursorLocation())
+        let request = confirmation.configuration.suggestionRequest(scope: scope)
         return aiSuggestionSession.request(request) { [weak self] completion in
             guard let self else {
                 return
             }
             guard self.inputState == .composing,
-                  self.segmentsManager.convertTarget == reading,
+                  self.segmentsManager.convertTarget == confirmation.reading,
                   let currentClient = self.client(),
-                  ObjectIdentifier(currentClient) == clientIdentity,
-                  currentClient.selectedRange() == selectedRange else {
+                  ObjectIdentifier(currentClient) == confirmation.clientIdentity,
+                  currentClient.selectedRange() == confirmation.selectedRange else {
                 self.cancelReplaceSuggestion()
                 return
             }
             switch completion {
             case .candidates:
-                self.showReplaceSuggestions(reading: reading)
+                self.showReplaceSuggestions(reading: confirmation.reading)
             case .empty:
                 self.aiSuggestionStatusPanel.show(key: "ai.suggestion.empty", cursorLocation: self.getCursorLocation())
             case .failed:
@@ -101,6 +138,8 @@ extension azooKeyMacInputController {
 
     @MainActor
     func cancelReplaceSuggestion() {
+        aiSuggestionConfirmation = nil
+        aiSuggestionConfirmationPanel.orderOut(nil)
         aiSuggestionSession.cancel()
         aiSuggestionStatusPanel.orderOut(nil)
         clearReplaceSuggestionCandidates()

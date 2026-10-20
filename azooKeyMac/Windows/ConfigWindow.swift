@@ -24,6 +24,7 @@ struct ConfigWindow: View {
     @ConfigState private var systemUserDictionary = Config.SystemUserDictionary()
     @ConfigState private var keyboardLayout = Config.KeyboardLayout()
     @ConfigState private var aiBackend = Config.AIBackendPreference()
+    @ConfigState private var includeContextInAITransform = Config.IncludeContextInAITransform()
 
     @State private var selectedTab: Tab = .basic
     @State private var zenzaiProfileHelpPopover = false
@@ -402,11 +403,24 @@ struct ConfigWindow: View {
                     }
                 }
 
+                Text(Localization.text("ai.scope.processing"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if aiBackend.value != .off {
+                    Toggle(Localization.text("ai.scope.include-context"), isOn: $includeContextInAITransform)
+                    if let configuration = AIRequestConfiguration.current() {
+                        Text("\(Localization.text("ai.scope.destination")): \(configuration.destinationLabel)")
+                            .font(.caption)
+                            .textSelection(.enabled)
+                    }
+                }
+
                 if aiBackend.value == .openAI {
                     HStack {
                         SecureField("APIキー", text: $openAiApiKey, prompt: Text("例:sk-xxxxxxxxxxx"))
                         helpButton(
-                            helpContent: "OpenAI APIキーはローカルのみで管理され、外部に公開されることはありません。生成の際にAPIを利用するため、課金が発生します。",
+                            helpContent: Localization.text("ai.scope.api-key"),
                             isPresented: $openAiApiKeyPopover
                         )
                     }
