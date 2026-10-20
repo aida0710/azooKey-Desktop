@@ -35,6 +35,11 @@ final class DocumentTextInput: NSObject, IMKTextInput {
             return
         }
         marked = range.length == 0 ? NSRange(location: NSNotFound, length: 0) : range
+        guard selectionRange.location != NSNotFound else {
+            // NSTextView clamps an unspecified selection to the document end.
+            selection = NSRange(location: document.utf16.count, length: 0)
+            return
+        }
         selection = NSRange(location: range.location + selectionRange.location, length: selectionRange.length)
     }
     func selectedRange() -> NSRange { selection }
