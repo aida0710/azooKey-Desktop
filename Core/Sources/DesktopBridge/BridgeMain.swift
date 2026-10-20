@@ -25,6 +25,8 @@ struct BridgeRequest: Decodable {
     var privateInput: Bool?
     var context: String?
     var doubleTap: Bool?
+    var reconversionContext: ReconversionContext?
+    var reconversionToken: String?
 }
 
 @main
@@ -76,6 +78,7 @@ struct BridgeMain {
                 session.privateInput = request.privateInput ?? false
                 session.leftContext = String((request.leftContext ?? "").suffix(100))
                 session.rightContext = String((request.rightContext ?? "").prefix(100))
+                session.reconversionContext = request.reconversionContext
                 switch request.operation {
                 case "key":
                     guard let event = request.event else { throw ProtocolError.invalidRequest }
@@ -87,6 +90,11 @@ struct BridgeMain {
                     guard let node = request.node, let generation = request.generation else { throw ProtocolError.invalidRequest }
                     response = session.selectNode(node, submit: request.submit ?? false, expectedGeneration: generation)
                 case "reset": response = session.reset(commit: request.submit ?? false)
+                case "undo-commit": response = session.prepareReconversion(undo: true)
+                case "reconvert": response = session.prepareReconversion(undo: false, reading: request.reading)
+                case "confirm-reconversion":
+                    guard let token = request.reconversionToken else { throw ProtocolError.invalidRequest }
+                    response = session.confirmReconversion(token)
                 case "snapshot": response = session.snapshot()
                 case "settings":
                     response = DesktopSnapshot()
