@@ -70,6 +70,16 @@ context.process_key_event(IBus.KEY_space, 0, 0)
 wait_for(lambda: updates and updates[-1].get("reading") == "にほんご" and updates[-1].get("showCandidateIndex"),
          "renderer never received the completed selection")
 snapshot = updates[-1]
+detail_scrolls = []
+detail_subscription = connection.signal_subscribe(
+    "org.azookey.Tree", "org.azookey.Tree", "ScrollDetails", "/org/azookey/Tree", None,
+    Gio.DBusSignalFlags.NONE, lambda _c, _s, _p, _i, _n, values: detail_scrolls.append(values.unpack()[0]),
+)
+for detail_key in (IBus.KEY_Page_Down, IBus.KEY_Page_Up):
+    assert context.process_key_event(detail_key, 0, 0), "candidate detail key must be consumed"
+wait_for(lambda: detail_scrolls == [True, False], "detail keys did not reach the registered renderer")
+assert committed == ["日本語"], "reading candidate details must not commit"
+connection.signal_unsubscribe(detail_subscription)
 candidate = next(item for item in snapshot["candidates"] if item["text"] == "日本語")
 connection.call_sync("org.azookey.Tree", "/org/azookey/Tree", "org.azookey.Tree", "Select",
                      GLib.Variant("(sibis)", ("select", candidate["index"], True, snapshot["generation"], snapshot["contextId"])),

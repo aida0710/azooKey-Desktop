@@ -98,7 +98,7 @@ final class CandidateTreeView: NSView {
                 documentWidths: [CGFloat]? = nil) {
         let updatedTree = CandidateTree(entries: entries)
         let size = Config.CandidateTextSize().value
-        let minimumColumnWidth = CGFloat(size.pointSize) + 8
+        let minimumColumnWidth = CGFloat(size.pointSize) + (numbers.isEmpty ? 8 : 14)
         let readableWidths = documentWidths?.allSatisfy { $0 >= minimumColumnWidth } == true ? documentWidths : nil
         let changed = updatedTree != tree || self.documentWidths != readableWidths || textSize != size
         if updatedTree != tree {
@@ -172,7 +172,7 @@ final class CandidateTreeView: NSView {
         var widths: [Int: CGFloat] = [:]
         let aligned = documentWidths?.count == displayedColumns.count
         let rowHeight = CGFloat(textSize.pointSize) + 14
-        let rowPitch: CGFloat = rowHeight + (aligned && layoutShowsNumbers ? 40 : 20)
+        let rowPitch: CGFloat = rowHeight + (aligned && layoutShowsNumbers ? rowHeight + 20 : 20)
         for (depth, column) in displayedColumns.enumerated() {
             for (row, id) in column.enumerated() {
                 rows[id] = CGFloat(row)
@@ -200,7 +200,7 @@ final class CandidateTreeView: NSView {
             nodeFrames[node.id] = frame
             for index in node.terminalCandidateIndices {
                 terminalFrames[index] = aligned
-                    ? NSRect(x: frame.maxX - rowHeight, y: frame.maxY + 16, width: rowHeight, height: 24)
+                    ? NSRect(x: frame.maxX - rowHeight, y: frame.maxY + 16, width: rowHeight, height: rowHeight)
                     : NSRect(x: frame.maxX + 1, y: frame.minY, width: rowHeight, height: rowHeight)
             }
         }
@@ -273,6 +273,10 @@ final class CandidateTreeView: NSView {
             canvas.addSubview(terminal)
             terminalButtons[index] = terminal
         }
+        refreshControlAppearance()
+    }
+
+    private func refreshControlAppearance() {
         let path = Set(displayedColumns.compactMap(\.first))
         for (id, button) in nodeButtons {
             if let frame = nodeFrames[id] { button.frame = frame }
