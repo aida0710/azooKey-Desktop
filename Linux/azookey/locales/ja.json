@@ -9,6 +9,7 @@
   "candidate.textSize.large": "大きい",
   "candidate.detailKeys": "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール",
   "candidate.position": "変換候補 {position} / {total}",
+  "candidate.available": "変換候補が{total}件あります。上下キーで選べます",
   "candidate.announceReading": "読み {reading}",
   "candidate.wordPosition": "語 {position} / {total}",
   "candidate.announceCommit": "確定予定 {text}",

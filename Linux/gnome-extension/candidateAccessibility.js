@@ -18,6 +18,9 @@ export function attachCandidateAction(button) {
 }
 
 export function candidateAnnouncement(snapshot) {
+    if (snapshot.inputState === 'composing' && snapshot.candidateDisplayMode === 'menu' &&
+        snapshot.selection == null && snapshot.candidates?.length)
+        return messages.available(snapshot.candidates.length);
     if (!['previewing', 'selecting', 'replaceSuggestion'].includes(snapshot.inputState))
         return null;
     const candidate = snapshot.candidates?.find(item => item.index === snapshot.selection);
