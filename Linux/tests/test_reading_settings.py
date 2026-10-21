@@ -34,12 +34,17 @@ class ReadingSettingsTests(ReadingSettingsTestCase):
         self.assertEqual(self.converter.values, self.reader.values)
 
     def test_candidate_configuration_ack_must_arrive_before_prepare_and_display(self):
+        startup = self.converter.gate("settings")
         configured = self.converter.gate("configure-settings")
         self.start()
+        self.assertTrue(startup.entered.wait(WAIT_SECONDS))
         self.focus()
         self.key("a")
         self.key("", 49)
-        self.until(lambda: self.agreement().reader is not None)
+        startup.proceed.set()
+        # Dispatch both settings replies before waiting on the configuration
+        # thread; an undelivered startup reply cannot schedule its request.
+        self.until(lambda: self.agreement().reader is not None and self.agreement().observed is not None)
         self.assertTrue(configured.entered.wait(WAIT_SECONDS))
         self.assertFalse(any(name == "prepare-candidates" for name, _ in self.reader.calls))
         self.assertEqual(self.panels, [])
