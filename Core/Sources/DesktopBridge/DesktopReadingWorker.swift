@@ -93,7 +93,7 @@ struct DesktopReadingWorker {
             return response(.acknowledgement, reference: reference)
         case "snapshot":
             var reply = response(.input, reference: reference)
-            reply.snapshot = context.session.snapshot()
+            reply.snapshot = context.snapshot()
             return reply
         default:
             guard focusedContext == reference.context else { throw DesktopReadingProtocolFailure.contextNotFocused }
@@ -142,7 +142,10 @@ struct DesktopReadingWorker {
         let revision = try DesktopReadingProtocolValidation.required(request.settingsRevision)
         guard revision >= 0 else { throw DesktopReadingProtocolFailure.invalidRequest }
         guard revision > settingsRevision else { throw DesktopReadingProtocolFailure.staleSettings }
-        for name in Array(contexts.keys) { try contexts[name]?.session.updateLearningRevision(revision) }
+        for name in Array(contexts.keys) {
+            try contexts[name]?.session.updateLearningRevision(revision)
+            contexts[name]?.reconversion.clear()
+        }
         settingsRevision = revision
         return response(.acknowledgement)
     }
