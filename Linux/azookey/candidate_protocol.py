@@ -22,6 +22,7 @@ class CandidateReply:
     transport_epoch: int = 0
     batch: dict | None = None
     completion: dict | None = None
+    reconversion_reading: dict | None = None
     settings: dict | None = None
     error: str | None = None
     uncertain: bool = False

@@ -9,6 +9,7 @@ from typing import Callable
 
 from .bridge import Bridge, BridgeProcessChanged
 from . import candidate_protocol as protocol
+from .reconversion_protocol import candidate_reading
 
 
 LOGGER = logging.getLogger(__name__)
@@ -168,7 +169,8 @@ class CandidateTransport:
         if pending.operation == "candidates":
             return self._calculate(pending)
         payload = pending.payload
-        source = payload.get("reference") or payload.get("completion") or payload
+        source = (payload.get("reference") or payload.get("completion")
+                  or payload.get("reconversionReadingRequest") or payload)
         response = self._exchange(pending.operation, payload, generation=source.get("workerGeneration"), pending=pending)
         if response.get("error"):
             if pending.operation == "complete":
@@ -182,6 +184,8 @@ class CandidateTransport:
             return self._reply(completion=protocol.completion_receipt(response, payload["completion"]))
         if pending.operation in ("settings", "configure-learning", "configure-settings"):
             return self._reply(settings=protocol.settings_response(response))
+        if pending.operation == "resolve-reconversion-reading":
+            return self._reply(reconversion_reading=candidate_reading(response, request=source))
         return self._reply()
 
     def _invalidate(self):

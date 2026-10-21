@@ -22,6 +22,7 @@ class RendererEngineFixture:
         self.candidate_tree_enabled = True
         self.preedits, self.commits, self.replies, self.lookups = [], [], [], []
         self.notices = []
+        self.reconversion = mock.Mock()
         self.table = IBus.LookupTable.new(9, 0, True, True)
         self.renderer = None
         self.render_input = MethodType(ReadingEngine.render_input, self)

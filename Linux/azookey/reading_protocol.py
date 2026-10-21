@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from . import candidate_protocol as candidates
 from . import worker_settings
+from . import reconversion_protocol
 from .reading_candidate_view import validate_view
 
 
@@ -11,8 +12,8 @@ REFERENCE_FIELDS = frozenset(("context", "readingProcessGeneration", "focusEpoch
 RESPONSE_FIELDS = frozenset((
     "kind", "readingProcessGeneration", "settingsRevision", "reference",
     "nextReference", "snapshot", "candidateRequest", "candidateReference", "candidateView", "limits", "error",
-)) | worker_settings.ACKNOWLEDGEMENT_FIELDS | worker_settings.DEFAULTS_FIELDS
-INPUT_OPERATIONS = frozenset(("key", "select", "commit-candidate", "reset", "focus-out"))
+)) | worker_settings.ACKNOWLEDGEMENT_FIELDS | worker_settings.DEFAULTS_FIELDS | reconversion_protocol.RESPONSE_FIELDS
+INPUT_OPERATIONS = frozenset(("key", "select", "commit-candidate", "reset", "focus-out", "confirm-reconversion"))
 RESPONSE_KINDS = {"hello": "process", "prepare-candidates": "candidates",
                   **{operation: "input" for operation in INPUT_OPERATIONS}}
 
@@ -134,9 +135,16 @@ def response(value, operation, payload):
                 raise ValueError("reading focus did not advance")
         elif current != payload["reference"]:
             raise ValueError("reading response changed its input owner")
+        if operation in reconversion_protocol.CONTROL_OPERATIONS or operation == "confirm-reconversion":
+            permitted.update(reconversion_protocol.response_fields(
+                value, reference=current, settings_revision=value["settingsRevision"],
+            ))
         if kind == "input":
             permitted.add("snapshot")
             snapshot(value.get("snapshot"), current)
+            if operation == "confirm-reconversion" and (
+                    value["snapshot"].get("commits") or value["snapshot"].get("candidateCompletions")):
+                raise ValueError("reconversion confirmation cannot commit or learn")
             if "candidateView" in value:
                 permitted.add("candidateView")
                 validate_view(value["candidateView"], expected_reference=current, snapshot=value["snapshot"])
