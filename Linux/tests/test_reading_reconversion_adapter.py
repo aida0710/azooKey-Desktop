@@ -27,6 +27,8 @@ class ObservedInputField:
         self.context_changed = False
         self.last_language_key = (None, 0)
         self.on_status = None
+        self.on_commit = None
+        self.on_preedit = None
         self.fail_status = False
         self.renderer = SimpleNamespace(dismiss=lambda: None, close=lambda: None, input_changed=lambda _snapshot: None)
         for name in ("activate", "do_focus_out", "do_reset", "do_set_content_type",
@@ -46,9 +48,13 @@ class ObservedInputField:
 
     def update_preedit_text_with_mode(self, text, *_):
         self.effects.append(("recovery-preedit", text.get_text()))
+        if self.on_preedit:
+            self.on_preedit()
 
     def commit_text(self, text):
         self.effects.append(("commit", text.get_text()))
+        if self.on_commit:
+            self.on_commit()
 
     def delete_surrounding_text(self, offset, count):
         self.effects.append(("delete", offset, count))
@@ -176,6 +182,36 @@ class ReadingReconversionAdapterTests(unittest.TestCase):
         self.assertEqual([effect[1] for effect in self.trial.effects if effect[0] == "recovery-preedit"],
                          ["にほんご", "にほんご"])
         self.assertFalse(any(effect[0] == "commit" for effect in self.trial.effects))
+
+    def test_input_callback_focus_change_keeps_later_text_and_status_out_of_the_new_field(self):
+        for stage in ("commit", "candidate-view", "preedit"):
+            with self.subTest(stage=stage):
+                self.trial.effects.clear()
+                views = []
+
+                def activate_next_field():
+                    self.engine.on_commit = self.engine.on_preedit = None
+                    self.next_field()
+                    self.adapter.status("新しい欄の通知")
+
+                def publish_view(snapshot):
+                    views.append(snapshot)
+                    if stage == "candidate-view":
+                        activate_next_field()
+
+                self.engine.renderer.input_changed = publish_view
+                self.engine.on_commit = activate_next_field if stage == "commit" else None
+                self.engine.on_preedit = activate_next_field if stage == "preedit" else None
+                snapshot = {"preedit": "にほんご", "cursor": 4, "commits": ["日本語"],
+                            "inputState": "composing", "reconversionError": "whole_selection_required"}
+                ReadingEngine.render_input(self.engine, snapshot)
+                self.assertEqual(self.engine.focus_identity, ("next", "test-client"))
+                self.assertEqual(self.trial.effects[-1], ("auxiliary", "新しい欄の通知", True))
+                self.assertFalse(self.adapter.input_error_visible)
+                preedits = [effect for effect in self.trial.effects if effect[0] == "recovery-preedit"]
+                self.assertEqual(preedits, [("recovery-preedit", "にほんご")] if stage == "preedit" else [])
+                if stage == "commit":
+                    self.assertEqual(views, [])
 
 
 if __name__ == "__main__":

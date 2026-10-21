@@ -187,16 +187,22 @@ class ReadingEngine(IBus.Engine):
         self.context_changed = False
 
     def render_input(self, snapshot):
+        focus = self.frontend.focus
         for committed in snapshot.get("commits", []):
             self.commit_text(IBus.Text.new_from_string(committed))
+            if self.frontend.focus is not focus:
+                return
         preedit = snapshot.get("preedit", "")
         if self.renderer is not None:
             self.renderer.input_changed(snapshot)
+            if self.frontend.focus is not focus:
+                return
         focus_mode = preedit_focus_mode(self.focus_identity, input_state=snapshot.get("inputState"))
         self.update_preedit_text_with_mode(
             IBus.Text.new_from_string(preedit), snapshot.get("cursor", 0), bool(preedit), focus_mode,
         )
-        self.reconversion.render_input_error(snapshot.get("reconversionError"))
+        if self.frontend.focus is focus:
+            self.reconversion.render_input_error(snapshot.get("reconversionError"))
 
     def render_candidates(self, snapshot, candidate_view):
         if self.renderer is not None:

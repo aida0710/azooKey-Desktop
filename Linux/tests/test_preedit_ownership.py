@@ -23,6 +23,7 @@ class PreeditOwnershipTests(unittest.TestCase):
         self.commits = []
         self.engine = SimpleNamespace(
             focused=True, private=False, focus_identity=None,
+            frontend=SimpleNamespace(focus=object()),
             snapshot={}, input=SimpleNamespace(snapshot={}),
             anchor=Mock(), panel=Mock(), renderer=Mock(),
             update_property=Mock(), render_candidates=lambda snapshot: snapshot,
