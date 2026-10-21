@@ -539,7 +539,7 @@ final class CandidateTreeView: NSView {
         navigation.update(page: candidatePage, numbers: numberLabels, fontSize: textSize.pointSize,
                           generation: generation, compact: enterConfirmsCandidate, visibleRows: Config.CandidateVisibleRows().value)
         navigation.isHidden = !enterConfirmsCandidate || entries.isEmpty
-        let definitionTargets = definitionsEnabled && enterConfirmsCandidate ? candidatePage.items.compactMap { item in
+        let definitionTargets: [WordDefinitionsModel.Target] = definitionsEnabled && enterConfirmsCandidate ? candidatePage.items.compactMap { item in
             candidateNodeID(candidateIndex: item.index).map { nodeID in
                 let token = tree.nodes[nodeID].token
                 return WordDefinitionsModel.Target(generation: generation, candidateIndex: item.index, nodeID: nodeID,
