@@ -4,14 +4,18 @@
 
 `ReadingFrontend` は元入力の完了callback、入力欄、最後に適用したsnapshotを管理します。`ReadingEngine` はIBusのキー、焦点、周辺文脈、private属性を伝え、返された正式入力をcommit/preedit通知へ変換します。IBusの元`ProcessKeyEvent`への返信を保持する処理は既存Engineと共通です。候補表示からキーを作り直したり、ForwardKeyEventで再送したりしません。
 
-候補の到着ではIBus標準一覧だけを更新します。文字編集、カーソル、確定は元キーの入力応答から反映します。表示済み候補を選ぶSpace・上下・数字・Enter、およびF6〜F10は読み側で処理します。候補を待っている間のEnterは、表示中の読みを確定します。
+候補の到着では、readerの設定ACKで確認したtree値に従ってGNOME拡張・GTK Tree・IBus標準一覧を更新します。正式な`inputState=composing`と未選択状態は保ち、表示専用の`candidateDisplayMode=menu`で全文一覧を開きます。候補到着からcommit/preeditを送り直すことはありません。表示済み候補を選ぶSpace・上下・数字・Enter、およびF6〜F10は読み側で処理します。明示選択前のEnterは、到着済み候補があっても表示中の読みを確定します。
+
+Treeの行・語・AT操作は選択だけを行い、別の確定ボタンで選択した候補を確定します。IBus標準一覧のクリックは直接確定です。いずれも表示中のbatch参照と実candidateIDを渡します。語の操作先はCoreのpreviewで指定された候補を使い、同表記の別候補や最初の全文候補へ置き換えません。直接確定は`commit-candidate`一要求で行い、偽Enterやselect→keyの二段要求は送りません。
+
+GTK/GNOMEの表示generationは更新ごとに進み、旧widget・旧focus・旧batchと入力待機中の操作を拒否します。[IBus 1.5.29のCandidateClicked定義](https://github.com/ibus/ibus/blob/1.5.29/src/ibusengine.c#L231-L235)には表示世代が含まれないため、標準一覧では現在表示中の一覧とfocus・pending・保持済みbatchを照合します。標準パネル内で遅延したクリックの発生元世代までは識別できません。候補描画失敗時は操作を退役させ、入力の再送を行いません。
 
 焦点を失った後は古い入力応答を表示しません。表示中のpreeditの確定はIBusと入力先クライアントが担当するため、focus-outの読み側操作は`submit=false`とし、古い欄の文字を新しい欄へ送らないようにします。応答不明の入力は自動再送せず、最後の表示を保ちます。明示的なResetまたは次のfocus-inで新しい読みプロセスを開始します。Resetは未確定入力の取消です。表示や通知で例外が起きても、正式な取消と元キー返信は退役させます。
 
-この開発入口の対応範囲は標準ローマ字・ライブ変換OFF・キーボードによる候補操作です。候補Tree、pointer/ATによる選択、一般設定・辞書変更同期、予測・AI・再変換、ライブ変換ONは通常入口へ切り替える前に接続が必要です。一般設定を読んだふりで適用したり、元の設定ファイルを変更したりしません。現段階ではEngineごとにworkerを所有します。
+この開発入口はライブ変換OFFの開発検証用です。保存設定はCore defaultsに重ね、readerのconfigure ACK後に入力を開始します（[設定同期](reading-settings-coordinator.md)）。未対応のlive/AI設定は明示拒否します。辞書変更同期、予測・AI・再変換、ライブ変換ONは通常入口へ切り替える前に接続が必要です。元の設定ファイルを自動変更しません。現段階ではEngineごとにworkerを所有します。
 
 `Linux/tests/ibus_reading_toolkits.py` は本物のGTK4/Qt入力widgetと実IBusを使い、実候補プロセスへSIGSTOPを送り停止状態を確認してから入力します。編集・部分F10・Enter・Escape・焦点移動・次欄への入力を、SIGCONTより前に確認します。原IBusイベント、widgetの挿入/未確定履歴、UI heartbeat、実ロードされたIBus moduleを別々に保存します。
 
 Ubuntu 24.04のQt 6.4.2／IBus 1.5.29では、新ウィンドウのFocusInが旧ウィンドウのFocusOutより先に届く条件で、旧preeditが確定されず消えることを確認しています。通常Engineでも同じ条件で再現しました。この検査は文字保持をFAILのまま保存し、次欄への入力・候補再開後の旧入力再送がないことも続けて調べます。別欄に旧文字を送る方法で補いません。
 
-標準一覧での開発試験は、候補Treeや実GNOME Waylandの受入を代替しません。現在の製品配布物を使用する実VM検証とは、ソース・bridge・テスト条件を分けて記録します。
+GTK部品のAT試験やGJSの制御fixtureは、実GNOME Wayland・Orcaの発話や実アプリへの候補確定の受入を代替しません。pointer/ATの確定は元キー返信を伴わないため、キー内のpreedit適用順序の検査とも分けます。現在の製品配布物を使用する実VM検証とは、ソース・bridge・テスト条件を分けて記録します。通常GTK同期クライアントの読み処理待ちがなくなったとは扱いません。

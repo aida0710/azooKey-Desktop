@@ -427,6 +427,27 @@ for (const inputState of ['previewing', 'replaceSuggestion']) {
 print('GNOME input modes: live input shows only tree; conversion states show the menu and retire old actions on each transition PASS');
 
 submitted.length = 0;
+const unselectedMenu = {...composing, candidateDisplayMode: 'menu',
+    candidatePage: {...composing.candidatePage}};
+delete unselectedMenu.selection;
+delete unselectedMenu.focusedNode;
+delete unselectedMenu.candidatePage.position;
+extension._render(unselectedMenu);
+equal(extension._composition.actor.visible, true);
+equal(extension._navigation.actor.visible, true);
+equal(extension._treeScroll.visible, false);
+equal(extension._lastSnapshot.inputState, 'composing');
+equal(extension._lastSnapshot.selection, undefined);
+equal(extension._composition._sentence.text, 'にほんご');
+equal(extension._composition._confirm, null);
+equal(submitted, []);
+extension._treeExpanded = true;
+extension._render(unselectedMenu);
+equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
+equal(submitted, []);
+print('GNOME reading arrival: explicit menu keeps the formal reading unselected without number-key or Enter candidate claims PASS');
+
+submitted.length = 0;
 const longPartial = snapshot({selection: 0, generation: 5});
 longPartial.candidates[0].text = longText;
 longPartial.candidatePage.items[0].text = longText;

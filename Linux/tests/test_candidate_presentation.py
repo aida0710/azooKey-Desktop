@@ -115,6 +115,27 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertEqual(self.panel.navigation.confirm.get_label(), "この候補を確定")
         self.assertEqual(self.actions, [])
 
+    def test_explicit_menu_mode_preserves_unselected_reading_and_has_no_number_or_enter_claim(self):
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot.update(inputState="composing", candidateDisplayMode="menu", showCandidateIndex=False,
+                        preedit=snapshot["reading"])
+        snapshot.pop("selection")
+        snapshot.pop("focusedNode")
+        snapshot["candidatePage"].pop("position")
+        self.panel.update(snapshot)
+        self.flush()
+        self.assertTrue(self.panel.navigation.expanded)
+        self.assertTrue(self.panel.navigation.scroll.get_visible())
+        self.assertFalse(self.panel.scroll.get_visible())
+        self.assertEqual(self.panel.composition.displayed_text, snapshot["reading"])
+        self.assertEqual(self.panel.snapshot["inputState"], "composing")
+        self.assertNotIn("selection", self.panel.snapshot)
+        self.assertEqual(self.panel.candidate_numbers, {})
+        self.assertFalse(self.panel.navigation.confirm.get_sensitive())
+        self.assertNotIn("↵", self.panel.navigation.confirm.get_label())
+        self.assertEqual(self.actions, [])
+        self.assertIs(self.document.get_focus(), self.entry)
+
     def test_live_tree_hides_the_sentence_menu_until_conversion_state_changes(self):
         live = {**self.snapshot, "inputState": "composing", "showCandidateIndex": False}
         self.panel.update(live)

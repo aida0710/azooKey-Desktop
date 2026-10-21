@@ -32,6 +32,14 @@ class ManualReadingCoordinator:
     def barrier(self, context, **ownership):
         self.operations.append(SimpleNamespace(operation="barrier", reference=deepcopy(self.reference), **ownership))
 
+    def select(self, context, selection, **ownership):
+        self.operations.append(SimpleNamespace(operation="select", selection=deepcopy(selection),
+                                               reference=deepcopy(self.reference), **ownership))
+
+    def commit_candidate(self, context, selection, **ownership):
+        self.operations.append(SimpleNamespace(operation="commit-candidate", selection=deepcopy(selection),
+                                               reference=deepcopy(self.reference), **ownership))
+
     def reset(self, context, **ownership):
         self.operations.append(SimpleNamespace(operation="reset", reference=deepcopy(self.reference), **ownership))
 
@@ -131,6 +139,54 @@ class ReadingFrontendTests(unittest.TestCase):
         self.assertEqual(self.frontend.snapshot["preedit"], "あ")
         self.assertEqual(self.frontend.batch, value.batch)
         self.assertEqual(self.frontend.candidate_view, value.candidate_view)
+
+    def retained_selection(self):
+        self.publish_reading()
+        value = self.candidates()
+        self.frontend._publish_candidates(value)
+        return {"batch": deepcopy(value.candidate_view["candidateReference"]), "candidateID": "real-id"}
+
+    def test_pointer_select_and_atomic_commit_keep_the_real_id_without_synthesizing_keys(self):
+        selection = self.retained_selection()
+        self.effects.clear()
+        start = len(self.coordinator.operations)
+        self.assertTrue(self.frontend.select_candidate(selection, submit=False))
+        selected = self.coordinator.operations[-1]
+        self.assertEqual(selected.operation, "select")
+        self.assertEqual(selected.selection, selection)
+        self.assertEqual(self.effects, [])
+        self.assertFalse(self.frontend.select_candidate(selection, submit=True))
+        self.coordinator.finish(selected)
+        self.assertTrue(self.frontend.select_candidate(selection, submit=True))
+        committed = self.coordinator.operations[-1]
+        self.assertEqual(committed.operation, "commit-candidate")
+        self.assertEqual(committed.selection, selection)
+        self.assertFalse(self.frontend.select_candidate(selection, submit=True))
+        self.coordinator.deliver(committed, reading_snapshot("", revision=2, commits=("亜",)))
+        self.coordinator.finish(committed)
+        self.coordinator.finish(committed)
+        self.assertEqual([item.operation for item in self.coordinator.operations[start:]], ["select", "commit-candidate"])
+        self.assertEqual([value[1]["commits"] for value in self.effects if value[0] == "input"], [["亜"]])
+        self.assertFalse(any(value[0] == "reply" for value in self.effects))
+        self.assertFalse(self.frontend.select_candidate(selection, submit=True))
+        self.assertEqual(self.frontend.pending, set())
+
+    def test_old_unknown_or_pending_candidate_actions_cannot_enqueue_input(self):
+        selection = self.retained_selection()
+        old_count = len(self.coordinator.operations)
+        for field, replacement in (("candidateID", "unknown"), ("batch", {})):
+            self.assertFalse(self.frontend.select_candidate({**selection, field: replacement}, submit=True))
+        self.assertFalse(self.frontend.select_candidate(selection, submit=1))
+        self.frontend.candidate_view["candidateReference"]["authority"]["requestID"] = "next"
+        self.assertFalse(self.frontend.select_candidate(selection, submit=True))
+        self.assertEqual(len(self.coordinator.operations), old_count)
+        self.frontend.candidate_view["candidateReference"] = deepcopy(selection["batch"])
+        key = self.key()
+        self.assertFalse(self.frontend.select_candidate(selection, submit=True))
+        self.coordinator.finish(key)
+        self.frontend.focus_out()
+        self.frontend.focus_in({"leftContext": "other", "rightContext": "", "privateInput": False})
+        self.assertFalse(self.frontend.select_candidate(selection, submit=True))
 
     def test_a_formal_selection_publishes_its_view_before_finishing_the_original_key(self):
         self.publish_reading()

@@ -35,11 +35,16 @@ class ReadingSettingsStartupTests(ReadingSettingsTestCase):
         self.assertTrue(configuration.entered.wait(WAIT_SECONDS))
         self.assertTrue(startup.entered.wait(WAIT_SECONDS))
         self.assertEqual(self.finished, [])
+        self.assertIsNone(self.coordinator.settings)
         self.assertFalse(any(name == "open" for name, _ in self.reader.calls))
         configuration.proceed.set()
         self.until(lambda: self.finished)
         self.assertEqual(self.finished, [("original", True)])
         self.assertEqual(self.reader.values["inputStyle"], "defaultAZIK")
+        self.assertEqual(self.coordinator.settings, self.reader.values)
+        displayed_settings = self.coordinator.settings
+        displayed_settings["tree"] = not displayed_settings["tree"]
+        self.assertEqual(self.coordinator.settings, self.reader.values)
         self.assertEqual(self.panels, [])
         self.assertEqual(len(provided), 1)
         self.assertTrue(provided[0]["live"])

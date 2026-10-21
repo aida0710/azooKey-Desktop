@@ -526,6 +526,12 @@ class Engine(IBus.Engine):
             self.panel.update(snapshot)
         return snapshot
 
+    def candidate_renderer_lost(self):
+        # The visible preedit may already contain keys absent from this snapshot.
+        # Their reply will restore the fallback renderer without losing input.
+        if not self.input.has_pending_preview:
+            self.render_candidates(self.snapshot)
+
     def start_ai(self, snapshot, scope, *, prompt=None, completion=None):
         if self.ai_pending or self.sensitive or not self.settings.get("aiEnabled"):
             if completion:

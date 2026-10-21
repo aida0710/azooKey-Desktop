@@ -4,6 +4,7 @@ from copy import deepcopy
 import threading
 
 from candidate_fixture import Gate, WAIT_SECONDS, candidate_request, completion_for
+from azookey.candidate_protocol import reference as batch_reference
 from reading_candidate_view_fixture import candidate_view
 
 
@@ -122,9 +123,16 @@ class ReadingBridgeFixture:
                                 candidateView=candidate_view(state["batch"]))
         if operation == "candidate-worker-stopped":
             return self._header(reference=reference)
-        if operation == "select":
-            state["selection"] = payload["selection"]
+        if operation in ("select", "commit-candidate"):
+            selection = payload["selection"]
+            if (state["batch"] is None or selection.get("batch") != batch_reference(state["batch"])
+                    or not any(item["candidateID"] == selection.get("candidateID")
+                               for item in state["batch"]["candidates"])):
+                return self._header("error", error="stale_candidate_selection")
+            state["selection"] = selection
             state["state"] = "selecting"
+            if operation == "commit-candidate":
+                return self._header("input", reference=reference, snapshot=self._commit(state))
             return self._input(state, reference)
         if operation in ("focus-out", "reset"):
             snapshot = self._commit(state) if payload["submit"] else self._clear(state)
@@ -157,21 +165,29 @@ class ReadingBridgeFixture:
 
     def _snapshot(self, state, **fields):
         text = state["text"]
-        if state["selection"]:
-            text = state["batch"]["candidates"][0]["text"]
+        selected = self._selection_index(state)
+        if selected is not None:
+            text = state["batch"]["candidates"][selected]["text"]
         snapshot = {"consumed": True, "preedit": text, "cursor": len(text), "commits": [],
                     "reading": state["text"], "readingCursor": len(state["text"]),
                     "inputState": state["state"], "compositionRevision": state["revision"],
                     "generation": state["revision"], **fields}
-        if state["selection"]:
-            snapshot.update(selection=0, showCandidateIndex=True)
+        if selected is not None:
+            snapshot.update(selection=selected, showCandidateIndex=True)
         return snapshot
+
+    @staticmethod
+    def _selection_index(state):
+        if state["selection"] is None:
+            return None
+        return next(index for index, candidate in enumerate(state["batch"]["candidates"])
+                    if candidate["candidateID"] == state["selection"]["candidateID"])
 
     def _input(self, state, reference, **fields):
         response = self._header("input", reference=reference, snapshot=self._snapshot(state, **fields))
         if state["batch"]:
             response["candidateView"] = candidate_view(
-                state["batch"], selection=0 if state["selection"] else None, show_indices=bool(state["selection"]))
+                state["batch"], selection=self._selection_index(state), show_indices=bool(state["selection"]))
         return response
 
     def _clear(self, state):
@@ -183,6 +199,7 @@ class ReadingBridgeFixture:
         completions = []
         if state["selection"]:
             completion = completion_for(state["batch"], settings=self.settings)
+            completion["candidateID"] = state["selection"]["candidateID"]
             completion["privateInput"] = state["surroundings"]["privateInput"]
             completions.append(completion)
         return {**self._clear(state), "commits": [text] if text else [], "candidateCompletions": completions}
