@@ -37,7 +37,7 @@ class ReconversionEngineTests(ReconversionFixture, unittest.TestCase):
         self.application_effects = []
         self.engine = SimpleNamespace(
             reconversion=self.coordinator, input=self.inputs,
-            focused=True, private=False, destroyed=False,
+            focused=True, private=False, destroyed=False, focus_identity=None,
             lookup_announcements=Mock(), ai_review=Mock(),
             pending_settings_stamp=None, snapshot={}, anchor=Mock(),
             update_preedit_text_with_mode=Mock(), panel=Mock(),
