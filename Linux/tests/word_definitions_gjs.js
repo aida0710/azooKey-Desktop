@@ -296,6 +296,7 @@ for (const {width: workAreaWidth, height: workAreaHeight, caretY} of cardCases) 
                 treeContentWidth: 400, treeContentHeight: 600, nodes: new Map(),
                 actionIdentity: 'budget', location: [workAreaWidth - 1, caretY, 0, 20], palette};
             card._layoutCard(budgetSnapshot, options);
+            equal(card._navigation._status.text, '1 / 9');
             const confirm = card._composition._confirm;
             const compositionHeight = card._composition.actor.height;
             const compactListHeight = card._navigation._scroll.height;

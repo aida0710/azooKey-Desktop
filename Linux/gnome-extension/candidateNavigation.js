@@ -99,7 +99,7 @@ export class CandidateNavigation {
         }
         const action = (index, submit) => new GLib.Variant('(sibis)',
             ['select', index, submit, snapshot.generation, snapshot.contextId]);
-        this._status.text = messages.position(page.position ?? '—', page.totalCount);
+        this._status.text = (this._compact ? messages.compactPosition : messages.position)(page.position ?? '—', page.totalCount);
         this._toggle.label = this.expanded ? messages.closeList : messages.openList;
         // A compact conversion list stays open; its footer only pages and commits.
         this._toggle.visible = !this._compact;
