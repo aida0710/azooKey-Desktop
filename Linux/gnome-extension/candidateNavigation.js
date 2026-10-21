@@ -220,9 +220,16 @@ export class CandidateNavigation {
 
     _revealSelection() {
         if (!this.expanded || !this._revealPending) return;
-        const selected = this._rows.get_children().find(button => button.checked);
+        const rows = this._rows.get_children();
+        const selectedOffset = rows.findIndex(button => button.checked);
+        const selected = rows[selectedOffset];
+        const previous = rows[selectedOffset - 1];
         const adjustment = this._scroll.get_vadjustment();
         if (!selected || !(selected.height > 0) || !(adjustment.page_size > 0)) return;
+        // Natural row sizes can arrive before their final positions and viewport.
+        // Keep the request for the allocation/page-size notifications that follow.
+        if (Math.round(adjustment.page_size) !== Math.round(this._scroll.height) ||
+            previous && (!(previous.height > 0) || selected.y < previous.y + previous.height)) return;
         let offset = adjustment.value;
         if (selected.y < offset || selected.height > adjustment.page_size) offset = selected.y;
         else if (selected.y + selected.height > offset + adjustment.page_size)

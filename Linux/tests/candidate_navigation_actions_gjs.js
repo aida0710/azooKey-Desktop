@@ -8,6 +8,16 @@ function equal(actual, expected) {
         throw new Error(`${JSON.stringify(actual)} !== ${JSON.stringify(expected)}`);
 }
 
+function allocateRowFrames(navigation, {height, stacked = true}) {
+    const rows = navigation._rows.get_children();
+    for (const [index, row] of rows.entries()) {
+        row.height = height;
+        row.y = stacked ? index * height : 0;
+        row.get_preferred_height = () => [height, height];
+    }
+    return rows;
+}
+
 // Stub only GNOME actors; all navigation and activation decisions are product code.
 const imports = {
     St: {Button: Actor, BoxLayout: ScrollableActor, Label: Actor, ScrollView: ScrollViewActor,
@@ -134,12 +144,14 @@ print('GNOME full list: 500 candidates remain reachable and the short final page
 
 const reveal = new Navigation({select() {}, changed() {}, preview() {}});
 reveal.update({...snapshot(0, 1), selection: 5}, layout);
+allocateRowFrames(reveal, {height: 40});
 const selectedRow = reveal._rows.get_children()[5];
 selectedRow.y = 300;
 selectedRow.height = 40;
 const scroll = reveal._scroll.get_vadjustment();
 scroll.value = 0;
 scroll.page_size = 100;
+reveal._scroll.height = scroll.page_size;
 scroll.upper = 600;
 selectedRow.emit('notify::allocation');
 equal(scroll.value, 240);
@@ -147,6 +159,8 @@ scroll.value = 50;
 selectedRow.emit('notify::allocation');
 equal(scroll.value, 50);
 reveal.update({...snapshot(0, 1), selection: 6}, layout);
+allocateRowFrames(reveal, {height: 40});
+reveal._scroll.height = scroll.page_size;
 const longRow = reveal._rows.get_children()[6];
 longRow.y = 400;
 longRow.height = 150;
@@ -158,11 +172,7 @@ const compact = new Navigation({select: action => submitted.push(action.values),
 const lastSelected = {...snapshot(0, 4), selection: 8};
 lastSelected.candidatePage.position = 9;
 compact.update(lastSelected, layout);
-const unchangedRows = compact._rows.get_children();
-for (const [index, row] of unchangedRows.entries()) {
-    row.y = index * 36;
-    row.height = 36;
-}
+const unchangedRows = allocateRowFrames(compact, {height: 36});
 const compactScroll = compact._scroll.get_vadjustment();
 compactScroll.upper = 9 * 36;
 for (const visibleRows of [9, 7, 5]) {
@@ -184,10 +194,12 @@ equal(submitted, [['select', 8, false, 4, 'synthetic-field']]);
 compactScroll.value = 0;
 compact._viewportHeight = 9 * 36;
 compactScroll.page_size = 5 * 36;
+compact._scroll.height = compactScroll.page_size;
 compact._viewportChanged();
 equal(compactScroll.value, 4 * 36);
 compactScroll.value = 0;
 compactScroll.page_size = 4 * 36;
+compact._scroll.height = compactScroll.page_size;
 compact._viewportChanged();
 equal(compactScroll.value, 0);
 print('GNOME configurable rows: five/seven/nine preserve the nine real entries and reveal the selected last entry after shrinking PASS');
@@ -204,3 +216,25 @@ for (const count of [5, 7, 9]) {
 shortRows.update({...snapshot(0, 1), candidateVisibleRows: 7}, {...layout, listHeight: 100});
 equal(shortRows._scroll.height, 100);
 print('GNOME row count: short real rows stop at the chosen count while a smaller screen still limits the viewport PASS');
+
+const allocating = new Navigation({select() {}, changed() {}, preview() {}, compact: true});
+allocating.update({...lastSelected, candidateVisibleRows: 5}, {...layout, listHeight: 150});
+const allocatingRows = allocateRowFrames(allocating, {height: 30, stacked: false});
+const allocatingScroll = allocating._scroll.get_vadjustment();
+allocatingScroll.page_size = 150;
+allocatingScroll.upper = 270;
+allocating._scroll.height = 150;
+allocatingRows[8].emit('notify::allocation');
+allocateRowFrames(allocating, {height: 30});
+allocatingRows[8].emit('notify::allocation');
+equal(allocatingScroll.value, 120);
+allocatingScroll.value = 0;
+allocatingRows[8].emit('notify::allocation');
+equal(allocatingScroll.value, 0);
+allocatingScroll.page_size = 270;
+allocating.update({...lastSelected, candidateVisibleRows: 9}, {...layout, listHeight: 150});
+equal(allocatingScroll.value, 0);
+allocatingScroll.page_size = 150;
+allocatingRows[8].emit('notify::allocation');
+equal(allocatingScroll.value, 120);
+print('GNOME row allocation: natural heights before final positions do not consume the ninth-row reveal or override later manual scrolling PASS');
