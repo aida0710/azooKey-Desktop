@@ -10,6 +10,7 @@ from . import reading_protocol as protocol
 from .candidate_coordinator import CandidateCoordinator
 from .reading_transport import ReadingTransport
 from .reading_settings import ReadingSettingsAgreement
+from .reading_candidate_view import validate_view
 from .worker_settings import UnsupportedWorkerSettings, validated_settings
 
 
@@ -29,6 +30,7 @@ class ReadingContext:
     sequence: int = 0
     authority: dict | None = None
     batch: dict | None = field(default=None, repr=False)
+    candidate_view: dict | None = field(default=None, repr=False)
     batch_visible: bool = False
     wanted: int | None = None
     recovery_sequence: int | None = None
@@ -338,11 +340,23 @@ class ReadingCoordinator:
                for completion in snapshot.get("candidateCompletions", [])):
             self._fail_all("reading_completion_conditions_changed", operation, "not-applied")
             return
+        candidate_view = response.get("candidateView")
+        if candidate_view is not None:
+            try:
+                if state.batch is None:
+                    raise ValueError("candidate view has no retained batch")
+                validate_view(candidate_view, expected_reference=response["reference"], batch=state.batch, snapshot=snapshot)
+            except ValueError:
+                self._fail_all("reading_candidate_view_changed", operation, "not-applied")
+                return
         self._publishing = operation
         try:
             applied = self.publish_input(protocol.ReadingInput(state.name, operation.token,
-                                                              deepcopy(response["reference"]), snapshot=deepcopy(snapshot)))
-        except (OSError, RuntimeError, ValueError):
+                                                              deepcopy(response["reference"]), snapshot=deepcopy(snapshot),
+                                                              candidate_view=deepcopy(candidate_view)))
+        except Exception:
+            # UI callbacks may fail after emitting a commit. Never return the
+            # original key for native replay when its application is uncertain.
             self._fail_all("reading_input_application_failed", operation, "application-unknown")
             return
         finally:
@@ -366,8 +380,10 @@ class ReadingCoordinator:
             return
         if applied is not False:
             state.displayed = protocol.displayed_snapshot(snapshot)
+            state.candidate_view = deepcopy(candidate_view)
         elif known_cancel:
             state.displayed = None
+            state.candidate_view = None
             self._update_authority(state, response)
         if (state.batch is not None and (not snapshot["preedit"]
                 or state.batch["authority"]["compositionRevision"] != snapshot["compositionRevision"])):
@@ -535,6 +551,7 @@ class ReadingCoordinator:
             return
         self._release_batch(state)
         state.batch = deepcopy(batch)
+        state.candidate_view = deepcopy(response["candidateView"])
         # Core already adopted this exact retained batch. A key queued while its
         # ACK was in flight may select it; keep the reference until that key tells
         # us whether the composition changed, without publishing the old panel.
@@ -542,16 +559,21 @@ class ReadingCoordinator:
             self._publish_batch(state)
 
     def _publish_batch(self, state):
+        if state.candidate_view is None:
+            return
         try:
-            applied = self.publish_candidates(protocol.ReadingCandidates(state.name, deepcopy(state.reference), deepcopy(state.batch)))
+            applied = self.publish_candidates(protocol.ReadingCandidates(
+                state.name, deepcopy(state.reference), deepcopy(state.batch),
+                candidate_view=deepcopy(state.candidate_view)))
             state.batch_visible = applied is not False
-        except (OSError, RuntimeError, ValueError):
+        except Exception:
             # Core still owns its adopted selection source. Retain it even when
             # the panel fails; a later explicit key can select/commit it safely.
             state.batch_visible = False
             self._notice(protocol.ReadingNotice("reading_candidate_display_failed", context=state.name))
 
     def _release_batch(self, state):
+        state.candidate_view = None
         if state.batch is not None:
             self.candidates.release(candidate_protocol.reference(state.batch))
             state.batch = None
@@ -669,20 +691,24 @@ class ReadingCoordinator:
         if operation.finish is not None:
             try:
                 operation.finish(operation.token, consumed)
-            except (OSError, RuntimeError, ValueError):
+            except Exception:
+                # The callback may already have replied before raising. Its
+                # ownership stays completed; neither retry nor stall the queue.
                 self._notice_for(operation, "reading_original_reply_failed", "reply")
 
     def _callback(self, callback, response):
         if callback is not None:
             try:
                 callback(deepcopy(response))
-            except (OSError, RuntimeError, ValueError):
+            except Exception:
                 self._notice(protocol.ReadingNotice("reading_callback_failed"))
 
     def _notice(self, notice):
         try:
             self.notify(notice)
-        except (OSError, RuntimeError, ValueError):
+        except Exception:
+            # Error reporting is another external callback, never a prerequisite
+            # for finishing an original input or draining a lifecycle operation.
             LOGGER.error("Reading notification failed")
 
     def close(self):

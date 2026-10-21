@@ -59,24 +59,30 @@ struct DesktopReadingSession {
         var next = self
         next.candidateCompletions = []
         let previous = try candidateContext.map { _ in try compositionSnapshot().encoded() }
-        var response = try next.applyKey(event)
-        if let previous, try next.compositionSnapshot().encoded() != previous {
-            next.compositionRevision += 1
-            next.candidates.invalidate()
-            next.candidateContext = next.candidateContext.map { next.currentContext($0) }
-        } else if previous == nil {
-            // No candidate request exists yet; advancing conservatively cannot invalidate a selection.
-            next.compositionRevision += 1
-        }
-        if next.composition.isEmpty {
-            next.candidateContext = nil
-        } else if !response.commits.isEmpty, let context = next.candidateContext {
-            let left = DesktopReadingSurroundings.appending(response.commits, to: context.leftContext)
-            next.candidateContext = next.currentContext(context, leftContext: left)
-        }
-        response.compositionRevision = next.compositionRevision
-        response.candidateCompletions = next.candidateCompletions.isEmpty ? nil : next.candidateCompletions
+        let applied = try next.applyKey(event)
+        let response = try next.finishInputChange(applied, previousComposition: previous)
         self = next
+        return response
+    }
+
+    private mutating func finishInputChange(_ snapshot: DesktopSnapshot, previousComposition: Data?) throws -> DesktopSnapshot {
+        if let previousComposition, try compositionSnapshot().encoded() != previousComposition {
+            compositionRevision += 1
+            candidates.invalidate()
+            candidateContext = candidateContext.map { currentContext($0) }
+        } else if previousComposition == nil {
+            // No candidate request exists yet; advancing conservatively cannot invalidate a selection.
+            compositionRevision += 1
+        }
+        if composition.isEmpty {
+            candidateContext = nil
+        } else if !snapshot.commits.isEmpty, let context = candidateContext {
+            let left = DesktopReadingSurroundings.appending(snapshot.commits, to: context.leftContext)
+            candidateContext = currentContext(context, leftContext: left)
+        }
+        var response = snapshot
+        response.compositionRevision = compositionRevision
+        response.candidateCompletions = candidateCompletions.isEmpty ? nil : candidateCompletions
         return response
     }
 
@@ -121,6 +127,19 @@ struct DesktopReadingSession {
         return snapshot()
     }
 
+    mutating func commitCandidate(_ selection: DesktopCandidateSelection) throws -> DesktopSnapshot {
+        guard let candidateContext else { throw DesktopReadingCandidates.Failure.unavailableCandidate }
+        let previous = try compositionSnapshot().encoded()
+        var next = self
+        next.candidateCompletions = []
+        try next.candidates.select(selection, composition: composition, context: currentContext(candidateContext))
+        next.generation += 1
+        let applied = try next.commitSelectedCandidate(callback: .basedOnSubmitCandidate(ifIsEmpty: .none, ifIsNotEmpty: .previewing))
+        let response = try next.finishInputChange(applied, previousComposition: previous)
+        self = next
+        return response
+    }
+
     /// Only immediate keyboard navigation may translate a current list position into an identity.
     mutating func selectCurrentCandidate(index: Int) throws -> DesktopSnapshot {
         try selectCandidate(at: index)
@@ -143,6 +162,11 @@ struct DesktopReadingSession {
 
     mutating func candidateWorkerUnavailable() {
         candidates.workerUnavailable()
+    }
+
+    func candidateView() throws -> DesktopCandidateView? {
+        try candidates.view(options: .init(showRelativeScores: Config.ShowRelativeScores().value,
+                                           showCandidateIndex: state == .selecting))
     }
 
     mutating func updateLearningRevision(_ revision: Int) throws {

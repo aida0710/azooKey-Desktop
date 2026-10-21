@@ -69,6 +69,28 @@ struct DesktopReadingCandidates {
         return available.consumption.firstIndex { $0.remaining.isEmpty } ?? 0
     }
 
+    func view(options: DesktopCandidateView.Options) throws -> DesktopCandidateView? {
+        guard let available else {
+            return nil
+        }
+        // Presentation is not authority over the reading. Derive every displayed scope
+        // from the same formal consumption used when this candidate is committed.
+        let items = zip(available.batch.candidates, available.consumption).map { candidate, consumption in
+            DesktopCandidateItem(candidateID: candidate.candidateID, text: candidate.text,
+                composingCount: candidate.composingCount, presentation: .init(
+                    tokens: candidate.presentation.tokens, annotation: candidate.presentation.annotation,
+                    extraValues: candidate.presentation.extraValues, score: candidate.presentation.score,
+                    comparisonGroup: candidate.presentation.comparisonGroup,
+                    commitScope: .init(consumedReading: consumption.consumedReading,
+                                       remainingReading: consumption.remaining.convertTarget)))
+        }
+        let batch = available.batch
+        let displayed = DesktopCandidateBatch(authority: batch.authority, workerGeneration: batch.workerGeneration,
+            batchID: batch.batchID, candidates: items, mainCandidateID: batch.mainCandidateID)
+        let selectedID = selection.map { $0.accepted.batch.candidates[$0.index].candidateID }
+        return try DesktopCandidateView(batch: displayed, selectedCandidateID: selectedID, options: options)
+    }
+
     mutating func prepare(
         composition: CompositionState, context: DesktopReadingCandidateContext
     ) throws -> DesktopCandidateRequest {

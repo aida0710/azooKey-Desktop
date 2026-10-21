@@ -50,6 +50,7 @@ struct DesktopReadingWorkerRequest: Codable {
         "candidate-worker-stopped": ["reference", "candidateWorkerGeneration"],
         "adopt-candidates": ["reference", "batch", "retainedReference"],
         "select": ["reference", "selection"],
+        "commit-candidate": ["reference", "selection"],
         "learning-revision": ["readingProcessGeneration", "settingsRevision"]
     ]
 
@@ -107,6 +108,7 @@ struct DesktopReadingWorkerResponse: Encodable {
     var snapshot: DesktopSnapshot?
     var candidateRequest: DesktopCandidateRequest?
     var candidateReference: DesktopCandidateBatchReference?
+    var candidateView: DesktopCandidateView?
     var limits: [String: Int]?
     var settingsContract: String?
     var settings: DesktopWorkerSettings?

@@ -4,6 +4,7 @@ from copy import deepcopy
 import threading
 
 from candidate_fixture import Gate, WAIT_SECONDS, candidate_request, completion_for
+from reading_candidate_view_fixture import candidate_view
 
 
 def event(text="", code=0):
@@ -117,7 +118,8 @@ class ReadingBridgeFixture:
             if payload["batch"]["authority"] != state["request"]["authority"]:
                 return self._header("error", error="stale_candidate_request")
             state["batch"] = payload["batch"]
-            return self._header(reference=reference, candidateReference=payload["retainedReference"])
+            return self._header(reference=reference, candidateReference=payload["retainedReference"],
+                                candidateView=candidate_view(state["batch"]))
         if operation == "candidate-worker-stopped":
             return self._header(reference=reference)
         if operation == "select":
@@ -150,19 +152,27 @@ class ReadingBridgeFixture:
         state["revision"] += 1
         state["state"] = "composing"
         state["selection"] = None
+        state["batch"] = None
         return self._input(state, reference)
 
     def _snapshot(self, state, **fields):
         text = state["text"]
         if state["selection"]:
             text = state["batch"]["candidates"][0]["text"]
-        return {"consumed": True, "preedit": text, "cursor": len(text), "commits": [],
-                "reading": state["text"], "readingCursor": len(state["text"]),
-                "inputState": state["state"], "compositionRevision": state["revision"],
-                "generation": state["revision"], **fields}
+        snapshot = {"consumed": True, "preedit": text, "cursor": len(text), "commits": [],
+                    "reading": state["text"], "readingCursor": len(state["text"]),
+                    "inputState": state["state"], "compositionRevision": state["revision"],
+                    "generation": state["revision"], **fields}
+        if state["selection"]:
+            snapshot.update(selection=0, showCandidateIndex=True)
+        return snapshot
 
     def _input(self, state, reference, **fields):
-        return self._header("input", reference=reference, snapshot=self._snapshot(state, **fields))
+        response = self._header("input", reference=reference, snapshot=self._snapshot(state, **fields))
+        if state["batch"]:
+            response["candidateView"] = candidate_view(
+                state["batch"], selection=0 if state["selection"] else None, show_indices=bool(state["selection"]))
+        return response
 
     def _clear(self, state):
         state.update(text="", selection=None, batch=None, state="none", revision=state["revision"] + 1)
