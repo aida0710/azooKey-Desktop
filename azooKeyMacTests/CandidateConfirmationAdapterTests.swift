@@ -43,7 +43,7 @@ final class CandidateConfirmationAdapterTests: XCTestCase {
 
     private func confirmButton() throws -> NSButton {
         let tree = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? CandidateTreeView }.first)
-        let actions = try XCTUnwrap(tree.subviews.compactMap { $0 as? CandidateActionsView }.first)
+        let actions = try XCTUnwrap(descendants(in: tree).compactMap { $0 as? CandidateActionsView }.first)
         return try XCTUnwrap(actions.subviews.compactMap { $0 as? NSButton }.first {
             $0.accessibilityIdentifier() == "candidate-confirm"
         })
