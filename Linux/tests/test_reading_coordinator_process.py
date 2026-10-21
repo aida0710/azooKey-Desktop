@@ -55,10 +55,18 @@ class ReadingCoordinatorProcessTests(ReadingProcessTestCase):
 
     def test_real_candidate_selection_commits_once_and_learning_receipt_never_replays_input(self):
         batch = self.batch()
+        view = self.panels[-1].candidate_view
+        self.assertEqual([(item["candidateID"], item["text"]) for item in view["candidates"]],
+                         [(item["candidateID"], item["text"]) for item in batch["candidates"]])
+        self.assertNotIn("selection", view)
         candidate = next(item for item in batch["candidates"] if item["text"] == "日本語")
         self.select(batch, candidate)
+        selected_view = self.inputs[-1].candidate_view
+        self.assertEqual(selected_view["candidates"][selected_view["selection"]]["candidateID"], candidate["candidateID"])
+        self.assertEqual(selected_view["candidateReference"]["batchID"], batch["batchID"])
         committed = self.key(0xff0d)
         self.assertEqual(committed["commits"], ["日本語"])
+        self.assertIsNone(self.inputs[-1].candidate_view)
         input_count = len(self.inputs)
         self.flush_candidates()
         self.assertEqual(len(self.inputs), input_count)
@@ -72,9 +80,17 @@ class ReadingCoordinatorProcessTests(ReadingProcessTestCase):
         batch = self.batch("kyouhanihongo")
         partial = next(item for item in batch["candidates"] if item["text"] == "今日")
         self.select(batch, partial)
+        selected_view = self.inputs[-1].candidate_view
+        selected = selected_view["candidates"][selected_view["selection"]]
+        self.assertEqual(selected["candidateID"], partial["candidateID"])
+        self.assertEqual(selected["commitScope"], {"consumedReading": "きょう", "remainingReading": "はにほんご"})
+        focused = next(node for node in selected_view["nodes"] if node["id"] == selected_view["focusedNode"])
+        self.assertEqual(focused["preview"]["text"], selected["text"])
+        self.assertEqual(focused["preview"]["scope"], selected["commitScope"])
         committed = self.key(0xff0d)
         self.assertEqual(committed["commits"], ["今日"])
         self.assertEqual(committed["preedit"], "はにほんご")
+        self.assertIsNone(self.inputs[-1].candidate_view)
         self.assertEqual(committed["candidateCompletions"][0]["candidateID"], partial["candidateID"])
         remainder = self.key(0xff0d)
         self.assertEqual(remainder["commits"], ["はにほんご"])
