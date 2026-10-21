@@ -152,6 +152,12 @@ final class CandidateTreeView: NSView {
         }
         definitionSide.onPointerExit = { [weak self] in self?.clearRetainedDetailHoverIfNeeded() }
         definitions.onChange = { [weak self] in self?.refreshDetails() }
+        definitions.availability.onChange = { [weak self] in
+            guard let self else {
+                return
+            }
+            self.navigation.setDefinitionAvailability(self.definitions.availability.availableCandidateIndices)
+        }
         navigation.onSelection = { [weak self] index in
             self?.selectCandidate(index)
         }
@@ -257,6 +263,8 @@ final class CandidateTreeView: NSView {
         definitionsEnabled = enabled
         if !enabled {
             definitions.invalidate()
+            definitions.availability.invalidate()
+            navigation.setDefinitionAvailability([])
             clearDetailHover()
             definitionSide.update(target: nil, result: nil, fontSize: CGFloat(textSize.pointSize))
         }
@@ -531,6 +539,15 @@ final class CandidateTreeView: NSView {
         navigation.update(page: candidatePage, numbers: numberLabels, fontSize: textSize.pointSize,
                           generation: generation, compact: enterConfirmsCandidate, visibleRows: Config.CandidateVisibleRows().value)
         navigation.isHidden = !enterConfirmsCandidate || entries.isEmpty
+        let definitionTargets = definitionsEnabled && enterConfirmsCandidate ? candidatePage.items.compactMap { item in
+            candidateNodeID(candidateIndex: item.index).map { nodeID in
+                let token = tree.nodes[nodeID].token
+                return WordDefinitionsModel.Target(generation: generation, candidateIndex: item.index, nodeID: nodeID,
+                                                   word: token.text, reading: token.reading)
+            }
+        } : []
+        definitions.availability.update(targets: definitionTargets)
+        navigation.setDefinitionAvailability(definitions.availability.availableCandidateIndices)
         let currentEntry = selection.selectedCandidateIndex.flatMap { tree.entry(candidateIndex: $0) }
         composition.update(entry: currentEntry, fontSize: textSize.pointSize, enterConfirmsCandidate: enterConfirmsCandidate)
         composition.isHidden = !showsComposition
@@ -682,9 +699,12 @@ final class CandidateTreeView: NSView {
 
     private func showCandidateDetails(candidateIndex: Int) {
         let preview = candidatePage.items.first { $0.index == candidateIndex }?.detailDescription ?? ""
+        showDetails(nodeID: candidateNodeID(candidateIndex: candidateIndex), candidateIndex: candidateIndex, previewText: preview)
+    }
+
+    private func candidateNodeID(candidateIndex: Int) -> Int? {
         // A full row keeps its real candidate path and the user's current word depth.
         let depth = selection.focusedNodeID.map { tree.nodes[$0].depth } ?? 0
-        let nodeID = tree.paths[candidateIndex].flatMap { path in path.isEmpty ? nil : path[min(depth, path.count - 1)] }
-        showDetails(nodeID: nodeID, candidateIndex: candidateIndex, previewText: preview)
+        return tree.paths[candidateIndex].flatMap { path in path.isEmpty ? nil : path[min(depth, path.count - 1)] }
     }
 }

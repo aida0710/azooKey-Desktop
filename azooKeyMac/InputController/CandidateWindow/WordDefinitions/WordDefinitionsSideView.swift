@@ -61,25 +61,19 @@ final class WordDefinitionsSideView: NSView {
         let previouslyHadDefinition = definition != nil
         self.target = target
         self.fontSize = fontSize
-        isHidden = target == nil
         title.font = .systemFont(ofSize: fontSize, weight: .medium)
         title.stringValue = target.map { String(format: Localization.text("candidate.definition.title"), $0.word) } ?? ""
         if targetChanged { expanded = false }
         switch result {
-        case .definition(let definition)?:
+        case .definition(let definition)? where !definition.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
             self.definition = definition
             let characters = Array(definition.components(separatedBy: .newlines).joined(separator: " "))
             preview = String(characters.prefix(maximumSummaryCharacters)) + (characters.count > maximumSummaryCharacters ? "…" : "")
-        case .notFound?:
-            definition = nil
-            preview = Localization.text("candidate.definition.notFound")
-        case .loading?:
-            definition = nil
-            preview = Localization.text("candidate.definition.loading")
-        case nil:
+        default:
             definition = nil
             preview = ""
         }
+        isHidden = target == nil || definition == nil
         if definition == nil { expanded = false }
         if targetChanged || previouslyHadDefinition != (definition != nil) { installToggle() }
         refreshText()

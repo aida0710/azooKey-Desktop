@@ -168,8 +168,6 @@
 
 "candidate.definition.title" = "「%@」の意味";
 "candidate.definition.source" = "macOSの辞典";
-"candidate.definition.loading" = "辞典を検索しています…";
-"candidate.definition.notFound" = "この単語の説明は見つかりませんでした。macOSの「辞書」の設定もご確認ください。";
 "candidate.definition.openFull" = "詳しく";
 "candidate.definition.closeFull" = "閉じる";
 "candidate.definition.readingNote" = "辞典は表記で検索するため、別の読みの意味が含まれることがあります。";

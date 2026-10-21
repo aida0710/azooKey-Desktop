@@ -23,20 +23,24 @@ final class WordDefinitionsModel {
 
     typealias Search = (String, @escaping WordDefinitionsService.Completion) -> Void
     var onChange: (() -> Void)?
+    let availability: WordDefinitionsAvailabilityModel
     private(set) var target: Target?
     private(set) var result: Result?
     private let search: Search
     private let cancelPending: () -> Void
     private var revision: UInt = 0
 
-    init(search: @escaping Search, cancelPending: @escaping () -> Void) {
+    init(search: @escaping Search, cancelPending: @escaping () -> Void, availability: WordDefinitionsAvailabilityModel? = nil) {
         self.search = search
         self.cancelPending = cancelPending
+        self.availability = availability ?? WordDefinitionsAvailabilityModel(check: { _, completion in completion([]) }, cancel: {})
     }
 
     convenience init() {
         let service = WordDefinitionsService()
-        self.init(search: { service.search(word: $0, completion: $1) }, cancelPending: service.cancelPending)
+        self.init(search: { service.search(word: $0, completion: $1) }, cancelPending: service.cancelPending,
+                  availability: WordDefinitionsAvailabilityModel(check: { service.checkAvailability(words: $0, completion: $1) },
+                                                               cancel: service.cancelAvailability))
     }
 
     func update(target next: Target?) {
@@ -61,6 +65,7 @@ final class WordDefinitionsModel {
             } else {
                 self.result = .notFound
             }
+            self.availability.record(target: next, found: self.result != .notFound)
             self.onChange?()
         }
     }

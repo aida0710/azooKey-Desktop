@@ -8,6 +8,20 @@ import XCTest
 final class WordDefinitionsSideViewTests: XCTestCase {
     private let target = WordDefinitionsModel.Target(generation: 1, candidateIndex: 42, nodeID: 3, word: "橋", reading: "ハシ")
 
+    func testLoadingMissingAndEmptyDefinitionsHideTheEntireCardAndRetireItsAction() throws {
+        let side = WordDefinitionsSideView(frame: .zero)
+        for response: WordDefinitionsModel.Result in [.loading, .notFound, .definition(" \n\t")] {
+            side.update(target: target, result: .definition("橋の説明"), fontSize: 18)
+            let oldButton = try button(in: side)
+            let oldAction = try XCTUnwrap(oldButton.activate)
+            side.update(target: target, result: response, fontSize: 18)
+            withExtendedLifetime(oldButton) { oldAction() }
+            XCTAssertTrue(side.isHidden)
+            XCTAssertFalse(side.expanded)
+            XCTAssertFalse(try button(in: side).isEnabled)
+        }
+    }
+
     func testFullEntryAndSourceRemainReadableWithoutTakingTheDocumentFocus() throws {
         let side = WordDefinitionsSideView(frame: .zero)
         let definition = "語釈と用例\n" + String(repeating: "長い辞典の説明。", count: 100)

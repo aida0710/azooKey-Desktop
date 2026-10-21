@@ -168,8 +168,6 @@
 
 "candidate.definition.title" = "Meaning of “%@”";
 "candidate.definition.source" = "macOS dictionaries";
-"candidate.definition.loading" = "Looking up the word…";
-"candidate.definition.notFound" = "No definition was found. You can also check the dictionaries enabled in macOS Dictionary.";
 "candidate.definition.openFull" = "Details";
 "candidate.definition.closeFull" = "Less";
 "candidate.definition.readingNote" = "Dictionaries are searched by spelling; meanings for other readings may be included.";

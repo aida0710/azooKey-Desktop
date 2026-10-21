@@ -25,6 +25,7 @@ final class CandidateNavigationView: NSView {
     private var revealSelection = false
     private var compact = false
     private var visibleRows = Config.CandidateVisibleRows.Value.seven
+    private var definitionAvailableIndices: Set<Int> = []
     // The list scrolls instead of hiding long candidates behind ellipses.
     private let maximumListHeight: CGFloat = 260
     private let headerHeight: CGFloat = 36
@@ -77,6 +78,11 @@ final class CandidateNavigationView: NSView {
         !isHidden && rows.contains { $0 === button && $0.candidateIndex == candidateIndex }
     }
 
+    func setDefinitionAvailability(_ indices: Set<Int>) {
+        definitionAvailableIndices = indices
+        rows.forEach { $0.setDefinitionAvailable(indices.contains($0.candidateIndex)) }
+    }
+
     func update(page: CandidatePage, numbers: [Int: String], fontSize: CGFloat, generation: UInt = 0, compact: Bool = false,
                 visibleRows: Config.CandidateVisibleRows.Value = .seven) {
         isHidden = page.totalCount == 0
@@ -111,6 +117,7 @@ final class CandidateNavigationView: NSView {
         rows.forEach { $0.removeFromSuperview() }
         rows = page.items.map { item in
             let button = CandidateRowButton(item: item, number: numbers[item.index], fontSize: fontSize, compact: compact)
+            button.setDefinitionAvailable(definitionAvailableIndices.contains(item.index))
             button.activate = { [weak self, weak button] in
                 guard let self, let button, self.isCurrentCandidateButton(button, candidateIndex: item.index) else {
                     return

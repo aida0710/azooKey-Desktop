@@ -14,6 +14,8 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         XCTAssertTrue(try side(in: view).isHidden)
         view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
         XCTAssertEqual(fixture.words, ["橋"])
+        XCTAssertTrue(try side(in: view).isHidden)
+        fixture.completions[0]("橋の意味")
         XCTAssertFalse(try side(in: view).isHidden)
         XCTAssertEqual(fixture.model.target?.candidateIndex, 42)
     }
@@ -237,6 +239,9 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         view.layoutSubtreeIfNeeded()
         let row = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateRowButton }.first { $0.candidateIndex == 7 })
         row.preview?(true)
+        fixture.completions.last?("橋の現在の説明")
+        view.frame = NSRect(origin: .zero, size: view.preferredSize)
+        view.layoutSubtreeIfNeeded()
         let side = try side(in: view)
         fixture.pointerPoint = side.convert(NSPoint(x: 20, y: 20), to: view)
         row.preview?(false)
@@ -248,6 +253,9 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         side.onPointerExit?()
         XCTAssertEqual(fixture.model.target?.word, "を渡る")
         row.preview?(true)
+        fixture.completions.last?("橋の現在の説明")
+        view.frame = NSRect(origin: .zero, size: view.preferredSize)
+        view.layoutSubtreeIfNeeded()
         fixture.pointerPoint = side.convert(NSPoint(x: 20, y: 20), to: view)
         row.preview?(false)
         let retiredCompletion = try XCTUnwrap(fixture.completions.last)
@@ -267,6 +275,9 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         view.layoutSubtreeIfNeeded()
         let row = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateRowButton }.first { $0.candidateIndex == 7 })
         row.preview?(true)
+        fixture.completions.last?("橋の現在の説明")
+        view.frame = NSRect(origin: .zero, size: view.preferredSize)
+        view.layoutSubtreeIfNeeded()
         let side = try side(in: view)
         fixture.pointerPoint = side.convert(NSPoint(x: 20, y: 20), to: view)
         row.preview?(false)
@@ -305,6 +316,94 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         XCTAssertFalse(side.acceptsFirstResponder)
     }
 
+    func testUnfoundWordsRemoveTheSidebarGapAndHorizontalScrollbarAtBothTextSizes() throws {
+        let preference = Config.CandidateTextSize()
+        let previous = preference.value
+        defer { preference.value = previous }
+        for size in [Config.CandidateTextSize.Value.standard, .large] {
+            preference.value = size
+            let fixture = Fixture()
+            let view = fixture.view()
+            view.setAvailableWidth(1000)
+            view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
+            let expectedWidth = 260 * CGFloat(size.pointSize) / 18
+            XCTAssertEqual(view.preferredSize.width, expectedWidth, accuracy: 0.01)
+            fixture.completions.last?(nil)
+            XCTAssertTrue(try side(in: view).isHidden)
+            XCTAssertEqual(view.preferredSize.width, expectedWidth, accuracy: 0.01)
+            let next = [CandidateTree.Entry(text: "語彙", tokens: [], candidateIndex: 47)]
+            view.update(entries: next, selectionIndex: 47, enterConfirmsCandidate: true)
+            fixture.completions.last?("言葉の集まり")
+            XCTAssertFalse(try side(in: view).isHidden)
+            XCTAssertGreaterThan(view.preferredSize.width, expectedWidth)
+            view.update(entries: [.init(text: "未収録", tokens: [], candidateIndex: 48)], selectionIndex: 48, enterConfirmsCandidate: true)
+            XCTAssertTrue(try side(in: view).isHidden)
+            fixture.completions.last?(nil)
+            view.frame = NSRect(origin: .zero, size: view.preferredSize)
+            view.layoutSubtreeIfNeeded()
+            let viewport = try XCTUnwrap(candidateViewDescendants(in: view).first {
+                $0.accessibilityIdentifier() == "candidate-side-viewport"
+            } as? NSScrollView)
+            XCTAssertEqual(view.frame.width, expectedWidth, accuracy: 0.01)
+            XCTAssertFalse(viewport.hasHorizontalScroller)
+            XCTAssertEqual(viewport.documentView?.frame.width, expectedWidth)
+        }
+    }
+
+    func testBackgroundAvailabilityMarksRealRowsWithoutSelectingThemAndRetiresOnHide() throws {
+        let fixture = Fixture()
+        let view = fixture.view()
+        var selected: [Int] = []
+        var submitted: [Int] = []
+        view.onSelectionChanged = { selected.append($0) }
+        view.onCandidateSubmitted = { submitted.append($0) }
+        view.update(entries: fixture.entries, selectionIndex: 42, numbers: [7: "1", 42: "2"], enterConfirmsCandidate: true)
+        let rows = candidateViewDescendants(in: view).compactMap { $0 as? CandidateRowButton }
+        XCTAssertTrue(rows.allSatisfy { !$0.hasDefinition })
+        XCTAssertEqual(fixture.availabilityWords, [["橋", "橋"]])
+        fixture.availabilityCompletions[0]([true, false])
+        XCTAssertTrue(try XCTUnwrap(rows.first { $0.candidateIndex == 7 }).hasDefinition)
+        XCTAssertFalse(try XCTUnwrap(rows.first { $0.candidateIndex == 42 }).hasDefinition)
+        XCTAssertEqual(fixture.model.target?.candidateIndex, 42)
+        XCTAssertTrue(selected.isEmpty)
+        XCTAssertTrue(submitted.isEmpty)
+        view.setDefinitionsEnabled(false)
+        fixture.availabilityCompletions[0]([true, true])
+        XCTAssertTrue(rows.allSatisfy { !$0.hasDefinition })
+        XCTAssertTrue(try side(in: view).isHidden)
+    }
+
+    func testMissingDefinitionsStillAllowTheIndependentTreeControlToOpenAndClose() throws {
+        let fixture = Fixture()
+        let view = fixture.view()
+        view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
+        fixture.completions.last?(nil)
+        let segments = try XCTUnwrap(candidateViewDescendants(in: view).first { $0.accessibilityIdentifier() == "candidate-segments" })
+        XCTAssertTrue(segments.isHidden)
+        for expectedHidden in [false, true] {
+            let toggle = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidatePresentationButton }
+                .first { $0.accessibilityIdentifier() == "candidate-tree-toggle" })
+            toggle.activate?()
+            XCTAssertEqual(segments.isHidden, expectedHidden)
+            XCTAssertTrue(try side(in: view).isHidden)
+        }
+    }
+
+    func testChangingWordDepthRetiresTheOldPageAvailabilityAndChecksEachRealPath() throws {
+        let fixture = Fixture()
+        let view = fixture.view()
+        view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
+        let originalPage = try XCTUnwrap(fixture.availabilityCompletions.last)
+        _ = view.navigate(.right)
+        XCTAssertEqual(fixture.availabilityWords.last, ["橋", "を渡る"])
+        originalPage([true, true])
+        let rows = candidateViewDescendants(in: view).compactMap { $0 as? CandidateRowButton }
+        XCTAssertTrue(rows.allSatisfy { !$0.hasDefinition })
+        fixture.availabilityCompletions.last?([false, true])
+        XCTAssertFalse(try XCTUnwrap(rows.first { $0.candidateIndex == 7 }).hasDefinition)
+        XCTAssertTrue(try XCTUnwrap(rows.first { $0.candidateIndex == 42 }).hasDefinition)
+    }
+
     private func side(in view: NSView) throws -> WordDefinitionsSideView {
         try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? WordDefinitionsSideView }.first)
     }
@@ -317,11 +416,17 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         ]
         var words: [String] = []
         var completions: [WordDefinitionsService.Completion] = []
+        var availabilityWords: [[String]] = []
+        var availabilityCompletions: [WordDefinitionsService.AvailabilityCompletion] = []
         var pointerPoint: NSPoint?
+        lazy var availability = WordDefinitionsAvailabilityModel(check: { [weak self] words, completion in
+            self?.availabilityWords.append(words)
+            self?.availabilityCompletions.append(completion)
+        }, cancel: {})
         lazy var model = WordDefinitionsModel(search: { [weak self] in
             self?.words.append($0)
             self?.completions.append($1)
-        }, cancelPending: {})
+        }, cancelPending: {}, availability: availability)
 
         func view() -> CandidateTreeView {
             CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 600), definitions: model,

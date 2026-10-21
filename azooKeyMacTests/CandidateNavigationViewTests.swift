@@ -6,6 +6,37 @@ import XCTest
 
 @MainActor
 final class CandidateNavigationViewTests: XCTestCase {
+    func testAvailabilityDecoratesOnlyTheConfirmedRealRowWithoutReplacingItsActionOrNumber() throws {
+        let entries = [CandidateTree.Entry(text: "語彙", tokens: [], candidateIndex: 42),
+                       CandidateTree.Entry(text: "虚無", tokens: [], candidateIndex: 7)]
+        let view = CandidateNavigationView(frame: NSRect(x: 0, y: 0, width: 260, height: 100))
+        var selected: [Int] = []
+        view.onSelection = { selected.append($0) }
+        view.update(page: CandidatePage(entries: entries, selectionIndex: 7), numbers: [42: "1", 7: "2"], fontSize: 24, compact: true)
+        view.layoutSubtreeIfNeeded()
+        let rows = buttons(in: view).compactMap { $0 as? CandidateRowButton }
+        let word = try XCTUnwrap(rows.first { $0.candidateIndex == 42 })
+        let missing = try XCTUnwrap(rows.first { $0.candidateIndex == 7 })
+        let originalHeight = view.preferredHeight(width: 260)
+        view.setDefinitionAvailability([42])
+        XCTAssertTrue(word.hasDefinition)
+        XCTAssertFalse(missing.hasDefinition)
+        XCTAssertTrue(missing.definitionIconFrame.isEmpty)
+        XCTAssertTrue(word.bounds.contains(word.definitionIconFrame))
+        XCTAssertLessThanOrEqual(word.candidateTextFrame.maxX, word.definitionIconFrame.minX)
+        XCTAssertEqual(word.title, "1. 語彙")
+        XCTAssertEqual(missing.title, "2. 虚無")
+        XCTAssertEqual(view.preferredHeight(width: 260), originalHeight)
+        XCTAssertTrue(buttons(in: view).contains { $0 === word })
+        XCTAssertFalse(word.acceptsFirstResponder)
+        XCTAssertTrue(selected.isEmpty)
+        word.performClick(nil)
+        XCTAssertEqual(selected, [42])
+        view.setDefinitionAvailability([])
+        XCTAssertFalse(word.hasDefinition)
+        XCTAssertFalse(word.accessibilityHelp()?.contains(String(format: Localization.text("candidate.definition.title"), "語彙")) ?? true)
+    }
+
     private func buttons(in view: NSView) -> [NSButton] {
         view.subviews.flatMap { child in
             child.isHidden ? [] : ((child as? NSButton).map { [$0] } ?? buttons(in: child))
