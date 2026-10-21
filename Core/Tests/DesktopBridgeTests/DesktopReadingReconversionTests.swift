@@ -63,18 +63,12 @@ import Testing
         #expect(try fixture.key(53).commits.isEmpty)
     }
 
-    @Test(arguments: [false, true])
-    func cancellationRestoresTheOriginalOnceWithoutLearning(reset: Bool) throws {
+    @Test func escapeRestoresTheOriginalOnceWithoutLearning() throws {
         var fixture = try DesktopReadingWorkerFixture()
         let token = try #require(Support.prepare(&fixture).reconversion?.token)
         _ = try Support.confirm(&fixture, token: token)
-        let cancelled: DesktopSnapshot
-        if reset {
-            cancelled = try #require(fixture.worker.process(.init(operation: "reset", reference: fixture.reference, submit: false)).snapshot)
-        } else {
-            #expect(try fixture.key(53).commits.isEmpty)
-            cancelled = try fixture.key(53)
-        }
+        #expect(try fixture.key(53).commits.isEmpty)
+        let cancelled = try fixture.key(53)
         #expect(cancelled.commits == ["日本語"])
         #expect(cancelled.preedit.isEmpty)
         #expect(cancelled.candidateCompletions == nil)
@@ -103,8 +97,15 @@ import Testing
         #expect(failed.snapshot?.commits.isEmpty == true)
         #expect(failed.snapshot?.candidateCompletions == nil)
         #expect(try DesktopReadingTestSupport.encodedJSON(fixture.snapshot()) == before)
-        let cancelled = try fixture.worker.process(.init(operation: "reset", reference: fixture.reference, submit: false))
-        #expect(cancelled.snapshot?.commits == ["日本語"])
+        if keyCode != 0 {
+            let requested = try fixture.key(53)
+            #expect(requested.commits.isEmpty && requested.request == "candidates")
+            #expect(requested.preedit == "にほんご")
+        }
+        let reading = try fixture.key(53)
+        #expect(reading.commits.isEmpty && reading.inputState == "composing")
+        #expect(reading.preedit == "にほんご")
+        #expect(try fixture.key(53).commits == ["日本語"])
     }
 
     @Test(arguments: ["missing", "private", "partial", "changed", "reset"])
