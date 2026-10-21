@@ -24,6 +24,7 @@ dbus-run-session -- xvfb-run -a python3 -m unittest Linux.tests.test_support_dia
 GDK_BACKEND=x11 PYTHONPATH=Linux/tests xvfb-run -a python3 -m unittest Linux.tests.test_settings_window Linux.tests.test_user_dictionary_editor Linux.tests.test_user_dictionary_exchange_editor Linux.tests.test_user_dictionary_file_dispatch -v
 bash Tools/tests/linux-dictionary-dialogs.sh
 dbus-run-session -- xvfb-run -a bash Tools/tests/linux-desktop.sh
+AZOOKEY_ENGINE_MAIN=Linux/tests/fixtures/reading_engine_main.py AZOOKEY_IBUS_TEST=Linux/tests/ibus_reading_candidates.py dbus-run-session -- xvfb-run -a bash Tools/tests/linux-desktop.sh
 AZOOKEY_IBUS_TEST=Linux/tests/ibus_renderer_loss.py dbus-run-session -- xvfb-run -a bash Tools/tests/linux-desktop.sh
 AZOOKEY_IBUS_TEST=Linux/tests/ibus_settings_integration.py dbus-run-session -- xvfb-run -a bash Tools/tests/linux-desktop.sh
 dbus-run-session -- xvfb-run -a env AZOOKEY_IBUS_TEST=Linux/tests/ibus_composition_editing.py bash Tools/tests/linux-desktop.sh
