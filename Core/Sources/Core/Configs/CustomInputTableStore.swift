@@ -40,6 +40,40 @@ public enum CustomInputTableStore {
         return try? String(contentsOf: fileURL, encoding: .utf8)
     }
 
+    /// Read for a bounded worker reply; an unreadable saved table must not become an empty default.
+    public static func load(maximumBytes: Int) throws -> String? {
+        try load(from: fileURL, maximumBytes: maximumBytes)
+    }
+
+    static func load(from url: URL, maximumBytes: Int) throws -> String? {
+        guard maximumBytes >= 0, maximumBytes < Int.max else { throw ReadFailure.tooLarge }
+        var currentURL = url
+        // A repaired or replaced table can reuse a URL whose Darwin metadata was cached.
+        currentURL.removeAllCachedResourceValues()
+        let file: FileHandle
+        do {
+            let attributes = try currentURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            guard attributes.isRegularFile == true else { throw ReadFailure.notRegularFile }
+            guard let size = attributes.fileSize, size <= maximumBytes else { throw ReadFailure.tooLarge }
+            file = try FileHandle(forReadingFrom: currentURL)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return nil
+        }
+        defer { try? file.close() }
+        var contents = Data()
+        // Keep the read bounded even if the file grows after the size check.
+        while let bytes = try file.read(upToCount: maximumBytes - contents.count + 1), !bytes.isEmpty {
+            contents.append(bytes)
+            guard contents.count <= maximumBytes else { throw ReadFailure.tooLarge }
+        }
+        guard let table = String(data: contents, encoding: .utf8) else { throw ReadFailure.invalidUTF8 }
+        return table
+    }
+
+    enum ReadFailure: Error, Equatable {
+        case tooLarge, notRegularFile, invalidUTF8
+    }
+
     public static func loadTable() -> InputTable? {
         guard exists() else {
             return nil

@@ -83,6 +83,17 @@ class ReadingFrontendTests(unittest.TestCase):
         self.frontend.key({"keyCode": 0, "characters": "a"}, lambda consumed: self.effects.append(("reply", consumed)))
         return self.coordinator.operations[-1]
 
+    def test_explicit_restart_keeps_the_settings_provider_and_finishes_old_input_once(self):
+        provider = lambda defaults: defaults
+        self.frontend.settings_provider = provider
+        operation = self.key()
+        self.frontend.blocked = True
+        self.frontend.reset()
+        self.assertTrue(operation.token.finished)
+        self.assertIs(self.coordinator.callbacks["settings_provider"], provider)
+        self.assertEqual([effect for effect in self.effects if effect[0] == "reply"], [("reply", True)])
+        self.assertTrue(self.frontend.focused)
+
     def publish_reading(self, text="あ", *, revision=1):
         operation = self.key()
         self.assertTrue(self.coordinator.deliver(operation, reading_snapshot(text, revision=revision)))

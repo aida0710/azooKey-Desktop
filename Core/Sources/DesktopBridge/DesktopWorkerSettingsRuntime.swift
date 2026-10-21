@@ -66,6 +66,11 @@ struct DesktopWorkerSettingsRuntime {
         guard !settings.live, !settings.predictiveTyping, !settings.aiEnabled, !settings.debug else {
             throw DesktopWorkerSettingsFailure.unsupportedSettings
         }
+        try validateValues(settings)
+    }
+
+    // Defaults may describe unsupported features; only applying them requires the capability gate above.
+    static func validateValues(_ settings: DesktopWorkerSettings) throws {
         do {
             try DesktopSettingsValidation.conversion(inferenceLimit: settings.inferenceLimit, profile: settings.profile)
         } catch {

@@ -38,8 +38,8 @@ class ObservedReadingProcess(Bridge):
 
 
 class ReadingProcessTestCase(unittest.TestCase):
-    def initial_settings(self):
-        return None
+    def prepare_worker_settings(self):
+        return {}
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
@@ -64,7 +64,8 @@ class ReadingProcessTestCase(unittest.TestCase):
         self.coordinator = ReadingCoordinator(self.callbacks.dispatch, publish_input=self.inputs.append,
                                               publish_candidates=self.panels.append, notify=self.notices.append,
                                               reader_factory=lambda: factory("reading"),
-                                              candidate_factory=lambda: factory("candidate"), settings=self.initial_settings())
+                                              candidate_factory=lambda: factory("candidate"),
+                                              **self.prepare_worker_settings())
         self.drain_until(lambda: self.coordinator._generation and (
             self.coordinator._settings_agreement.confirmed_identity if self.coordinator._settings_agreement
             else self.coordinator._candidate_settings))
@@ -135,4 +136,3 @@ class ReadingProcessTestCase(unittest.TestCase):
         if destination:
             with open(destination, "a", encoding="utf-8") as output:
                 output.write(json.dumps({"test": self.id(), **fields}, sort_keys=True) + "\n")
-

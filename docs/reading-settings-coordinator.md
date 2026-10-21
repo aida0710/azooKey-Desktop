@@ -10,4 +10,10 @@
 
 現契約の未対応設定（live、predictiveTyping、aiEnabled、debug）は有効値を拒否する。保存値を黙って無効化しない。辞書本文・AI接続先・API keyはworker設定へ含めない。
 
-このAPIは開発中の読み/候補分離用であり、通常のIBus入口には未接続。保存JSONの初期読込、画面からの設定変更、live ONなどの機能、実GUI受入は別の接続段階で確認する。
+開発用IBus入口（`--reading-worker-development`）では `settings_provider` を使う。readerのhelloにある `defaultSettings` を、保存済み `settings.json` に不足する値の補完に使い、19項目だけをconfigureへ渡す。適用済み `settings` と起動時の既定値は別であり、既定値が欠落・不正なら推測せず入力開始を止める。providerと明示的な `settings` は同時指定できない。
+
+providerの終了前には読みprocessの操作を開始しない。provider内の通知からfocusやキーが再入した場合も、configureの後ろで待つ。例外や終了時には元入力の返信を一度だけ完了する。候補側の起動待ちは従来どおり入力を待たせない。
+
+保存JSONが破損している場合は元ファイルを残し、検証できたCoreの既定値を使って通知する。保存やlast-goodの書き換えはしない。未対応設定が有効なら専用の案内を出して止める。通常の設定画面で項目を変更した後、別の入力欄への移動や明示的な取消による再起動で再読込する。正常な入力中の自動再読込には未対応。
+
+このAPIは開発中の読み/候補分離用であり、通常のIBus入口には未接続。live ON、Tree/pointer、AI、再変換と実GUIの全受入は引き続き必要。

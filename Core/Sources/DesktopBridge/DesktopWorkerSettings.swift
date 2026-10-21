@@ -31,6 +31,20 @@ struct DesktopWorkerSettings: Codable, Equatable {
 }
 
 extension DesktopWorkerSettings {
+    /// Capture only worker settings, without reading the dictionary or AI connection preferences.
+    init(capturingCustomTable customTable: String) {
+        self.init(tree: Config.TreeCandidates().value, candidateTextSize: Config.CandidateTextSize().value,
+                  showRelativeScores: Config.ShowRelativeScores().value, live: Config.LiveConversion().value,
+                  halfSpace: Config.TypeHalfSpace().value, backslash: Config.TypeBackSlash().value,
+                  optionDirect: Config.OptionDirectFullWidthInput().value, inputStyle: Config.InputStyle().value,
+                  learning: Config.Learning().value, punctuation: Config.PunctuationStyle().value,
+                  profile: Config.ZenzaiProfile().value, personalization: Config.ZenzaiPersonalizationLevel().value,
+                  inferenceLimit: Config.ZenzaiInferenceLimit().value, predictiveTyping: Config.DebugPredictiveTyping().value,
+                  typoCorrection: Config.DebugTypoCorrection().value, debug: Config.DebugWindow().value,
+                  aiEnabled: Config.AIBackendPreference().value == .openAI,
+                  transformShortcut: Config.TransformShortcut().value, customTable: customTable)
+    }
+
     init(_ settings: DesktopSettings) {
         self.init(tree: settings.tree, candidateTextSize: settings.candidateTextSize,
                   showRelativeScores: settings.showRelativeScores, live: settings.live,

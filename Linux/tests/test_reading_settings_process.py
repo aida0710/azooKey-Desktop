@@ -13,8 +13,8 @@ from worker_settings_fixture import settings_values
 @unittest.skipUnless(sys.platform == "linux" and os.environ.get("AZOOKEY_BRIDGE"),
                      "requires both real Linux Swift process roles")
 class ReadingSettingsProcessTests(ReadingProcessTestCase):
-    def initial_settings(self):
-        return settings_values(halfSpace=True, candidateTextSize="large", showRelativeScores=False)
+    def prepare_worker_settings(self):
+        return {"settings": settings_values(halfSpace=True, candidateTextSize="large", showRelativeScores=False)}
 
     def blur(self):
         token = object()

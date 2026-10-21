@@ -13,18 +13,40 @@ SETTINGS_FIELDS = frozenset((
 ACKNOWLEDGEMENT_FIELDS = frozenset((
     "settingsContract", "settings", "customInputTableRevisions", "unsupportedFeatures",
 ))
+DEFAULTS_FIELDS = frozenset(("defaultSettings", "defaultSettingsError"))
 # These operations need a formal reading implementation before the new entry
 # can use them. Never silently turn a saved preference off.
 UNSUPPORTED_BOOLEAN_SETTINGS = ("live", "predictiveTyping", "aiEnabled", "debug")
 
 
-def validated_settings(values):
+class UnsupportedWorkerSettings(ValueError):
+    pass
+
+
+def validated_settings_values(values):
     if type(values) is not dict or values.keys() != SETTINGS_FIELDS:
         raise ValueError("worker settings require the complete settings contract")
-    validated = validate_settings(values)
+    return validate_settings(values)
+
+
+def validated_settings(values):
+    validated = validated_settings_values(values)
     if any(validated[name] for name in UNSUPPORTED_BOOLEAN_SETTINGS):
-        raise ValueError("unsupported worker settings")
+        raise UnsupportedWorkerSettings("unsupported worker settings")
     return validated
+
+
+def defaults(response):
+    fields = response.keys() & DEFAULTS_FIELDS
+    if fields and response.get("settingsContract") != "full":
+        raise ValueError("worker defaults require the full settings contract")
+    if len(fields) > 1:
+        raise ValueError("worker defaults cannot include an error and values")
+    if "defaultSettings" in fields:
+        validated_settings_values(response["defaultSettings"])
+    if "defaultSettingsError" in fields and response["defaultSettingsError"] != "invalid_worker_defaults":
+        raise ValueError("invalid worker defaults error")
+    return deepcopy({key: response[key] for key in fields})
 
 
 def acknowledgement(response, *, expected=None):

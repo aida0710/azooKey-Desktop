@@ -5,62 +5,14 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from azookey.reading_coordinator import ReadingCoordinator
 from azookey.reading_protocol import response
 from azookey.worker_settings import validated_settings
-from candidate_fixture import CallbackQueue, WAIT_SECONDS
+from candidate_fixture import WAIT_SECONDS
 from reading_coordinator_fixture import event
-from worker_settings_fixture import (
-    ConfiguredCandidateFixture, ConfiguredReadingFixture, settings_values,
-)
+from worker_settings_fixture import ReadingSettingsTestCase, settings_values
 
 
-class ReadingSettingsTests(unittest.TestCase):
-    def setUp(self):
-        self.callbacks = CallbackQueue()
-        self.reader = ConfiguredReadingFixture()
-        self.converter = ConfiguredCandidateFixture()
-        self.inputs, self.panels, self.notices, self.finished = [], [], [], []
-        self.coordinator = None
-
-    def tearDown(self):
-        if self.coordinator is not None:
-            self.coordinator.close()
-            for transport in (self.coordinator.transport, self.coordinator.candidates.transport):
-                transport.worker.join(WAIT_SECONDS)
-                self.assertFalse(transport.worker.is_alive())
-
-    def start(self, settings=None):
-        self.coordinator = ReadingCoordinator(
-            self.callbacks.dispatch, publish_input=self.inputs.append,
-            publish_candidates=self.panels.append, notify=self.notices.append,
-            reader_factory=lambda: self.reader, candidate_factory=lambda: self.converter,
-            settings=settings if settings is not None else settings_values(),
-        )
-
-    def until(self, predicate):
-        for _ in range(100):
-            if predicate():
-                return
-            self.callbacks.drain(1)
-        self.fail("settings condition did not complete")
-
-    def focus(self):
-        self.coordinator.open_context("field")
-        self.coordinator.focus_in("field", {"leftContext": "", "rightContext": "", "privateInput": False})
-
-    def key(self, text="", code=0):
-        token = object()
-        self.coordinator.key("field", event(text, code), token=token,
-                             finish=lambda owner, consumed: self.finished.append((owner, consumed)))
-        self.until(lambda: any(owner is token for owner, _ in self.finished))
-
-    def agreement(self):
-        return self.coordinator._settings_agreement
-
-    def agreed(self):
-        self.until(lambda: self.agreement().confirmed_identity is not None)
-
+class ReadingSettingsTests(ReadingSettingsTestCase):
     def test_candidate_startup_does_not_delay_configured_reading_or_original_replies(self):
         startup = self.converter.gate("settings")
         self.start(settings_values(halfSpace=True, punctuation=4))

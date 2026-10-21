@@ -10,7 +10,7 @@ from . import reading_protocol as protocol
 from .candidate_coordinator import CandidateCoordinator
 from .reading_transport import ReadingTransport
 from .reading_settings import ReadingSettingsAgreement
-from .worker_settings import validated_settings
+from .worker_settings import UnsupportedWorkerSettings, validated_settings
 
 
 LOGGER = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ class ReadingContext:
     batch: dict | None = field(default=None, repr=False)
     batch_visible: bool = False
     wanted: int | None = None
+    recovery_sequence: int | None = None
 
 
 @dataclass
@@ -50,7 +51,10 @@ class OwnedReadingOperation:
 
 class ReadingCoordinator:
     def __init__(self, dispatch, *, publish_input, publish_candidates, notify,
-                 environment=None, reader_factory=None, candidate_factory=None, settings=None):
+                 environment=None, reader_factory=None, candidate_factory=None,
+                 settings=None, settings_provider=None):
+        if settings_provider is not None and (settings is not None or not callable(settings_provider)):
+            raise ValueError("settings require either values or one provider")
         initial_settings = validated_settings(settings) if settings is not None else None
         self.publish_input = publish_input
         self.publish_candidates = publish_candidates
@@ -73,8 +77,14 @@ class ReadingCoordinator:
         self._pending = deque()
         self._active = None
         self._publishing = None
+        self._settings_provider = settings_provider
+        self._bootstrap_operation = None
         if initial_settings is not None:
             self.configure_settings(initial_settings, 0)
+        elif settings_provider is not None:
+            # Reserve configuration before clients can enqueue open/focus/key.
+            # Its values arrive with hello; only the reader's ACK releases input.
+            self._bootstrap_operation = self._queue_settings({})
         self.transport.submit("hello", {}, self._hello)
         self.candidates.settings(self._candidate_ready)
 
@@ -204,10 +214,32 @@ class ReadingCoordinator:
         if reply.error or reply.response.get("error"):
             self._fail_all("reading_handshake_failed")
         else:
-            self._generation = reply.generation
             self._settings_revision = reply.response["settingsRevision"]
+            if self._bootstrap_operation is not None and not self._load_initial_settings(reply.response):
+                return False
+            self._generation = reply.generation
             self._pump()
         return False
+
+    def _load_initial_settings(self, response):
+        try:
+            defaults = response.get("defaultSettings")
+            if defaults is None:
+                raise ValueError("reading process did not provide valid defaults")
+            values = validated_settings(self._settings_provider(deepcopy(defaults)))
+        except UnsupportedWorkerSettings:
+            self._fail_all("reading_settings_unsupported")
+            return False
+        except Exception:
+            # A settings provider may include toolkit notifications. Its failure
+            # cannot strand queued original replies or release unconfigured input.
+            self._fail_all("reading_settings_unavailable")
+            return False
+        if self._closed or self._broken:
+            return False
+        self._bootstrap_operation.payload = {"settings": values, "settingsRevision": self._settings_revision}
+        self._bootstrap_operation = None
+        return True
 
     def _payload(self, operation):
         if operation.operation == "open":
@@ -465,7 +497,10 @@ class ReadingCoordinator:
         if request.get("privateInput") != state.private_input:
             raise ValueError("reading candidate request changed privacy")
         state.authority = request["authority"]
-        self.candidates.request_candidates(request, lambda reply: self._calculated(operation, reply))
+        self.candidates.request_candidates(
+            request, lambda reply: self._calculated(operation, reply),
+            worker_generation=operation.payload["candidateWorkerGeneration"],
+        )
 
     def _calculated(self, operation, reply):
         if not self._current(operation):
@@ -474,11 +509,19 @@ class ReadingCoordinator:
             return
         if reply.error:
             self._notice(protocol.ReadingNotice(reply.error, context=operation.context.name, operation="candidates"))
-            self._enqueue(OwnedReadingOperation("candidate-worker-stopped", operation.context,
-                                                deepcopy(operation.payload), owner=operation.owner))
+            if not self._current(operation):
+                return
             self._candidate_settings = None
             if self._settings_agreement is not None:
                 self._settings_agreement.invalidate_candidate()
+            if (reply.error == "candidate_worker_changed"
+                    and operation.context.recovery_sequence != operation.sequence):
+                # Only this still-current calculation is renewed after settings
+                # agreement, once per input; a crashing worker cannot loop forever.
+                operation.context.recovery_sequence = operation.sequence
+                operation.context.wanted = operation.sequence
+            self._enqueue(OwnedReadingOperation("candidate-worker-stopped", operation.context,
+                                                deepcopy(operation.payload), owner=operation.owner))
             return
         payload = {"batch": reply.batch, "retainedReference": candidate_protocol.reference(reply.batch)}
         self._enqueue(OwnedReadingOperation("adopt-candidates", operation.context, payload,
@@ -541,18 +584,22 @@ class ReadingCoordinator:
             raise ValueError("reading settings require inactive contexts and completed operations")
         if revision < self._settings_revision:
             raise ValueError("reading settings revision cannot move backwards")
+        previous = self._settings_agreement.reader if self._settings_agreement is not None else None
+        if previous is not None and revision == previous["settingsRevision"] and values != previous["settings"]:
+            raise ValueError("changed worker settings require a new revision")
+        self._queue_settings({"settings": values, "settingsRevision": revision}, callback)
+
+    def _queue_settings(self, payload, callback=None):
         if self._settings_agreement is None:
             self._settings_agreement = ReadingSettingsAgreement(
                 self.candidates, ready=self._pump, notify=self._notice,
                 is_closed=lambda: self._closed or self._broken, initial_reply=self._candidate_settings_reply,
             )
-        previous = self._settings_agreement.reader
-        if previous is not None and revision == previous["settingsRevision"] and values != previous["settings"]:
-            raise ValueError("changed worker settings require a new revision")
         self._settings_agreement.begin_configuration()
         self._changing_settings = True
-        self._enqueue(OwnedReadingOperation("configure-settings", None,
-                                           {"settings": values, "settingsRevision": revision}, callback=callback))
+        operation = OwnedReadingOperation("configure-settings", None, payload, callback=callback)
+        self._enqueue(operation)
+        return operation
 
     def retry_candidate_settings(self):
         self._owner()
