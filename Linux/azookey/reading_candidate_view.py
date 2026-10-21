@@ -1,5 +1,6 @@
 """Validate Core's display projection without rebuilding candidates or formal input."""
 from copy import deepcopy
+import sys
 
 from . import candidate_protocol
 
@@ -10,6 +11,8 @@ VIEW_FIELDS = frozenset((
 ))
 REQUIRED_FIELDS = VIEW_FIELDS - {"selection", "focusedNode"}
 REFERENCE_FIELDS = ("context", "readingProcessGeneration", "focusEpoch")
+# Core recalculates commitScope from formal consumption; these attributes keep their source values.
+PRESERVED_PRESENTATION_FIELDS = ("tokens", "annotation", "score", "comparisonGroup")
 
 
 def _index(value, count):
@@ -39,11 +42,42 @@ def _items(value, batch):
                 or not isinstance(item.get("text"), str) or not item["text"]):
             raise ValueError("invalid candidate view identity")
         item["text"].encode("utf-8")
+        _validate_presentation(item)
         seen.add(candidate_id)
     if batch is not None:
         expected = [(item["candidateID"], item["text"]) for item in batch["candidates"]]
         if [(item["candidateID"], item["text"]) for item in value] != expected:
             raise ValueError("candidate view changed retained candidates")
+        for item, candidate in zip(value, batch["candidates"]):
+            presentation = {"tokens": [], **candidate["presentation"]}
+            _validate_presentation(presentation)
+            if any(item.get(field) != presentation.get(field) for field in PRESERVED_PRESENTATION_FIELDS):
+                raise ValueError("candidate view changed retained presentation")
+
+
+def _validate_presentation(item):
+    tokens = item.get("tokens")
+    if not isinstance(tokens, list):
+        raise ValueError("invalid candidate view tokens")
+    for token in tokens:
+        if (not isinstance(token, dict) or set(token) != {"text", "reading"}
+                or any(not isinstance(token[field], str) for field in ("text", "reading"))):
+            raise ValueError("invalid candidate view token")
+        token["text"].encode("utf-8")
+        token["reading"].encode("utf-8")
+    annotation = item.get("annotation")
+    if annotation is not None:
+        if not isinstance(annotation, str):
+            raise ValueError("invalid candidate view annotation")
+        annotation.encode("utf-8")
+    score = item.get("score")
+    # Core encodes finite Double values; reject huge JSON integers without overflowing a conversion.
+    if score is not None and (type(score) not in (int, float)
+                              or not -sys.float_info.max <= score <= sys.float_info.max):
+        raise ValueError("invalid candidate view score")
+    group = item.get("comparisonGroup")
+    if group is not None and type(group) is not int:
+        raise ValueError("invalid candidate view comparison group")
 
 
 def _nodes(value, items):

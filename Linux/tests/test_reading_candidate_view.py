@@ -43,6 +43,51 @@ class ReadingCandidateViewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validate(view)
 
+    def test_retained_reading_annotation_and_relative_score_inputs_cannot_be_replaced(self):
+        self.batch["candidates"][0]["presentation"] = {
+            "tokens": [{"text": "日本語", "reading": "にほんご"}],
+            "annotation": "元の説明", "score": -2.5, "comparisonGroup": 1,
+        }
+        original = candidate_view(self.batch)
+        self.validate(original)
+        for field, value in (
+            ("tokens", [{"text": "日本語", "reading": "別の読み"}]),
+            ("annotation", "別の説明"), ("score", -0.1), ("comparisonGroup", 2),
+        ):
+            with self.subTest(field=field):
+                changed = deepcopy(original)
+                changed["candidates"][0][field] = value
+                if field == "annotation":
+                    changed["nodes"][0]["preview"]["annotation"] = value
+                with self.assertRaisesRegex(ValueError, "retained presentation"):
+                    self.validate(changed)
+
+    def test_equal_numbers_or_unicode_normalization_cannot_hide_changed_presentation_types_or_bytes(self):
+        self.batch["candidates"][0]["presentation"] = {
+            "tokens": [{"text": "e\u0301", "reading": "e\u0301"}], "score": 1, "comparisonGroup": 1,
+        }
+        original = candidate_view(self.batch)
+        for field, value in (
+            ("score", True), ("comparisonGroup", True), ("score", float("nan")), ("score", 10 ** 400),
+            ("tokens", [{"text": "é", "reading": "e\u0301"}]),
+            ("tokens", [{"text": "e\u0301", "reading": "é"}]),
+        ):
+            with self.subTest(field=field, value=value):
+                changed = deepcopy(original)
+                changed["candidates"][0][field] = value
+                with self.assertRaises(ValueError):
+                    self.validate(changed)
+
+    def test_formal_consumption_can_replace_worker_scope_while_preserving_original_presentation(self):
+        self.batch["candidates"][0]["presentation"]["commitScope"] = {
+            "consumedReading": "wrong", "remainingReading": "",
+        }
+        view = candidate_view(self.batch)
+        scope = {"consumedReading": "に", "remainingReading": "ほんご"}
+        view["candidates"][0]["commitScope"] = scope
+        view["nodes"][0]["preview"]["scope"] = scope
+        self.assertEqual(self.validate(view)["candidates"][0]["commitScope"], scope)
+
     def test_a_preview_cannot_change_the_candidate_text_scope_or_annotation(self):
         for field, value in (("text", "偽の組合せ"), ("scope", {"consumedReading": "別", "remainingReading": ""}),
                              ("annotation", "other"), ("candidateIndex", 999)):
