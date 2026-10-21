@@ -133,6 +133,15 @@ class ReadingCoordinator:
     def select(self, context, selection, *, token, finish):
         self._input("select", context, {"selection": deepcopy(selection)}, token=token, finish=finish)
 
+    def commit_candidate(self, context, selection, *, token, finish):
+        self._input("commit-candidate", context, {"selection": deepcopy(selection)}, token=token, finish=finish)
+
+    @property
+    def settings(self):
+        """Return only reader-acknowledged settings, independently of candidate startup."""
+        confirmed = self._settings_agreement.reader if self._settings_agreement is not None else None
+        return deepcopy(confirmed["settings"]) if confirmed is not None else None
+
     def reset(self, context, *, submit, token, finish):
         self._reset("reset", context, submit=submit, token=token, finish=finish)
 

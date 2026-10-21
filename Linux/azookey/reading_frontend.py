@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import logging
 import uuid
 
+from .candidate_protocol import reference as batch_reference
 from .reading_coordinator import ReadingCoordinator
 from .reading_protocol import ReadingNotice
 
@@ -156,6 +157,31 @@ class ReadingFrontend:
             self.coordinator.barrier(self.context, token=owner, finish=self._finish)
         except (OSError, RuntimeError, ValueError):
             self._submission_failed(owner)
+
+    def select_candidate(self, selection, *, submit):
+        if (self.closed or not self.focused or self.blocked or self.pending
+                or type(submit) is not bool or not self._current_selection(selection)):
+            return False
+        operation = "commit-candidate" if submit else "select"
+        owner = self._owner(operation)
+        send = self.coordinator.commit_candidate if submit else self.coordinator.select
+        try:
+            send(self.context, selection, token=owner, finish=self._finish)
+        except (OSError, RuntimeError, ValueError):
+            self._submission_failed(owner)
+        return True
+
+    def _current_selection(self, selection):
+        if (not isinstance(selection, dict) or set(selection) != {"batch", "candidateID"}
+                or self.batch is None or self.candidate_view is None or self.reference is None):
+            return False
+        retained = batch_reference(self.batch)
+        authority = retained["authority"]
+        return (selection["batch"] == retained == self.candidate_view["candidateReference"]
+                and all(authority[name] == value for name, value in self.reference.items())
+                and authority["compositionRevision"] == self.snapshot.get("compositionRevision")
+                and any(candidate["candidateID"] == selection["candidateID"]
+                        for candidate in self.candidate_view["candidates"]))
 
     def _control(self, operation):
         owner = self._owner(operation)

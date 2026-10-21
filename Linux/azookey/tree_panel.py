@@ -205,7 +205,8 @@ class TreePanel(Gtk.Window):
 
     def update(self, snapshot):
         # The engine uses this renderer only when tree display is enabled.
-        mode = "live" if snapshot.get("inputState") == "composing" else "menu"
+        mode = ("menu" if snapshot.get("candidateDisplayMode") == "menu"
+                else "live" if snapshot.get("inputState") == "composing" else "menu")
         identity = json.dumps([
             snapshot.get("contextId"), snapshot.get("reading"), snapshot.get("candidates", []),
             [{key: value for key, value in node.items() if key not in ("relativeScore", "scorePresentation", "preview", "previewDescription")}

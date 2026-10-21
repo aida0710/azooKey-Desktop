@@ -155,9 +155,10 @@ export default class AzooKeyTreeExtension extends Extension {
         this._canvas.set_style(`background-color: ${palette.background};`);
         this._details.applyPalette(palette);
         const nodes = data.nodes ?? [];
-        const presentationMode = ['selecting', 'previewing', 'replaceSuggestion'].includes(data.inputState) ? 'menu' : 'live';
+        const presentationMode = data.candidateDisplayMode === 'menu' ||
+            ['selecting', 'previewing', 'replaceSuggestion'].includes(data.inputState) ? 'menu' : 'live';
         // Live badges identify the preview; only showCandidateIndex advertises physical number keys.
-        const showNodeNumbers = data.inputState === 'composing' || data.showCandidateIndex === true;
+        const showNodeNumbers = presentationMode === 'live' && data.inputState === 'composing' || data.showCandidateIndex === true;
         const candidateIdentity = JSON.stringify([data.contextId, data.reading, data.candidates,
             nodes.map(({relativeScore, scorePresentation, preview, previewDescription, ...node}) => node)]);
         if (candidateIdentity !== this._candidateIdentity || presentationMode !== this._presentationMode) {

@@ -20,6 +20,7 @@ class CandidateEngineFixture:
         from azookey.engine import Engine
         self.render = MethodType(Engine.render, self)
         self.render_candidates = MethodType(Engine.render_candidates, self)
+        self.candidate_renderer_lost = MethodType(Engine.candidate_renderer_lost, self)
         self.preview_pending = MethodType(Engine.preview_pending, self)
         self.do_focus_out = MethodType(Engine.do_focus_out, self)
         self.context_id = "renderer-loss-field"

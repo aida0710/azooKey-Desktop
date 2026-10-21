@@ -12,7 +12,7 @@ RESPONSE_FIELDS = frozenset((
     "kind", "readingProcessGeneration", "settingsRevision", "reference",
     "nextReference", "snapshot", "candidateRequest", "candidateReference", "candidateView", "limits", "error",
 )) | worker_settings.ACKNOWLEDGEMENT_FIELDS | worker_settings.DEFAULTS_FIELDS
-INPUT_OPERATIONS = frozenset(("key", "select", "reset", "focus-out"))
+INPUT_OPERATIONS = frozenset(("key", "select", "commit-candidate", "reset", "focus-out"))
 RESPONSE_KINDS = {"hello": "process", "prepare-candidates": "candidates",
                   **{operation: "input" for operation in INPUT_OPERATIONS}}
 

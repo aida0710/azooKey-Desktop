@@ -13,6 +13,8 @@
 | `key(context, event, *, token, finish, double_tap=False)` | 正式な KeyEventCore を FIFO で送る |
 | `barrier(context, *, token, finish)` | 先行入力の適用後に元キーを consumed=false で返す。解放や変換対象外キー向け |
 | `select(context, selection, *, token, finish)` | 表示した batch 参照と candidateID による明示操作 |
+| `commit_candidate(context, selection, *, token, finish)` | 同じ実IDを一要求で選択・確定。元キーの代わりにUI操作の所有tokenを使う |
+| `settings` | readerのconfigure ACK済み設定のコピー。未確認時はNone、candidate起動を待たない |
 | `reset(context, *, submit, token, finish)` | 同じ欄で確定または取消 |
 | `focus_out(context, *, submit, token, finish)` | 元欄の入力応答を処理し、nextReference を後続操作だけに保存 |
 | `close_context(context, callback=None)` | 非activeの欄を閉じる。先行の許可済み学習通知より後に候補側も閉じる |

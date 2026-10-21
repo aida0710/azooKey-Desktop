@@ -209,6 +209,46 @@ class ReadingFrontendLifecycleTests(unittest.TestCase):
         self.assertEqual(self.commits, [])
         self.assertEqual(self.frontend.pending, set())
 
+    def displayed_selection(self):
+        self.key("a")
+        self.wait_reply("a")
+        self.key(code=49, token="request")
+        self.drain_until(lambda: self.frontend.candidate_view is not None)
+        view = self.frontend.candidate_view
+        return {"batch": deepcopy(view["candidateReference"]), "candidateID": view["candidates"][0]["candidateID"]}
+
+    def test_atomic_candidate_commit_replies_once_without_sending_select_or_enter(self):
+        selection = self.displayed_selection()
+        gate = self.reader.gate("commit-candidate")
+        start = len(self.reader.calls)
+        self.assertTrue(self.frontend.select_candidate(selection, submit=True))
+        self.assertTrue(gate.entered.wait(WAIT_SECONDS))
+        self.assertFalse(self.frontend.select_candidate(selection, submit=True))
+        gate.proceed.set()
+        self.drain_until(lambda: not self.frontend.pending)
+        self.drain_until(lambda: self.converter.learning_updates)
+        self.assertEqual([name for name, _ in self.reader.calls[start:]], ["commit-candidate"])
+        self.assertEqual(self.commits, ["a"])
+        self.assertEqual(self.replies, [("a", True), ("request", True)])
+        self.assertEqual(len(self.converter.learning_updates), 1)
+        self.assertFalse(self.frontend.select_candidate(selection, submit=True))
+        self.assertFalse(self.frontend.blocked)
+
+    def test_focus_loss_during_atomic_commit_does_not_insert_into_the_next_field(self):
+        selection = self.displayed_selection()
+        gate = self.reader.gate("commit-candidate")
+        self.frontend.select_candidate(selection, submit=True)
+        self.assertTrue(gate.entered.wait(WAIT_SECONDS))
+        self.frontend.focus_out()
+        self.frontend.focus_in({"leftContext": "second-field", "rightContext": "", "privateInput": False})
+        self.key("b")
+        gate.proceed.set()
+        self.wait_reply("b")
+        self.assertEqual(self.commits, [])
+        self.assertEqual(self.frontend.snapshot["preedit"], "b")
+        self.assertEqual(self.frontend.pending, set())
+        self.assertEqual(self.converter.learning_updates, [])
+
     @staticmethod
     def fail_view(*_arguments):
         raise RuntimeError("injected view failure")
