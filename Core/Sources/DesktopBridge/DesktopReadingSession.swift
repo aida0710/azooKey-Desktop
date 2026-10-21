@@ -23,6 +23,8 @@ struct DesktopReadingSession {
     private var japaneseInputStyle: InputStyle
     private let candidateRequestMode: DesktopCandidateRequestMode
     private var customInputTableRevisions: [String: String] = [:]
+    private var reconversionOriginalText: String?
+    private var restoredCandidateText: String?
 
     init(inputStyle: InputStyle = .mapped(id: .defaultRomanToKana), candidateRequestMode: DesktopCandidateRequestMode = .manual) {
         japaneseInputStyle = inputStyle
@@ -38,6 +40,8 @@ struct DesktopReadingSession {
         candidateContext = nil
         candidateCompletions = []
         pendingConversionState = nil
+        reconversionOriginalText = nil
+        restoredCandidateText = nil
     }
 
     func compositionSnapshot() throws -> CompositionSnapshot {
@@ -66,6 +70,13 @@ struct DesktopReadingSession {
     }
 
     private mutating func finishInputChange(_ snapshot: DesktopSnapshot, previousComposition: Data?) throws -> DesktopSnapshot {
+        var snapshot = snapshot
+        if !snapshot.commits.isEmpty {
+            reconversionOriginalText = nil
+        } else if composition.isEmpty, let originalText = reconversionOriginalText {
+            snapshot.commits = [originalText]
+            reconversionOriginalText = nil
+        }
         if let previousComposition, try compositionSnapshot().encoded() != previousComposition {
             compositionRevision += 1
             candidates.invalidate()
@@ -89,17 +100,40 @@ struct DesktopReadingSession {
     mutating func reset(commit: Bool) throws -> DesktopSnapshot {
         var next = self
         next.candidateCompletions = []
-        let commits = commit ? [try next.commitDisplayedText()] : []
+        let commits = commit ? [try next.commitDisplayedText()] : [next.reconversionOriginalText ?? ""]
         next.composition.stopComposition()
         next.candidates.invalidate()
         next.candidateContext = nil
         next.pendingConversionState = nil
+        next.reconversionOriginalText = nil
+        next.restoredCandidateText = nil
         next.state = .none
         next.generation += 1
         next.compositionRevision += 1
         var response = next.snapshot(commits: commits)
         response.candidateCompletions = next.candidateCompletions.isEmpty ? nil : next.candidateCompletions
         self = next
+        return response
+    }
+
+    func reconversionCheckpoint() -> CompositionCheckpoint? {
+        composition.checkpoint(selectedText: candidates.selectedSuffix?.isEmpty == true ? candidates.selectedText : nil)
+    }
+
+    mutating func restoreReconversion(_ restored: ReconversionSession.RestoredComposition) throws -> DesktopSnapshot {
+        guard canConfigureSettings else { throw ReconversionSession.Failure.compositionActive }
+        composition = .init(checkpoint: restored.checkpoint)
+        reconversionOriginalText = restored.originalText
+        restoredCandidateText = restored.checkpoint.selectedText
+        candidates.invalidate()
+        candidateContext = nil
+        pendingConversionState = .selecting
+        state = .composing
+        generation += 1
+        compositionRevision += 1
+        candidateCompletions = []
+        var response = snapshot()
+        response.request = "candidates"
         return response
     }
 
@@ -365,10 +399,12 @@ struct DesktopReadingSession {
                 candidates.invalidate()
             }
         }
-        guard let index = candidates.preferredSelectionIndex else {
+        let restoredIndex = restoredCandidateText.flatMap { candidates.restoredSelectionIndex(text: $0) }
+        guard let index = restoredIndex ?? candidates.preferredSelectionIndex else {
             return requestConversion(state: nextState)
         }
         try selectCandidate(at: index)
+        restoredCandidateText = nil
         pendingConversionState = nil
         state = nextState
         return snapshot()
@@ -388,6 +424,9 @@ struct DesktopReadingSession {
     private mutating func commitSelectedCandidate(callback: ClientActionCallback) throws -> DesktopSnapshot {
         guard let candidateContext else { throw DesktopReadingCandidates.Failure.unavailableCandidate }
         let committed = try candidates.takeSelection(composition: composition, context: currentContext(candidateContext))
+        guard reconversionOriginalText == nil || committed.remaining.isEmpty else {
+            throw ReconversionSession.Failure.wholeSelectionRequired
+        }
         composition = committed.remaining
         candidateCompletions.append(committed.completion)
         pendingConversionState = nil
@@ -414,7 +453,12 @@ struct DesktopReadingSession {
             consumed = count
         }
         let text = conversion.convert(source)
-        composition.prefixComplete(composingCount: consumed)
+        var remaining = composition
+        remaining.prefixComplete(composingCount: consumed)
+        guard reconversionOriginalText == nil || remaining.isEmpty else {
+            throw ReconversionSession.Failure.wholeSelectionRequired
+        }
+        composition = remaining
         candidates.invalidate()
         pendingConversionState = nil
         // This transforms the formal input; it is not a selection of a stored conversion candidate.
@@ -427,6 +471,7 @@ struct DesktopReadingSession {
 
     private mutating func cancelConversion() {
         pendingConversionState = nil
+        restoredCandidateText = nil
         candidates.invalidate()
         composition.moveCursor(.end)
         state = .composing
@@ -434,6 +479,7 @@ struct DesktopReadingSession {
 
     private mutating func resumeReading() {
         pendingConversionState = nil
+        restoredCandidateText = nil
         candidates.clearSelection()
         composition.clearConversionRange()
         state = .composing

@@ -2,7 +2,7 @@ import KanaKanjiConverterModule
 
 public enum ReconversionReading {
     public static func resolve(_ text: String, dictionary: [Config.UserDictionaryEntry]) -> String? {
-        let readings = Set(dictionary.filter { $0.word == text }.map { $0.reading.toHiragana() })
+        let readings = Set(dictionary.filter { $0.word.utf8.elementsEqual(text.utf8) }.map { $0.reading.toHiragana() })
         if readings.count == 1 {
             return readings.first
         }

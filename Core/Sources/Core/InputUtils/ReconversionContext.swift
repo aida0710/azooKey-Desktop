@@ -27,7 +27,7 @@ public struct ReconversionContext: Codable, Equatable, Sendable {
 
     public var selectionStart: Int { min(cursorUTF16, anchorUTF16) }
 
-    var isValid: Bool {
+    public var isValid: Bool {
         cursorUTF16 >= 0 && anchorUTF16 >= 0
             && selected.utf16.count == max(cursorUTF16, anchorUTF16) - selectionStart
             && selected.unicodeScalars.count <= Self.selectionLimit

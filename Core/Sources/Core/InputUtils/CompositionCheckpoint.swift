@@ -6,7 +6,7 @@ public struct CompositionCheckpoint {
     let composingText: ComposingText
     let inputStyle: InputStyle
     let conversionRangeEnd: Int?
-    let selectedText: String?
+    public let selectedText: String?
 
     public var reading: String { composingText.convertTarget }
 

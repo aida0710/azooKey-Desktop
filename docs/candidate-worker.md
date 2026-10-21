@@ -16,6 +16,9 @@
 | `complete` | `completion: DesktopCandidateCompletion` | `completion: DesktopCandidateCompletionResult` |
 | `configure-learning` | workerGeneration、settingsRevision、learning | 更新後のsettings |
 | `close` | workerGeneration、context、readingProcessGeneration | contextを終了した応答 |
+| `resolve-reconversion-reading` | reconversionReadingRequest | 元要求と解決した読み。候補計算・学習なし |
+
+辞書読み解決のpayload、本文照合、削除ACKとの境界は [再変換契約](reading-reconversion.md) を参照してください。
 
 一般の `configure`、入力の `key/reset`、AI、候補の直接確定命令は未対応です。`commits`、`preedit`、`cursor`、`inputState`、`consumed` はこのprotocolにありません。候補返信だけで読みや入力欄を更新してはいけません。
 

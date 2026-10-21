@@ -85,6 +85,10 @@ Swift と実 JSONL で、旧世代・旧焦点・close/open ABA、別欄、priva
 
 frontend coordinator、通常製品入口への切替、一般設定同期、予測・AI・再変換、ライブ変換 ON は未接続です。実アプリの key-to-paint、IBus / GTK / Qt / Wayland の応答性や、P1 #17 全体の受入を、この protocol 単体の成功で満たしたとは扱いません。
 
+## 再変換と確定取消
+
+再変換と確定取消のCore操作は [再変換契約](reading-reconversion.md) を参照してください。復元済み再変換の取消だけは、`submit=false` でも元本文を一度返します。上記の通常入力の取消とは区別し、adapter未接続の再変換gateは維持します。
+
 ## 全量設定の同期
 
 読み・候補の `configure-settings` は [worker設定契約](worker-settings.md) を共有します。両方の世代・revision・適用値・カスタム表hashが一致した後だけ候補を要求します。読み側だけが先に設定ACKを返した場合も、候補側の一致確認前に候補を採用してはいけません。
