@@ -44,8 +44,10 @@ class CandidateCoordinator:
         if previous is not None and not protocol.same_owner(previous, authority):
             self._release_context(context)
 
-    def request_candidates(self, request, callback):
+    def request_candidates(self, request, callback, *, worker_generation=None):
         self._owner()
+        if worker_generation is not None:
+            protocol.identifier(worker_generation)
         if not isinstance(request, dict):
             raise ValueError("invalid candidate calculation request")
         request = deepcopy(request)
@@ -60,7 +62,8 @@ class CandidateCoordinator:
         self._cancel_calculation(context)
         token = object()
         operation = self.transport.submit("candidates", {"request": request},
-                                          lambda reply: self._calculated(authority, token, callback, reply))
+                                          lambda reply: self._calculated(authority, token, callback, reply),
+                                          worker_generation=worker_generation)
         self._calculations[context] = token, operation
 
     def _cancel_calculation(self, context):

@@ -57,7 +57,7 @@ F6〜F10の文字種変換も読み側で完了します。選択中または文
 内部の `DesktopReadingSession(candidateRequestMode: .afterEditing)` は、入力・削除・読みカーソル移動で正式入力が変わったとき、非空の読みの応答に候補要求だけを付けます。既定は `.manual` で、通常入口・worker設定・ライブ変換ONの拒否は変えません。この指定は先行計算の準備用であり、到着による自動選択や漢字preeditを有効にするものではありません。読みが空になる操作、変化のないカーソル移動、変換取消では先行要求を作りません。明示選択・Enter・部分確定・学習通知は同じ規則を使います。
 
 1. coordinator が候補 worker の世代を取得し、その世代を `prepare-candidates` に渡します。読み側は正式入力と現在の文脈から要求を作り、対象 worker の世代を保存します。
-2. coordinator が candidateRequest を候補 worker へ渡します。返された batch を candidate worker の `retain` へ送り、成功した ACK を待ちます。
+2. coordinator が candidateRequest を準備時の候補 worker 世代に固定して渡します。接続確認後から実送信までの間に再起動しても、旧要求を新しいプロセスへ書きません。再起動を検知した場合は、読み側が確認した設定を新しい worker が確認した後、現在の読みを入力1回につき一度だけ再要求します。キー入力や学習通知は再送せず、設定の応答が不明なら明示した再試行を待ちます。返された batch を candidate worker の `retain` へ送り、成功した ACK を待ちます。
 3. **実際の retain ACK を受けた後だけ**、その reference と batch を `adopt-candidates` に渡します。読み側は両参照の一致、対象worker、要求、入力・焦点・設定世代、文脈、消費範囲を検証します。読み側だけでは remote ACK の発生を証明できないため、実ACKを待つ責任は coordinator にあります。
 4. 採用応答は候補参照だけです。未確定文字・カーソル・入力状態は変わりません。pointer / AT / 遅れて届く操作は、表示した batch 参照と candidateID を `select` に渡します。
 5. 明示選択後の Enter は、その候補と検証済みの残る正式入力を使います。確定 snapshot にだけ candidateCompletions が入り、snapshot 取得や次のキーでは再送しません。coordinator はこれを元の candidate worker の `complete` へ渡します。
