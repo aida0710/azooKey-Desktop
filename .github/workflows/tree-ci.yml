@@ -76,3 +76,6 @@ jobs:
       - name: Diagnose a macOS test-process crash
         if: failure()
         run: bash Tools/diagnose-macos-test.sh
+      - name: Diagnose a reconversion test-process crash
+        if: failure()
+        run: bash Tools/diagnose-macos-test.sh azooKeyMacTests.ReconversionCommitLifetimeTests/testCancelingBeforeCommitStillRestoresTheOriginalSelection
