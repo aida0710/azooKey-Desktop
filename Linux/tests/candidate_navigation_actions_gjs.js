@@ -194,8 +194,8 @@ print('GNOME configurable rows: five/seven/nine preserve the nine real entries a
 
 const shortRows = new Navigation({select() {}, changed() {}, preview() {}, compact: true});
 shortRows.update(snapshot(0, 1), layout);
-for (const row of shortRows._rows.get_children()) row.get_preferred_height = () => [30, 30];
-shortRows._rows.get_children()[0].get_preferred_height = () => [60, 60];
+for (const row of shortRows._rows.get_children()) row.get_preferred_height = () => [30, 33];
+shortRows._rows.get_children()[0].get_preferred_height = () => [60, 63];
 for (const count of [5, 7, 9]) {
     shortRows.update({...snapshot(0, 1), candidateVisibleRows: count}, {...layout, listHeight: count * 33});
     equal(shortRows._scroll.height, count * 30);
