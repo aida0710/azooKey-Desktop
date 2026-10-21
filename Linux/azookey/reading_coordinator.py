@@ -33,6 +33,7 @@ class ReadingContext:
     candidate_view: dict | None = field(default=None, repr=False)
     batch_visible: bool = False
     wanted: int | None = None
+    recovery_sequence: int | None = None
 
 
 @dataclass
@@ -512,7 +513,10 @@ class ReadingCoordinator:
         if request.get("privateInput") != state.private_input:
             raise ValueError("reading candidate request changed privacy")
         state.authority = request["authority"]
-        self.candidates.request_candidates(request, lambda reply: self._calculated(operation, reply))
+        self.candidates.request_candidates(
+            request, lambda reply: self._calculated(operation, reply),
+            worker_generation=operation.payload["candidateWorkerGeneration"],
+        )
 
     def _calculated(self, operation, reply):
         if not self._current(operation):
@@ -521,11 +525,19 @@ class ReadingCoordinator:
             return
         if reply.error:
             self._notice(protocol.ReadingNotice(reply.error, context=operation.context.name, operation="candidates"))
-            self._enqueue(OwnedReadingOperation("candidate-worker-stopped", operation.context,
-                                                deepcopy(operation.payload), owner=operation.owner))
+            if not self._current(operation):
+                return
             self._candidate_settings = None
             if self._settings_agreement is not None:
                 self._settings_agreement.invalidate_candidate()
+            if (reply.error == "candidate_worker_changed"
+                    and operation.context.recovery_sequence != operation.sequence):
+                # Only this still-current calculation is renewed after settings
+                # agreement, once per input; a crashing worker cannot loop forever.
+                operation.context.recovery_sequence = operation.sequence
+                operation.context.wanted = operation.sequence
+            self._enqueue(OwnedReadingOperation("candidate-worker-stopped", operation.context,
+                                                deepcopy(operation.payload), owner=operation.owner))
             return
         payload = {"batch": reply.batch, "retainedReference": candidate_protocol.reference(reply.batch)}
         self._enqueue(OwnedReadingOperation("adopt-candidates", operation.context, payload,

@@ -6,6 +6,10 @@ import select
 import time
 
 
+class BridgeProcessChanged(RuntimeError):
+    """The original process ended before a request could be written."""
+
+
 class Bridge:
     """Private stdio connection; never sends typed text to a log or a socket."""
     def __init__(self, executable=None, timeout=30, environment=None):
@@ -51,8 +55,10 @@ class Bridge:
             self.process.kill()
             self.process.wait(timeout=5)
 
-    def request(self, operation, **payload):
+    def request(self, operation, *, expected_restarts=None, **payload):
         self.ensure_running()
+        if expected_restarts is not None and self.restarts != expected_restarts:
+            raise BridgeProcessChanged("azooKey conversion process changed before request")
         deadline = time.monotonic() + self.timeout
         message = memoryview((json.dumps({"operation": operation, **payload}, ensure_ascii=False) + "\n").encode())
         while message:
