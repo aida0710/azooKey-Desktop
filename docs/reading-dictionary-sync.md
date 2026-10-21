@@ -1,0 +1,32 @@
+# 読み・候補workerの辞書同期
+
+辞書の保存は既存の `UserDictionaryService` / `UserDictionarySaveTransaction` が担当します。読み分離のworkerは保存を代行せず、保存済みの同じ版を候補取得と再変換の読み解決に使います。通常入口・live/AI設定のgateは変更しません。
+
+## 準備と適用
+
+1. candidateへ `{"operation":"prepare-dictionary","workerGeneration":"…"}` を送ります。現在の候補contextが開いていても準備できます。
+2. 成功応答は既存のsettings応答に `preparedDictionaryRevision` を加えます。値はuser/system辞書の項目・順序・ID・読み・単語・ヒントのUTF-8 bytesから計算したSHA256です。本文、保存path、compiled辞書を応答やエラーへ含めません。現在の `settingsRevision` と、適用済みの場合の `dictionaryRevision` は変わりません。
+3. 次の安全な境界で、両roleへ同じ新しい `settingsRevision`、従来の19項目 `settings`、追加欄 `dictionaryRevision` を付けて `configure-settings` を送ります。readerは非focusかつ全contextの未確定入力が空、candidateは全contextがclose済みであることが必要です。
+4. 両方の世代・settingsRevision・settings全値・入力表hash・dictionaryRevisionが一致したACKを得てから、新しい候補を要求します。readerはdigestだけを保持し、辞書の読取り・作成を行いません。
+
+辞書同期を始める前は追加欄を省略でき、既存の初回ACK形は変わりません。導入後はdictionaryRevisionの省略を `dictionary_revision_required` で拒否します。初回revision 0を含む全量設定の規則は[worker設定契約](worker-settings.md)と同じです。同revision・同設定・同digestの再送は、入力や候補を壊さず同じACKを返します。同revisionの別digest、古いrevision、不正なdigestは拒否します。
+
+prepareは入力欄への応答、候補batch、候補選択、確定、learning receiptを作りません。candidate内のI/O・辞書作成を待ってreaderのキー返信を保留してはいけません。辞書編集画面の「保存」は別Bridgeのtransactionで完了でき、上記の適用条件を待ちません。入力中に保存された辞書のworker反映は次の安全な境界へ保留します。適用のために未確定文字を消したり、利用者の確定を捏造したりしません。
+
+## 同じ版を使う根拠
+
+保存と同じ辞書path lockの内側で、同期したUserDefaultsからuser/systemの保存値を読みます。未保存の画面の下書きや、保存・rollback途中の値は取りません。欠落値だけは既存の初期辞書を使い、保存値の型・JSON不正や合計2MiB超過は明示拒否します。
+
+lockを解放してから、捕捉した項目を既存の検証・辞書compilerでcandidate専用の一時ディレクトリへ作成します。共有辞書、設定JSON、保存済みcustom table、学習領域へ書き込みません。複製するモデルやシステム辞書resourceはありません。一時ディレクトリの権限は0700、保持する版は適用済みと準備済みの各1つです。不要になった版は所有者の破棄時に削除します。強制終了で残った一時ディレクトリの掃除は、このprotocolの成功保証には含めません。
+
+候補の通常変換optionsには、この一時版のURLを明示します。逆引きと辞書ヒントにも同じ捕捉済み項目を使います。共有辞書が後で保存し直されても、適用済み版を自動で読み替えません。新しい版の適用直前にも保存値を再確認し、prepare後に変わっていれば `dictionary_source_changed` で拒否します。確認後に別の保存が成功した場合、その版は次の同期対象であり、今回のACKが最新保存版を永久に保証するものではありません。
+
+他の設定だけを変更する場合は、現在のdictionaryRevisionを明示して適用済み版を保持します。新しい辞書をprepareする必要はありません。candidate再生成後は、新しいworker世代でprepareし直し、確認済みdigestと一致したものだけを再適用します。旧workerの候補ID・選択・完了receiptを引き継がず、ACK不明の学習通知も再送しません。
+
+## 失敗と入力・学習の境界
+
+prepareや適用の失敗では、適用済み辞書と設定を保持します。未prepareのdigestは `dictionary_not_prepared`、読取不能は `dictionary_source_unavailable`、不正な保存値は `invalid_dictionary_source`、上限超過は `dictionary_source_too_large`、検証・作成失敗は `dictionary_prepare_failed` です。終了や別のprepareで失効した準備は `dictionary_prepare_cancelled` です。生の例外に含まれる本文やpathを公開しません。
+
+全contextのcloseは、古い候補と完了receiptを退役させるために必要です。batchと逆引き要求は既存のworker世代・settingsRevisionで適用済み辞書へ結び付きます。一方の設定ACKだけで候補prepare/adoptを再開してはいけません。private入力も同じ辞書を参照できますが、既存のprivate判定と学習抑止は維持します。
+
+このCore契約だけでは、通常IBus入口の保存検知・同期通知・実GUI・応答予算を合格にしません。Python接続と実process/入力先での確認は別段階です。

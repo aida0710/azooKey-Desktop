@@ -33,13 +33,15 @@ final class DesktopCandidateConversion: SegmentManagerDelegate {
     private(set) var retained = false
 
     init(request: DesktopCandidateRequest, composition: CompositionState,
-         converter: KanaKanjiConverter, directory: URL, resources: URL?, useZenzai: Bool) {
+         converter: KanaKanjiConverter, directory: URL, resources: URL?, useZenzai: Bool,
+         userDictionaryDirectoryURL: URL? = nil) {
         self.request = request
         self.composition = composition
         self.converter = converter
         segments = SegmentsManager(kanaKanjiConverter: converter,
                                    applicationDirectoryURL: directory.appendingPathComponent("memory"),
-                                   containerURL: directory, context: .init(useZenzai: useZenzai, resourcesDirectoryURL: resources))
+                                   containerURL: directory, context: .init(useZenzai: useZenzai, resourcesDirectoryURL: resources,
+                                                                         userDictionaryDirectoryURL: userDictionaryDirectoryURL))
         segments.delegate = self
         segments.learningEnabled = !request.privateInput
         segments.activate()
