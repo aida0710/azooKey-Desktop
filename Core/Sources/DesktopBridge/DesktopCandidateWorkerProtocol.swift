@@ -12,12 +12,14 @@ struct DesktopCandidateWorkerRequest: Decodable {
     var context: String?
     var readingProcessGeneration: String?
     var settings: DesktopWorkerSettings?
+    var reconversionReadingRequest: DesktopReconversionReadingRequest?
 
     var authority: CandidateRequestAuthority? {
         switch operation {
         case "candidates": request?.authority
         case "retain", "release": reference?.authority
         case "complete": completion?.authority
+        case "resolve-reconversion-reading": reconversionReadingRequest?.authority
         default: nil
         }
     }
@@ -36,12 +38,14 @@ struct DesktopCandidateWorkerResponse: Encodable {
     var settings: DesktopWorkerSettings?
     var unsupportedFeatures: [String]?
     var error: String?
+    var reconversionReadingResult: DesktopReconversionReadingResult?
 }
 
 extension DesktopCandidateWorkerRequest {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case operation, request, reference, completion, workerGeneration, settingsRevision, learning
         case context, readingProcessGeneration, settings
+        case reconversionReadingRequest
     }
 
     init(from decoder: any Decoder) throws {
@@ -49,6 +53,9 @@ extension DesktopCandidateWorkerRequest {
         let operation = try fields.decode(String.self, forKey: .operation)
         if operation == "configure-settings" {
             try DesktopReadingProtocolValidation.keys(decoder, allowed: ["operation", "workerGeneration", "settingsRevision", "settings"])
+        }
+        if operation == "resolve-reconversion-reading" {
+            try DesktopReadingProtocolValidation.keys(decoder, allowed: ["operation", "reconversionReadingRequest"])
         }
         self.init(operation: operation,
                   request: try fields.decodeIfPresent(DesktopCandidateRequest.self, forKey: .request),
@@ -59,6 +66,7 @@ extension DesktopCandidateWorkerRequest {
                   learning: try fields.decodeIfPresent(Config.Learning.Value.self, forKey: .learning),
                   context: try fields.decodeIfPresent(String.self, forKey: .context),
                   readingProcessGeneration: try fields.decodeIfPresent(String.self, forKey: .readingProcessGeneration),
-                  settings: try fields.decodeIfPresent(DesktopWorkerSettings.self, forKey: .settings))
+                  settings: try fields.decodeIfPresent(DesktopWorkerSettings.self, forKey: .settings),
+                  reconversionReadingRequest: try fields.decodeIfPresent(DesktopReconversionReadingRequest.self, forKey: .reconversionReadingRequest))
     }
 }

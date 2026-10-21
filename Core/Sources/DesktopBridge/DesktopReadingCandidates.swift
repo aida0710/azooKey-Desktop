@@ -69,6 +69,16 @@ struct DesktopReadingCandidates {
         return available.consumption.firstIndex { $0.remaining.isEmpty } ?? 0
     }
 
+    func restoredSelectionIndex(text: String) -> Int? {
+        guard let available else {
+            return nil
+        }
+        return available.batch.candidates.indices.first { index in
+            available.batch.candidates[index].text.utf8.elementsEqual(text.utf8)
+                && available.consumption[index].remaining.isEmpty
+        }
+    }
+
     func view(options: DesktopCandidateView.Options) throws -> DesktopCandidateView? {
         guard let available else {
             return nil
