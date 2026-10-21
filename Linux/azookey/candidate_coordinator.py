@@ -4,6 +4,7 @@ import threading
 
 from . import candidate_protocol as protocol
 from .candidate_transport import CandidateTransport
+from .reconversion_protocol import reading_request
 from .worker_settings import validated_settings
 
 
@@ -177,6 +178,17 @@ class CandidateCoordinator:
     def settings(self, callback):
         self._owner()
         self.transport.submit("settings", {}, lambda reply: self._control_finished(callback, reply))
+
+    def resolve_reconversion_reading(self, request, callback):
+        self._owner()
+        request = reading_request(request)
+        if request["workerGeneration"] != self.transport.identity[0]:
+            raise ValueError("reconversion reading worker changed")
+        self.transport.submit(
+            "resolve-reconversion-reading", {"reconversionReadingRequest": request},
+            lambda reply: self._control_finished(callback, reply),
+            worker_generation=request["workerGeneration"],
+        )
 
     def configure_learning(self, learning, revision, *, worker_generation, callback):
         self._owner()

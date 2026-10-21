@@ -164,6 +164,30 @@ class ReconversionNativeReplyTests(ReconversionFixture, unittest.TestCase):
         self.assertFalse(self.coordinator.active)
         self.assert_no_forward()
 
+    def test_failed_retired_reply_never_strands_or_repeats_the_following_original_calls(self):
+        start = (ord("r"), 27, CONTROL | 1)
+        keys = (start, ENTER, LETTER)
+        for failed_key in (start, ENTER):
+            with self.subTest(failed_key=failed_key):
+                self.setUp()
+                replies = []
+                for key in keys:
+                    def complete(consumed, key=key):
+                        self.effects.append(("reply", key, consumed))
+                        if key == failed_key:
+                            raise OSError("synthetic reply failure after delivery")
+                    reply = NativeKeyReply(complete)
+                    replies.append(reply)
+                    self.dispatch(key, reply)
+                with self.assertLogs("azookey.reconversion", level="ERROR"):
+                    self.coordinator.cancel()
+                self.coordinator.cancel()
+                for reply in replies:
+                    reply.finish(False)
+                self.assertEqual(self.replies(), [("reply", key, True) for key in keys])
+                self.assertFalse(self.coordinator.active)
+                self.assert_no_forward()
+
     def test_focus_change_during_failed_error_status_does_not_deliver_keys_to_the_new_field(self):
         start = (ord("r"), 27, CONTROL | 1)
         self.native_key(start)

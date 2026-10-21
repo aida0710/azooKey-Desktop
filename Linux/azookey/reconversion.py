@@ -1,5 +1,6 @@
 """Acknowledge surrounding-text replacement before restoring composition."""
 from collections import deque
+import logging
 
 from .input_preview import ENTER_KEYS
 from .reconversion_key import ReconversionKey, ReconversionRecovery
@@ -10,6 +11,7 @@ CONTEXT_LIMIT = 256
 # A host that never acknowledges deletion must not hold later input indefinitely.
 # Expiry reports uncertainty; it never repeats deletion or assumes success.
 DELETION_ACK_TIMEOUT_MS = 3000
+LOGGER = logging.getLogger(__name__)
 
 
 def reconversion_operation(event):
@@ -82,7 +84,7 @@ def removed_context(context, replacement):
 
 class ReconversionCoordinator:
     def __init__(self, inputs, *, context, delete, status, replay, forward,
-                 schedule_timeout, remove_timeout):
+                 schedule_timeout, remove_timeout, confirm_replacement=None):
         self.inputs = inputs
         self.context = context
         self.delete = delete
@@ -91,6 +93,7 @@ class ReconversionCoordinator:
         self.forward = forward
         self.schedule_timeout = schedule_timeout
         self.remove_timeout = remove_timeout
+        self.confirm_replacement = confirm_replacement or self._confirm_with_preview
         self.phase = None
         self.source = None
         self.expected = None
@@ -236,23 +239,38 @@ class ReconversionCoordinator:
         if same_document(self.expected, current):
             self._stop_timeout()
             self.phase = "confirming"
-            # From this acknowledgement onward the original text exists as
-            # visible preedit. Recovery is safe only while its target matches.
-            original = self.replacement["text"]
             epoch = self.epoch
-            self.inputs.publish({
-                "preedit": original, "cursor": len(original), "reading": original,
-                "readingCursor": len(original), "inputState": "composing",
-            })
-            if not self._validate_confirmation(epoch):
-                return
-            self.inputs.submit(
-                "confirm-reconversion",
-                payload={"reconversionToken": self.replacement["token"], "reconversionContext": current},
-                completion=lambda snapshot: self._confirmed(epoch, snapshot),
+            self.confirm_replacement(
+                replacement=self.replacement, context=current,
+                is_current=lambda: self._validate_confirmation(epoch),
+                complete=lambda snapshot: self._confirmed(epoch, snapshot),
             )
         elif not same_document(self.source, current):
             self._fail("changed_context")
+
+    def _confirm_with_preview(self, *, replacement, context, is_current, complete):
+        # The ordinary adapter recovers this preview if its monolithic worker
+        # fails. The reading adapter supplies its formal-input owner instead.
+        original = replacement["text"]
+        self.inputs.publish({
+            "preedit": original, "cursor": len(original), "reading": original,
+            "readingCursor": len(original), "inputState": "composing",
+        })
+        if not is_current():
+            return
+
+        def received(snapshot):
+            if not is_current():
+                return
+            if not (snapshot.get("reconversionError") or snapshot.get("error")):
+                self.inputs.publish(snapshot)
+            complete(snapshot)
+
+        self.inputs.submit(
+            "confirm-reconversion",
+            payload={"reconversionToken": replacement["token"], "reconversionContext": context},
+            completion=received,
+        )
 
     def _confirmed(self, epoch, snapshot):
         if not self._validate_confirmation(epoch):
@@ -260,9 +278,6 @@ class ReconversionCoordinator:
         if snapshot.get("reconversionError") or snapshot.get("error"):
             self.status(message(snapshot.get("reconversionError", "replacement_unavailable")))
             self.inputs.recover_pending()
-            return
-        self.inputs.publish(snapshot)
-        if not self._validate_confirmation(epoch):
             return
         self._finish()
 
@@ -309,13 +324,21 @@ class ReconversionCoordinator:
     def finish_recovery(self, recovery, *, allow_native):
         start_reply, recovery.start_reply = recovery.start_reply, None
         if start_reply:
-            start_reply(True)
+            try:
+                start_reply(True)
+            except Exception:
+                LOGGER.exception("Could not finish the retired reconversion start reply")
         while recovery.keys:
             pending = recovery.keys.popleft()
             # A commit or native reply can synchronously change focus. The
             # remaining invocations must then complete without native edits.
             consumed = not allow_native or recovery.epoch != self.epoch
-            pending.finish(consumed, forward=self.forward)
+            try:
+                pending.finish(consumed, forward=self.forward)
+            except Exception:
+                # The client may have received this reply before the callback
+                # failed. Never repeat it or strand the remaining invocations.
+                LOGGER.exception("Could not finish a retired reconversion key reply")
 
     def is_current_recovery(self, recovery):
         return recovery.epoch == self.epoch and (

@@ -18,6 +18,7 @@ class ReadingInputOwner:
     operation: str
     reply: object = field(default=None, repr=False)
     finished: bool = False
+    publish_guard: object = field(default=None, repr=False)
 
 
 class ReadingFrontend:
@@ -90,7 +91,7 @@ class ReadingFrontend:
 
     def reset(self):
         if not self.focused or self.closed:
-            return
+            return False
         self.focus = object()
         reset_focus = self.focus
         self.snapshot, self.batch, self.candidate_view = {}, None, None
@@ -106,6 +107,7 @@ class ReadingFrontend:
             self._control("reset")
         if self.focus is reset_focus:
             self._clear_view(include_input=True)
+        return not self.closed and self.focused and self.focus is reset_focus
 
     def _clear_view(self, *, include_input=False):
         # Cancellation and original replies are already registered. Each view
@@ -132,7 +134,7 @@ class ReadingFrontend:
         self.reference = None
         self.coordinator = self._start_coordinator()
 
-    def key(self, event, reply, *, double_tap=False):
+    def key(self, event, reply, *, double_tap=False, reconversion_context=None):
         if self.closed or not self.focused:
             reply(False)
             return
@@ -141,7 +143,8 @@ class ReadingFrontend:
             return
         owner = self._owner("key", reply)
         try:
-            self.coordinator.key(self.context, event, token=owner, finish=self._finish, double_tap=double_tap)
+            document = {} if reconversion_context is None else {"reconversion_context": reconversion_context}
+            self.coordinator.key(self.context, event, token=owner, finish=self._finish, double_tap=double_tap, **document)
         except (OSError, RuntimeError, ValueError):
             self._submission_failed(owner)
 
@@ -158,7 +161,7 @@ class ReadingFrontend:
         except (OSError, RuntimeError, ValueError):
             self._submission_failed(owner)
 
-    def select_candidate(self, selection, *, submit):
+    def select_candidate(self, selection, *, submit, reconversion_context=None):
         if (self.closed or not self.focused or self.blocked or self.pending
                 or type(submit) is not bool or not self._current_selection(selection)):
             return False
@@ -166,10 +169,30 @@ class ReadingFrontend:
         owner = self._owner(operation)
         send = self.coordinator.commit_candidate if submit else self.coordinator.select
         try:
-            send(self.context, selection, token=owner, finish=self._finish)
+            document = ({"reconversion_context": reconversion_context}
+                        if submit and reconversion_context is not None else {})
+            send(self.context, selection, token=owner, finish=self._finish, **document)
         except (OSError, RuntimeError, ValueError):
             self._submission_failed(owner)
         return True
+
+    def submit_reconversion(self, operation, payload, *, completion, publish_guard=None):
+        if self.closed or not self.focused or self.blocked:
+            completion({"error": "reading_context_unavailable"})
+            return
+        owner = self._owner(operation)
+        owner.publish_guard = publish_guard
+
+        def received(response):
+            if not self.closed and self.focused and owner.focus is self.focus:
+                completion(response)
+
+        try:
+            self.coordinator.reconversion(self.context, operation, payload, token=owner,
+                                          finish=self._finish, callback=received)
+        except (OSError, RuntimeError, ValueError):
+            self._finish(owner, True)
+            received({"error": "reading_reconversion_unavailable"})
 
     def _current_selection(self, selection):
         if (not isinstance(selection, dict) or set(selection) != {"batch", "candidateID"}
@@ -206,6 +229,8 @@ class ReadingFrontend:
         owner = value.token
         if (self.closed or not self.focused or self.blocked or value.context != self.context
                 or owner not in self.pending or owner.focus is not self.focus or owner.finished):
+            return False
+        if owner.publish_guard is not None and not owner.publish_guard():
             return False
         snapshot = value.snapshot
         if owner.operation in ("reset", "focus-out") and snapshot.get("commits"):

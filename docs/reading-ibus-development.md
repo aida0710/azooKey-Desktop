@@ -12,7 +12,7 @@ GTK/GNOMEの表示generationは更新ごとに進み、旧widget・旧focus・�
 
 焦点を失った後は古い入力応答を表示しません。表示中のpreeditの確定はIBusと入力先クライアントが担当するため、focus-outの読み側操作は`submit=false`とし、古い欄の文字を新しい欄へ送らないようにします。応答不明の入力は自動再送せず、最後の表示を保ちます。明示的なResetまたは次のfocus-inで新しい読みプロセスを開始します。Resetは未確定入力の取消です。表示や通知で例外が起きても、正式な取消と元キー返信は退役させます。
 
-この開発入口はライブ変換OFFの開発検証用です。保存設定はCore defaultsに重ね、readerのconfigure ACK後に入力を開始します（[設定同期](reading-settings-coordinator.md)）。未対応のlive/AI設定は明示拒否します。辞書変更同期、予測・AI・再変換、ライブ変換ONは通常入口へ切り替える前に接続が必要です。元の設定ファイルを自動変更しません。現段階ではEngineごとにworkerを所有します。
+この開発入口はライブ変換OFFの開発検証用です。保存設定はCore defaultsに重ね、readerのconfigure ACK後に入力を開始します（[設定同期](reading-settings-coordinator.md)）。未対応のlive/AI設定は明示拒否します。[確定取消・再変換の接続](reading-ibus-reconversion.md)は、実削除確認と元欄の復旧を既存coordinatorに委ねます。実アプリ受入は継続中です。辞書変更同期、予測・AI、ライブ変換ONは通常入口へ切り替える前に接続が必要です。元の設定ファイルを自動変更しません。現段階ではEngineごとにworkerを所有します。
 
 `Linux/tests/ibus_reading_toolkits.py` は本物のGTK4/Qt入力widgetと実IBusを使い、実候補プロセスへSIGSTOPを送り停止状態を確認してから入力します。編集・部分F10・Enter・Escape・焦点移動・次欄への入力を、SIGCONTより前に確認します。原IBusイベント、widgetの挿入/未確定履歴、UI heartbeat、実ロードされたIBus moduleを別々に保存します。
 

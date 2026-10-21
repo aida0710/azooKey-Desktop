@@ -15,6 +15,7 @@ from .preedit_ownership import preedit_focus_mode
 from .reading_candidate_renderer import CANDIDATE_PAGE_SIZE, ReadingCandidateRenderer
 from .reading_frontend import ReadingFrontend
 from .reading_protocol import ReadingNotice
+from .reading_reconversion_adapter import ReadingReconversionAdapter
 from .reading_settings_bootstrap import ReadingSettingsBootstrap
 
 
@@ -47,7 +48,10 @@ class ReadingEngine(IBus.Engine):
             render_candidates=self.render_candidates, notify=self.notice,
             settings_provider=self.load_settings,
         )
-        self.renderer = ReadingCandidateRenderer(self, select_candidate=self.frontend.select_candidate)
+        self.renderer = ReadingCandidateRenderer(self, select_candidate=self.select_candidate)
+        self.reconversion = ReadingReconversionAdapter(
+            self, schedule_timeout=GLib.timeout_add, remove_timeout=GLib.source_remove,
+        )
 
     @property
     def context_id(self):
@@ -86,10 +90,12 @@ class ReadingEngine(IBus.Engine):
         if (self.native_key_passthrough or self.destroyed or self.private
                 or not self.frontend.focused or self.native_key_reply is None):
             return False
+        event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
+        if self.reconversion.process(event, (keyval, keycode, state), key_reply=self.native_key_reply):
+            return True
         if (not state and keyval in (0xFF55, 0xFF56) and not self.frontend.pending
                 and self.renderer.scroll_details(keyval == 0xFF56)):
             return True
-        event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
         if event is None:
             if self.frontend.pending:
                 self.frontend.barrier(self.native_key_reply.defer())
@@ -106,7 +112,8 @@ class ReadingEngine(IBus.Engine):
         double_tap = language_key and previous == event["keyCode"] and now - timestamp < LANGUAGE_DOUBLE_TAP_SECONDS
         self.last_language_key = ((event["keyCode"], now) if language_key and not double_tap else (None, 0))
         self.renderer.suspend()
-        self.frontend.key(event, self.native_key_reply.defer(), double_tap=double_tap)
+        self.frontend.key(event, self.native_key_reply.defer(), double_tap=double_tap,
+                          reconversion_context=self.reconversion.current_context())
         return True
 
     def surroundings(self):
@@ -121,12 +128,21 @@ class ReadingEngine(IBus.Engine):
     def activate(self, identity):
         if self.frontend.focused and self.focus_identity == identity:
             return
+        focus = self.frontend.focus
+        self.reconversion.clear()
+        if self.frontend.focus is not focus or self.destroyed:
+            return
         self.focus_identity = identity
         self.get_surrounding_text()
         self.frontend.focus_in(self.surroundings())
         self.context_changed = False
+        self.reconversion.register_properties()
 
     def do_focus_out(self):
+        focus = self.frontend.focus
+        self.reconversion.clear()
+        if self.frontend.focus is not focus:
+            return
         self.frontend.focus_out()
         if not self.frontend.focused:
             self.focus_identity = None
@@ -137,7 +153,10 @@ class ReadingEngine(IBus.Engine):
         self.do_focus_out()
 
     def do_reset(self):
-        self.frontend.reset()
+        focus = self.frontend.focus
+        self.reconversion.clear()
+        if self.frontend.focus is focus:
+            self.frontend.reset()
 
     def do_disable(self):
         self.do_focus_out()
@@ -148,6 +167,7 @@ class ReadingEngine(IBus.Engine):
         self.left = content[:min(cursor, anchor)][-SURROUNDING_CONTEXT_LIMIT:]
         self.right = content[max(cursor, anchor):][:SURROUNDING_CONTEXT_LIMIT]
         self.context_changed = True
+        self.reconversion.surrounding_changed(content, cursor, anchor)
 
     def do_set_content_type(self, purpose, hints):
         private = purpose in (IBus.InputPurpose.PASSWORD, IBus.InputPurpose.PIN)
@@ -155,23 +175,34 @@ class ReadingEngine(IBus.Engine):
         if (private, sensitive) == (self.private, self.sensitive):
             return
         self.private, self.sensitive = private, sensitive
+        focus = self.frontend.focus
+        self.reconversion.clear()
+        if self.frontend.focus is not focus:
+            return
         if self.frontend.focused:
             # Do not let a pending candidate or learning request retain the old
             # privacy authority when the client changes its content type.
-            self.frontend.reset()
-            self.frontend.focus_in(self.surroundings())
+            if self.frontend.reset():
+                self.frontend.focus_in(self.surroundings())
         self.context_changed = False
 
     def render_input(self, snapshot):
+        focus = self.frontend.focus
         for committed in snapshot.get("commits", []):
             self.commit_text(IBus.Text.new_from_string(committed))
+            if self.frontend.focus is not focus:
+                return
         preedit = snapshot.get("preedit", "")
         if self.renderer is not None:
             self.renderer.input_changed(snapshot)
+            if self.frontend.focus is not focus:
+                return
         focus_mode = preedit_focus_mode(self.focus_identity, input_state=snapshot.get("inputState"))
         self.update_preedit_text_with_mode(
             IBus.Text.new_from_string(preedit), snapshot.get("cursor", 0), bool(preedit), focus_mode,
         )
+        if self.frontend.focus is focus:
+            self.reconversion.render_input_error(snapshot.get("reconversionError"))
 
     def render_candidates(self, snapshot, candidate_view):
         if self.renderer is not None:
@@ -179,6 +210,16 @@ class ReadingEngine(IBus.Engine):
 
     def choose(self, operation, index, submit):
         return self.renderer.choose(operation, index, submit)
+
+    def select_candidate(self, selection, *, submit):
+        if self.reconversion.active:
+            return False
+        return self.frontend.select_candidate(
+            selection, submit=submit, reconversion_context=self.reconversion.current_context(),
+        )
+
+    def do_property_activate(self, name, _state):
+        self.reconversion.activate_property(name)
 
     def candidate_renderer_lost(self):
         self.renderer.renderer_lost()
@@ -226,6 +267,7 @@ class ReadingEngine(IBus.Engine):
 
     def close_worker(self):
         try:
+            self.reconversion.clear()
             self.frontend.close()
         finally:
             if self.renderer is not None:

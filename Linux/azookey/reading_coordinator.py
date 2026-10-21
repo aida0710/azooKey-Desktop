@@ -11,6 +11,7 @@ from .candidate_coordinator import CandidateCoordinator
 from .reading_transport import ReadingTransport
 from .reading_settings import ReadingSettingsAgreement
 from .reading_candidate_view import validate_view
+from . import reconversion_protocol
 from .worker_settings import UnsupportedWorkerSettings, validated_settings
 
 
@@ -126,16 +127,38 @@ class ReadingCoordinator:
         self._enqueue(OwnedReadingOperation("focus-in", state, {"surroundings": deepcopy(surroundings)},
                                            callback=callback, owner=state.planned_owner))
 
-    def key(self, context, event, *, token, finish, double_tap=False):
+    def key(self, context, event, *, token, finish, double_tap=False, reconversion_context=None):
         if not isinstance(event, dict) or type(double_tap) is not bool:
             raise ValueError("invalid reading key")
-        self._input("key", context, {"event": deepcopy(event), "doubleTap": double_tap}, token=token, finish=finish)
+        payload = {"event": deepcopy(event), "doubleTap": double_tap}
+        if reconversion_context is not None:
+            payload["reconversionContext"] = reconversion_protocol.document_context(reconversion_context)
+        self._input("key", context, payload, token=token, finish=finish)
 
     def select(self, context, selection, *, token, finish):
         self._input("select", context, {"selection": deepcopy(selection)}, token=token, finish=finish)
 
-    def commit_candidate(self, context, selection, *, token, finish):
-        self._input("commit-candidate", context, {"selection": deepcopy(selection)}, token=token, finish=finish)
+    def commit_candidate(self, context, selection, *, token, finish, reconversion_context=None):
+        payload = {"selection": deepcopy(selection)}
+        if reconversion_context is not None:
+            payload["reconversionContext"] = reconversion_protocol.document_context(reconversion_context)
+        self._input("commit-candidate", context, payload, token=token, finish=finish)
+
+    def reconversion(self, context, operation, payload, *, token, finish, callback):
+        if operation not in reconversion_protocol.CONTROL_OPERATIONS | {"confirm-reconversion"}:
+            raise ValueError("invalid reading reconversion operation")
+        self._input(operation, context, deepcopy(payload), token=token, finish=finish, callback=callback)
+
+    def prepare_reconversion_worker(self):
+        self._owner()
+        if self._changing_settings:
+            return None
+        if self._settings_agreement is not None:
+            return self._settings_agreement.ensure_candidate_settings()
+        settings = self._candidate_settings
+        if settings is not None and settings["workerGeneration"] == self.candidates.transport.identity[0]:
+            return settings["workerGeneration"]
+        return None
 
     @property
     def settings(self):
@@ -192,13 +215,13 @@ class ReadingCoordinator:
     def barrier(self, context, *, token, finish):
         self._input("barrier", context, {}, token=token, finish=finish)
 
-    def _input(self, operation, context, payload, *, token, finish):
+    def _input(self, operation, context, payload, *, token, finish, callback=None):
         state = self._context(context)
         self._validate_input(context, finish)
         if operation != "barrier":
             state.sequence += 1
         self._enqueue(OwnedReadingOperation(operation, state, payload, token=token, finish=finish,
-                                           sequence=state.sequence, owner=state.planned_owner))
+                                           sequence=state.sequence, owner=state.planned_owner, callback=callback))
 
     def _validate_input(self, context, finish, *, cancelling=False):
         if self._planned_focus != context:
@@ -308,7 +331,11 @@ class ReadingCoordinator:
     def _apply(self, operation, response):
         state = operation.context
         name = operation.operation
-        if name in protocol.INPUT_OPERATIONS:
+        if name == "confirm-reconversion" and response.get("reconversionError"):
+            # Failed confirmation leaves the old formal state unchanged. The
+            # replacement owner decides whether its acknowledged deletion is recoverable.
+            self._finish(operation, True)
+        elif name in protocol.INPUT_OPERATIONS:
             self._apply_input(operation, response)
             if self._broken or self._closed:
                 return
@@ -330,6 +357,8 @@ class ReadingCoordinator:
         elif name == "configure-settings":
             self._changing_settings = False
             self._settings_agreement.confirm_reading(response)
+        elif name in reconversion_protocol.CONTROL_OPERATIONS:
+            self._finish(operation, True)
         if name == "focus-out":
             state.reference = response["nextReference"]
             state.active = False

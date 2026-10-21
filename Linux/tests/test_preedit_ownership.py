@@ -23,6 +23,7 @@ class PreeditOwnershipTests(unittest.TestCase):
         self.commits = []
         self.engine = SimpleNamespace(
             focused=True, private=False, focus_identity=None,
+            frontend=SimpleNamespace(focus=object()),
             snapshot={}, input=SimpleNamespace(snapshot={}),
             anchor=Mock(), panel=Mock(), renderer=Mock(),
             update_property=Mock(), render_candidates=lambda snapshot: snapshot,
@@ -35,6 +36,7 @@ class PreeditOwnershipTests(unittest.TestCase):
                 take_recovery=lambda text: (text, object()),
                 is_current_recovery=lambda _recovery: True,
                 finish_recovery=Mock(),
+                render_input_error=Mock(),
             ),
         )
         surface = patch.object(self.engine_module, "surface", return_value=Mock())
