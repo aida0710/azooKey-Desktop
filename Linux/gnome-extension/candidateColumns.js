@@ -4,9 +4,14 @@ const COLUMN_WIDTHS = {candidateMinimum: 240, candidatePreferred: 320,
     definitionMinimum: 280, definitionPreferred: 340, gap: 10,
     candidateCharacters: 13, definitionCharacters: 16};
 
-export function candidateColumns({availableWidth, fontSize}) {
+export function candidateColumns({availableWidth, fontSize, showsDefinition = true}) {
     const candidatePreferred = Math.min(COLUMN_WIDTHS.candidatePreferred,
         Math.max(COLUMN_WIDTHS.candidateMinimum, fontSize * COLUMN_WIDTHS.candidateCharacters));
+    if (!showsDefinition) {
+        const viewportWidth = Math.min(Math.max(1, Math.floor(availableWidth)), candidatePreferred);
+        return {candidateWidth: candidatePreferred, definitionWidth: 0, contentWidth: candidatePreferred,
+            viewportWidth, gap: 0};
+    }
     const definitionPreferred = Math.min(COLUMN_WIDTHS.definitionPreferred,
         Math.max(COLUMN_WIDTHS.definitionMinimum, fontSize * COLUMN_WIDTHS.definitionCharacters));
     const minimumWidth = COLUMN_WIDTHS.candidateMinimum + COLUMN_WIDTHS.gap + COLUMN_WIDTHS.definitionMinimum;

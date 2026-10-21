@@ -1,6 +1,7 @@
 """Read-only dictionary UI preserves live/menu layout and the document's focus."""
 from pathlib import Path
 import os
+import json
 import sys
 import tempfile
 import time
@@ -61,7 +62,12 @@ class WordDefinitionGtkTests(unittest.TestCase):
                 return GLib.SOURCE_REMOVE
             GLib.idle_add(deliver)
         self.worker = WordDefinitionWorker(provider=WordDefinitionProvider(self.path), dispatch=dispatch)
+        self.availability_worker = WordDefinitionWorker(provider=WordDefinitionProvider(self.path), dispatch=dispatch)
+        self.addCleanup(self.availability_worker.close)
         self.commits = []
+        self.availability_patch = patch("azookey.tree_panel.word_definition_availability_worker", return_value=self.availability_worker)
+        self.availability_patch.start()
+        self.addCleanup(self.availability_patch.stop)
         with patch("azookey.tree_panel.word_definition_worker", return_value=self.worker):
             self.panel = TreePanel(lambda *arguments: self.commits.append(arguments))
         self.document = Gtk.Window()
@@ -84,6 +90,9 @@ class WordDefinitionGtkTests(unittest.TestCase):
     def tearDown(self):
         self.panel.destroy()
         self.document.destroy()
+        self.availability_worker.close()
+        if self.availability_worker.thread:
+            self.availability_worker.thread.join(3)
         self.worker.close()
         if self.worker.thread:
             self.worker.thread.join(3)
@@ -134,6 +143,51 @@ class WordDefinitionGtkTests(unittest.TestCase):
         self.assertIsNone(self.worker.thread)
         self.assertTrue(self.panel.tree_expanded)
         self.assertFalse(self.panel.navigation.expanded)
+
+    def test_missing_meaning_hides_right_card_and_reserved_width_and_can_return(self):
+        self.panel.update(self.snapshot)
+        self.wait_found()
+        self.paint()
+        found_width = self.panel.popup_content_width
+        self.assertTrue(self.panel.definition_column.get_mapped())
+        missing = json.loads(json.dumps(self.snapshot))
+        missing["generation"] += 1
+        missing["nodes"][0]["text"] = "未収録の単語"
+        self.panel.update(missing)
+        deadline = time.monotonic() + 4
+        while self.panel.definition_lookup.result["status"] == "loading":
+            self.flush()
+            self.assertLess(time.monotonic(), deadline)
+        self.paint()
+        self.assertFalse(self.panel.definition_column.get_visible())
+        self.assertFalse(self.panel.definitions.get_visible())
+        self.assertEqual(self.panel.definition_width, 0)
+        self.assertEqual(self.panel.card.get_spacing(), 0)
+        self.assertEqual(self.panel.popup_content_width, self.panel.candidate_width)
+        self.assertLess(self.panel.popup_content_width, found_width)
+        self.assertEqual(self.commits, [])
+        self.panel.update({**self.snapshot, "generation": 3})
+        self.wait_found()
+        self.paint()
+        self.assertTrue(self.panel.definition_column.get_mapped())
+        self.assertEqual(self.panel.popup_content_width, found_width)
+
+    def test_only_candidates_with_meanings_show_book_icons_without_replacing_rows(self):
+        snapshot = json.loads(json.dumps(self.snapshot))
+        snapshot["nodes"][1]["text"] = "未収録の単語"
+        snapshot["candidatePage"]["items"][1]["text"] = "未収録の単語"
+        self.panel.update(snapshot)
+        rows = list(self.panel.navigation.row_buttons)
+        deadline = time.monotonic() + 4
+        while self.panel.definition_availability.found_indices != {0, 2}:
+            self.flush()
+            self.assertLess(time.monotonic(), deadline)
+        self.paint()
+        self.assertEqual([row.definition_icon.get_visible() for row in rows], [True, False, True])
+        self.assertEqual(self.panel.navigation.row_buttons, rows)
+        self.assertEqual(self.snapshot["selection"], 0)
+        self.assertIs(self.document.get_focus(), self.entry)
+        self.assertEqual(self.commits, [])
 
     def test_menu_shows_real_short_meaning_without_selecting_or_committing(self):
         self.panel.update(self.snapshot)

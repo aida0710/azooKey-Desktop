@@ -49,6 +49,7 @@ class CandidateNavigation(Gtk.Box):
         self.submitted_token = None
         self.controls = {}
         self.row_buttons = []
+        self.definition_indices = frozenset()
         self.row_identity = None
         self.hovered_item = None
         self.hovered_button = None
@@ -186,6 +187,7 @@ class CandidateNavigation(Gtk.Box):
         self.scroll.set_min_content_height(0)
         self.scroll.set_max_content_height(self.list_height_limit)
         self.rows.show_all()
+        self.set_definition_availability(self.definition_indices)
         self.header.show_all()
         self.footer.show_all()
         self.header.set_visible(not minimal)
@@ -261,6 +263,10 @@ class CandidateNavigation(Gtk.Box):
         attributes.insert(Pango.attr_size_new_absolute(round(font_size * Pango.SCALE)))
         button.text_label.set_attributes(attributes)
         content.pack_start(button.text_label, True, True, 0)
+        button.definition_icon = Gtk.Image.new_from_icon_name("accessories-dictionary-symbolic", Gtk.IconSize.MENU)
+        button.definition_icon.set_can_focus(False)
+        button.definition_icon.set_no_show_all(True)
+        content.pack_start(button.definition_icon, False, False, 0)
         button.selection_label = Gtk.Label()
         button.selection_label.get_style_context().add_class("candidate-secondary")
         content.pack_start(button.selection_label, False, False, 0)
@@ -269,6 +275,16 @@ class CandidateNavigation(Gtk.Box):
         button.connect("enter-notify-event", lambda source, _event: self.preview_current(item, source))
         button.connect("leave-notify-event", self.leave_candidate)
         return button
+
+    def set_definition_availability(self, indices):
+        self.definition_indices = frozenset(indices)
+        for item, button in zip(self.page.get("items", []), self.row_buttons):
+            available = self.minimal and item["index"] in self.definition_indices
+            button.definition_icon.set_visible(available)
+            button.definition_icon.get_accessible().set_name(message("candidate.definition.title"))
+            button.get_accessible().set_description("\n".join(filter(None, [
+                message("candidate.select"), item.get("detailDescription", item["text"]),
+                message("candidate.definition.title") if available else None])))
 
     def leave_candidate(self, source, event):
         if self.keep_preview and self.keep_preview(source, event):
@@ -308,6 +324,7 @@ class CandidateNavigation(Gtk.Box):
         self.clear_preview()
         retired = self.row_buttons
         self.row_buttons = []
+        self.definition_indices = frozenset()
         for button in retired:
             button.destroy()
 

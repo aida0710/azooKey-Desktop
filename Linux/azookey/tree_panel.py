@@ -10,8 +10,11 @@ from .candidate_accessibility import CandidateAction
 from .candidate_announcements import CandidateAnnouncements
 from .candidate_detail import CandidateDetail
 from .word_definition_target import word_definition_target
-from .word_definition_lookup import WordDefinitionLookup, word_definition_worker
+from .word_definition_lookup import (
+    WordDefinitionLookup, word_definition_worker, word_definition_availability_worker,
+)
 from .word_definition_view import WordDefinitionView
+from .word_definition_availability import WordDefinitionAvailability
 from .word_definition_layout import (
     CANDIDATE_PREFERRED_WIDTH, STANDARD_FONT_SIZE, pointer_in_definition_corridor,
     pointer_in_rectangle, word_definition_columns,
@@ -118,6 +121,8 @@ class TreePanel(Gtk.Window):
         self.definition_pointer_active = False
         self.definition_pointer_token = None
         self.definition_lookup = WordDefinitionLookup(word_definition_worker(), self.definition_changed)
+        self.definition_availability = WordDefinitionAvailability(
+            word_definition_availability_worker(), self.navigation.set_definition_availability)
         self.definition_layout_idle = None
         self.definition_relayout_required = False
         self.candidate_metrics = None
@@ -199,6 +204,7 @@ class TreePanel(Gtk.Window):
         self.cancel_scroll()
         self.definition_pointer_active = False
         self.definition_lookup.invalidate()
+        self.definition_availability.invalidate()
         self.definitions.replace_actions()
         self.clear_actions()
         self.retire_disclosures()
@@ -221,6 +227,7 @@ class TreePanel(Gtk.Window):
         self.candidate_metrics = None
         self.definition_relayout_required = False
         self.definition_lookup.invalidate()
+        self.definition_availability.invalidate()
         self.definitions.reset()
         self.cancel_scroll()
         self.clear_actions()
@@ -289,6 +296,7 @@ class TreePanel(Gtk.Window):
             self.options_expanded = False
             self.definitions.reset()
             self.definition_lookup.invalidate()
+            self.definition_availability.invalidate()
             self.retire_disclosures()
             self.candidate_identity = identity
             self.presentation_mode = mode
@@ -367,6 +375,12 @@ class TreePanel(Gtk.Window):
             candidate_width = round(CANDIDATE_PREFERRED_WIDTH * self.font_size / STANDARD_FONT_SIZE)
         columns_layout = (word_definition_columns(candidate_width=candidate_width, font_size=self.font_size,
                                                   available_width=area.width) if not live else None)
+        self.refresh_details()
+        self.update_definition_view(width=columns_layout.definition_width if columns_layout else 0, active=not live)
+        shows_definition = not live and self.definitions.get_visible()
+        if columns_layout and not shows_definition:
+            columns_layout = word_definition_columns(candidate_width=candidate_width, font_size=self.font_size,
+                                                     available_width=area.width, shows_definition=False)
         self.candidate_width = columns_layout.candidate_width if columns_layout else candidate_width
         self.definition_width = columns_layout.definition_width if columns_layout else 0
         self.popup_content_width = columns_layout.width if columns_layout else candidate_width
@@ -403,7 +417,9 @@ class TreePanel(Gtk.Window):
         self.scroll.set_visible(self.tree_expanded)
         self.details.set_visible(self.details_expanded)
         self.update_definition_view(width=self.definition_width, active=not live)
-        self.definition_column.set_visible(not live)
+        self.definition_column.set_visible(shows_definition)
+        self.definition_availability.update(snapshot if not live else {})
+        self.navigation.set_definition_availability(self.definition_availability.found_indices)
         self.fit_content_height(width=popup_width, available_height=area.height)
         requested_height = (self.card.get_preferred_height_for_width(self.popup_content_width)[1]
                             + self.horizontal_scrollbar_height(popup_width))
@@ -722,6 +738,7 @@ class TreePanel(Gtk.Window):
 
     def destroy_definitions(self, *_args):
         self.definition_lookup.invalidate()
+        self.definition_availability.invalidate()
         if self.definition_layout_idle is not None:
             GLib.source_remove(self.definition_layout_idle)
         self.definition_layout_idle = None

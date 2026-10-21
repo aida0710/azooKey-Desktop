@@ -22,6 +22,8 @@ const NAME = 'org.azookey.Tree';
 const PATH = '/org/azookey/Tree';
 const CANDIDATE_ROW_GAP = 4; // Separate actions even when the score line is hidden.
 const MINIMUM_NODE_HEIGHT = 44; // A number badge shares the word's pointer/AT target.
+// Up to nine bounded local queries run sequentially, outside input handling.
+const DEFINITION_AVAILABILITY_TIMEOUT_MILLISECONDS = 8000;
 const DEFINITION_TIMEOUT_MILLISECONDS = 5000; // A dictionary result may fail without delaying input.
 const NODE_BORDER_WIDTH = 2; // Reserve both borders outside the measured label heights.
 // Bound each scrollable section so the source document remains visible around the card.
@@ -61,6 +63,10 @@ export default class AzooKeyTreeExtension extends Extension {
             preview: () => this._refreshDetails(),
             confirmation: this._composition.actor,
             compact: true,
+            toggleTree: () => {
+                this._treeExpanded = !this._treeExpanded;
+                if (this._lastSnapshot) this._render(this._lastSnapshot);
+            },
         });
         this._columnsScroll = new St.ScrollView({can_focus: false, reactive: true,
             hscrollbar_policy: St.PolicyType.AUTOMATIC, vscrollbar_policy: St.PolicyType.NEVER});
@@ -452,7 +458,14 @@ export default class AzooKeyTreeExtension extends Extension {
             this._popup.set_size(placement.width, placement.height);
             return placement;
         }
-        const columns = candidateColumns({availableWidth: Math.max(1, bounds.width - CARD_BORDER_WIDTH * 2), fontSize});
+        this._detailState = {nodes, showScores: data.showRelativeScores};
+        this._refreshDetails();
+        const showsDefinition = this._details.hasDefinition;
+        this._details.actor.visible = showsDefinition;
+        this._lookupDefinitionAvailability(data);
+        this._navigation.definitionIndices = this._definitionAvailableIndices ?? new Set();
+        const columns = candidateColumns({availableWidth: Math.max(1, bounds.width - CARD_BORDER_WIDTH * 2),
+            fontSize, showsDefinition});
         const candidateInnerWidth = columns.candidateWidth - CARD_BORDER_WIDTH * 2;
         const availableHeight = candidateAvailableHeight({cursor: location, bounds});
         this._columns.set_style(`spacing: ${columns.gap}px;`);
@@ -478,12 +491,12 @@ export default class AzooKeyTreeExtension extends Extension {
             CARD_BORDER_WIDTH * 2 - scrollbarHeight - 1));
         this._detailState = {nodes, showScores: data.showRelativeScores};
         const navigationMinimum = Math.ceil(this._navigation.update(data,
-            {fontSize, width: candidateInnerWidth, listHeight: 0, palette}));
+            {fontSize, width: candidateInnerWidth, listHeight: 0, palette, showsDefinition, treeExpanded: this._treeExpanded}));
         this._refreshDetails();
-        const detailHeight = this._details.layout({identity: actionIdentity, treeExpanded: this._treeExpanded,
+        const detailHeight = showsDefinition ? this._details.layout({identity: actionIdentity, treeExpanded: this._treeExpanded,
             allowTree: (data.columns?.length ?? 0) > 1,
             fontSize, width: columns.definitionWidth,
-            maximumHeight: Math.min(bodyAvailable, this._details.expanded ? COMPACT_MENU.fullHeight : COMPACT_MENU.summaryHeight)});
+            maximumHeight: Math.min(bodyAvailable, this._details.expanded ? COMPACT_MENU.fullHeight : COMPACT_MENU.summaryHeight)}) : 0;
         const rowMinimum = this._navigation.expanded ? this._navigation.minimumRowHeight({fontSize}) : 0;
         const bodyBudget = Math.max(bodyAvailable, navigationMinimum + rowMinimum);
         const available = Math.max(0, bodyBudget - navigationMinimum - proposalHeight);
@@ -492,7 +505,7 @@ export default class AzooKeyTreeExtension extends Extension {
         const navigationHeight = Math.ceil(this._navigation.update(data,
             {fontSize, width: candidateInnerWidth,
                 listHeight: Math.max(rowMinimum, Math.min(available - treeHeight,
-                    rowMinimum * this._navigation.visibleRows)), palette}));
+                    rowMinimum * this._navigation.visibleRows)), palette, showsDefinition, treeExpanded: this._treeExpanded}));
         this._navigation.actor.set_size(candidateInnerWidth, navigationHeight);
         const candidateHeight = proposalHeight + navigationHeight + treeHeight + CARD_BORDER_WIDTH * 2;
         const bodyHeight = Math.max(candidateHeight, detailHeight);
@@ -532,7 +545,12 @@ export default class AzooKeyTreeExtension extends Extension {
     _clearWordDefinitions({preserveDefinition = false} = {}) {
         this._definitionEpoch++;
         this._definitionKey = null;
-        if (!preserveDefinition) this._retainedDefinition = null;
+        if (!preserveDefinition) {
+            this._retainedDefinition = null;
+            this._definitionAvailabilityKey = null;
+            this._definitionAvailabilityRequest = null;
+            this._definitionAvailableIndices = new Set();
+        }
         this._details?.setWordDefinitions(null);
     }
 
@@ -562,6 +580,28 @@ export default class AzooKeyTreeExtension extends Extension {
                 this._retainedDefinition = ['found', 'notFound'].includes(response.status) ? {key: displayKey, response} : null;
                 this._details.setWordDefinitions(response);
                 // Data remains outside the candidate snapshot and its action identity.
+                this._render(this._lastSnapshot);
+            });
+    }
+
+    _lookupDefinitionAvailability(data) {
+        const key = JSON.stringify([data.contextId, data.generation, data.focusedNode, data.candidatePage?.items]);
+        if (this._definitionAvailabilityKey === key) return;
+        this._definitionAvailabilityKey = key;
+        const request = {};
+        this._definitionAvailabilityRequest = request;
+        this._definitionAvailableIndices = new Set();
+        Gio.DBus.session.call(NAME, PATH, NAME, 'LookupWordDefinitionAvailability',
+            new GLib.Variant('(si)', [data.contextId, data.generation]), null,
+            Gio.DBusCallFlags.NONE, DEFINITION_AVAILABILITY_TIMEOUT_MILLISECONDS, null, (connection, result) => {
+                let indices;
+                try { indices = JSON.parse(connection.call_finish(result).deepUnpack()[0]); }
+                catch { return; }
+                if (this._definitionAvailabilityRequest !== request || this._definitionAvailabilityKey !== key || !this._lastSnapshot || !this._popup.visible ||
+                    this._presentationMode !== 'menu') return;
+                const pageIndices = new Set((data.candidatePage?.items ?? []).map(item => item.index));
+                this._definitionAvailableIndices = new Set(Array.isArray(indices) ? indices.filter(
+                    index => Number.isInteger(index) && pageIndices.has(index)) : []);
                 this._render(this._lastSnapshot);
             });
     }

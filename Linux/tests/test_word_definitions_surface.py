@@ -121,5 +121,55 @@ class WordDefinitionSurfaceTests(unittest.TestCase):
         self.assertEqual(self.requests, [])
 
 
+class WordDefinitionAvailabilitySurfaceTests(unittest.TestCase):
+    request = WordDefinitionSurfaceTests.request
+
+    def setUp(self):
+        WordDefinitionSurfaceTests.setUp(self)
+        self.engine.snapshot["candidatePage"] = {"items": [{"index": 0}]}
+        self.availability_replacement = patch("azookey.shell_surface.word_definition_availability_worker", return_value=self.worker)
+        self.availability_replacement.start()
+        self.addCleanup(self.availability_replacement.stop)
+
+    def availability(self, sender=":renderer"):
+        invocation = InvocationFixture()
+        parameters = SimpleNamespace(unpack=lambda: ("field", 3))
+        self.surface.method(None, sender, "/org/azookey/Tree", "org.azookey.Tree",
+                            "LookupWordDefinitionAvailability", parameters, invocation)
+        return invocation
+
+    def test_availability_is_authorized_and_returns_only_found_indices_without_definition_text(self):
+        self.assertTrue(self.availability(":other").errors)
+        self.assertEqual(self.requests, [])
+        invocation = self.availability()
+        self.requests[-1][1]({"status": "found", "senses": [{"definitions": ["意味"]}]})
+        self.assertEqual(json.loads(invocation.values[0][0]), [0])
+
+    def test_availability_does_not_retire_selected_word_request_and_rejects_replaced_focus(self):
+        selected = self.request()
+        selected_callback = self.requests[-1][1]
+        available = self.availability()
+        available_callback = self.requests[-1][1]
+        selected_callback({"status": "found", "word": "保証"})
+        self.assertFalse(selected.errors)
+        self.assertEqual(len(selected.values), 1)
+        self.engine.focus_revision = object()
+        available_callback({"status": "found", "senses": [{"definitions": ["意味"]}]})
+        self.assertEqual(available.values, [])
+        self.assertTrue(available.errors)
+
+    def test_latest_page_retires_old_page_and_hides_unfinished_results(self):
+        old = self.availability()
+        old_callback = self.requests[-1][1]
+        latest = self.availability()
+        latest_callback = self.requests[-1][1]
+        self.assertEqual(len(old.errors), 1)
+        old_callback({"status": "found", "senses": [{"definitions": ["古い意味"]}]})
+        self.assertEqual(len(old.errors), 1)
+        self.assertEqual(old.values, [])
+        latest_callback({"status": "notFound", "senses": []})
+        self.assertEqual(json.loads(latest.values[0][0]), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -24,11 +24,13 @@ class WordDefinitionColumns:
         return self.candidate_width + self.gap + self.definition_width
 
 
-def word_definition_columns(*, candidate_width, font_size, available_width):
+def word_definition_columns(*, candidate_width, font_size, available_width, shows_definition=True):
     scale = max(1, font_size / STANDARD_FONT_SIZE)
     minimum_candidate = round(CANDIDATE_MINIMUM_WIDTH * scale)
     minimum_definition = round(DEFINITION_MINIMUM_WIDTH * scale)
     candidate = min(round(CANDIDATE_MAXIMUM_WIDTH * scale), max(minimum_candidate, int(candidate_width)))
+    if not shows_definition:
+        return WordDefinitionColumns(candidate, 0, gap=0)
     definition = min(round(DEFINITION_MAXIMUM_WIDTH * scale), max(
         minimum_definition, round(DEFINITION_PREFERRED_WIDTH * scale)))
     candidate = min(candidate, max(minimum_candidate, available_width - COLUMN_GAP - minimum_definition))

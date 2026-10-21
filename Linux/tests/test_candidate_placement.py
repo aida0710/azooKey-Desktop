@@ -95,6 +95,15 @@ class CandidatePopupPlacementTests(unittest.TestCase):
         self.document.add(self.entry)
         self.document.show_all()
         self.entry.grab_focus()
+        # These cases exercise an overflowing right entry. Missing meanings now
+        # remove that column, so use an explicit found dictionary fixture.
+        worker = SimpleNamespace(request=lambda target, completed: completed({
+            "status": "found", "word": target.word, "reading": target.reading,
+            "senses": [{"definitions": ["長い語義の配置を検査する。" * 80]}]}))
+        for name in ("word_definition_worker", "word_definition_availability_worker"):
+            replacement = patch("azookey.tree_panel." + name, return_value=worker)
+            replacement.start()
+            self.addCleanup(replacement.stop)
         self.panel = TreePanel(lambda *action: self.actions.append(action))
         self.snapshot = CandidatePresentationTests.make_snapshot()
         self.snapshot["candidatePage"]["items"] *= 3

@@ -20,7 +20,7 @@ function allocateRowFrames(navigation, {height, stacked = true}) {
 
 // Stub only GNOME actors; all navigation and activation decisions are product code.
 const imports = {
-    St: {Button: Actor, BoxLayout: ScrollableActor, Label: Actor, ScrollView: ScrollViewActor,
+    St: {Icon: Actor, Button: Actor, BoxLayout: ScrollableActor, Label: Actor, ScrollView: ScrollViewActor,
         PolicyType: {NEVER: 0, AUTOMATIC: 1}},
     Clutter: {ActorAlign: {CENTER: 0, START: 1}, EVENT_PROPAGATE: false},
     Pango: {WrapMode: {WORD_CHAR: 0}, EllipsizeMode: {NONE: 0}},

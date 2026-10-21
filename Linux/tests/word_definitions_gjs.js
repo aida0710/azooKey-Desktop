@@ -21,7 +21,7 @@ class MeasuredBox extends ScrollableActor {
         return [height, height];
     }
 }
-const imports = {Gio, candidatePlacement, candidateAvailableHeight, candidateColumns, St: {Button: Actor, BoxLayout: MeasuredBox, Label: Actor, ScrollView: ScrollViewActor,
+const imports = {Gio, candidatePlacement, candidateAvailableHeight, candidateColumns, St: {Icon: Actor, Button: Actor, BoxLayout: MeasuredBox, Label: Actor, ScrollView: ScrollViewActor,
     PolicyType: {NEVER: 0, AUTOMATIC: 1}}, Pango: {WrapMode: {WORD_CHAR: 0}, EllipsizeMode: {NONE: 0, END: 1}},
     Clutter: {ActorAlign: {START: 0, CENTER: 1}}, attachCandidateAction, messages,
     GLib: {Variant: class { constructor(signature, values) { this.signature = signature; this.values = values; } }},
@@ -293,6 +293,7 @@ for (const {width: workAreaWidth, height: workAreaHeight, caretY, visibleRows} o
             card._details.setWordDefinitions(longResponse);
             card._details._scrollContent.get_preferred_height = () => [1000, 1000];
             card._refreshDetails = () => {};
+            card._lookupDefinitionAvailability = () => {};
             const options = {bounds: {x: 0, y: 0, width: workAreaWidth, height: workAreaHeight}, fontSize,
                 treeContentWidth: 400, treeContentHeight: 600, nodes: new Map(),
                 actionIdentity: 'budget', location: [workAreaWidth - 1, caretY, 0, 20], palette};
@@ -349,6 +350,17 @@ for (const {width: workAreaWidth, height: workAreaHeight, caretY, visibleRows} o
             confirm.get_accessible().do_action();
             drainActions();
             equal(commits, [['select', 0, true, 1, 'budget']]);
+            card._details.setWordDefinitions({status: 'notFound', word: '未収録'});
+            card._layoutCard(snapshot, options);
+            assert(!card._details.actor.visible, 'Missing meanings must hide the right card');
+            equal(card._columns.width, card._candidateColumn.width);
+            equal(card._columnsScroll.width, Math.min(card._candidateColumn.width, workAreaWidth - 2));
+            assert(card._columns.style.includes('spacing: 0px'), 'No empty gap may remain for missing meanings');
+            card._details.setWordDefinitions(longResponse);
+            card._layoutCard(snapshot, options);
+            assert(card._details.actor.visible && card._columns.width > card._candidateColumn.width,
+                'A subsequent real meaning must restore the right card');
+
         }
     }
 }
@@ -398,3 +410,34 @@ assert(enlargedControls._header.vertical && enlargedHeight <= 500,
     'When enlarged controls do not fit side by side they must remain inside the right column');
 assert(enlargedControls._definitionPreview.style.includes('font-size: 48px'), 'Control wrapping must not shrink the meaning');
 print('GNOME enlarged side controls: measured buttons stack inside the right column without shrinking meanings PASS');
+
+const badges = new Navigation({select() {}, changed() {}, preview() {}, compact: true});
+badges.definitionIndices = new Set([0, 2]);
+badges.update(budgetSnapshot, {fontSize: 18, listHeight: 200, palette});
+equal(badges._rows.get_children().map(row => row._definitionIcon.visible),
+    [true, false, true, false, false, false, false, false, false]);
+const originalBadgeRows = badges._rows.get_children();
+badges.definitionIndices = new Set([1]);
+badges.update(budgetSnapshot, {fontSize: 18, listHeight: 200, palette});
+assert(badges._rows.get_children().every((row, i) => row === originalBadgeRows[i]),
+    'Dictionary completion must preserve candidate actors and actions');
+equal(badges._rows.get_children().map(row => row._definitionIcon.visible),
+    [false, true, false, false, false, false, false, false, false]);
+print('GNOME book indicators: real meanings only; missing/unknown rows stay empty and actions remain current PASS');
+
+const availability = new ExtensionClass();
+availability._popup = {visible: true};
+availability._presentationMode = 'menu';
+availability._lastSnapshot = {...budgetSnapshot};
+availability._render = () => {};
+availability._details = {setWordDefinitions() {}};
+availability._definitionEpoch = 0;
+availability._lookupDefinitionAvailability(availability._lastSnapshot);
+const oldAvailability = pending.at(-1);
+availability._clearWordDefinitions();
+availability._lookupDefinitionAvailability(availability._lastSnapshot);
+oldAvailability.at(-1)({call_finish: () => ({deepUnpack: () => ['[0]']})}, {});
+equal([...availability._definitionAvailableIndices], []);
+finishLatest([0, 2, 100, '1']);
+equal([...availability._definitionAvailableIndices], [0, 2]);
+print('GNOME background availability: retired same-page replies are rejected and only actual page IDs receive books PASS');

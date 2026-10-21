@@ -5,6 +5,8 @@ import {messages} from './candidateMessages.js';
 import {createWrappingLabel, candidateLineHeight} from './candidateText.js';
 import {attachCandidateAction} from './candidateAccessibility.js';
 
+// A small symbolic book stays within the compact row's existing height.
+const DEFINITION_ICON_SIZE = 14;
 const ROW_VERTICAL_INSET = 5;
 const ROW_HORIZONTAL_INSET = 8;
 const MINIMUM_CONTENT_HEIGHT = 32;
@@ -22,11 +24,12 @@ const FOOTER_FONT_SIZE_REDUCTION = 6;
 const ROW_BORDER_WIDTH = 1;
 
 export class CandidateNavigation {
-    constructor({select, changed, preview, confirmation = null, compact = false}) {
+    constructor({select, changed, preview, confirmation = null, compact = false, toggleTree = null}) {
         this._select = select;
         this._changed = changed;
         this._preview = preview;
         this._compact = compact;
+        this._toggleTree = toggleTree;
         this.visibleRows = DEFAULT_VISIBLE_ROWS;
         this.hoveredItem = null;
         this._hoveredButton = null;
@@ -60,7 +63,7 @@ export class CandidateNavigation {
     }
 
     _replaceHeaderButtons() {
-        for (const button of [this._toggle, this._previous, this._next])
+        for (const button of [this._toggle, this._previous, this._next, this._treeToggle])
             button?.destroy();
         this._toggle = this._button(() => {
             this.expanded = !this.expanded;
@@ -69,7 +72,10 @@ export class CandidateNavigation {
         });
         this._previous = this._button(button => this._selectPage(button));
         this._next = this._button(button => this._selectPage(button));
-        for (const button of [this._toggle, this._previous, this._next]) this._header.add_child(button);
+        this._treeToggle = this._button(button => {
+            if (button === this._treeToggle && button.is_mapped()) this._toggleTree?.();
+        });
+        for (const button of [this._toggle, this._previous, this._next, this._treeToggle]) this._header.add_child(button);
     }
 
     _selectPage(button) {
@@ -94,10 +100,11 @@ export class CandidateNavigation {
         return button;
     }
 
-    update(snapshot, {fontSize, listHeight, width = 400, palette}) {
+    update(snapshot, {fontSize, listHeight, width = 400, palette, showsDefinition = true, treeExpanded = false}) {
         this._fontSize = fontSize;
         this.visibleRows = Number.isInteger(snapshot.candidateVisibleRows) &&
             VISIBLE_ROW_CHOICES.includes(snapshot.candidateVisibleRows) ? snapshot.candidateVisibleRows : DEFAULT_VISIBLE_ROWS;
+        // The word-flow control must remain available when no dictionary card exists.
         const page = snapshot.candidatePage;
         this.actor.visible = (page?.totalCount ?? 0) > 0;
         if (!this.actor.visible) {
@@ -118,6 +125,9 @@ export class CandidateNavigation {
         this._toggle.label = this.expanded ? messages.closeList : messages.openList;
         // A compact conversion list stays open; its footer only pages and commits.
         this._toggle.visible = !this._compact;
+        this._treeToggle.visible = this._compact && !showsDefinition && (snapshot.columns?.length ?? 0) > 1;
+        this._treeToggle.label = treeExpanded ? messages.closeTree : messages.openTree;
+
         for (const [button, index, label] of [
             [this._previous, page.previousIndex, messages.previousPage],
             [this._next, page.nextIndex, messages.nextPage]]) {
@@ -153,6 +163,10 @@ export class CandidateNavigation {
                 button._candidateLabel = label;
                 button.connect('notify::allocation', () => this._revealSelection());
                 row.add_child(label);
+                button._definitionIcon = new St.Icon({icon_name: 'accessories-dictionary-symbolic',
+                    icon_size: DEFINITION_ICON_SIZE, accessible_name: messages.definitionTitle,
+                    y_align: Clutter.ActorAlign.CENTER, reactive: false, can_focus: false});
+                row.add_child(button._definitionIcon);
                 button._selectionMark = new St.Label({text: '', y_align: Clutter.ActorAlign.START});
                 button._selectionMark.set_width(24);
                 row.add_child(button._selectionMark);
@@ -177,7 +191,11 @@ export class CandidateNavigation {
         for (const [offset, button] of this._rows.get_children().entries()) {
             const item = page.items[offset];
             button._selection = action(item.index, false);
-            button._candidateLabel.set_width(Math.max(1, width - (snapshot.showCandidateIndex ? 84 : 52)));
+            button._definitionIcon.visible = this._compact && (this.definitionIndices?.has(item.index) ?? false);
+            button.get_accessible().accessible_description = [messages.select, item.detailDescription,
+                button._definitionIcon.visible ? messages.definitionTitle : null].filter(Boolean).join('\n');
+            const definitionIconWidth = button._definitionIcon.visible ? DEFINITION_ICON_SIZE : 0;
+            button._candidateLabel.set_width(Math.max(1, width - (snapshot.showCandidateIndex ? 84 : 52) - definitionIconWidth));
             const selected = item.index === snapshot.selection;
             button.set_checked(selected);
             button._selectionMark.text = selected ? '✓' : '';
@@ -251,7 +269,7 @@ export class CandidateNavigation {
 
     retire({preserveViewport = false} = {}) {
         this._clearPreview();
-        for (const button of [this._toggle, this._previous, this._next]) button?.destroy();
+        for (const button of [this._toggle, this._previous, this._next, this._treeToggle]) button?.destroy();
         this._toggle = this._previous = this._next = null;
         this._actionIdentity = null;
         this._identity = null;
@@ -271,7 +289,7 @@ export class CandidateNavigation {
 
     applyPalette(palette) {
         this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text};`);
-        for (const button of [this._toggle, this._previous, this._next, ...this._rows.get_children()].filter(Boolean)) {
+        for (const button of [this._toggle, this._previous, this._next, this._treeToggle, ...this._rows.get_children()].filter(Boolean)) {
             const isPlainRow = this._compact && button.get_parent() === this._rows;
             if (this._compact && !isPlainRow) {
                 button.set_style(`background-color: transparent; color: ${palette.text};

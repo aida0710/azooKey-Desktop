@@ -28,7 +28,7 @@ class MeasuredLabelActor extends Actor {
 const imports = {
     // Keep the old hover scenarios independent of dictionary I/O; new dictionary tests deliver replies.
     Gio: {DBus: {session: {call() {}}}, DBusCallFlags: {NONE: 0}},
-    St: {Button: Actor, BoxLayout: ScrollableActor, Label: MeasuredLabelActor, ScrollView: ScrollViewActor, DrawingArea: Actor,
+    St: {Icon: Actor, Button: Actor, BoxLayout: ScrollableActor, Label: MeasuredLabelActor, ScrollView: ScrollViewActor, DrawingArea: Actor,
         PolicyType: {NEVER: 0, AUTOMATIC: 1}},
     Clutter: {ActorAlign: {CENTER: 0, START: 1}, EVENT_PROPAGATE: false},
     GLib: {Variant: class { constructor(_signature, values) { this.values = values; } },
@@ -84,7 +84,8 @@ extension._layoutDiagnostics = {update() {}, clear() {}};
 extension._announcements = {update() {}, reset() {}};
 extension._composition = new Composition(value => extension._call('Select', value));
 extension._navigation = new Navigation({select: value => extension._call('Select', value), changed() {},
-    preview: () => extension._refreshDetails(), compact: true, confirmation: extension._composition.actor});
+    preview: () => extension._refreshDetails(), compact: true, confirmation: extension._composition.actor,
+    toggleTree: () => { extension._treeExpanded = !extension._treeExpanded; extension._render(extension._lastSnapshot); }});
 extension._candidateColumn.add_child(extension._navigation.actor);
 const submitted = [];
 extension._call = (method, variant) => submitted.push([method, ...variant.values]);
@@ -342,7 +343,9 @@ equal(extension._navigation.expanded, true);
 equal(extension._composition.actor.visible, true);
 equal(extension._navigation.actor.visible, true);
 equal(extension._details.expanded, false);
-extension._details._tree.get_accessible().do_action();
+equal(extension._details.actor.visible, false);
+equal(extension._navigation._treeToggle.visible, true);
+extension._navigation._treeToggle.get_accessible().do_action();
 drainActions();
 equal(extension._treeScroll.visible, true);
 equal(extension._buttons.has(JSON.stringify(['node', 2])), false);
@@ -352,7 +355,7 @@ extension._render({...liveBranches, inputState: 'selecting', generation: 5});
 equal(extension._navigation.expanded, false);
 equal(extension._treeScroll.visible, true);
 equal(extension._details.expanded, true);
-const oldTreeToggle = extension._details._tree;
+const oldTreeToggle = extension._navigation._treeToggle;
 oldTreeToggle.get_accessible().do_action();
 extension._render({...liveBranches, generation: 5});
 drainActions();

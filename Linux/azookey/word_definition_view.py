@@ -8,6 +8,7 @@ from .candidate_detail import CandidateDetail
 from .candidate_navigation import CandidateNavigation
 from .i18n import text as message
 from .word_definition_provider import WORDNET_URL
+from .word_definition_availability import has_definition
 
 # Keep the default menu to a short definition; complete entries stay scrollable.
 SUMMARY_CHARACTER_LIMIT = 96
@@ -152,6 +153,7 @@ class WordDefinitionView(Gtk.Box):
         self.toggle.show_all()
         self.summary.get_child().show_all()
         self.details.get_child().show_all()
+        active = active and has_definition(response)
         self.set_visible(active)
         self.header.set_visible(active)
         self.word_heading.set_visible(active and not self.expanded and bool(response))

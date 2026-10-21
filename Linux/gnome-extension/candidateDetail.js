@@ -153,6 +153,11 @@ export class CandidateDetail {
         this._updateFullText();
     }
 
+    get hasDefinition() {
+        return this._definition?.status === 'found' && this._definition.senses?.some(
+            sense => sense.definitions?.some(text => typeof text === 'string' && text.trim().length > 0)) === true;
+    }
+
     _definitionHeadingText() {
         const response = this._definition;
         return response?.word ? messages.definitionWord(response.word, response.reading ?? '') : messages.definitionTitle;

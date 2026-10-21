@@ -107,6 +107,7 @@ class WordDefinitionLookup:
 
 
 _shared_worker = None
+_availability_worker = None
 
 
 def word_definition_worker():
@@ -122,3 +123,10 @@ def word_definition_worker():
 
         _shared_worker = WordDefinitionWorker(dispatch=dispatch)
     return _shared_worker
+
+
+def word_definition_availability_worker():
+    global _availability_worker
+    if _availability_worker is None:
+        _availability_worker = WordDefinitionWorker(dispatch=word_definition_worker().dispatch)
+    return _availability_worker
