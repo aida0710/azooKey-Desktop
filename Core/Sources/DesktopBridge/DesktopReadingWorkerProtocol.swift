@@ -34,6 +34,7 @@ struct DesktopReadingWorkerRequest: Codable {
     var selection: DesktopCandidateSelection?
     var settingsRevision: Int?
     var settings: DesktopWorkerSettings?
+    var dictionaryRevision: String?
     var reconversionContext: ReconversionContext?
     var reconversionToken: String?
     var reading: String?
@@ -42,7 +43,7 @@ struct DesktopReadingWorkerRequest: Codable {
     private static let payloadFields: [String: Set<String>] = [
         "hello": [],
         "settings": [],
-        "configure-settings": ["readingProcessGeneration", "settingsRevision", "settings"],
+        "configure-settings": ["readingProcessGeneration", "settingsRevision", "settings", "dictionaryRevision"],
         "open": ["readingProcessGeneration", "context"],
         "focus-in": ["reference", "surroundings"],
         "focus-out": ["reference", "submit"],
@@ -73,7 +74,7 @@ struct DesktopReadingWorkerRequest: Codable {
 extension DesktopReadingWorkerRequest {
     private enum CodingKeys: String, CodingKey {
         case operation, readingProcessGeneration, context, reference, surroundings, event, submit, doubleTap
-        case candidateWorkerGeneration, batch, retainedReference, selection, settingsRevision, settings
+        case candidateWorkerGeneration, batch, retainedReference, selection, settingsRevision, settings, dictionaryRevision
         case reconversionContext, reconversionToken, reading, reconversionReadingResult
     }
 
@@ -110,6 +111,7 @@ extension DesktopReadingWorkerRequest {
                   selection: try values.decodeIfPresent(DesktopCandidateSelection.self, forKey: .selection),
                   settingsRevision: try values.decodeIfPresent(Int.self, forKey: .settingsRevision),
                   settings: try values.decodeIfPresent(DesktopWorkerSettings.self, forKey: .settings),
+                  dictionaryRevision: try values.decodeIfPresent(String.self, forKey: .dictionaryRevision),
                   reconversionContext: try values.decodeIfPresent(ReconversionContext.self, forKey: .reconversionContext),
                   reconversionToken: try values.decodeIfPresent(String.self, forKey: .reconversionToken),
                   reading: try values.decodeIfPresent(String.self, forKey: .reading),
@@ -132,6 +134,7 @@ struct DesktopReadingWorkerResponse: Encodable {
     var limits: [String: Int]?
     var settingsContract: String?
     var settings: DesktopWorkerSettings?
+    var dictionaryRevision: String?
     var customInputTableRevisions: [String: String]?
     var unsupportedFeatures: [String]?
     var defaultSettings: DesktopWorkerSettings?

@@ -49,4 +49,4 @@ customTableは公開InputStyleManagerの検証・parserを使い、process内の
 
 全量設定のJSONは2MiB以下、process内の異なるカスタム表登録は既存transportと同じ64種類までです。公開registryに削除APIがないため上限を設けています。上限到達は明示拒否し、再生成したworkerへ確認済み設定を同期します。
 
-辞書の保存・移行・exportは既存の辞書transactionを維持します。辞書を持つconverterは候補側だけです。このprotocolは辞書の保存/reloadを代行せず、readerへ辞書本文を送りません。
+辞書の保存・移行・exportは既存の辞書transactionを維持します。辞書を持つconverterは候補側だけです。[辞書同期](reading-dictionary-sync.md)を使う場合はconfigure-settingsの追加欄dictionaryRevisionを両roleで照合し、保存済みの同じ版を適用します。19項目のsettings本体は変えず、readerへ辞書本文を送りません。

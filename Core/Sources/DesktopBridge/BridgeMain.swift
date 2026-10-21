@@ -63,7 +63,7 @@ struct BridgeMain {
             return
         }
         if environment["AZOOKEY_BRIDGE_ROLE"] == "candidate" {
-            try DesktopCandidateWorker.run(output: output, environment: environment)
+            try await DesktopCandidateWorker.run(output: output, environment: environment)
             return
         }
         let dataPath = environment["AZOOKEY_DATA_DIR"] ??
