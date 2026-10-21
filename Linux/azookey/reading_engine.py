@@ -11,6 +11,7 @@ from .i18n import text
 from .input_preview import is_native_key
 from .keymap import translate
 from .native_key_dispatch import dispatch_native_key
+from .preedit_ownership import preedit_focus_mode
 from .reading_candidate_renderer import CANDIDATE_PAGE_SIZE, ReadingCandidateRenderer
 from .reading_frontend import ReadingFrontend
 from .reading_protocol import ReadingNotice
@@ -167,8 +168,7 @@ class ReadingEngine(IBus.Engine):
         preedit = snapshot.get("preedit", "")
         if self.renderer is not None:
             self.renderer.input_changed(snapshot)
-        focus_mode = (IBus.PreeditFocusMode.CLEAR if snapshot.get("inputState") == "unicodeInput"
-                      else IBus.PreeditFocusMode.COMMIT)
+        focus_mode = preedit_focus_mode(self.focus_identity, input_state=snapshot.get("inputState"))
         self.update_preedit_text_with_mode(
             IBus.Text.new_from_string(preedit), snapshot.get("cursor", 0), bool(preedit), focus_mode,
         )

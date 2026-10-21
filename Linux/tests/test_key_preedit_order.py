@@ -258,6 +258,7 @@ class KeyPreeditOrderTests(unittest.TestCase):
         recovery = object()
         engine = SimpleNamespace(
             lookup_announcements=Mock(), ai_review=Mock(), reconversion=Mock(),
+            focus_identity=None,
             anchor=Mock(), update_preedit_text_with_mode=Mock(side_effect=OSError("synthetic display failure")),
         )
         engine.reconversion.take_recovery.return_value = ("あ", recovery)

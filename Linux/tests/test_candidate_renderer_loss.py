@@ -25,6 +25,7 @@ class CandidateEngineFixture:
         self.do_focus_out = MethodType(Engine.do_focus_out, self)
         self.context_id = "renderer-loss-field"
         self.focused = True
+        self.focus_identity = None
         self.private = False
         self.settings = {"tree": True}
         self.settings_problem_stamp = None

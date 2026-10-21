@@ -19,6 +19,7 @@ class RendererEngineFixture:
         from gi.repository import IBus
 
         self.private = False
+        self.focus_identity = None
         self.candidate_tree_enabled = True
         self.preedits, self.commits, self.replies, self.lookups = [], [], [], []
         self.notices = []
