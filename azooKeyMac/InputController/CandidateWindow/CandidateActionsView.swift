@@ -21,9 +21,10 @@ final class CandidateActionsView: NSView {
     private let gap: CGFloat = 6
     private let buttonHeight: CGFloat = 38
     private let buttonTextInset: CGFloat = 16
-    private let compactInset: CGFloat = 4
-    private let compactGap: CGFloat = 4
-    private let compactButtonHeight: CGFloat = 44
+    private let compactInset: CGFloat = 2
+    private let compactGap: CGFloat = 2
+    // The flat footer stays smaller than a candidate row without reducing its text.
+    private let compactButtonHeight: CGFloat = 28
 
     private var buttonWidths: [CGFloat] {
         [treeToggle, detailsToggle, confirm].map { $0.intrinsicContentSize.width + buttonTextInset }
@@ -80,6 +81,7 @@ final class CandidateActionsView: NSView {
         }
         showsDetailsToggle = page == nil || treeExpanded || detailsExpanded
         detailsToggle.isHidden = !showsDetailsToggle
+        for button in pagingButtons + [treeToggle, detailsToggle, confirm] { button.isFlat = page != nil }
         confirm.setAccessibilityHelp(pageDescription)
         treeToggle.selected = treeExpanded
         detailsToggle.selected = detailsExpanded

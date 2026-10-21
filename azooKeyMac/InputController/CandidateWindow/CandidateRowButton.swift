@@ -12,21 +12,22 @@ final class CandidateRowButton: CandidatePresentationButton {
     private let checkWidth: CGFloat = 24
     private let verticalInset: CGFloat = 8
     private let compact: Bool
-    private static let lineHeightScale: CGFloat = 1.35
-    private static let compactVerticalInsets: CGFloat = 12
-
-    static func compactHeight(fontSize: CGFloat) -> CGFloat {
-        max(44, ceil(fontSize * lineHeightScale) + compactVerticalInsets)
-    }
+    // The denser list keeps its font size and grows for the actual glyphs in each page.
+    private let compactMinimumHeight: CGFloat = 32
+    private let compactVerticalInsets: CGFloat = 6
+    private let compactTextHeight: CGFloat
 
     init(item: CandidatePage.Item, number: String?, fontSize: CGFloat, compact: Bool = false) {
         candidateIndex = item.index
         candidateText = item.text
         self.number = number
         self.compact = compact
+        let candidateFont = NSFont.systemFont(ofSize: fontSize)
+        let glyphHeight = (item.text as NSString).size(withAttributes: [.font: candidateFont]).height
+        compactTextHeight = ceil(max(glyphHeight, candidateFont.ascender - candidateFont.descender + candidateFont.leading))
         super.init()
         title = number.map { "\($0). \(item.text)" } ?? item.text
-        font = .systemFont(ofSize: fontSize)
+        font = candidateFont
         toolTip = item.detailDescription
         setAccessibilityLabel([item.text, item.reading].filter { !$0.isEmpty }.joined(separator: " "))
         setAccessibilityHelp(Localization.text("candidate.select") + "\n" + item.detailDescription)
@@ -43,9 +44,16 @@ final class CandidateRowButton: CandidatePresentationButton {
         return [.font: font ?? NSFont.systemFont(ofSize: 18), .paragraphStyle: paragraph]
     }
 
+    var candidateTextFrame: NSRect {
+        let textHeight = compact ? compactTextHeight : max(1, bounds.height - verticalInset * 2)
+        return NSRect(x: textInset, y: compact ? (bounds.height - textHeight) / 2 : verticalInset,
+                      width: max(1, bounds.width - textInset - (compact ? 0 : checkWidth) - horizontalInset),
+                      height: textHeight)
+    }
+
     func preferredHeight(width: CGFloat) -> CGFloat {
         if compact {
-            return Self.compactHeight(fontSize: font?.pointSize ?? 18)
+            return max(compactMinimumHeight, compactTextHeight + compactVerticalInsets)
         }
         let textWidth = max(1, width - textInset - checkWidth - horizontalInset)
         let height = (candidateText as NSString).boundingRect(
@@ -77,14 +85,10 @@ final class CandidateRowButton: CandidatePresentationButton {
             paragraph.lineBreakMode = .byTruncatingTail
             attributes[.paragraphStyle] = paragraph
         }
-        let textHeight = compact ? ceil((font?.pointSize ?? 18) * Self.lineHeightScale) : max(1, bounds.height - verticalInset * 2)
-        let textRect = NSRect(x: textInset, y: verticalInset,
-                              width: max(1, bounds.width - textInset - (compact ? 0 : checkWidth) - horizontalInset),
-                              height: textHeight)
-        (candidateText as NSString).draw(with: textRect, options: [.usesLineFragmentOrigin, .usesFontLeading],
+        (candidateText as NSString).draw(with: candidateTextFrame, options: [.usesLineFragmentOrigin, .usesFontLeading],
                                        attributes: attributes)
         if let number {
-            let badge = NSRect(x: horizontalInset, y: bounds.height - verticalInset - numberWidth,
+            let badge = NSRect(x: horizontalInset, y: compact ? bounds.midY - numberWidth / 2 : bounds.height - verticalInset - numberWidth,
                                width: numberWidth, height: numberWidth)
             if !compact {
                 foreground.setStroke()

@@ -161,10 +161,16 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         XCTAssertEqual(side.frame.maxY, navigation.frame.maxY)
     }
 
-    func testTheDefaultMenuUsesFiveSmallRowsAndOneFooterWithoutTheLargeCompositionOrHint() throws {
+    func testTheDefaultMenuUsesSevenDenseRowsAndAFlatFooterWithoutTheLargeCompositionOrHint() throws {
         let preference = Config.CandidateTextSize()
+        let rowPreference = Config.CandidateVisibleRows()
         let previous = preference.value
-        defer { preference.value = previous }
+        let previousRows = rowPreference.value
+        defer {
+            preference.value = previous
+            rowPreference.value = previousRows
+        }
+        rowPreference.value = .seven
         let fixture = Fixture()
         let view = fixture.view()
         let entries = (0..<20).map { CandidateTree.Entry(text: "候補\($0)", tokens: [], candidateIndex: $0) }
@@ -177,16 +183,17 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
             let rowScroll = try XCTUnwrap(navigation.subviews.compactMap { $0 as? NSScrollView }.first)
             let rows = candidateViewDescendants(in: navigation).compactMap { $0 as? CandidateRowButton }
             XCTAssertEqual(rows.count, 9, "Every real number-key candidate stays reachable by scrolling")
-            XCTAssertEqual(rowScroll.contentSize.height, rows[0].frame.height * 5, accuracy: 0.01)
-            XCTAssertGreaterThanOrEqual(rows[0].frame.height, 44)
+            XCTAssertEqual(rowScroll.contentSize.height, rows[0].frame.height * 7, accuracy: 0.01)
+            XCTAssertGreaterThanOrEqual(rows[0].frame.height, 32)
             XCTAssertEqual(rows[0].font?.pointSize, CGFloat(size.pointSize))
             XCTAssertTrue(navigation.subviews.compactMap { $0 as? NSTextField }.allSatisfy(\.isHidden))
             XCTAssertTrue(try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateCompositionView }.first).isHidden)
             let footer = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateActionsView }.first)
             let controls = footer.subviews.compactMap { $0 as? NSButton }.filter { !$0.isHidden }
             XCTAssertEqual(controls.count, 4)
-            XCTAssertEqual(footer.frame.height, 52)
-            XCTAssertTrue(controls.allSatisfy { $0.frame.height == 44 && !$0.acceptsFirstResponder })
+            XCTAssertEqual(footer.frame.height, 32)
+            XCTAssertTrue(controls.allSatisfy { $0.frame.height == 28 && !$0.acceptsFirstResponder })
+            XCTAssertTrue(controls.compactMap { $0 as? CandidatePresentationButton }.allSatisfy(\.isFlat))
             XCTAssertEqual(navigation.frame.width, 260 * CGFloat(size.pointSize) / 18, accuracy: 0.01)
         }
     }

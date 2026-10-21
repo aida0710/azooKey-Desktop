@@ -529,7 +529,7 @@ final class CandidateTreeView: NSView {
         candidatePage = CandidatePage(entries: entries, selectionIndex: selection.selectedCandidateIndex,
                                       pageStart: numberLabels.keys.min())
         navigation.update(page: candidatePage, numbers: numberLabels, fontSize: textSize.pointSize,
-                          generation: generation, compact: enterConfirmsCandidate)
+                          generation: generation, compact: enterConfirmsCandidate, visibleRows: Config.CandidateVisibleRows().value)
         navigation.isHidden = !enterConfirmsCandidate || entries.isEmpty
         let currentEntry = selection.selectedCandidateIndex.flatMap { tree.entry(candidateIndex: $0) }
         composition.update(entry: currentEntry, fontSize: textSize.pointSize, enterConfirmsCandidate: enterConfirmsCandidate)
