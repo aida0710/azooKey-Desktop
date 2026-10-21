@@ -45,6 +45,15 @@ public final class ReconversionSession {
 
     public init() {}
 
+    /// Reading-worker transactions stage mutations before accepting a bounded reply.
+    /// A copy must not retire tokens or history still owned by the original context.
+    public func copy() -> ReconversionSession {
+        let session = ReconversionSession()
+        session.recentCommit = recentCommit
+        session.pending = pending
+        return session
+    }
+
     public var hasRecentCommit: Bool { recentCommit != nil }
 
     public func clear() {
