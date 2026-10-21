@@ -56,6 +56,7 @@ struct DesktopReadingWorker {
             return try defaults.adding(to: reply)
         case "settings": return try defaults.adding(to: settingsResponse(.acknowledgement))
         case "configure-settings": return try configureSettings(request)
+        case "bind-initial-dictionary": return try bindInitialDictionary(request)
         case "open": return try open(request)
         case "learning-revision": return try updateLearning(request)
         default: return try applyToContext(request)
@@ -150,6 +151,23 @@ struct DesktopReadingWorker {
         }
         settingsRevision = revision
         return response(.acknowledgement)
+    }
+
+    private mutating func bindInitialDictionary(_ request: DesktopReadingWorkerRequest) throws -> DesktopReadingWorkerResponse {
+        try validateProcess(DesktopReadingProtocolValidation.required(request.readingProcessGeneration))
+        guard let current = appliedSettings else { throw DesktopWorkerSettingsFailure.fullSettingsRequired }
+        let revision = try DesktopReadingProtocolValidation.required(request.settingsRevision)
+        let settings = try DesktopReadingProtocolValidation.required(request.settings)
+        let dictionary = try DesktopReadingProtocolValidation.required(request.dictionaryRevision)
+        let bound = try current.bindingDictionary(dictionary, settings: settings, revision: revision, currentRevision: settingsRevision)
+        if current.dictionaryRevision == nil {
+            // No request from an unversioned dictionary may become valid after this metadata-only change.
+            guard contexts.values.allSatisfy({ !$0.hasRequestedDictionaryData }) else {
+                throw DesktopDictionarySyncFailure.bindingBusy
+            }
+            appliedSettings = bound
+        }
+        return settingsResponse(.acknowledgement)
     }
 
     private func validateProcess(_ generation: String) throws {

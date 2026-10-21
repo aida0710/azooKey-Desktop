@@ -44,6 +44,7 @@ struct DesktopReadingWorkerRequest: Codable {
         "hello": [],
         "settings": [],
         "configure-settings": ["readingProcessGeneration", "settingsRevision", "settings", "dictionaryRevision"],
+        "bind-initial-dictionary": ["readingProcessGeneration", "settingsRevision", "settings", "dictionaryRevision"],
         "open": ["readingProcessGeneration", "context"],
         "focus-in": ["reference", "surroundings"],
         "focus-out": ["reference", "submit"],

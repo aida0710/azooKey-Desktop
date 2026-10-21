@@ -8,6 +8,7 @@ enum DesktopDictionarySyncFailure: String, Error {
     case sourceChanged = "dictionary_source_changed"
     case prepareCancelled = "dictionary_prepare_cancelled"
     case prepareFailed = "dictionary_prepare_failed"
+    case bindingBusy = "dictionary_binding_busy"
 
     static func validate(_ revision: String?) throws {
         guard let revision else {

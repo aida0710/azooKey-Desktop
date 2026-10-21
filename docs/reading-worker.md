@@ -28,6 +28,7 @@ context 参照は `{context, readingProcessGeneration, focusEpoch}` です。con
 | `commit-candidate` | reference、selection | `input` / 指定IDの確定snapshot。退役したcandidateViewは含まない |
 | `candidate-worker-stopped` | reference、candidateWorkerGeneration | `acknowledgement` / 対象workerの未確定要求を退役 |
 | `learning-revision` | readingProcessGeneration、settingsRevision | `acknowledgement` / 単調増加した学習revision |
+| `bind-initial-dictionary` | readingProcessGeneration、settingsRevision、settings、dictionaryRevision | `acknowledgement` / 初回辞書版だけを結び付けた全量settings。正式入力は不変 |
 
 `surroundings` は `{leftContext, rightContext, privateInput}` の全3項目が必須です。左右文脈は受信上限を検査した後、既存 bridge と同じ左右各100文字へ限定します。`selection` は `{batch: DesktopCandidateBatchReference, candidateID}` です。数値 index による選択 wire はありません。`event` は既存 `KeyEventCore` の keyCode、characters、charactersIgnoringModifiers、modifierFlags を使用します。
 
@@ -93,4 +94,4 @@ frontend coordinator、通常製品入口への切替、一般設定同期、予
 
 読み・候補の `configure-settings` は [worker設定契約](worker-settings.md) を共有します。両方の世代・revision・適用値・カスタム表hashが一致した後だけ候補を要求します。読み側だけが先に設定ACKを返した場合も、候補側の一致確認前に候補を採用してはいけません。
 
-`settings` は `kind=acknowledgement` で現在の全量設定を返します。`hello`、`settings`、`configure-settings` 成功時だけ設定契約の追加欄を持ち、入力・候補・通常の制御ACK・エラー応答へ設定本文を重複して入れません。全量契約開始後の `learning-revision` は `full_settings_required` で拒否します。上記の学習単独操作は旧単独fixtureに限られ、一般設定との混用はできません。
+`settings` は `kind=acknowledgement` で現在の全量設定を返します。`hello`、`settings`、`configure-settings`、`bind-initial-dictionary` 成功時だけ設定契約の追加欄を持ち、入力・候補・通常の制御ACK・エラー応答へ設定本文を重複して入れません。全量契約開始後の `learning-revision` は `full_settings_required` で拒否します。上記の学習単独操作は旧単独fixtureに限られ、一般設定との混用はできません。
