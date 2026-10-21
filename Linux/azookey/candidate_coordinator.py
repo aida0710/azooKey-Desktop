@@ -5,7 +5,7 @@ import threading
 from . import candidate_protocol as protocol
 from .candidate_transport import CandidateTransport
 from .reconversion_protocol import reading_request
-from .worker_settings import validated_settings
+from .worker_settings import dictionary_revision as validate_dictionary_revision, validated_settings
 
 
 class CandidateCoordinator:
@@ -209,11 +209,28 @@ class CandidateCoordinator:
             callback(reply)
         return False
 
-    def configure_settings(self, settings, revision, *, worker_generation, callback):
+    def prepare_dictionary(self, *, worker_generation, callback):
+        self._owner()
+        payload = {"workerGeneration": protocol.identifier(worker_generation)}
+        self.transport.submit("prepare-dictionary", payload, lambda reply: self._control_finished(callback, reply),
+                              worker_generation=worker_generation)
+
+    def configure_settings(self, settings, revision, *, worker_generation, callback, dictionary_revision=None):
+        self._submit_settings("configure-settings", settings, revision, worker_generation=worker_generation,
+                              callback=callback, dictionary_revision=dictionary_revision)
+
+    def bind_initial_dictionary(self, settings, revision, *, worker_generation, callback, dictionary_revision):
+        validate_dictionary_revision(dictionary_revision)
+        self._submit_settings("bind-initial-dictionary", settings, revision, worker_generation=worker_generation,
+                              callback=callback, dictionary_revision=dictionary_revision)
+
+    def _submit_settings(self, operation, settings, revision, *, worker_generation, callback, dictionary_revision):
         self._owner()
         payload = {"settings": validated_settings(settings), "settingsRevision": protocol.revision(revision),
                    "workerGeneration": protocol.identifier(worker_generation)}
-        self.transport.submit("configure-settings", payload, lambda reply: self._control_finished(callback, reply))
+        if dictionary_revision is not None:
+            payload["dictionaryRevision"] = validate_dictionary_revision(dictionary_revision)
+        self.transport.submit(operation, payload, lambda reply: self._control_finished(callback, reply))
 
     def close_context(self, context, reading_process_generation, callback=None):
         self._owner()

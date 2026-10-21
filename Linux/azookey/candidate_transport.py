@@ -182,8 +182,10 @@ class CandidateTransport:
             return self._reply(error=response["error"])
         if pending.operation == "complete":
             return self._reply(completion=protocol.completion_receipt(response, payload["completion"]))
-        if pending.operation in ("settings", "configure-learning", "configure-settings"):
+        if pending.operation in ("settings", "configure-learning", "configure-settings", "bind-initial-dictionary"):
             return self._reply(settings=protocol.settings_response(response))
+        if pending.operation == "prepare-dictionary":
+            return self._reply(settings=protocol.settings_response(response, prepared_dictionary=True))
         if pending.operation == "resolve-reconversion-reading":
             return self._reply(reconversion_reading=candidate_reading(response, request=source))
         return self._reply()

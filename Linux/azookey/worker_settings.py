@@ -1,5 +1,6 @@
 """Validate the settings shared by the reading and candidate processes."""
 from copy import deepcopy
+import re
 
 from .settings_schema import validate_settings
 
@@ -11,7 +12,7 @@ SETTINGS_FIELDS = frozenset((
     "typoCorrection", "debug", "aiEnabled", "transformShortcut", "customTable",
 ))
 ACKNOWLEDGEMENT_FIELDS = frozenset((
-    "settingsContract", "settings", "customInputTableRevisions", "unsupportedFeatures",
+    "settingsContract", "settings", "customInputTableRevisions", "unsupportedFeatures", "dictionaryRevision",
 ))
 DEFAULTS_FIELDS = frozenset(("defaultSettings", "defaultSettingsError"))
 # These operations need a formal reading implementation before the new entry
@@ -21,6 +22,13 @@ UNSUPPORTED_BOOLEAN_SETTINGS = ("live", "predictiveTyping", "aiEnabled", "debug"
 
 class UnsupportedWorkerSettings(ValueError):
     pass
+
+
+def dictionary_revision(value):
+    # Core sends the SHA256 identity of the saved entries, never dictionary text.
+    if type(value) is not str or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise ValueError("invalid worker dictionary revision")
+    return value
 
 
 def validated_settings_values(values):
@@ -66,4 +74,6 @@ def acknowledgement(response, *, expected=None):
             raise ValueError("worker acknowledged different settings")
     elif expected is not None:
         raise ValueError("worker omitted applied settings")
+    if "dictionaryRevision" in response:
+        dictionary_revision(response["dictionaryRevision"])
     return deepcopy({key: response[key] for key in ACKNOWLEDGEMENT_FIELDS if key in response})

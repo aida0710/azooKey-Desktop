@@ -15,6 +15,10 @@ class ManualReadingCoordinator:
         self.epoch = 0
         self.reference = None
         self.closed = False
+        self.dictionary_refreshes = 0
+
+    def refresh_dictionary(self):
+        self.dictionary_refreshes += 1
 
     def open_context(self, context, callback):
         self.context = context
@@ -101,6 +105,7 @@ class ReadingFrontendTests(unittest.TestCase):
         self.frontend.reset()
         self.assertTrue(operation.token.finished)
         self.assertIs(self.coordinator.callbacks["settings_provider"], provider)
+        self.assertEqual(self.coordinator.dictionary_refreshes, 1)
         self.assertEqual([effect for effect in self.effects if effect[0] == "reply"], [("reply", True)])
         self.assertTrue(self.frontend.focused)
 

@@ -111,12 +111,15 @@ def response(value, operation, payload):
         permitted.add("limits")
     if operation in ("hello", "settings"):
         permitted.update(worker_settings.defaults(value))
-    if operation in ("hello", "settings", "configure-settings"):
+    if operation in ("hello", "settings", "configure-settings", "bind-initial-dictionary"):
         if "settingsContract" in value or operation != "hello":
             settings = worker_settings.acknowledgement(value, expected=payload.get("settings"))
             permitted.update(settings)
-        if operation == "configure-settings" and value["settingsRevision"] != payload["settingsRevision"]:
+        if operation in ("configure-settings", "bind-initial-dictionary") and value["settingsRevision"] != payload["settingsRevision"]:
             raise ValueError("reading settings acknowledgement changed revision")
+        if (operation in ("configure-settings", "bind-initial-dictionary")
+                and value.get("dictionaryRevision") != payload.get("dictionaryRevision")):
+            raise ValueError("reading settings acknowledgement changed dictionary revision")
     elif operation == "learning-revision":
         if value["settingsRevision"] != payload["settingsRevision"]:
             raise ValueError("reading settings acknowledgement changed revision")
