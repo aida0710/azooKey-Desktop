@@ -85,6 +85,24 @@ final class WordDefinitionsSideViewTests: XCTestCase {
         }
     }
 
+    func testShortMeaningIsASmallIndependentCardAndOnlyExplicitDetailsUseTheFullHeight() throws {
+        let side = WordDefinitionsSideView(frame: .zero)
+        for fontSize: CGFloat in [18, 24] {
+            side.update(target: target, result: .definition(String(repeating: "語の意味。", count: 100)), fontSize: fontSize)
+            if side.expanded { try button(in: side).activate?() }
+            XCTAssertLessThanOrEqual(side.preferredHeight, 190)
+            let toggle = try button(in: side)
+            toggle.activate?()
+            XCTAssertGreaterThanOrEqual(side.preferredHeight, 280)
+            XCTAssertLessThanOrEqual(side.preferredHeight, 340)
+            side.frame = NSRect(x: 0, y: 0, width: 280, height: side.preferredHeight)
+            side.layoutSubtreeIfNeeded()
+            XCTAssertGreaterThanOrEqual(toggle.frame.height, 44)
+            XCTAssertLessThan(toggle.frame.width, 280)
+            assertSubviewsFit(in: side)
+        }
+    }
+
     private func button(in side: WordDefinitionsSideView) throws -> CandidatePresentationButton {
         try XCTUnwrap(side.subviews.compactMap { $0 as? CandidatePresentationButton }.first)
     }

@@ -38,8 +38,11 @@ final class CandidateLiveTreeViewTests: XCTestCase {
         view.update(entries: entries, selectionIndex: 7, numbers: [7: "1", 42: "2"], enterConfirmsCandidate: true)
         XCTAssertTrue(try treeArea(in: view).isHidden)
         XCTAssertFalse(try XCTUnwrap(descendants(in: view).compactMap { $0 as? CandidateNavigationView }.first).isHidden)
-        XCTAssertGreaterThan(view.preferredSize.height, liveHeight)
+        XCTAssertLessThanOrEqual(view.preferredSize.height, 280, "The two-row menu does not need a large composition preview")
+        XCTAssertTrue(try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateCompositionView }.first).isHidden)
         XCTAssertEqual(try button(in: view, identifier: "candidate-confirm").title, Localization.text("candidate.submit") + "  ↵")
+        view.update(entries: entries, selectionIndex: 7)
+        XCTAssertEqual(view.preferredSize.height, liveHeight, "The compact menu must not change live tree dimensions")
     }
 
     func testOnlyExplicitDisclosureExpandsWordEditingAndSamePhaseRedrawKeepsItOpen() throws {

@@ -7,11 +7,10 @@ import XCTest
 final class WordDefinitionsSideLayoutTests: XCTestCase {
     func testWideAndNarrowViewportsKeepDefinitionsToTheRightOfReadableCandidates() {
         for width: CGFloat in [1200, 800, 640, 320] {
-            let layout = WordDefinitionsSideLayout(availableWidth: width, preferredLeftWidth: 760, showsDefinitions: true)
-            XCTAssertGreaterThanOrEqual(layout.leftWidth, 360)
-            XCTAssertLessThanOrEqual(layout.leftWidth, 480)
-            XCTAssertGreaterThanOrEqual(layout.definitionWidth, 280)
-            XCTAssertLessThanOrEqual(layout.definitionWidth, 360)
+            let layout = WordDefinitionsSideLayout(availableWidth: width, preferredLeftWidth: 760,
+                                                   showsDefinitions: true, compactMenu: true)
+            XCTAssertEqual(layout.leftWidth, 260)
+            XCTAssertEqual(layout.definitionWidth, 280)
             XCTAssertEqual(layout.contentWidth, layout.leftWidth + 10 + layout.definitionWidth)
             XCTAssertLessThanOrEqual(layout.viewportWidth, width)
             let left = WordDefinitionsSideLayout.LeftHeights(navigation: 260, tree: 180, details: 160, actions: 54)
@@ -19,12 +18,12 @@ final class WordDefinitionsSideLayoutTests: XCTestCase {
             XCTAssertEqual(frames.definitions.minX, frames.navigation.maxX + 10)
             XCTAssertEqual(frames.definitions.maxY, frames.navigation.maxY)
             XCTAssertEqual(frames.definitions.height, 360)
-            if width < 650 { XCTAssertGreaterThan(layout.contentWidth, layout.viewportWidth) }
+            if width < 550 { XCTAssertGreaterThan(layout.contentWidth, layout.viewportWidth) }
         }
     }
 
     func testShortBodyKeepsBothColumnsWithinBoundsAndReservesTheExistingActions() {
-        let layout = WordDefinitionsSideLayout(availableWidth: 320, preferredLeftWidth: 480, showsDefinitions: true)
+        let layout = WordDefinitionsSideLayout(availableWidth: 320, preferredLeftWidth: 480, showsDefinitions: true, compactMenu: true)
         let left = WordDefinitionsSideLayout.LeftHeights(navigation: 260, tree: 220, details: 160, actions: 54, minimumNavigation: 102)
         for height: CGFloat in [0, 20, 160, 320] {
             let frames = layout.frames(height: height, left: left, definitionHeight: 360)
@@ -40,6 +39,25 @@ final class WordDefinitionsSideLayoutTests: XCTestCase {
             if height >= left.actions + left.minimumNavigation {
                 XCTAssertGreaterThanOrEqual(frames.navigation.height, left.minimumNavigation)
             }
+        }
+    }
+
+    func testDefinitionVisibilityAndHeightNeverStretchTheCandidateCard() {
+        for fontSize: CGFloat in [18, 24] {
+            let shown = WordDefinitionsSideLayout(availableWidth: 1000, preferredLeftWidth: 480,
+                                                  showsDefinitions: true, compactMenu: true, fontSize: fontSize)
+            let hidden = WordDefinitionsSideLayout(availableWidth: 1000, preferredLeftWidth: 480,
+                                                   showsDefinitions: false, compactMenu: true, fontSize: fontSize)
+            XCTAssertEqual(shown.leftWidth, hidden.leftWidth)
+            XCTAssertGreaterThanOrEqual(shown.leftWidth, 260)
+            let left = WordDefinitionsSideLayout.LeftHeights(navigation: 228, tree: 0, details: 0, actions: 52)
+            let short = shown.frames(height: 280, left: left, definitionHeight: 165)
+            let full = shown.frames(height: 330, left: left, definitionHeight: 330)
+            XCTAssertEqual(short.candidateCard.size, full.candidateCard.size)
+            XCTAssertEqual(short.navigation.size, full.navigation.size)
+            XCTAssertEqual(short.actions.size, full.actions.size)
+            XCTAssertEqual(short.candidateCard.maxY, 280)
+            XCTAssertEqual(full.candidateCard.maxY, 330)
         }
     }
 

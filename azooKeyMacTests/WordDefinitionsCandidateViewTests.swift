@@ -118,7 +118,7 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
             viewport.contentView.scroll(to: NSPoint(x: maximumOffset, y: 0))
             viewport.reflectScrolledClipView(viewport.contentView)
             XCTAssertTrue(viewport.contentView.bounds.intersects(side.frame))
-            if width < 650 {
+            if width < 550 {
                 XCTAssertTrue(viewport.hasHorizontalScroller)
                 XCTAssertGreaterThan(maximumOffset, 0)
             }
@@ -138,17 +138,85 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         view.update(entries: fixture.entries, selectionIndex: 42, enterConfirmsCandidate: true)
         fixture.completions[0](String(repeating: "長い語の説明。", count: 100))
         let side = try side(in: view)
+        view.frame = NSRect(origin: .zero, size: view.preferredSize)
+        view.layoutSubtreeIfNeeded()
+        let navigation = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateNavigationView }.first)
+        let rows = candidateViewDescendants(in: navigation).compactMap { $0 as? CandidateRowButton }
+        let candidateSize = navigation.frame.size
+        let rowSizes = rows.map(\.frame.size)
         let toggle = try XCTUnwrap(candidateViewDescendants(in: side).compactMap { $0 as? CandidatePresentationButton }.first)
         toggle.activate?()
         view.frame = NSRect(origin: .zero, size: view.preferredSize)
         view.layoutSubtreeIfNeeded()
         let composition = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateCompositionView }.first)
-        let navigation = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateNavigationView }.first)
         let actions = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateActionsView }.first)
         let leftHeight = navigation.preferredHeight(width: navigation.frame.width) + actions.preferredHeight(width: navigation.frame.width)
-        XCTAssertEqual(view.preferredSize.height,
-                       composition.preferredHeight(width: view.preferredSize.width) + max(leftHeight, side.preferredHeight))
+        XCTAssertTrue(composition.isHidden)
+        XCTAssertEqual(view.preferredSize.height, max(leftHeight, side.preferredHeight))
+        XCTAssertEqual(navigation.frame.size, candidateSize)
+        XCTAssertEqual(rows.map(\.frame.size), rowSizes)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertGreaterThanOrEqual(side.frame.height, 280)
+        XCTAssertLessThanOrEqual(side.frame.height, 340)
         XCTAssertEqual(side.frame.maxY, navigation.frame.maxY)
+    }
+
+    func testTheDefaultMenuUsesFiveSmallRowsAndOneFooterWithoutTheLargeCompositionOrHint() throws {
+        let preference = Config.CandidateTextSize()
+        let previous = preference.value
+        defer { preference.value = previous }
+        let fixture = Fixture()
+        let view = fixture.view()
+        let entries = (0..<20).map { CandidateTree.Entry(text: "候補\($0)", tokens: [], candidateIndex: $0) }
+        for size in [Config.CandidateTextSize.Value.standard, .large] {
+            preference.value = size
+            view.update(entries: entries, selectionIndex: 0, enterConfirmsCandidate: true)
+            view.frame = NSRect(origin: .zero, size: view.preferredSize)
+            view.layoutSubtreeIfNeeded()
+            let navigation = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateNavigationView }.first)
+            let rowScroll = try XCTUnwrap(navigation.subviews.compactMap { $0 as? NSScrollView }.first)
+            let rows = candidateViewDescendants(in: navigation).compactMap { $0 as? CandidateRowButton }
+            XCTAssertEqual(rows.count, 9, "Every real number-key candidate stays reachable by scrolling")
+            XCTAssertEqual(rowScroll.contentSize.height, rows[0].frame.height * 5, accuracy: 0.01)
+            XCTAssertGreaterThanOrEqual(rows[0].frame.height, 44)
+            XCTAssertEqual(rows[0].font?.pointSize, CGFloat(size.pointSize))
+            XCTAssertTrue(navigation.subviews.compactMap { $0 as? NSTextField }.allSatisfy(\.isHidden))
+            XCTAssertTrue(try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateCompositionView }.first).isHidden)
+            let footer = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateActionsView }.first)
+            let controls = footer.subviews.compactMap { $0 as? NSButton }.filter { !$0.isHidden }
+            XCTAssertEqual(controls.count, 4)
+            XCTAssertEqual(footer.frame.height, 52)
+            XCTAssertTrue(controls.allSatisfy { $0.frame.height == 44 && !$0.acceptsFirstResponder })
+            XCTAssertEqual(navigation.frame.width, 260 * CGFloat(size.pointSize) / 18, accuracy: 0.01)
+        }
+    }
+
+    func testCompactFooterPagesUseRealIndicesAndRetireOldActionsBeforeConfirmation() throws {
+        let fixture = Fixture()
+        let view = fixture.view()
+        let entries = (0..<20).map { CandidateTree.Entry(text: "候補\($0)", tokens: [], candidateIndex: $0 + 40) }
+        var selected: [Int] = []
+        var submitted: [Int] = []
+        view.onSelectionChanged = { selected.append($0) }
+        view.onCandidateSubmitted = { submitted.append($0) }
+        view.update(entries: entries, selectionIndex: 40, enterConfirmsCandidate: true)
+        let next = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidatePresentationButton }
+            .first { $0.accessibilityIdentifier() == "candidate.nextPage" })
+        let oldAction = try XCTUnwrap(next.activate)
+        XCTAssertEqual(next.accessibilityHelp(), String(format: Localization.text("candidate.position"), "1", "20"))
+        next.performClick(nil)
+        XCTAssertEqual(selected, [49])
+        withExtendedLifetime(next) { oldAction() }
+        XCTAssertEqual(selected, [49])
+        let confirm = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidatePresentationButton }
+            .first { $0.accessibilityIdentifier() == "candidate-confirm" })
+        XCTAssertEqual(confirm.title, Localization.text("candidate.submit") + "  ↵")
+        XCTAssertEqual(confirm.accessibilityHelp(), String(format: Localization.text("candidate.position"), "10", "20"))
+        let retiredConfirmAction = try XCTUnwrap(confirm.activate)
+        confirm.performClick(nil)
+        confirm.performClick(nil)
+        withExtendedLifetime(confirm) { retiredConfirmAction() }
+        XCTAssertEqual(submitted, [49])
     }
 
     func testMovingFromAHoveredWordIntoItsDefinitionKeepsTheTargetUntilThePointerOrSelectionLeaves() throws {

@@ -19,17 +19,18 @@ final class WordDefinitionsSideView: NSView {
     private let inset: CGFloat = 6
     private let gap: CGFloat = 6
     private let buttonHeight: CGFloat = 44
-    // Reserve three large-font lines and the scroll view's text insets for the short entry.
-    private let summaryTextHeight: CGFloat = 120
-    private let expandedTextHeight: CGFloat = 260
-    private let maximumSummaryCharacters = 160
+    // The short card shows two text lines; the full entry uses its own scroll view.
+    private let summaryLineCount: CGFloat = 2
+    private let textVerticalInsets: CGFloat = 22
+    private let expandedTextHeight: CGFloat = 220
+    private let maximumSummaryCharacters = 96
     private let lineHeightScale: CGFloat = 1.35
     // Keep most of the heading row available for the word being defined.
     private let maximumSourceWidthRatio: CGFloat = 0.4
 
     var preferredHeight: CGFloat {
         let lineHeight = ceil(fontSize * lineHeightScale)
-        let textHeight = expanded ? expandedTextHeight : summaryTextHeight
+        let textHeight = expanded ? expandedTextHeight : lineHeight * summaryLineCount + textVerticalInsets
         return inset * 2 + lineHeight + gap * 2 + textHeight + buttonHeight
     }
 
@@ -43,6 +44,7 @@ final class WordDefinitionsSideView: NSView {
         }
         source.font = .systemFont(ofSize: 12)
         source.stringValue = Localization.text("candidate.definition.source")
+        source.toolTip = source.stringValue
         source.setAccessibilityHelp(Localization.text("candidate.definition.readingNote"))
         addSubview(text)
         installToggle()
@@ -116,10 +118,21 @@ final class WordDefinitionsSideView: NSView {
     }
 
     func applyPalette(_ palette: CandidatePalette) {
+        needsDisplay = true
         title.textColor = palette.text
         source.textColor = palette.secondaryText
         text.applyPalette(palette)
         toggle.needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let palette = CandidateTheme.palette(for: effectiveAppearance)
+        palette.background.setFill()
+        let card = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        card.fill()
+        palette.border.setStroke()
+        card.lineWidth = 1
+        card.stroke()
     }
 
     override func layout() {
@@ -142,7 +155,9 @@ final class WordDefinitionsSideView: NSView {
         source.frame = NSRect(x: inset + width - sourceWidth, y: title.frame.midY - sourceHeight / 2,
                               width: sourceWidth, height: sourceHeight)
         let actionHeight = min(buttonHeight, max(0, title.frame.minY - gap))
-        toggle.frame = NSRect(x: inset, y: min(inset, max(0, bounds.height - actionHeight)), width: width, height: actionHeight)
+        let actionWidth = min(width, max(buttonHeight, toggle.intrinsicContentSize.width + inset * 2))
+        toggle.frame = NSRect(x: bounds.width - inset - actionWidth, y: min(inset, max(0, bounds.height - actionHeight)),
+                              width: actionWidth, height: actionHeight)
         let textBottom = toggle.frame.maxY + gap
         text.frame = NSRect(x: 0, y: textBottom, width: bounds.width,
                             height: max(0, title.frame.minY - gap - textBottom))

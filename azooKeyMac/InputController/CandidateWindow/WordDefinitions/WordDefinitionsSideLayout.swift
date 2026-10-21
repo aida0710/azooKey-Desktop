@@ -13,6 +13,7 @@ struct WordDefinitionsSideLayout {
     }
 
     struct Frames {
+        var candidateCard: CGRect
         var navigation: CGRect
         var tree: CGRect
         var details: CGRect
@@ -20,11 +21,10 @@ struct WordDefinitionsSideLayout {
         var definitions: CGRect
     }
 
-    // These widths keep candidate controls and 18/24-point dictionary text readable.
-    private static let minimumLeftWidth: CGFloat = 360
-    private static let preferredLeftWidth: CGFloat = 480
-    private static let minimumDefinitionWidth: CGFloat = 280
-    private static let preferredDefinitionWidth: CGFloat = 360
+    // A normal IME list stays small; larger candidate text expands both cards naturally.
+    private static let candidateWidth: CGFloat = 260
+    private static let definitionWidth: CGFloat = 280
+    private static let standardFontSize: CGFloat = 18
     private static let columnGap: CGFloat = 10
 
     let leftWidth: CGFloat
@@ -32,8 +32,17 @@ struct WordDefinitionsSideLayout {
     let contentWidth: CGFloat
     let viewportWidth: CGFloat
 
-    init(availableWidth: CGFloat, preferredLeftWidth: CGFloat, showsDefinitions: Bool) {
+    init(availableWidth: CGFloat, preferredLeftWidth: CGFloat, showsDefinitions: Bool,
+         compactMenu: Bool = false, fontSize: CGFloat = 18) {
         let availableWidth = max(1, availableWidth)
+        if compactMenu {
+            let scale = max(1, fontSize / Self.standardFontSize)
+            leftWidth = Self.candidateWidth * scale
+            definitionWidth = showsDefinitions ? Self.definitionWidth * scale : 0
+            contentWidth = leftWidth + (showsDefinitions ? Self.columnGap + definitionWidth : 0)
+            viewportWidth = min(availableWidth, contentWidth)
+            return
+        }
         guard showsDefinitions else {
             leftWidth = min(availableWidth, max(1, preferredLeftWidth))
             definitionWidth = 0
@@ -41,25 +50,24 @@ struct WordDefinitionsSideLayout {
             viewportWidth = leftWidth
             return
         }
-        let minimumWidth = Self.minimumLeftWidth + Self.columnGap + Self.minimumDefinitionWidth
-        let preferredWidth = Self.preferredLeftWidth + Self.columnGap + Self.preferredDefinitionWidth
-        contentWidth = max(minimumWidth, min(availableWidth, preferredWidth))
+        leftWidth = max(1, preferredLeftWidth)
+        contentWidth = leftWidth + Self.columnGap + Self.definitionWidth
         viewportWidth = min(availableWidth, contentWidth)
-        let extraWidth = contentWidth - minimumWidth
-        leftWidth = Self.minimumLeftWidth + min(extraWidth, Self.preferredLeftWidth - Self.minimumLeftWidth)
         definitionWidth = contentWidth - leftWidth - Self.columnGap
     }
 
     func frames(height: CGFloat, left: LeftHeights, definitionHeight: CGFloat) -> Frames {
         let height = max(0, height)
-        let actionHeight = min(left.actions, height)
-        let available = max(0, height - actionHeight)
+        let candidateHeight = min(height, left.total)
+        let candidateBottom = height - candidateHeight
+        let actionHeight = min(left.actions, candidateHeight)
+        let available = max(0, candidateHeight - actionHeight)
         let sharedScale = min(1, available / max(1, left.navigation + left.tree + left.details))
         let navigationHeight = min(available, max(left.minimumNavigation, left.navigation * sharedScale))
         let optionalScale = min(1, max(0, available - navigationHeight) / max(1, left.tree + left.details))
         var top = height
         func next(_ rowHeight: CGFloat) -> CGRect {
-            top = max(actionHeight, top - rowHeight)
+            top = max(candidateBottom + actionHeight, top - rowHeight)
             return CGRect(x: 0, y: top, width: leftWidth, height: rowHeight)
         }
         let navigation = next(navigationHeight)
@@ -68,8 +76,9 @@ struct WordDefinitionsSideLayout {
         let definitions = CGRect(x: leftWidth + (definitionWidth == 0 ? 0 : Self.columnGap),
                                  y: max(0, height - definitionHeight), width: definitionWidth,
                                  height: min(height, max(0, definitionHeight)))
-        return Frames(navigation: navigation, tree: tree, details: details,
-                      actions: CGRect(x: 0, y: 0, width: leftWidth, height: actionHeight), definitions: definitions)
+        return Frames(candidateCard: CGRect(x: 0, y: candidateBottom, width: leftWidth, height: candidateHeight),
+                      navigation: navigation, tree: tree, details: details,
+                      actions: CGRect(x: 0, y: candidateBottom, width: leftWidth, height: actionHeight), definitions: definitions)
     }
 
     static func retainsHover(at point: CGPoint, source: CGRect, definitions: CGRect, viewport: CGRect) -> Bool {

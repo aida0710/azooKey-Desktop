@@ -69,12 +69,19 @@ final class CandidateTreeView: NSView {
     private let maximumCompositionHeightFraction: CGFloat = 0.35
     // Detail text needs a readable line even when the selected word is one character.
     private let minimumDetailWidth = CandidateDetailView.minimumWidth
+    private var showsComposition: Bool {
+        guard enterConfirmsCandidate else {
+            return false
+        }
+        let current = selection.selectedCandidateIndex.flatMap { tree.entry(candidateIndex: $0) }
+        return treeExpanded || detailsExpanded || !(current?.scope?.remainingReading ?? "").isEmpty
+    }
     var hasDocumentAlignment: Bool { documentWidths != nil }
     private var treePreferredSize = NSSize(width: 80, height: 46)
     private var showsTree: Bool { !tree.nodes.isEmpty && (!enterConfirmsCandidate || treeExpanded) }
     var preferredSize: NSSize {
         let columns = columns(availableWidth: availableWidth ?? .greatestFiniteMagnitude)
-        let compositionHeight = enterConfirmsCandidate ? composition.preferredHeight(width: columns.viewportWidth) : 0
+        let compositionHeight = showsComposition ? composition.preferredHeight(width: columns.leftWidth) : 0
         let bodyHeight = max(leftHeights(width: columns.leftWidth).total, definitionSide.isHidden ? 0 : definitionSide.preferredHeight)
         let scrollerHeight = columns.contentWidth > columns.viewportWidth ?
             NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
@@ -84,7 +91,8 @@ final class CandidateTreeView: NSView {
     private func columns(availableWidth: CGFloat) -> WordDefinitionsSideLayout {
         WordDefinitionsSideLayout(availableWidth: availableWidth,
                                   preferredLeftWidth: showsTree ? treePreferredSize.width : minimumDetailWidth,
-                                  showsDefinitions: !definitionSide.isHidden)
+                                  showsDefinitions: !definitionSide.isHidden, compactMenu: enterConfirmsCandidate,
+                                  fontSize: CGFloat(textSize.pointSize))
     }
 
     private func leftHeights(width: CGFloat) -> WordDefinitionsSideLayout.LeftHeights {
@@ -170,6 +178,7 @@ final class CandidateTreeView: NSView {
             self.onLayoutChanged?()
         }
         actions.onSubmit = { [weak self] index in self?.submit(candidateIndex: index) }
+        actions.onPageSelection = { [weak self] index in self?.selectCandidate(index) }
         scrollView.isHidden = true
         details.isHidden = true
         details.setAccessibilityIdentifier("candidate-details")
@@ -184,9 +193,10 @@ final class CandidateTreeView: NSView {
     override func layout() {
         super.layout()
         let columns = columns(availableWidth: bounds.width)
-        let compositionHeight = enterConfirmsCandidate ?
-            min(bounds.height * maximumCompositionHeightFraction, composition.preferredHeight(width: bounds.width)) : 0
-        composition.frame = NSRect(x: 0, y: bounds.height - compositionHeight, width: bounds.width, height: compositionHeight)
+        let compositionHeight = showsComposition ?
+            min(bounds.height * maximumCompositionHeightFraction, composition.preferredHeight(width: columns.leftWidth)) : 0
+        composition.frame = NSRect(x: 0, y: bounds.height - compositionHeight,
+                                   width: min(bounds.width, columns.leftWidth), height: compositionHeight)
         bodyViewport.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - compositionHeight))
         bodyViewport.hasHorizontalScroller = columns.contentWidth > bounds.width
         body.frame = NSRect(x: 0, y: 0, width: columns.contentWidth, height: bodyViewport.bounds.height)
@@ -202,12 +212,26 @@ final class CandidateTreeView: NSView {
         let maximumOffset = max(0, body.bounds.width - bodyViewport.contentSize.width)
         bodyViewport.contentView.scroll(to: NSPoint(x: min(maximumOffset, max(0, bodyViewport.contentView.bounds.minX)), y: 0))
         bodyViewport.reflectScrolledClipView(bodyViewport.contentView)
+        needsDisplay = true
         updateVisibleControls()
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        CandidateTheme.palette(for: effectiveAppearance).background.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill()
+        let palette = CandidateTheme.palette(for: effectiveAppearance)
+        palette.background.setFill()
+        guard enterConfirmsCandidate else {
+            NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill()
+            return
+        }
+        let columns = columns(availableWidth: bounds.width)
+        let frames = columns.frames(height: body.bounds.height, left: leftHeights(width: columns.leftWidth), definitionHeight: 0)
+        var cardFrame = convert(frames.candidateCard, from: body)
+        if showsComposition { cardFrame.size.height += composition.frame.height }
+        let card = NSBezierPath(roundedRect: cardFrame.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        card.fill()
+        palette.border.setStroke()
+        card.lineWidth = 1
+        card.stroke()
     }
 
     @objc private func viewportChanged() { updateVisibleControls() }
@@ -286,7 +310,7 @@ final class CandidateTreeView: NSView {
         }
         if detailsExpanded {
             details.scrollPage(forward: forward)
-        } else if enterConfirmsCandidate {
+        } else if showsComposition {
             composition.scrollPage(forward: forward)
         } else {
             detailsExpanded = true
@@ -504,13 +528,15 @@ final class CandidateTreeView: NSView {
     private func refreshSelection() {
         candidatePage = CandidatePage(entries: entries, selectionIndex: selection.selectedCandidateIndex,
                                       pageStart: numberLabels.keys.min())
-        navigation.update(page: candidatePage, numbers: numberLabels, fontSize: textSize.pointSize, generation: generation)
+        navigation.update(page: candidatePage, numbers: numberLabels, fontSize: textSize.pointSize,
+                          generation: generation, compact: enterConfirmsCandidate)
         navigation.isHidden = !enterConfirmsCandidate || entries.isEmpty
         let currentEntry = selection.selectedCandidateIndex.flatMap { tree.entry(candidateIndex: $0) }
         composition.update(entry: currentEntry, fontSize: textSize.pointSize, enterConfirmsCandidate: enterConfirmsCandidate)
-        composition.isHidden = !enterConfirmsCandidate
+        composition.isHidden = !showsComposition
         actions.update(candidateIndex: selection.selectedCandidateIndex, generation: generation,
-                       treeExpanded: treeExpanded, detailsExpanded: detailsExpanded, enterConfirmsCandidate: enterConfirmsCandidate)
+                       treeExpanded: treeExpanded, detailsExpanded: detailsExpanded, enterConfirmsCandidate: enterConfirmsCandidate,
+                       page: enterConfirmsCandidate ? candidatePage : nil)
         scrollView.isHidden = !showsTree
         details.isHidden = !detailsExpanded
         needsLayout = true

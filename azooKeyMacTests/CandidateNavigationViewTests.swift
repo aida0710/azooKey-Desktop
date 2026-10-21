@@ -163,4 +163,26 @@ final class CandidateNavigationViewTests: XCTestCase {
         controller.selectNextCandidate()
         XCTAssertEqual(controller.getSelectedCandidate()?.text, "第二案")
     }
+
+    func testCompactRowsKeepLongOriginalTextAccessibleWhileTheFiveRowViewportRevealsKeyboardSelection() throws {
+        let word = String(repeating: "長い候補👩‍💻ABC", count: 20)
+        let entries = (0..<9).map { CandidateTree.Entry(text: word + String($0), tokens: [], candidateIndex: $0 + 40) }
+        let view = CandidateNavigationView(frame: .zero)
+        for fontSize: CGFloat in [18, 24] {
+            let page = CandidatePage(entries: entries, selectionIndex: 48)
+            view.update(page: page, numbers: [48: "9"], fontSize: fontSize, compact: true)
+            view.frame = NSRect(x: 0, y: 0, width: 260 * fontSize / 18, height: view.preferredHeight(width: 260 * fontSize / 18))
+            view.layoutSubtreeIfNeeded()
+            let scroll = try XCTUnwrap(view.subviews.compactMap { $0 as? NSScrollView }.first)
+            let row = try XCTUnwrap(buttons(in: view).compactMap { $0 as? CandidateRowButton }.first { $0.candidateIndex == 48 })
+            XCTAssertTrue(row.title.contains(word + "8"))
+            XCTAssertTrue(row.accessibilityLabel()?.contains(word + "8") == true)
+            XCTAssertTrue(row.toolTip?.contains(word + "8") == true)
+            XCTAssertEqual(row.font?.pointSize, fontSize)
+            XCTAssertGreaterThanOrEqual(row.frame.height, 44)
+            XCTAssertEqual(scroll.contentSize.height, row.frame.height * 5, accuracy: 0.01)
+            XCTAssertTrue(scroll.documentVisibleRect.contains(row.frame))
+            XCTAssertFalse(row.acceptsFirstResponder)
+        }
+    }
 }

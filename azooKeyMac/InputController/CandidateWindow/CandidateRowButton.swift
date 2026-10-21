@@ -11,11 +11,19 @@ final class CandidateRowButton: CandidatePresentationButton {
     private let numberWidth: CGFloat = 28
     private let checkWidth: CGFloat = 24
     private let verticalInset: CGFloat = 8
+    private let compact: Bool
+    private static let lineHeightScale: CGFloat = 1.35
+    private static let compactVerticalInsets: CGFloat = 12
 
-    init(item: CandidatePage.Item, number: String?, fontSize: CGFloat) {
+    static func compactHeight(fontSize: CGFloat) -> CGFloat {
+        max(44, ceil(fontSize * lineHeightScale) + compactVerticalInsets)
+    }
+
+    init(item: CandidatePage.Item, number: String?, fontSize: CGFloat, compact: Bool = false) {
         candidateIndex = item.index
         candidateText = item.text
         self.number = number
+        self.compact = compact
         super.init()
         title = number.map { "\($0). \(item.text)" } ?? item.text
         font = .systemFont(ofSize: fontSize)
@@ -26,7 +34,7 @@ final class CandidateRowButton: CandidatePresentationButton {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private var textInset: CGFloat { horizontalInset + (number == nil ? 0 : numberWidth + 10) }
+    private var textInset: CGFloat { horizontalInset + (number == nil ? 0 : numberWidth + (compact ? 0 : 10)) }
 
     private var textAttributes: [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
@@ -36,6 +44,9 @@ final class CandidateRowButton: CandidatePresentationButton {
     }
 
     func preferredHeight(width: CGFloat) -> CGFloat {
+        if compact {
+            return Self.compactHeight(fontSize: font?.pointSize ?? 18)
+        }
         let textWidth = max(1, width - textInset - checkWidth - horizontalInset)
         let height = (candidateText as NSString).boundingRect(
             with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
@@ -48,9 +59,12 @@ final class CandidateRowButton: CandidatePresentationButton {
     override func draw(_ dirtyRect: NSRect) {
         let palette = CandidateTheme.palette(for: effectiveAppearance)
         let foreground = selected ? palette.selectionText : palette.text
-        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 2), xRadius: 9, yRadius: 9)
-        (selected ? palette.selection : palette.surface).setFill()
-        shape.fill()
+        let radius: CGFloat = compact ? 3 : 9
+        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 2), xRadius: radius, yRadius: radius)
+        if selected || !compact {
+            (selected ? palette.selection : palette.surface).setFill()
+            shape.fill()
+        }
         if selected {
             palette.border.setStroke()
             shape.lineWidth = 1
@@ -58,16 +72,24 @@ final class CandidateRowButton: CandidatePresentationButton {
         }
         var attributes = textAttributes
         attributes[.foregroundColor] = foreground
+        if compact {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = .byTruncatingTail
+            attributes[.paragraphStyle] = paragraph
+        }
+        let textHeight = compact ? ceil((font?.pointSize ?? 18) * Self.lineHeightScale) : max(1, bounds.height - verticalInset * 2)
         let textRect = NSRect(x: textInset, y: verticalInset,
-                              width: max(1, bounds.width - textInset - checkWidth - horizontalInset),
-                              height: max(1, bounds.height - verticalInset * 2))
+                              width: max(1, bounds.width - textInset - (compact ? 0 : checkWidth) - horizontalInset),
+                              height: textHeight)
         (candidateText as NSString).draw(with: textRect, options: [.usesLineFragmentOrigin, .usesFontLeading],
                                        attributes: attributes)
         if let number {
             let badge = NSRect(x: horizontalInset, y: bounds.height - verticalInset - numberWidth,
                                width: numberWidth, height: numberWidth)
-            foreground.setStroke()
-            NSBezierPath(roundedRect: badge.insetBy(dx: 1, dy: 1), xRadius: 5, yRadius: 5).stroke()
+            if !compact {
+                foreground.setStroke()
+                NSBezierPath(roundedRect: badge.insetBy(dx: 1, dy: 1), xRadius: 5, yRadius: 5).stroke()
+            }
             let numberAttributes: [NSAttributedString.Key: Any] = [
                 .font: NSFont.monospacedSystemFont(ofSize: max(14, (font?.pointSize ?? 18) - 4), weight: .medium),
                 .foregroundColor: foreground
@@ -76,7 +98,7 @@ final class CandidateRowButton: CandidatePresentationButton {
             (number as NSString).draw(at: NSPoint(x: badge.midX - size.width / 2, y: badge.midY - size.height / 2),
                                      withAttributes: numberAttributes)
         }
-        if selected {
+        if selected && !compact {
             ("✓" as NSString).draw(at: NSPoint(x: bounds.width - checkWidth - horizontalInset, y: bounds.height - 34),
                                     withAttributes: [.font: NSFont.systemFont(ofSize: 18, weight: .medium),
                                                      .foregroundColor: foreground])
