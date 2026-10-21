@@ -54,7 +54,7 @@ extension DesktopCandidateWorkerRequest {
     init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         let operation = try fields.decode(String.self, forKey: .operation)
-        if operation == "configure-settings" {
+        if operation == "configure-settings" || operation == "bind-initial-dictionary" {
             try DesktopReadingProtocolValidation.keys(decoder, allowed: ["operation", "workerGeneration", "settingsRevision", "settings", "dictionaryRevision"])
         }
         if operation == "prepare-dictionary" {
