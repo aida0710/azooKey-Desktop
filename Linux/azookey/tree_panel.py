@@ -9,6 +9,7 @@ from gi.repository import Atk, Gtk, Gdk, GLib, Pango, PangoCairo
 from .candidate_accessibility import CandidateAction
 from .candidate_announcements import CandidateAnnouncements
 from .candidate_detail import CandidateDetail
+from .candidate_hover import CandidateHover
 from .candidate_navigation import CandidateNavigation
 from .candidate_placement import COLUMN_START_INSET, popup_placement
 from .ibus_coordinates import logical_cursor_rectangle
@@ -101,7 +102,7 @@ class TreePanel(Gtk.Window):
         self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.canvas.connect("draw", self.draw)
         self.canvas.connect("button-press-event", self.click)
-        self.canvas.set_has_tooltip(True)
+        self.canvas_hover = CandidateHover(self.canvas)
         self.canvas.connect("query-tooltip", self.tooltip)
         self.surface = Gtk.Fixed()
         self.surface.put(self.canvas, 0, 0)
@@ -435,6 +436,7 @@ class TreePanel(Gtk.Window):
             button.destroy()
 
     def clear_actions(self):
+        self.canvas_hover.leave(self.canvas)
         self.hovered_action = None
         retired = list(self.actions.values())
         self.actions.clear()
@@ -454,10 +456,10 @@ class TreePanel(Gtk.Window):
             button = self.actions.get(identity)
             if button is None:
                 button = CandidateAction(lambda source, identity=identity: self.activate(identity, source))
-                button.connect("enter-notify-event", lambda source, _event, identity=identity:
-                               self.hover_action(identity, source))
-                button.connect("leave-notify-event", lambda source, _event, identity=identity:
-                               self.leave_action(identity, source))
+                button.hover = CandidateHover(
+                    button, entered=lambda source, identity=identity: self.hover_action(identity, source),
+                    left=lambda source, identity=identity: self.leave_action(identity, source),
+                )
                 self.surface.put(button, int(x), int(y))
                 self.actions[identity] = button
             self.surface.move(button, int(x), int(y))
@@ -475,7 +477,7 @@ class TreePanel(Gtk.Window):
                 description += "\n" + presentation["detailDescription"]
             if index in self.candidate_numbers:
                 description += "\n" + message("candidate.numberBadge", number=self.candidate_numbers[index])
-            button.set_tooltip_text(name + "\n" + description)
+            button.hover.tooltip_text = name + "\n" + description
             button.update_accessibility(name, selected=active, description=description)
 
     def hover_action(self, identity, source):
@@ -701,10 +703,14 @@ class TreePanel(Gtk.Window):
         context.move_to(x, y + (height - layout.get_pixel_size()[1]) / 2)
         PangoCairo.show_layout(context, layout)
 
-    def tooltip(self, _widget, x, y, _keyboard_mode, tooltip):
+    def tooltip(self, _widget, x, y, keyboard_mode, tooltip):
+        if not keyboard_mode and not self.canvas_hover.is_hovering:
+            return False
         nodes = {node["id"]: node for node in self.snapshot.get("nodes", [])}
         for kind, index, left, top, width, height, text, reading in self.rectangles:
-            if kind == "node" and left <= x <= left + width and top <= y <= top + height + 12:
+            targeted = (index == self.snapshot.get("focusedNode") if keyboard_mode else
+                        left <= x <= left + width and top <= y <= top + height + 12)
+            if kind == "node" and targeted:
                 presentation = score_presentation(self.snapshot, nodes[index])
                 detail = "\n" + presentation["detailDescription"] if presentation else ""
                 tooltip.set_text(f"{text}（{reading}）{detail}")

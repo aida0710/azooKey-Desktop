@@ -6,6 +6,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk, Pango
 from .candidate_accessibility import CandidateAction
+from .candidate_hover import CandidateHover
 from .i18n import text as message
 
 
@@ -206,9 +207,9 @@ class CandidateNavigation(Gtk.Box):
         button.selection_label.get_style_context().add_class("candidate-secondary")
         content.pack_start(button.selection_label, False, False, 0)
         button.add(content)
-        button.set_tooltip_text(item.get("detailDescription", item["text"]))
-        button.connect("enter-notify-event", lambda source, _event: self.preview_current(item, source))
-        button.connect("leave-notify-event", lambda source, _event: self.clear_preview(source))
+        button.hover = CandidateHover(button, entered=lambda source: self.preview_current(item, source),
+                                      left=self.clear_preview)
+        button.hover.tooltip_text = item.get("detailDescription", item["text"])
         return button
 
     def toggle_list(self):
