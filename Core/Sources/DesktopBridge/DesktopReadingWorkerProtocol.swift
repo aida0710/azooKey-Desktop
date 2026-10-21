@@ -34,6 +34,10 @@ struct DesktopReadingWorkerRequest: Codable {
     var selection: DesktopCandidateSelection?
     var settingsRevision: Int?
     var settings: DesktopWorkerSettings?
+    var reconversionContext: ReconversionContext?
+    var reconversionToken: String?
+    var reading: String?
+    var reconversionReadingResult: DesktopReconversionReadingResult?
 
     private static let payloadFields: [String: Set<String>] = [
         "hello": [],
@@ -43,14 +47,20 @@ struct DesktopReadingWorkerRequest: Codable {
         "focus-in": ["reference", "surroundings"],
         "focus-out": ["reference", "submit"],
         "reset": ["reference", "submit"],
-        "key": ["reference", "event", "doubleTap"],
+        "key": ["reference", "event", "doubleTap", "reconversionContext"],
         "snapshot": ["reference"],
         "close": ["reference"],
         "prepare-candidates": ["reference", "candidateWorkerGeneration"],
         "candidate-worker-stopped": ["reference", "candidateWorkerGeneration"],
         "adopt-candidates": ["reference", "batch", "retainedReference"],
         "select": ["reference", "selection"],
-        "commit-candidate": ["reference", "selection"],
+        "commit-candidate": ["reference", "selection", "reconversionContext"],
+        "undo-commit": ["reference", "reconversionContext"],
+        "reconvert": ["reference", "reconversionContext", "reading", "candidateWorkerGeneration"],
+        "resolve-reconversion": ["reference", "reconversionContext", "reconversionReadingResult"],
+        "reconversion-reading": ["reference", "reconversionContext", "event"],
+        "confirm-reconversion": ["reference", "reconversionContext", "reconversionToken"],
+        "cancel-reconversion": ["reference"],
         "learning-revision": ["readingProcessGeneration", "settingsRevision"]
     ]
 
@@ -64,6 +74,7 @@ extension DesktopReadingWorkerRequest {
     private enum CodingKeys: String, CodingKey {
         case operation, readingProcessGeneration, context, reference, surroundings, event, submit, doubleTap
         case candidateWorkerGeneration, batch, retainedReference, selection, settingsRevision, settings
+        case reconversionContext, reconversionToken, reading, reconversionReadingResult
     }
 
     init(from decoder: any Decoder) throws {
@@ -80,6 +91,11 @@ extension DesktopReadingWorkerRequest {
         } else {
             event = nil
         }
+        if values.contains(.reconversionContext), try !values.decodeNil(forKey: .reconversionContext) {
+            try DesktopReadingProtocolValidation.keys(values.superDecoder(forKey: .reconversionContext), allowed: [
+                "before", "selected", "after", "cursorUTF16", "anchorUTF16", "canReplace", "isSensitive"
+            ])
+        }
         self.init(operation: operation,
                   readingProcessGeneration: try values.decodeIfPresent(String.self, forKey: .readingProcessGeneration),
                   context: try values.decodeIfPresent(String.self, forKey: .context),
@@ -93,7 +109,11 @@ extension DesktopReadingWorkerRequest {
                   retainedReference: try values.decodeIfPresent(DesktopCandidateBatchReference.self, forKey: .retainedReference),
                   selection: try values.decodeIfPresent(DesktopCandidateSelection.self, forKey: .selection),
                   settingsRevision: try values.decodeIfPresent(Int.self, forKey: .settingsRevision),
-                  settings: try values.decodeIfPresent(DesktopWorkerSettings.self, forKey: .settings))
+                  settings: try values.decodeIfPresent(DesktopWorkerSettings.self, forKey: .settings),
+                  reconversionContext: try values.decodeIfPresent(ReconversionContext.self, forKey: .reconversionContext),
+                  reconversionToken: try values.decodeIfPresent(String.self, forKey: .reconversionToken),
+                  reading: try values.decodeIfPresent(String.self, forKey: .reading),
+                  reconversionReadingResult: try values.decodeIfPresent(DesktopReconversionReadingResult.self, forKey: .reconversionReadingResult))
     }
 }
 
@@ -117,4 +137,8 @@ struct DesktopReadingWorkerResponse: Encodable {
     var defaultSettings: DesktopWorkerSettings?
     var defaultSettingsError: String?
     var error: String?
+    var reconversion: ReconversionSession.Replacement?
+    var reconversionError: String?
+    var reconversionReading: String?
+    var reconversionReadingRequest: DesktopReconversionReadingRequest?
 }

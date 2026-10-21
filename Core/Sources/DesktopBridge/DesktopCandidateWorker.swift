@@ -46,14 +46,8 @@ final class DesktopCandidateWorker {
         case "candidates":
             let request = try DesktopCandidateValidation.required(message.request)
             response.batch = try candidates(request)
-        case "retain":
-            let reference = try DesktopCandidateValidation.required(message.reference)
-            try session(reference).retain(reference)
-            response.reference = reference
-        case "release":
-            let reference = try DesktopCandidateValidation.required(message.reference)
-            try session(reference).release(reference)
-            response.reference = reference
+        case "retain", "release":
+            response.reference = try updateRetention(message)
         case "complete":
             let completion = try DesktopCandidateValidation.required(message.completion)
             try DesktopCandidateValidation.completion(completion)
@@ -74,6 +68,9 @@ final class DesktopCandidateWorker {
                       workerGeneration: DesktopCandidateValidation.required(message.workerGeneration))
         case "settings":
             response = settingsSnapshot()
+        case "resolve-reconversion-reading":
+            response.reconversionReadingResult = try resolveReading(
+                DesktopCandidateValidation.required(message.reconversionReadingRequest))
         default:
             throw DesktopCandidateFailure.unsupportedOperation
         }
@@ -83,7 +80,8 @@ final class DesktopCandidateWorker {
     func rejected(_ error: Error, authority: CandidateRequestAuthority? = nil) -> DesktopCandidateWorkerResponse {
         var response = snapshot()
         if let authority, (try? DesktopCandidateValidation.authority(authority)) != nil { response.authority = authority }
-        response.error = (error as? DesktopWorkerSettingsFailure)?.rawValue ??
+        response.error = (error as? ReconversionSession.Failure)?.rawValue ??
+            (error as? DesktopWorkerSettingsFailure)?.rawValue ??
             (error as? DesktopCandidateFailure)?.rawValue ?? "invalid_candidate_snapshot"
         return response
     }
@@ -92,6 +90,26 @@ final class DesktopCandidateWorker {
         for session in sessions.values { session.close() }
         sessions.removeAll()
         converter.commitUpdateLearningData()
+    }
+
+    private func updateRetention(_ message: DesktopCandidateWorkerRequest) throws -> DesktopCandidateBatchReference {
+        let reference = try DesktopCandidateValidation.required(message.reference)
+        let owner = try session(reference)
+        if message.operation == "retain" {
+            try owner.retain(reference)
+        } else {
+            try owner.release(reference)
+        }
+        return reference
+    }
+
+    private func resolveReading(_ request: DesktopReconversionReadingRequest) throws -> DesktopReconversionReadingResult {
+        try request.validate()
+        try validateWorker(request.workerGeneration)
+        guard request.authority.settingsRevision == settingsRevision else { throw DesktopCandidateFailure.staleAuthority }
+        let reading = ReconversionReading.resolve(request.text, dictionary:
+            Config.UserDictionary().value.items + Config.SystemUserDictionary().value.items)
+        return .init(request: request, reading: reading)
     }
 
     private func candidates(_ request: DesktopCandidateRequest) throws -> DesktopCandidateBatch {
@@ -118,7 +136,8 @@ final class DesktopCandidateWorker {
         let revision = try DesktopCandidateValidation.required(message.settingsRevision)
         let settings = try DesktopCandidateValidation.required(message.settings)
         guard message.request == nil, message.reference == nil, message.completion == nil,
-              message.learning == nil, message.context == nil, message.readingProcessGeneration == nil else {
+              message.learning == nil, message.context == nil, message.readingProcessGeneration == nil,
+              message.reconversionReadingRequest == nil else {
             throw DesktopWorkerSettingsFailure.invalidSettings
         }
         guard try DesktopWorkerSettingsRuntime.isChange(settings, revision: revision,
