@@ -5,6 +5,9 @@ TEST_DATA="$(mktemp -d)"
 export AZOOKEY_DATA_DIR="$TEST_DATA/data"
 export XDG_CONFIG_HOME="$TEST_DATA/config"
 export XDG_CACHE_HOME="$TEST_DATA/cache"
+export XDG_DATA_HOME="$TEST_DATA/local-data"
+export XDG_RUNTIME_DIR="$TEST_DATA/runtime"
+mkdir -m 700 "$XDG_RUNTIME_DIR"
 export IBUS_ADDRESS_FILE="$TEST_DATA/ibus-address"
 export GDK_BACKEND=x11
 export NO_AT_BRIDGE=1

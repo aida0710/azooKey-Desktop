@@ -8,12 +8,14 @@ from gi.repository import Gio, GLib, IBus
 
 WAIT_SECONDS = 15
 RESPONSIVE_SECONDS = 0.1
+# Fixtures use the X11 hardware code for A; the explicit keyval supplies meaning.
+SYNTHETIC_KEYCODE = 38
 
 
-def wait_for(predicate):
+def wait_for(predicate, message="native-key IBus observation did not complete"):
     deadline = time.monotonic() + WAIT_SECONDS
     while not predicate():
-        assert time.monotonic() < deadline, "native-key IBus observation did not complete"
+        assert time.monotonic() < deadline, message
         GLib.MainContext.default().iteration(False)
         time.sleep(.005)
     while GLib.MainContext.default().pending():
@@ -79,5 +81,4 @@ class Field:
                 # This fixture models delivery of the saved original event,
                 # distinctly from receiving an Engine.ForwardKeyEvent signal.
                 self.deliver_native(keyval, state, route="original-reply")
-        self.context.process_key_event_async(keyval, 38, state, -1, None, completed, None)
-
+        self.context.process_key_event_async(keyval, SYNTHETIC_KEYCODE, state, -1, None, completed, None)
