@@ -27,12 +27,14 @@ class SettingsRecoveryBar(Gtk.InfoBar):
         content.add(actions)
 
 
-def confirm_restore(window):
-    dialog = Gtk.MessageDialog(
-        transient_for=window, modal=True, message_type=Gtk.MessageType.QUESTION,
-        buttons=Gtk.ButtonsType.OK_CANCEL, text=text("settings.restore_question"),
-    )
-    dialog.format_secondary_text(text("settings.restore_explanation"))
-    response = dialog.run()
-    dialog.destroy()
-    return response == Gtk.ResponseType.OK
+class SettingsRestoreDialog(Gtk.MessageDialog):
+    """Ask for a response without reentering the synchronous AT dispatch."""
+
+    def __init__(self, parent):
+        super().__init__(
+            transient_for=parent, modal=True, destroy_with_parent=True,
+            message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=text("settings.restore_question"),
+        )
+        self.format_secondary_text(text("settings.restore_explanation"))
+        self.set_default_response(Gtk.ResponseType.CANCEL)

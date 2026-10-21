@@ -10,7 +10,7 @@ from .labeled_controls import label_control, StatusMessage
 from .settings_pages import populate_settings_pages
 from .settings_store import SettingsStore, config_path
 from .settings_schema import input_defaults, validate_settings
-from .settings_recovery import SettingsRecoveryBar, confirm_restore
+from .settings_recovery import SettingsRecoveryBar, SettingsRestoreDialog
 from .user_dictionary_editor import UserDictionaryEditor
 from .user_dictionary_service import UserDictionaryService
 
@@ -44,6 +44,7 @@ class SettingsWindow(Gtk.Window):
         self.settings_stamp = loaded.stamp
         self.backend_recovery_pending = False
         self.recovery_bar = None
+        self.recovery_dialog = None
         self.widgets = {}
         self.closed = False
         self.dictionary_editor = None
@@ -71,6 +72,8 @@ class SettingsWindow(Gtk.Window):
 
     def destroyed(self, _window):
         self.closed = True
+        if self.recovery_dialog is not None:
+            self.recovery_dialog.destroy()
         if self.dictionary_editor is not None and not self.dictionary_editor.closed:
             self.dictionary_editor.close()
         self.bridge.close()
@@ -118,7 +121,28 @@ class SettingsWindow(Gtk.Window):
         self.dictionary_editor.show_all()
 
     def restore_settings(self, use_defaults):
-        if not confirm_restore(self):
+        if self.closed or self.recovery_bar is None or not self.recovery_bar.get_visible():
+            return
+        if self.recovery_dialog is not None:
+            self.recovery_dialog.present()
+            return
+        dialog = SettingsRestoreDialog(self)
+        self.recovery_dialog = dialog
+        dialog.connect("response", self.restore_response, use_defaults)
+        dialog.connect("destroy", self.restore_dialog_destroyed)
+        dialog.show_all()
+
+    def restore_dialog_destroyed(self, dialog):
+        if self.recovery_dialog is dialog:
+            self.recovery_dialog = None
+
+    def restore_response(self, dialog, response, use_defaults):
+        if self.closed or self.recovery_dialog is not dialog:
+            return
+        # Retire ownership before destroying the widget or publishing settings.
+        self.recovery_dialog = None
+        dialog.destroy()
+        if self.closed or response != Gtk.ResponseType.OK:
             return
         values = self.settings_store.recovery_values(self.values)
         if use_defaults:
