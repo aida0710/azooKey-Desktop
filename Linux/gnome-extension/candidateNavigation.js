@@ -5,10 +5,19 @@ import {messages} from './candidateMessages.js';
 import {createWrappingLabel, candidateLineHeight} from './candidateText.js';
 import {attachCandidateAction} from './candidateAccessibility.js';
 
-// Reduce row whitespace while keeping a 44px target for single-line candidates.
 const ROW_VERTICAL_INSET = 5;
 const ROW_HORIZONTAL_INSET = 8;
 const MINIMUM_CONTENT_HEIGHT = 32;
+// Conversion rows follow the glyph height; the live tree keeps its own spacing.
+const COMPACT_ROW_VERTICAL_INSET = 2;
+const COMPACT_MINIMUM_CONTENT_HEIGHT = 24;
+const DEFAULT_VISIBLE_ROWS = 7;
+const VISIBLE_ROW_CHOICES = [5, 7, 9];
+const FOOTER_MINIMUM_CONTENT_HEIGHT = 20;
+const FOOTER_VERTICAL_INSET = 2;
+const FOOTER_HORIZONTAL_INSET = 6;
+const FOOTER_MINIMUM_FONT_SIZE = 12;
+const FOOTER_FONT_SIZE_REDUCTION = 6;
 // The row border is part of both the visible target and its reserved height.
 const ROW_BORDER_WIDTH = 1;
 
@@ -18,6 +27,7 @@ export class CandidateNavigation {
         this._changed = changed;
         this._preview = preview;
         this._compact = compact;
+        this.visibleRows = DEFAULT_VISIBLE_ROWS;
         this.hoveredItem = null;
         this._hoveredButton = null;
         this.expanded = true;
@@ -39,12 +49,14 @@ export class CandidateNavigation {
         this.actor.add_child(this._scroll);
         if (confirmation) this._header.add_child(confirmation);
         if (compact) this.actor.add_child(this._header);
-        this._scroll.get_vadjustment().connect('notify::page-size', () => this._revealSelection());
+        this._scroll.get_vadjustment().connect('notify::page-size', () => this._viewportChanged());
     }
 
     minimumRowHeight({fontSize}) {
-        return Math.max(MINIMUM_CONTENT_HEIGHT, candidateLineHeight(fontSize, this.actor)) +
-            ROW_VERTICAL_INSET * 2 + ROW_BORDER_WIDTH * 2;
+        const contentHeight = this._compact ? COMPACT_MINIMUM_CONTENT_HEIGHT : MINIMUM_CONTENT_HEIGHT;
+        const inset = this._compact ? COMPACT_ROW_VERTICAL_INSET : ROW_VERTICAL_INSET;
+        return Math.max(contentHeight, candidateLineHeight(fontSize, this.actor)) +
+            inset * 2 + ROW_BORDER_WIDTH * 2;
     }
 
     _replaceHeaderButtons() {
@@ -83,6 +95,9 @@ export class CandidateNavigation {
     }
 
     update(snapshot, {fontSize, listHeight, width = 400, palette}) {
+        this._fontSize = fontSize;
+        this.visibleRows = Number.isInteger(snapshot.candidateVisibleRows) &&
+            VISIBLE_ROW_CHOICES.includes(snapshot.candidateVisibleRows) ? snapshot.candidateVisibleRows : DEFAULT_VISIBLE_ROWS;
         const page = snapshot.candidatePage;
         this.actor.visible = (page?.totalCount ?? 0) > 0;
         if (!this.actor.visible) {
@@ -168,7 +183,9 @@ export class CandidateNavigation {
             button._selectionMark.text = selected ? '✓' : '';
             button.accessible_name = [item.text, item.reading, selected ? messages.selected : null].filter(Boolean).join('\n');
         }
-        const revealIdentity = JSON.stringify([snapshot.contextId, page.start, snapshot.selection]);
+        const revealIdentity = JSON.stringify([
+            snapshot.contextId, page.start, snapshot.selection, this.visibleRows, fontSize, width,
+        ]);
         if (revealIdentity !== this._revealIdentity) {
             this._revealIdentity = revealIdentity;
             this._revealPending = true;
@@ -182,6 +199,19 @@ export class CandidateNavigation {
         return this._header.get_preferred_height(width)[1] +
             (this._hint.visible ? this._hint.get_preferred_height(width)[1] : 0) +
             (this.expanded ? height : 0);
+    }
+
+    _viewportChanged() {
+        const adjustment = this._scroll.get_vadjustment();
+        const previousHeight = this._viewportHeight ?? adjustment.page_size;
+        this._viewportHeight = adjustment.page_size;
+        const selected = this._rows.get_children().find(button => button.checked);
+        // A smaller viewport must not hide a visible selection. Browsing away
+        // from it deliberately keeps the user's scroll position instead.
+        if (selected && adjustment.page_size < previousHeight && selected.y >= adjustment.value &&
+            selected.y + selected.height <= adjustment.value + previousHeight)
+            this._revealPending = true;
+        this._revealSelection();
     }
 
     _revealSelection() {
@@ -232,14 +262,21 @@ export class CandidateNavigation {
         this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text};`);
         for (const button of [this._toggle, this._previous, this._next, ...this._rows.get_children()].filter(Boolean)) {
             const isPlainRow = this._compact && button.get_parent() === this._rows;
+            if (this._compact && !isPlainRow) {
+                button.set_style(`background-color: transparent; color: ${palette.text};
+                    background-gradient-direction: none; box-shadow: none; border: 0; border-radius: 0;
+                    padding: ${FOOTER_VERTICAL_INSET}px ${FOOTER_HORIZONTAL_INSET}px; min-height: ${FOOTER_MINIMUM_CONTENT_HEIGHT}px;
+                    min-width: 0; font-size: ${Math.max(FOOTER_MINIMUM_FONT_SIZE, this._fontSize - FOOTER_FONT_SIZE_REDUCTION)}px;`);
+                continue;
+            }
             const foreground = button.checked ? palette.selectionText : palette.text;
             const background = button.checked ? palette.selection : isPlainRow ? 'transparent' : palette.surface;
             const borderColor = button.checked ? palette.text : isPlainRow ? 'transparent' : palette.border;
             button.set_style(`background-color: ${background}; color: ${foreground};
                 background-gradient-direction: none; box-shadow: none;
                 border: ${ROW_BORDER_WIDTH}px solid ${borderColor}; border-radius: ${isPlainRow ? 4 : 8}px;
-                padding: ${ROW_VERTICAL_INSET}px ${ROW_HORIZONTAL_INSET}px;
-                min-height: ${MINIMUM_CONTENT_HEIGHT}px; min-width: 0;`);
+                padding: ${isPlainRow ? COMPACT_ROW_VERTICAL_INSET : ROW_VERTICAL_INSET}px ${ROW_HORIZONTAL_INSET}px;
+                min-height: ${isPlainRow ? COMPACT_MINIMUM_CONTENT_HEIGHT : MINIMUM_CONTENT_HEIGHT}px; min-width: 0;`);
         }
     }
 }

@@ -260,8 +260,9 @@ const budgetSnapshot = {contextId: 'budget', generation: 1, selection: 0, inputS
     candidatePage: {start: 0, position: 1, totalCount: 9, previousIndex: null, nextIndex: null,
         items: Array.from({length: 9}, (_, index) => ({index, text: '保証'}))}};
 const cardCases = [[1280, 800], [640, 320], [320, 320]].flatMap(([width, height]) =>
-    [8, Math.floor(height / 2), height - 22].map(caretY => ({width, height, caretY})));
-for (const {width: workAreaWidth, height: workAreaHeight, caretY} of cardCases) {
+    [8, Math.floor(height / 2), height - 22].map(caretY => ({width, height, caretY})))
+    .flatMap(options => [5, 7, 9].map(visibleRows => ({...options, visibleRows})));
+for (const {width: workAreaWidth, height: workAreaHeight, caretY, visibleRows} of cardCases) {
     for (const fontSize of [18, 24]) {
         for (const treeExpanded of [false, true]) {
             const card = new ExtensionClass();
@@ -295,13 +296,14 @@ for (const {width: workAreaWidth, height: workAreaHeight, caretY} of cardCases) 
             const options = {bounds: {x: 0, y: 0, width: workAreaWidth, height: workAreaHeight}, fontSize,
                 treeContentWidth: 400, treeContentHeight: 600, nodes: new Map(),
                 actionIdentity: 'budget', location: [workAreaWidth - 1, caretY, 0, 20], palette};
-            card._layoutCard(budgetSnapshot, options);
+            const snapshot = {...budgetSnapshot, candidateVisibleRows: visibleRows};
+            card._layoutCard(snapshot, options);
             equal(card._navigation._status.text, '1 / 9');
             const confirm = card._composition._confirm;
             const compositionHeight = card._composition.actor.height;
             const compactListHeight = card._navigation._scroll.height;
             card._details.expanded = true;
-            const placement = card._layoutCard(budgetSnapshot, options);
+            const placement = card._layoutCard(snapshot, options);
             assert(card._composition._confirm === confirm && confirm.is_mapped() && confirm.reactive,
                 'Opening the right entry must preserve the current explicit confirm action');
             equal(card._composition.actor.height, compositionHeight);
@@ -338,8 +340,10 @@ for (const {width: workAreaWidth, height: workAreaHeight, caretY} of cardCases) 
                     'A normal desktop must show several lines in the right entry');
             assert(!card._navigation._hint.visible && !card._navigation._toggle.visible,
                 'The compact candidate list must omit repeated hints and its close control');
-            assert(card._navigation._scroll.height <= card._navigation.minimumRowHeight({fontSize}) * 5,
-                'The compact menu must show at most five ordinary candidate rows');
+            assert(card._navigation._scroll.height <= card._navigation.minimumRowHeight({fontSize}) * visibleRows,
+                'The compact menu must respect the selected visible row count');
+            equal(card._navigation.visibleRows, visibleRows);
+            equal(card._navigation._rows.get_children().length, 9);
             equal(commits, []);
             confirm.get_accessible().do_action();
             confirm.get_accessible().do_action();

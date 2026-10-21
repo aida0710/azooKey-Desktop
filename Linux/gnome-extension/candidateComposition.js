@@ -11,6 +11,8 @@ const SENTENCE_GAP = 6;
 const READING_GAP = 4;
 // A long proposal must not scroll its unconverted remainder out of sight.
 const REMAINING_HEIGHT_FRACTION = 0.35;
+// Small text actions keep the candidate footer visually separate from words.
+const CONFIRM_LAYOUT = {minimumHeight: 20, verticalInset: 2, horizontalInset: 6, minimumFontSize: 12, fontSizeReduction: 6};
 
 // The selected sentence stays visible while hover explains another candidate below.
 export class CandidateComposition {
@@ -77,8 +79,11 @@ export class CandidateComposition {
             label.set_style(`font-size: ${readingFontSize}px; padding-top: ${READING_GAP}px;`);
         const innerWidth = Math.max(1, width - COMPOSITION_INSET * 2);
         for (const label of [this._sentence, this._reading, this._remaining]) label.set_width(innerWidth);
-        if (this._confirm) this._confirm.set_style(`color: ${palette.selectionText}; background-color: ${palette.selection};
-            border: 2px solid ${palette.text}; border-radius: 8px; padding: 4px 12px; min-height: 32px; font-size: ${fontSize}px;`);
+        if (this._confirm) this._confirm.set_style(`color: ${palette.text}; background-color: transparent;
+            background-gradient-direction: none; box-shadow: none; border: 0; border-radius: 0;
+            padding: ${CONFIRM_LAYOUT.verticalInset}px ${CONFIRM_LAYOUT.horizontalInset}px;
+            min-height: ${CONFIRM_LAYOUT.minimumHeight}px;
+            font-size: ${Math.max(CONFIRM_LAYOUT.minimumFontSize, fontSize - CONFIRM_LAYOUT.fontSizeReduction)}px;`);
         if (compact) {
             // The document already shows the proposal. Keep its explicit commit
             // action in the candidate footer rather than repeating the sentence.

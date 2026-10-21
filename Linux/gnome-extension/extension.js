@@ -28,8 +28,7 @@ const NODE_BORDER_WIDTH = 2; // Reserve both borders outside the measured label 
 const CARD_LAYOUT = {maximumWidth: 560, compositionFraction: 0.26, treeFraction: 0.35};
 // The popup border is outside its children, including the horizontal viewport.
 const CARD_BORDER_WIDTH = 1;
-// Five familiar IME rows keep the conversion list small beside the document.
-const COMPACT_MENU = {visibleRows: 5, summaryHeight: 180, fullHeight: 320};
+const COMPACT_MENU = {summaryHeight: 180, fullHeight: 320};
 
 export default class AzooKeyTreeExtension extends Extension {
     enable() {
@@ -493,7 +492,7 @@ export default class AzooKeyTreeExtension extends Extension {
         const navigationHeight = Math.ceil(this._navigation.update(data,
             {fontSize, width: candidateInnerWidth,
                 listHeight: Math.max(rowMinimum, Math.min(available - treeHeight,
-                    rowMinimum * COMPACT_MENU.visibleRows)), palette}));
+                    rowMinimum * this._navigation.visibleRows)), palette}));
         this._navigation.actor.set_size(candidateInnerWidth, navigationHeight);
         const candidateHeight = proposalHeight + navigationHeight + treeHeight + CARD_BORDER_WIDTH * 2;
         const bodyHeight = Math.max(candidateHeight, detailHeight);

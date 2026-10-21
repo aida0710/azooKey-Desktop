@@ -153,3 +153,41 @@ longRow.height = 150;
 longRow.emit('notify::allocation');
 equal(scroll.value, 400);
 print('GNOME selected row: allocation reveals keyboard selection once, preserves manual scrolling and shows the start of long rows PASS');
+
+const compact = new Navigation({select: action => submitted.push(action.values), changed() {}, preview() {}, compact: true});
+const lastSelected = {...snapshot(0, 4), selection: 8};
+lastSelected.candidatePage.position = 9;
+compact.update(lastSelected, layout);
+const unchangedRows = compact._rows.get_children();
+for (const [index, row] of unchangedRows.entries()) {
+    row.y = index * 36;
+    row.height = 36;
+}
+const compactScroll = compact._scroll.get_vadjustment();
+compactScroll.upper = 9 * 36;
+for (const visibleRows of [9, 7, 5]) {
+    compactScroll.page_size = visibleRows * 36;
+    compact.update({...lastSelected, candidateVisibleRows: visibleRows}, {...layout, listHeight: visibleRows * 36});
+    equal(compact.visibleRows, visibleRows);
+    equal(compact._rows.get_children().every((row, index) => row === unchangedRows[index]), true);
+    equal(compact._rows.get_children().length, 9);
+    equal(compactScroll.value + compactScroll.page_size, 9 * 36);
+}
+for (const invalid of [undefined, true, '9', 6, 100]) {
+    compact.update({...lastSelected, candidateVisibleRows: invalid}, layout);
+    equal(compact.visibleRows, 7);
+}
+submitted.length = 0;
+compact._rows.get_children()[8].get_accessible().do_action();
+drainActions();
+equal(submitted, [['select', 8, false, 4, 'synthetic-field']]);
+compactScroll.value = 0;
+compact._viewportHeight = 9 * 36;
+compactScroll.page_size = 5 * 36;
+compact._viewportChanged();
+equal(compactScroll.value, 4 * 36);
+compactScroll.value = 0;
+compactScroll.page_size = 4 * 36;
+compact._viewportChanged();
+equal(compactScroll.value, 0);
+print('GNOME configurable rows: five/seven/nine preserve the nine real entries and reveal the selected last entry after shrinking PASS');
