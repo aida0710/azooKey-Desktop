@@ -6,17 +6,22 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk, Pango
 from .candidate_accessibility import CandidateAction
+from .candidate_layout_preferences import DEFAULT_VISIBLE_CANDIDATE_ROWS, visible_candidate_rows
 from .i18n import text as message
 
 
 class CandidateNavigation(Gtk.Box):
     # The nine source number-key candidates scroll instead of extending offscreen.
     MAXIMUM_LIST_HEIGHT = 280
-    COMPACT_VISIBLE_ROWS = 5  # Show five single-line targets before scrolling.
     ROW_SPACING = 3
     ROW_VERTICAL_INSET = 6
     ROW_BORDER_WIDTH = 1
     MINIMUM_CANDIDATE_HEIGHT = 44  # Keep sentence rows and confirmation easy to activate after compacting padding.
+    # Menu rows fit more words without changing the live tree or readable type.
+    COMPACT_MINIMUM_ROW_HEIGHT = 32
+    COMPACT_ROW_VERTICAL_INSET = 2
+    COMPACT_ROW_SPACING = 1
+    COMPACT_MINIMUM_CONTROL_HEIGHT = 28  # Flat footer actions need less space than candidate words.
     # Composing Enter commits the marked reading, while this button explicitly selects a candidate.
     KEYBOARD_CONFIRM_STATES = frozenset(("selecting", "previewing", "replaceSuggestion"))
 
@@ -36,6 +41,7 @@ class CandidateNavigation(Gtk.Box):
         self.expanded = True
         self.active = False
         self.minimal = False
+        self.visible_rows = DEFAULT_VISIBLE_CANDIDATE_ROWS
         self.list_height_limit = self.MAXIMUM_LIST_HEIGHT
         self.expanded_on_update = None
         self.page = {}
@@ -66,6 +72,8 @@ class CandidateNavigation(Gtk.Box):
         self.scroll.set_no_show_all(True)
         self.pack_start(self.scroll, False, False, 0)
         self.footer = Gtk.Box(spacing=6, margin_start=8, margin_end=8)
+        self.footer.get_style_context().add_class("candidate-footer")
+        self.footer.get_style_context().add_class("candidate-navigation")
         self.hint = Gtk.Label(label=message("candidate.selectHint"), xalign=0, wrap=True)
         self.hint.set_no_show_all(True)
         self.hint.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
@@ -95,6 +103,13 @@ class CandidateNavigation(Gtk.Box):
             f".candidate-navigation label {{ color: inherit; }}"
             f".candidate-navigation .candidate-secondary {{ color: {palette['secondaryText']}; }}"
             f".candidate-navigation button:selected .candidate-secondary {{ color: {palette['selectionText']}; }}"
+            f".candidate-navigation.candidate-minimal .candidate-row {{"
+            f"min-height: 0; padding: {self.COMPACT_ROW_VERTICAL_INSET}px 7px; border-radius: 3px; }}"
+            f".candidate-navigation.candidate-minimal.candidate-footer button {{"
+            f"min-height: 0; min-width: 0; background-color: transparent; border: none;"
+            f"border-radius: 0; padding: 1px 4px; color: {palette['secondaryText']}; }}"
+            f".candidate-navigation.candidate-minimal.candidate-footer .candidate-submit {{ color: {palette['text']}; }}"
+            f".candidate-navigation.candidate-minimal.candidate-footer button:hover {{ color: {palette['text']}; }}"
         ).encode())
 
     def compact_list_height(self, font_size):
@@ -102,9 +117,9 @@ class CandidateNavigation(Gtk.Box):
         attributes = Pango.AttrList()
         attributes.insert(Pango.attr_size_new_absolute(round(font_size * Pango.SCALE)))
         layout.set_attributes(attributes)
-        row_height = max(self.MINIMUM_CANDIDATE_HEIGHT,
-                         layout.get_pixel_size()[1] + 2 * (self.ROW_VERTICAL_INSET + self.ROW_BORDER_WIDTH))
-        return self.COMPACT_VISIBLE_ROWS * row_height + (self.COMPACT_VISIBLE_ROWS - 1) * self.ROW_SPACING
+        row_height = max(self.COMPACT_MINIMUM_ROW_HEIGHT,
+                         layout.get_pixel_size()[1] + 2 * (self.COMPACT_ROW_VERTICAL_INSET + self.ROW_BORDER_WIDTH))
+        return self.visible_rows * row_height + (self.visible_rows - 1) * self.COMPACT_ROW_SPACING
 
     def update(self, snapshot, *, font_size, list_height, compact=False, minimal=False):
         if self.expanded_on_update is not None:
@@ -112,6 +127,16 @@ class CandidateNavigation(Gtk.Box):
             self.expanded_on_update = None
         presentation_changed = self.minimal != minimal
         self.minimal = minimal
+        for widget in (self, self.footer):
+            style = widget.get_style_context()
+            if minimal:
+                style.add_class("candidate-minimal")
+            else:
+                style.remove_class("candidate-minimal")
+        self.rows.set_spacing(self.COMPACT_ROW_SPACING if minimal else self.ROW_SPACING)
+        requested_rows = visible_candidate_rows(snapshot.get("candidateVisibleRows"))
+        viewport_changed = minimal and self.visible_rows != requested_rows
+        self.visible_rows = requested_rows
         self.active = True
         self.page = snapshot.get("candidatePage", {})
         previous_selection = self.token[2] if self.token else None
@@ -144,7 +169,7 @@ class CandidateNavigation(Gtk.Box):
                 self.row_buttons.append(button)
             if self.saved_scroll is None:
                 self.reveal_index = snapshot.get("selection")
-        if previous_selection != snapshot.get("selection"):
+        if previous_selection != snapshot.get("selection") or viewport_changed:
             self.reveal_index = snapshot.get("selection")
         for item, button in zip(items, self.row_buttons):
             button.activation_token = self.token
@@ -185,6 +210,8 @@ class CandidateNavigation(Gtk.Box):
         )
         for name, label, container in definitions:
             button = self.button(lambda source, name=name: self.activate_control(name, source))
+            if self.minimal:
+                button.set_relief(Gtk.ReliefStyle.NONE)
             button.set_label(message(label) + ("  ↵" if name == "confirm" and self.keyboard_confirms_candidate else ""))
             button.activation_token = self.token
             self.controls[name] = button
@@ -196,11 +223,11 @@ class CandidateNavigation(Gtk.Box):
             if self.minimal and name in ("previous", "next"):
                 button.set_no_show_all(True)
                 button.set_label("‹" if name == "previous" else "›")
-                button.set_size_request(self.MINIMUM_CANDIDATE_HEIGHT, self.MINIMUM_CANDIDATE_HEIGHT)
+                button.set_size_request(self.COMPACT_MINIMUM_CONTROL_HEIGHT, self.COMPACT_MINIMUM_CONTROL_HEIGHT)
                 button.get_accessible().set_name(message(label))
                 button.set_tooltip_text(message(label))
         self.confirm.get_style_context().add_class("candidate-submit")
-        self.confirm.set_size_request(-1, self.MINIMUM_CANDIDATE_HEIGHT)
+        self.confirm.set_size_request(-1, self.COMPACT_MINIMUM_CONTROL_HEIGHT if self.minimal else self.MINIMUM_CANDIDATE_HEIGHT)
         self.confirm.get_accessible().set_description(message("candidate.confirm"))
 
     def activate_control(self, name, source):
@@ -220,7 +247,7 @@ class CandidateNavigation(Gtk.Box):
     def candidate_button(self, item, *, number, font_size):
         button = self.button(lambda source: self.select_candidate(item, source))
         button.get_style_context().add_class("candidate-row")
-        button.set_size_request(-1, self.MINIMUM_CANDIDATE_HEIGHT)
+        button.set_size_request(-1, self.COMPACT_MINIMUM_ROW_HEIGHT if self.minimal else self.MINIMUM_CANDIDATE_HEIGHT)
         content = Gtk.Box(spacing=7)
         button.number_label = Gtk.Label(label=str(number) if number is not None else "", yalign=0.5)
         button.number_label.get_style_context().add_class("candidate-secondary")

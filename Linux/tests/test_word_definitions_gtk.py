@@ -279,8 +279,9 @@ class WordDefinitionGtkTests(unittest.TestCase):
                     self.assertGreaterEqual(y, area.y)
                     self.assertLessEqual(x + width, area.x + area.width)
                     self.assertLessEqual(y + height, area.y + area.height)
-                    for control in (self.panel.navigation.confirm, self.panel.definitions.toggle,
-                                    self.panel.definitions.source):
+                    self.assertGreaterEqual(self.panel.navigation.confirm.get_allocated_height(), 28)
+                    self.assertFalse(self.panel.navigation.confirm.get_can_focus())
+                    for control in (self.panel.definitions.toggle, self.panel.definitions.source):
                         self.assertGreaterEqual(control.get_allocated_height(), 44)
                         self.assertFalse(control.get_can_focus())
                     self.assertIs(self.document.get_focus(), self.entry)
@@ -377,7 +378,7 @@ class WordDefinitionGtkTests(unittest.TestCase):
             for item in snapshot["candidates"][:9]]})
         return snapshot
 
-    def test_small_default_card_prioritizes_numbers_and_words_with_about_five_rows(self):
+    def test_small_default_card_prioritizes_numbers_and_words_with_seven_compact_rows(self):
         self.panel.update(self.snapshot_with_candidates(9)); self.wait_found(); self.paint()
         navigation = self.panel.navigation
         self.assertGreaterEqual(self.panel.candidate_width, 240)
@@ -390,18 +391,78 @@ class WordDefinitionGtkTests(unittest.TestCase):
         self.assertEqual(navigation.row_buttons[0].number_label.get_text(), "1")
         self.assertEqual(navigation.row_buttons[0].text_label.get_text(), "保証")
         self.assertEqual(navigation.row_buttons[0].selection_label.get_text(), "✓")
-        first_five = navigation.row_buttons[:5]
-        first_six = navigation.row_buttons[:6]
-        five_rows_height = sum(row.get_allocated_height() for row in first_five) + 4 * navigation.rows.get_spacing()
-        six_rows_height = sum(row.get_allocated_height() for row in first_six) + 5 * navigation.rows.get_spacing()
-        self.assertGreaterEqual(navigation.scroll.get_allocated_height(), five_rows_height)
-        self.assertLess(navigation.scroll.get_allocated_height(), six_rows_height)
+        first_seven = navigation.row_buttons[:7]
+        first_eight = navigation.row_buttons[:8]
+        seven_rows_height = sum(row.get_allocated_height() for row in first_seven) + 6 * navigation.rows.get_spacing()
+        eight_rows_height = sum(row.get_allocated_height() for row in first_eight) + 7 * navigation.rows.get_spacing()
+        self.assertGreaterEqual(navigation.scroll.get_allocated_height(), seven_rows_height)
+        self.assertLess(navigation.scroll.get_allocated_height(), eight_rows_height)
         for row in navigation.row_buttons:
-            self.assertGreaterEqual(row.get_allocated_height(), 44)
+            self.assertGreaterEqual(row.get_allocated_height(), 32)
+            self.assertLessEqual(row.get_allocated_height(), 40)
         self.assertGreater(navigation.scroll.get_vadjustment().get_upper(),
                            navigation.scroll.get_vadjustment().get_page_size())
         self.assertFalse(navigation.previous.get_mapped())
         self.assertFalse(navigation.next.get_mapped())
+        self.assertEqual(self.commits, [])
+
+    def test_visible_row_choices_change_the_viewport_without_replacing_or_renumbering_candidates(self):
+        snapshot = self.snapshot_with_candidates(9)
+        original_rows = None
+        for count in (5, 7, 9):
+            with self.subTest(count=count):
+                self.panel.update({**snapshot, "candidateVisibleRows": count}); self.wait_found(); self.paint()
+                navigation = self.panel.navigation
+                if original_rows is None:
+                    original_rows = tuple(navigation.row_buttons)
+                self.assertEqual(tuple(navigation.row_buttons), original_rows)
+                self.assertEqual([row.number_label.get_text() for row in original_rows], list(map(str, range(1, 10))))
+                self.assertEqual([row.text_label.get_text() for row in original_rows],
+                                 [item["text"] for item in snapshot["candidatePage"]["items"]])
+                first_rows = original_rows[:count]
+                rows_height = sum(row.get_allocated_height() for row in first_rows) + (count - 1) * navigation.rows.get_spacing()
+                self.assertGreaterEqual(navigation.scroll.get_allocated_height(), rows_height)
+                if count < 9:
+                    next_height = rows_height + navigation.rows.get_spacing() + original_rows[count].get_allocated_height()
+                    self.assertLess(navigation.scroll.get_allocated_height(), next_height)
+                else:
+                    adjustment = navigation.scroll.get_vadjustment()
+                    self.assertEqual(adjustment.get_upper(), adjustment.get_page_size())
+                self.assertEqual(self.panel.font_size, 18)
+                self.assertIs(self.document.get_focus(), self.entry)
+        self.assertEqual(self.commits, [])
+
+    def test_a_smaller_viewport_reveals_the_selected_ninth_candidate_and_invalid_values_use_seven(self):
+        snapshot = self.snapshot_with_candidates(9)
+        snapshot.update({"selection": 8, "focusedNode": 8, "selectedPath": [8], "candidateVisibleRows": 9})
+        self.panel.update(snapshot); self.paint()
+        navigation = self.panel.navigation
+        original_rows = tuple(navigation.row_buttons)
+        for count, expected in ((5, 5), (True, 7)):
+            with self.subTest(count=count):
+                self.panel.update({**snapshot, "candidateVisibleRows": count}); self.paint()
+                self.assertEqual(navigation.visible_rows, expected)
+                self.assertEqual(tuple(navigation.row_buttons), original_rows)
+                self.assertTrue(original_rows[8].selected)
+                adjustment = navigation.scroll.get_vadjustment()
+                _x, y = original_rows[8].translate_coordinates(navigation.rows, 0, 0)
+                self.assertGreaterEqual(y, adjustment.get_value())
+                self.assertLessEqual(y + original_rows[8].get_allocated_height(),
+                                     adjustment.get_value() + adjustment.get_page_size())
+                self.assertIs(self.document.get_focus(), self.entry)
+        self.assertEqual(self.commits, [])
+
+    def test_visible_row_preference_does_not_resize_the_live_branch_tree(self):
+        snapshot = {**self.snapshot_with_candidates(9), "inputState": "composing"}
+        self.panel.update(snapshot); self.paint()
+        rectangles = list(self.panel.rectangles)
+        size = self.panel.get_size()
+        for count in (5, 9):
+            self.panel.update({**snapshot, "candidateVisibleRows": count}); self.paint()
+            self.assertEqual(self.panel.rectangles, rectangles)
+            self.assertEqual(self.panel.get_size(), size)
+            self.assertTrue(all(frame[5] >= 44 for frame in self.panel.rectangles))
+            self.assertIsNone(self.worker.thread)
         self.assertEqual(self.commits, [])
 
     def test_opening_full_explanation_changes_only_the_independent_right_card(self):
@@ -427,6 +488,8 @@ class WordDefinitionGtkTests(unittest.TestCase):
         self.assertEqual(self.commits, [])
 
     def test_footer_keeps_paging_confirmation_and_optional_word_controls_separate_from_selection(self):
+        from gi.repository import Gtk
+
         snapshot = self.snapshot_with_candidates(18)
         snapshot["candidatePage"].update({"previousIndex": None, "nextIndex": 9})
         self.panel.update(snapshot); self.wait_found(); self.paint()
@@ -436,7 +499,12 @@ class WordDefinitionGtkTests(unittest.TestCase):
         old_options = self.panel.disclosure_actions["options"]
         for control in (navigation.next, navigation.confirm, old_options):
             self.assertIs(control.get_parent(), navigation.footer)
-            self.assertGreaterEqual(control.get_allocated_height(), 44)
+            self.assertGreaterEqual(control.get_allocated_height(), 28)
+            self.assertLessEqual(control.get_allocated_height(), 36)
+            style = control.get_style_context()
+            border = style.get_border(Gtk.StateFlags.NORMAL)
+            self.assertEqual((border.top, border.bottom, border.left, border.right), (0, 0, 0, 0))
+            self.assertEqual(style.get_background_color(Gtk.StateFlags.NORMAL).alpha, 0)
             self.assertFalse(control.get_can_focus())
             self.assert_widget_inside_popup(control)
         self.assertEqual(navigation.next.get_accessible().get_name(), "次へ")
@@ -459,6 +527,33 @@ class WordDefinitionGtkTests(unittest.TestCase):
         navigation.confirm.clicked(); navigation.confirm.clicked()
         self.assertEqual(self.commits, [("select", 9, False), ("select", 0, True)])
         self.assertIs(self.document.get_focus(), self.entry)
+
+    def test_flat_footer_hover_stays_readable_on_each_actual_gtk_palette(self):
+        from gi.repository import Gtk
+        from azookey.candidate_palette_data import PALETTES
+        from Linux.tests.test_candidate_theme import contrast
+
+        snapshot = self.snapshot_with_candidates(18)
+        snapshot["candidatePage"].update({"previousIndex": None, "nextIndex": 9})
+        self.panel.update(snapshot); self.wait_found(); self.paint()
+        controls = (self.panel.navigation.next, self.panel.navigation.confirm,
+                    self.panel.disclosure_actions["options"])
+        for mode, palette in PALETTES.items():
+            self.panel.navigation.apply_palette(palette)
+            self.paint()
+            for control in controls:
+                with self.subTest(mode=mode, control=control.get_label()):
+                    style = control.get_style_context()
+                    foreground = style.get_color(Gtk.StateFlags.PRELIGHT)
+                    color = "#" + "".join(f"{round(channel * 255):02X}" for channel in
+                                           (foreground.red, foreground.green, foreground.blue))
+                    self.assertEqual(foreground.alpha, 1)
+                    self.assertGreaterEqual(contrast(color, palette["background"]), 4.5)
+                    self.assertEqual(style.get_background_color(Gtk.StateFlags.PRELIGHT).alpha, 0)
+                    border = style.get_border(Gtk.StateFlags.PRELIGHT)
+                    self.assertEqual((border.top, border.bottom, border.left, border.right), (0, 0, 0, 0))
+        self.assertIs(self.document.get_focus(), self.entry)
+        self.assertEqual(self.commits, [])
 
     def test_optional_metadata_exposes_full_commit_text_without_restoring_default_clutter(self):
         self.panel.update(self.snapshot); self.wait_found(); self.paint()

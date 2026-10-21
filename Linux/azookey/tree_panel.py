@@ -100,7 +100,6 @@ class TreePanel(Gtk.Window):
         # A taller entry may scroll the whole card. Keep confirmation at the
         # bottom of the left column so that it remains reachable at that end.
         self.navigation.remove(self.navigation.footer)
-        self.navigation.footer.get_style_context().add_class("candidate-navigation")
         self.content.pack_end(self.navigation.footer, False, False, 0)
         self.definitions = WordDefinitionView(lambda: self.update(self.snapshot))
         self.definition_column = Gtk.EventBox(visible_window=False)
@@ -526,8 +525,10 @@ class TreePanel(Gtk.Window):
         if self.presentation_mode == "menu":
             if "options" not in self.disclosure_actions:
                 button = CandidateNavigation.button(lambda source: self.toggle_disclosure("options", source))
-                button.set_size_request(MINIMUM_NODE_SIZE, MINIMUM_NODE_SIZE)
-                button.get_style_context().add_class("candidate-disclosure")
+                button.set_relief(Gtk.ReliefStyle.NONE)
+                button.set_size_request(CandidateNavigation.COMPACT_MINIMUM_CONTROL_HEIGHT,
+                                        CandidateNavigation.COMPACT_MINIMUM_CONTROL_HEIGHT)
+                button.get_style_context().add_class("candidate-options")
                 self.navigation.footer.pack_start(button, False, False, 0)
                 self.disclosure_actions["options"] = button
             options = self.disclosure_actions["options"]

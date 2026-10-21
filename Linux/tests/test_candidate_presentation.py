@@ -212,7 +212,7 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertIn("候補番号 2", self.panel.actions[("node", 0)].get_accessible().get_description())
         self.assertNotIn("候補番号", self.panel.actions[("node", 1)].get_accessible().get_description())
 
-    def test_compact_rows_keep_readable_text_and_a_large_activation_area(self):
+    def test_compact_rows_keep_readable_type_and_flat_footer_actions_without_enlarging_the_menu(self):
         from gi.repository import GLib
         from Linux.tests.test_candidate_theme import CandidateThemeTests
 
@@ -221,8 +221,19 @@ class CandidatePresentationTests(unittest.TestCase):
                 self.panel.update({**self.snapshot, "candidateTextSize": size})
                 CandidateThemeTests.wait_for_paint(self.panel, GLib)
                 self.assertEqual(self.panel.font_size, expected_font_size)
-                for button in (*self.panel.navigation.row_buttons, self.panel.navigation.confirm):
-                    self.assertGreaterEqual(button.get_allocation().height, 44)
+                for button in self.panel.navigation.row_buttons:
+                    self.assertGreaterEqual(button.get_allocation().height, 32)
+                    label_height = button.text_label.get_layout().get_pixel_size()[1]
+                    self.assertGreaterEqual(button.get_allocation().height, label_height)
+                    self.assertGreaterEqual(button.text_label.get_allocated_height(), label_height)
+                    _left, top = button.text_label.translate_coordinates(button, 0, 0)
+                    style = button.get_style_context()
+                    padding = style.get_padding(button.get_state_flags())
+                    border = style.get_border(button.get_state_flags())
+                    self.assertGreaterEqual(top, padding.top + border.top)
+                    self.assertLessEqual(top + label_height,
+                                         button.get_allocated_height() - padding.bottom - border.bottom)
+                self.assertGreaterEqual(self.panel.navigation.confirm.get_allocated_height(), 28)
                 area = self.panel.get_display().get_monitor(0).get_workarea()
                 width, height = self.panel.get_size()
                 self.assertLessEqual(width, area.width)
@@ -258,11 +269,19 @@ class CandidatePresentationTests(unittest.TestCase):
         from gi.repository import GLib
         from Linux.tests.test_candidate_theme import CandidateThemeTests
 
+        # Seven compact rows can fit the original three sentences. Keep this
+        # overflow case long enough to test scrolling rather than a fixed page size.
+        long = copy.deepcopy(self.snapshot)
+        for index, item in enumerate(long["candidatePage"]["items"]):
+            item["text"] *= 3
+            long["candidates"][index]["text"] = item["text"]
+            long["nodes"][index]["text"] = item["text"]
+        self.panel.update(long)
         CandidateThemeTests.wait_for_paint(self.panel, GLib)
         adjustment = self.panel.navigation.scroll.get_vadjustment()
         self.assertGreater(adjustment.get_upper(), adjustment.get_page_size())
         self.assertEqual(self.panel.navigation.row_buttons[1].text_label.get_text(),
-                         self.snapshot["candidatePage"]["items"][1]["text"])
+                         long["candidatePage"]["items"][1]["text"])
         adjustment.set_value(adjustment.get_upper() - adjustment.get_page_size())
         CandidateThemeTests.wait_for_paint(self.panel, GLib)
         last = self.panel.navigation.row_buttons[-1]
