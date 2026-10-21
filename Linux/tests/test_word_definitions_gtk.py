@@ -452,6 +452,37 @@ class WordDefinitionGtkTests(unittest.TestCase):
                 self.assertIs(self.document.get_focus(), self.entry)
         self.assertEqual(self.commits, [])
 
+    def test_shrinking_before_the_next_allocation_still_reveals_the_selected_last_candidate(self):
+        snapshot = self.snapshot_with_candidates(9)
+        snapshot.update({"selection": 8, "focusedNode": 8, "selectedPath": [8], "candidateVisibleRows": 9})
+        self.panel.update(snapshot); self.paint()
+        navigation = self.panel.navigation
+        adjustment = navigation.scroll.get_vadjustment()
+        previous_height = adjustment.get_page_size()
+        pending_reveals = []
+        original_idle_add = self.GLib.idle_add
+
+        def capture_reveal(callback, *arguments, **keywords):
+            if callback.__name__ == "position_list":
+                pending_reveals.append(callback)
+                return 0
+            return original_idle_add(callback, *arguments, **keywords)
+
+        with patch("azookey.candidate_navigation.GLib.idle_add", side_effect=capture_reveal):
+            self.panel.update({**snapshot, "candidateVisibleRows": 5})
+        self.assertEqual(len(pending_reveals), 1)
+        self.assertEqual(adjustment.get_page_size(), previous_height)
+        self.assertGreater(previous_height, navigation.list_height_limit)
+        pending_reveals[0]()
+        self.paint()
+        last = navigation.row_buttons[8]
+        _x, y = last.translate_coordinates(navigation.rows, 0, 0)
+        self.assertLessEqual(y + last.get_allocated_height(),
+                             adjustment.get_value() + adjustment.get_page_size())
+        self.assertTrue(last.selected)
+        self.assertIs(self.document.get_focus(), self.entry)
+        self.assertEqual(self.commits, [])
+
     def test_visible_row_preference_does_not_resize_the_live_branch_tree(self):
         snapshot = {**self.snapshot_with_candidates(9), "inputState": "composing"}
         self.panel.update(snapshot); self.paint()

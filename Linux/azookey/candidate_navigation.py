@@ -69,6 +69,7 @@ class CandidateNavigation(Gtk.Box):
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.scroll.set_propagate_natural_height(True)
         self.scroll.add(self.rows)
+        self.scroll.connect_after("size-allocate", lambda _scroll, _allocation: self.schedule_scroll_position())
         self.scroll.set_no_show_all(True)
         self.pack_start(self.scroll, False, False, 0)
         self.footer = Gtk.Box(spacing=6, margin_start=8, margin_end=8)
@@ -349,12 +350,18 @@ class CandidateNavigation(Gtk.Box):
             if not self.active:
                 return GLib.SOURCE_REMOVE
             adjustment = self.scroll.get_vadjustment()
+            # An idle can run before a smaller viewport is allocated. Keep the
+            # reveal request until size-allocate supplies its actual page size.
+            if adjustment.get_page_size() <= 0 or adjustment.get_page_size() > self.list_height_limit:
+                return GLib.SOURCE_REMOVE
             if self.saved_scroll is not None:
                 adjustment.set_value(self.saved_scroll)
             self.saved_scroll = None
             for item, button in zip(self.page.get("items", []), self.row_buttons):
                 if item["index"] == self.reveal_index:
                     frame = button.get_allocation()
+                    if not button.get_mapped() or frame.height <= 0:
+                        return GLib.SOURCE_REMOVE
                     adjustment.clamp_page(frame.y, frame.y + min(frame.height, adjustment.get_page_size()))
                     break
             self.reveal_index = None
