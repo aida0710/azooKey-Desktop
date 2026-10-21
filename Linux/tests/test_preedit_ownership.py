@@ -35,6 +35,7 @@ class PreeditOwnershipTests(unittest.TestCase):
                 take_recovery=lambda text: (text, object()),
                 is_current_recovery=lambda _recovery: True,
                 finish_recovery=Mock(),
+                render_input_error=Mock(),
             ),
         )
         surface = patch.object(self.engine_module, "surface", return_value=Mock())

@@ -18,4 +18,4 @@ adapterは削除直前にも元の文書と選択位置を照合します。`Del
 
 位置の単位は既存契約と共通です。文脈のcursor/anchorはUTF-16、IBus削除のoffset/countはUnicode scalarで渡し、本文の一致はUTF-8の列で判定します。
 
-通常入口への切替と実アプリの受入は別に行います。特にUbuntu 24.04のQt 6.4.2では、同じInputContext内の欄移動でQt側の確定とIBus側のReset確定が重なる条件が見つかっており、共通preedit処理の修正と再検証が必要です。Pythonの状態遷移やCore試験だけでは、実アプリでの原文保持・Orca・VoiceOverの合格とは扱いません。
+復旧用preeditも[フォーカス変更時の共通規則](preedit-ownership.md)を使います。Qt自身の確定とIBusのReset確定を重ねないためです。Ubuntu 24.04のQt 6.4.2からGTK4へ移った際、新しいFocusInが旧FocusOutより先に届いて原文が消える条件は、通常入力でも残っています。通常入口への切替と実アプリでの原文保持・Orca・VoiceOverの受入は、Pythonの状態遷移やCore試験とは別に行います。

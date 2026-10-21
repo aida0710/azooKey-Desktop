@@ -7,6 +7,7 @@ gi.require_version("IBus", "1.0")
 from gi.repository import IBus
 
 from .native_key_reply import NativeKeyReply
+from .preedit_ownership import preedit_focus_mode
 from .reading_reconversion_input import ReadingReconversionInput
 from .reconversion import ReconversionCoordinator, surrounding_context
 from .reconversion_strings import message
@@ -78,7 +79,8 @@ class ReadingReconversionAdapter:
     def publish_recovery(self, value):
         self.engine.renderer.dismiss()
         self.engine.update_preedit_text_with_mode(
-            IBus.Text.new_from_string(value), len(value), bool(value), IBus.PreeditFocusMode.COMMIT,
+            IBus.Text.new_from_string(value), len(value), bool(value),
+            preedit_focus_mode(self.engine.focus_identity),
         )
 
     def recover(self, value):
