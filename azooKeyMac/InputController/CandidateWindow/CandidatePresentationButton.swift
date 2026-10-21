@@ -9,6 +9,9 @@ class CandidatePresentationButton: NSButton {
         didSet { needsDisplay = true }
     }
     var primary = false
+    var isFlat = false {
+        didSet { needsDisplay = true }
+    }
     override var acceptsFirstResponder: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func isAccessibilitySelected() -> Bool { selected }
@@ -44,15 +47,19 @@ class CandidatePresentationButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         let palette = CandidateTheme.palette(for: effectiveAppearance)
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8)
-        (primary || selected ? palette.selection : palette.surface).setFill()
-        shape.fill()
-        palette.border.setStroke()
-        shape.lineWidth = 1
-        shape.stroke()
-        let attributes: [NSAttributedString.Key: Any] = [
+        let usesSelectionColor = !isFlat && (primary || selected)
+        if !isFlat {
+            (usesSelectionColor ? palette.selection : palette.surface).setFill()
+            shape.fill()
+            palette.border.setStroke()
+            shape.lineWidth = 1
+            shape.stroke()
+        }
+        var attributes: [NSAttributedString.Key: Any] = [
             .font: font ?? NSFont.systemFont(ofSize: 14),
-            .foregroundColor: isEnabled ? (primary || selected ? palette.selectionText : palette.text) : palette.secondaryText
+            .foregroundColor: isEnabled ? (usesSelectionColor ? palette.selectionText : palette.text) : palette.secondaryText
         ]
+        if isFlat && selected { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
         let size = (title as NSString).size(withAttributes: attributes)
         (title as NSString).draw(at: NSPoint(x: max(8, (bounds.width - size.width) / 2),
                                             y: (bounds.height - size.height) / 2), withAttributes: attributes)

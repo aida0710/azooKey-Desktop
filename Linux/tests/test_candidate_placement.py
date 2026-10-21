@@ -95,6 +95,15 @@ class CandidatePopupPlacementTests(unittest.TestCase):
         self.document.add(self.entry)
         self.document.show_all()
         self.entry.grab_focus()
+        # These cases exercise an overflowing right entry. Missing meanings now
+        # remove that column, so use an explicit found dictionary fixture.
+        worker = SimpleNamespace(request=lambda target, completed: completed({
+            "status": "found", "word": target.word, "reading": target.reading,
+            "senses": [{"definitions": ["長い語義の配置を検査する。" * 80]}]}))
+        for name in ("word_definition_worker", "word_definition_availability_worker"):
+            replacement = patch("azookey.tree_panel." + name, return_value=worker)
+            replacement.start()
+            self.addCleanup(replacement.stop)
         self.panel = TreePanel(lambda *action: self.actions.append(action))
         self.snapshot = CandidatePresentationTests.make_snapshot()
         self.snapshot["candidatePage"]["items"] *= 3
@@ -175,9 +184,9 @@ class CandidatePopupPlacementTests(unittest.TestCase):
         self.assertIsNotNone(snapshot["wordGeometry"])
         self.assertEqual(self.panel.location, (100, 350, 0, 35))
         self.assertEqual(self.panel.caret_location, (600, 350, 0, 35))
-        # Keep both vertical regions too short for the menu. A taller Xvfb
-        # screen can correctly keep the popup aligned below.
-        area = SimpleNamespace(x=0, y=0, width=1280, height=800)
+        # Leave room for the wider two-column card on the right, while neither
+        # vertical region can hold it. This forces the caret-side fallback.
+        area = SimpleNamespace(x=0, y=200, width=1600, height=300)
         with patch.object(self.panel, "work_area", return_value=area):
             self.panel.update(snapshot)
             self.assert_visible_beside_caret(area, cursor=anchor.location)
@@ -218,6 +227,12 @@ class CandidatePopupPlacementTests(unittest.TestCase):
             confirm = self.panel.navigation.confirm
             adjustment.set_value(adjustment.get_upper() - adjustment.get_page_size())
             self.paint()
+            horizontal = self.panel.viewport.get_hadjustment()
+            if area.width == 320:
+                self.assertGreater(horizontal.get_upper(), horizontal.get_page_size())
+                x, _y = confirm.translate_coordinates(self.panel.card, 0, 0)
+                horizontal.clamp_page(x, x + confirm.get_allocated_width())
+                self.paint()
             rectangle = confirm.get_accessible().get_extents(Atk.CoordType.SCREEN)
             popup_x, popup_y = self.panel.get_position()
             width, height = self.panel.get_size()

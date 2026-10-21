@@ -23,16 +23,35 @@ final class CandidateNavigationView: NSView {
     private var fontSize: CGFloat = 18
     private var generation: UInt = 0
     private var revealSelection = false
+    private var compact = false
+    private var visibleRows = Config.CandidateVisibleRows.Value.seven
+    private var definitionAvailableIndices: Set<Int> = []
     // The list scrolls instead of hiding long candidates behind ellipses.
     private let maximumListHeight: CGFloat = 260
     private let headerHeight: CGFloat = 36
     private let hintHeight: CGFloat = 22
     private let inset: CGFloat = 8
+    // Preserve at least one complete candidate row before optional sections.
+    private let minimumRowViewportHeight: CGFloat = 44
+    private let compactInset: CGFloat = 4
     var selectedCandidateControls: [NSButton] { rows.filter(\.selected) }
+    var minimumHeight: CGFloat {
+        guard page.totalCount > 0 else {
+            return 0
+        }
+        return compact ? compactInset * 2 + compactRowHeight : headerHeight + hintHeight + minimumRowViewportHeight
+    }
+
+    private var compactRowHeight: CGFloat {
+        rows.map { $0.preferredHeight(width: bounds.width) }.max() ?? 0
+    }
 
     func preferredHeight(width: CGFloat) -> CGFloat {
         guard page.totalCount > 0 else {
             return 0
+        }
+        if compact {
+            return compactInset * 2 + CGFloat(min(visibleRows.rawValue, rows.count)) * compactRowHeight
         }
         let rowWidth = max(1, width - inset * 2)
         let contentHeight = rows.reduce(CGFloat.zero) { $0 + $1.preferredHeight(width: rowWidth) }
@@ -59,18 +78,29 @@ final class CandidateNavigationView: NSView {
         !isHidden && rows.contains { $0 === button && $0.candidateIndex == candidateIndex }
     }
 
-    func update(page: CandidatePage, numbers: [Int: String], fontSize: CGFloat, generation: UInt = 0) {
+    func setDefinitionAvailability(_ indices: Set<Int>) {
+        definitionAvailableIndices = indices
+        rows.forEach { $0.setDefinitionAvailable(indices.contains($0.candidateIndex)) }
+    }
+
+    func update(page: CandidatePage, numbers: [Int: String], fontSize: CGFloat, generation: UInt = 0, compact: Bool = false,
+                visibleRows: Config.CandidateVisibleRows.Value = .seven) {
         isHidden = page.totalCount == 0
-        guard page != self.page || numbers != self.numbers || fontSize != self.fontSize || generation != self.generation else {
+        guard page != self.page || numbers != self.numbers || fontSize != self.fontSize ||
+                generation != self.generation || compact != self.compact || visibleRows != self.visibleRows else {
             return
         }
         let rebuild = page.items != self.page.items || numbers != self.numbers ||
-            fontSize != self.fontSize || generation != self.generation
-        revealSelection = page.position != self.page.position || rebuild
+            fontSize != self.fontSize || generation != self.generation || compact != self.compact
+        revealSelection = page.position != self.page.position || rebuild || visibleRows != self.visibleRows
         self.generation = generation
         self.page = page
         self.numbers = numbers
         self.fontSize = fontSize
+        self.compact = compact
+        self.visibleRows = visibleRows
+        status.isHidden = compact
+        hint.isHidden = compact
         if rebuild { rebuildRows() }
         for (offset, button) in rows.enumerated() {
             button.selected = page.position == page.start + offset + 1
@@ -86,7 +116,8 @@ final class CandidateNavigationView: NSView {
     private func rebuildRows() {
         rows.forEach { $0.removeFromSuperview() }
         rows = page.items.map { item in
-            let button = CandidateRowButton(item: item, number: numbers[item.index], fontSize: fontSize)
+            let button = CandidateRowButton(item: item, number: numbers[item.index], fontSize: fontSize, compact: compact)
+            button.setDefinitionAvailable(definitionAvailableIndices.contains(item.index))
             button.activate = { [weak self, weak button] in
                 guard let self, let button, self.isCurrentCandidateButton(button, candidateIndex: item.index) else {
                     return
@@ -112,6 +143,8 @@ final class CandidateNavigationView: NSView {
         }
         previous = pageButton(titleKey: "candidate.previousPage", index: page.previousIndex)
         next = pageButton(titleKey: "candidate.nextPage", index: page.nextIndex)
+        previous.isHidden = compact
+        next.isHidden = compact
         addSubview(previous)
         addSubview(next)
     }
@@ -121,7 +154,7 @@ final class CandidateNavigationView: NSView {
         button.title = Localization.text(titleKey)
         button.isEnabled = index != nil
         button.activate = { [weak self, weak button] in
-            guard let self, let button, let index, !self.isHidden,
+            guard let self, let button, let index, !self.isHidden, !button.isHidden,
                   self.previous === button || self.next === button else {
                 return
             }
@@ -138,6 +171,9 @@ final class CandidateNavigationView: NSView {
 
     override func layout() {
         super.layout()
+        let selectedRow = rows.first(where: \.selected)
+        let selectedWasVisible = selectedRow.map { !$0.frame.isEmpty && scroll.documentVisibleRect.contains($0.frame) } ?? false
+        let previousViewportHeight = scroll.contentSize.height
         let pageWidth: CGFloat = 62
         let controlsWidth = pageWidth * 2 + 8
         status.frame = NSRect(x: inset, y: bounds.height - headerHeight + 8,
@@ -147,16 +183,20 @@ final class CandidateNavigationView: NSView {
         next.frame = NSRect(x: bounds.width - inset - pageWidth, y: previous.frame.minY,
                             width: pageWidth, height: 32)
         hint.frame = NSRect(x: inset + 4, y: 3, width: max(1, bounds.width - inset * 2), height: 20)
-        scroll.frame = NSRect(x: inset, y: hintHeight, width: max(1, bounds.width - inset * 2),
-                              height: max(0, bounds.height - headerHeight - hintHeight))
+        let verticalInset: CGFloat = compact ? compactInset : hintHeight
+        scroll.frame = NSRect(x: compact ? compactInset : inset, y: verticalInset,
+                              width: max(1, bounds.width - (compact ? compactInset * 2 : inset * 2)),
+                              height: max(0, bounds.height - (compact ? compactInset * 2 : headerHeight + hintHeight)))
+        let rowHeight = compact ? compactRowHeight : nil
         var y: CGFloat = 0
         for button in rows {
-            let height = button.preferredHeight(width: scroll.contentSize.width)
+            let height = rowHeight ?? button.preferredHeight(width: scroll.contentSize.width)
             button.frame = NSRect(x: 0, y: y, width: scroll.contentSize.width, height: height)
             y += height
         }
         document.frame = NSRect(x: 0, y: 0, width: scroll.contentSize.width, height: y)
-        if revealSelection, let button = rows.first(where: \.selected) {
+        // Resizing may clip a row that was fully visible, but must not undo manual scrolling away from it.
+        if revealSelection || (selectedWasVisible && scroll.contentSize.height < previousViewportHeight), let button = selectedRow {
             document.scrollToVisible(button.frame)
             revealSelection = false
         }

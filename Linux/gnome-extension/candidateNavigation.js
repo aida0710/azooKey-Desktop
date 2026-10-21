@@ -2,41 +2,68 @@ import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import St from 'gi://St';
 import {messages} from './candidateMessages.js';
-import {createWrappingLabel} from './candidateText.js';
+import {createWrappingLabel, candidateLineHeight} from './candidateText.js';
 import {attachCandidateAction} from './candidateAccessibility.js';
 
-// Reduce row whitespace while keeping a 44px target for single-line candidates.
+// A small symbolic book stays within the compact row's existing height.
+const DEFINITION_ICON_SIZE = 14;
 const ROW_VERTICAL_INSET = 5;
 const ROW_HORIZONTAL_INSET = 8;
 const MINIMUM_CONTENT_HEIGHT = 32;
+// Conversion rows follow the glyph height; the live tree keeps its own spacing.
+const COMPACT_ROW_VERTICAL_INSET = 2;
+const COMPACT_MINIMUM_CONTENT_HEIGHT = 24;
+const DEFAULT_VISIBLE_ROWS = 7;
+const VISIBLE_ROW_CHOICES = [5, 7, 9];
+const FOOTER_MINIMUM_CONTENT_HEIGHT = 20;
+const FOOTER_VERTICAL_INSET = 2;
+const FOOTER_HORIZONTAL_INSET = 6;
+const FOOTER_MINIMUM_FONT_SIZE = 12;
+const FOOTER_FONT_SIZE_REDUCTION = 6;
+// The row border is part of both the visible target and its reserved height.
+const ROW_BORDER_WIDTH = 1;
 
 export class CandidateNavigation {
-    constructor({select, changed, preview}) {
+    constructor({select, changed, preview, confirmation = null, compact = false, toggleTree = null}) {
         this._select = select;
         this._changed = changed;
         this._preview = preview;
+        this._compact = compact;
+        this._toggleTree = toggleTree;
+        this.visibleRows = DEFAULT_VISIBLE_ROWS;
         this.hoveredItem = null;
         this._hoveredButton = null;
         this.expanded = true;
         this.actor = new St.BoxLayout({vertical: true, can_focus: false});
         this._header = new St.BoxLayout();
+        this.footer = this._header;
         this._status = new St.Label({x_expand: true, y_align: Clutter.ActorAlign.CENTER});
         this._status.set_width(1);
         this._header.add_child(this._status);
         this._replaceHeaderButtons();
-        this.actor.add_child(this._header);
+        if (!compact) this.actor.add_child(this._header);
         this._hint = new St.Label({text: messages.selectHint});
+        this._hint.visible = !compact;
         this.actor.add_child(this._hint);
         this._scroll = new St.ScrollView({can_focus: false,
             hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC});
         this._rows = new St.BoxLayout({vertical: true});
         this._scroll.set_child(this._rows);
         this.actor.add_child(this._scroll);
-        this._scroll.get_vadjustment().connect('notify::page-size', () => this._revealSelection());
+        if (confirmation) this._header.add_child(confirmation);
+        if (compact) this.actor.add_child(this._header);
+        this._scroll.get_vadjustment().connect('notify::page-size', () => this._viewportChanged());
+    }
+
+    minimumRowHeight({fontSize}) {
+        const contentHeight = this._compact ? COMPACT_MINIMUM_CONTENT_HEIGHT : MINIMUM_CONTENT_HEIGHT;
+        const inset = this._compact ? COMPACT_ROW_VERTICAL_INSET : ROW_VERTICAL_INSET;
+        return Math.max(contentHeight, candidateLineHeight(fontSize, this.actor)) +
+            inset * 2 + ROW_BORDER_WIDTH * 2;
     }
 
     _replaceHeaderButtons() {
-        for (const button of [this._toggle, this._previous, this._next])
+        for (const button of [this._toggle, this._previous, this._next, this._treeToggle])
             button?.destroy();
         this._toggle = this._button(() => {
             this.expanded = !this.expanded;
@@ -45,7 +72,10 @@ export class CandidateNavigation {
         });
         this._previous = this._button(button => this._selectPage(button));
         this._next = this._button(button => this._selectPage(button));
-        for (const button of [this._toggle, this._previous, this._next]) this._header.add_child(button);
+        this._treeToggle = this._button(button => {
+            if (button === this._treeToggle && button.is_mapped()) this._toggleTree?.();
+        });
+        for (const button of [this._toggle, this._previous, this._next, this._treeToggle]) this._header.add_child(button);
     }
 
     _selectPage(button) {
@@ -70,7 +100,11 @@ export class CandidateNavigation {
         return button;
     }
 
-    update(snapshot, {fontSize, listHeight, width = 400, palette}) {
+    update(snapshot, {fontSize, listHeight, width = 400, palette, showsDefinition = true, treeExpanded = false}) {
+        this._fontSize = fontSize;
+        this.visibleRows = Number.isInteger(snapshot.candidateVisibleRows) &&
+            VISIBLE_ROW_CHOICES.includes(snapshot.candidateVisibleRows) ? snapshot.candidateVisibleRows : DEFAULT_VISIBLE_ROWS;
+        // The word-flow control must remain available when no dictionary card exists.
         const page = snapshot.candidatePage;
         this.actor.visible = (page?.totalCount ?? 0) > 0;
         if (!this.actor.visible) {
@@ -87,15 +121,21 @@ export class CandidateNavigation {
         }
         const action = (index, submit) => new GLib.Variant('(sibis)',
             ['select', index, submit, snapshot.generation, snapshot.contextId]);
-        this._status.text = messages.position(page.position ?? '—', page.totalCount);
+        this._status.text = (this._compact ? messages.compactPosition : messages.position)(page.position ?? '—', page.totalCount);
         this._toggle.label = this.expanded ? messages.closeList : messages.openList;
+        // A compact conversion list stays open; its footer only pages and commits.
+        this._toggle.visible = !this._compact;
+        this._treeToggle.visible = this._compact && !showsDefinition && (snapshot.columns?.length ?? 0) > 1;
+        this._treeToggle.label = treeExpanded ? messages.closeTree : messages.openTree;
+
         for (const [button, index, label] of [
             [this._previous, page.previousIndex, messages.previousPage],
             [this._next, page.nextIndex, messages.nextPage]]) {
-            button.label = label;
+            button.label = this._compact ? (button === this._previous ? messages.previousPageSymbol : messages.nextPageSymbol) : label;
             button.reactive = index !== null && index !== undefined;
             button._selection = button.reactive ? action(index, false) : null;
             button.visible = this.expanded;
+            button.accessible_name = label;
         }
         const pageIdentity = JSON.stringify([page.items, snapshot.contextId, snapshot.showCandidateIndex, fontSize]);
         const identity = JSON.stringify([pageIdentity, actionIdentity]);
@@ -123,6 +163,10 @@ export class CandidateNavigation {
                 button._candidateLabel = label;
                 button.connect('notify::allocation', () => this._revealSelection());
                 row.add_child(label);
+                button._definitionIcon = new St.Icon({icon_name: 'accessories-dictionary-symbolic',
+                    icon_size: DEFINITION_ICON_SIZE, accessible_name: messages.definitionTitle,
+                    y_align: Clutter.ActorAlign.CENTER, reactive: false, can_focus: false});
+                row.add_child(button._definitionIcon);
                 button._selectionMark = new St.Label({text: '', y_align: Clutter.ActorAlign.START});
                 button._selectionMark.set_width(24);
                 row.add_child(button._selectionMark);
@@ -147,32 +191,63 @@ export class CandidateNavigation {
         for (const [offset, button] of this._rows.get_children().entries()) {
             const item = page.items[offset];
             button._selection = action(item.index, false);
-            button._candidateLabel.set_width(Math.max(1, width - (snapshot.showCandidateIndex ? 84 : 52)));
+            button._definitionIcon.visible = this._compact && (this.definitionIndices?.has(item.index) ?? false);
+            button.get_accessible().accessible_description = [messages.select, item.detailDescription,
+                button._definitionIcon.visible ? messages.definitionTitle : null].filter(Boolean).join('\n');
+            const definitionIconWidth = button._definitionIcon.visible ? DEFINITION_ICON_SIZE : 0;
+            button._candidateLabel.set_width(Math.max(1, width - (snapshot.showCandidateIndex ? 84 : 52) - definitionIconWidth));
             const selected = item.index === snapshot.selection;
             button.set_checked(selected);
             button._selectionMark.text = selected ? '✓' : '';
             button.accessible_name = [item.text, item.reading, selected ? messages.selected : null].filter(Boolean).join('\n');
         }
-        const revealIdentity = JSON.stringify([snapshot.contextId, page.start, snapshot.selection]);
+        const revealIdentity = JSON.stringify([
+            snapshot.contextId, page.start, snapshot.selection, this.visibleRows, fontSize, width,
+        ]);
         if (revealIdentity !== this._revealIdentity) {
             this._revealIdentity = revealIdentity;
             this._revealPending = true;
         }
         this._hint.set_style(`font-size: ${Math.max(12, fontSize - 4)}px; padding: 3px 8px;`);
         if (palette) this.applyPalette(palette);
-        const height = Math.min(listHeight, this._rows.get_preferred_height(width)[1]);
+        // St can report a taller natural height than its allocated minimum.
+        // Use the shortest minimum so short words do not expose an extra row.
+        const visibleRowsHeight = this._compact ? Math.min(...this._rows.get_children()
+            .map(row => row.get_preferred_height(width)[0])) * this.visibleRows : Infinity;
+        const height = Math.min(listHeight, visibleRowsHeight, this._rows.get_preferred_height(width)[1]);
         this._scroll.height = height;
         this._scroll.visible = this.expanded;
         this._revealSelection();
-        return this._header.get_preferred_height(width)[1] + this._hint.get_preferred_height(width)[1] +
+        return this._header.get_preferred_height(width)[1] +
+            (this._hint.visible ? this._hint.get_preferred_height(width)[1] : 0) +
             (this.expanded ? height : 0);
+    }
+
+    _viewportChanged() {
+        const adjustment = this._scroll.get_vadjustment();
+        const previousHeight = this._viewportHeight ?? adjustment.page_size;
+        this._viewportHeight = adjustment.page_size;
+        const selected = this._rows.get_children().find(button => button.checked);
+        // A smaller viewport must not hide a visible selection. Browsing away
+        // from it deliberately keeps the user's scroll position instead.
+        if (selected && adjustment.page_size < previousHeight && selected.y >= adjustment.value &&
+            selected.y + selected.height <= adjustment.value + previousHeight)
+            this._revealPending = true;
+        this._revealSelection();
     }
 
     _revealSelection() {
         if (!this.expanded || !this._revealPending) return;
-        const selected = this._rows.get_children().find(button => button.checked);
+        const rows = this._rows.get_children();
+        const selectedOffset = rows.findIndex(button => button.checked);
+        const selected = rows[selectedOffset];
+        const previous = rows[selectedOffset - 1];
         const adjustment = this._scroll.get_vadjustment();
         if (!selected || !(selected.height > 0) || !(adjustment.page_size > 0)) return;
+        // Natural row sizes can arrive before their final positions and viewport.
+        // Keep the request for the allocation/page-size notifications that follow.
+        if (Math.round(adjustment.page_size) !== Math.round(this._scroll.height) ||
+            previous && (!(previous.height > 0) || selected.y < previous.y + previous.height)) return;
         let offset = adjustment.value;
         if (selected.y < offset || selected.height > adjustment.page_size) offset = selected.y;
         else if (selected.y + selected.height > offset + adjustment.page_size)
@@ -194,7 +269,7 @@ export class CandidateNavigation {
 
     retire({preserveViewport = false} = {}) {
         this._clearPreview();
-        for (const button of [this._toggle, this._previous, this._next]) button?.destroy();
+        for (const button of [this._toggle, this._previous, this._next, this._treeToggle]) button?.destroy();
         this._toggle = this._previous = this._next = null;
         this._actionIdentity = null;
         this._identity = null;
@@ -214,14 +289,23 @@ export class CandidateNavigation {
 
     applyPalette(palette) {
         this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text};`);
-        for (const button of [this._toggle, this._previous, this._next, ...this._rows.get_children()].filter(Boolean)) {
+        for (const button of [this._toggle, this._previous, this._next, this._treeToggle, ...this._rows.get_children()].filter(Boolean)) {
+            const isPlainRow = this._compact && button.get_parent() === this._rows;
+            if (this._compact && !isPlainRow) {
+                button.set_style(`background-color: transparent; color: ${palette.text};
+                    background-gradient-direction: none; box-shadow: none; border: 0; border-radius: 0;
+                    padding: ${FOOTER_VERTICAL_INSET}px ${FOOTER_HORIZONTAL_INSET}px; min-height: ${FOOTER_MINIMUM_CONTENT_HEIGHT}px;
+                    min-width: 0; font-size: ${Math.max(FOOTER_MINIMUM_FONT_SIZE, this._fontSize - FOOTER_FONT_SIZE_REDUCTION)}px;`);
+                continue;
+            }
             const foreground = button.checked ? palette.selectionText : palette.text;
-            const background = button.checked ? palette.selection : palette.surface;
+            const background = button.checked ? palette.selection : isPlainRow ? 'transparent' : palette.surface;
+            const borderColor = button.checked ? palette.text : isPlainRow ? 'transparent' : palette.border;
             button.set_style(`background-color: ${background}; color: ${foreground};
                 background-gradient-direction: none; box-shadow: none;
-                border: 1px solid ${button.checked ? palette.text : palette.border}; border-radius: 8px;
-                padding: ${ROW_VERTICAL_INSET}px ${ROW_HORIZONTAL_INSET}px;
-                min-height: ${MINIMUM_CONTENT_HEIGHT}px; min-width: 0;`);
+                border: ${ROW_BORDER_WIDTH}px solid ${borderColor}; border-radius: ${isPlainRow ? 4 : 8}px;
+                padding: ${isPlainRow ? COMPACT_ROW_VERTICAL_INSET : ROW_VERTICAL_INSET}px ${ROW_HORIZONTAL_INSET}px;
+                min-height: ${isPlainRow ? COMPACT_MINIMUM_CONTENT_HEIGHT : MINIMUM_CONTENT_HEIGHT}px; min-width: 0;`);
         }
     }
 }

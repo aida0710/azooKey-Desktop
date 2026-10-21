@@ -9,7 +9,8 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {CandidateDetail} from './candidateDetail.js';
 import {CandidateComposition} from './candidateComposition.js';
 import {messages} from './candidateMessages.js';
-import {candidatePlacement} from './candidatePlacement.js';
+import {candidatePlacement, candidateAvailableHeight} from './candidatePlacement.js';
+import {candidateColumns} from './candidateColumns.js';
 import {ShellCursor} from './shellCursor.js';
 import {LayoutDiagnostics} from './layoutDiagnostics.js';
 import {CandidateNavigation} from './candidateNavigation.js';
@@ -21,28 +22,60 @@ const NAME = 'org.azookey.Tree';
 const PATH = '/org/azookey/Tree';
 const CANDIDATE_ROW_GAP = 4; // Separate actions even when the score line is hidden.
 const MINIMUM_NODE_HEIGHT = 44; // A number badge shares the word's pointer/AT target.
+// Up to nine bounded local queries run sequentially, outside input handling.
+const DEFINITION_AVAILABILITY_TIMEOUT_MILLISECONDS = 8000;
+const DEFINITION_TIMEOUT_MILLISECONDS = 5000; // A dictionary result may fail without delaying input.
 const NODE_BORDER_WIDTH = 2; // Reserve both borders outside the measured label heights.
 // Bound each scrollable section so the source document remains visible around the card.
-const CARD_LAYOUT = {minimumWidth: 360, maximumWidth: 560, lineCharacters: 26,
-    compositionFraction: 0.26, detailsFraction: 0.14, treeFraction: 0.35, listFraction: 0.45};
+const CARD_LAYOUT = {maximumWidth: 560, compositionFraction: 0.26, treeFraction: 0.35};
+// The popup border is outside its children, including the horizontal viewport.
+const CARD_BORDER_WIDTH = 1;
+const COMPACT_MENU = {summaryHeight: 180, fullHeight: 320};
 
 export default class AzooKeyTreeExtension extends Extension {
     enable() {
         this._buttons = new Map();
+        this._definitionEpoch = 0;
+        this._definitionKey = null;
+        this._retainedDefinition = null;
         this._hoveredAction = null;
         this._treeExpanded = false;
         this._presentationMode = null;
-        this._popup = new St.BoxLayout({vertical: true, can_focus: false});
+        this._popup = new St.BoxLayout({vertical: true, can_focus: false, reactive: true, track_hover: true});
+        this._popup.connect('notify::hover', () => {
+            if (!this._popup.hover) {
+                this._dictionaryHoverTarget = null;
+                if (this._popup.visible) this._refreshDetails();
+            }
+        });
+        this._cardScroll = new St.ScrollView({can_focus: false, reactive: true,
+            hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            overlay_scrollbars: true});
+        this._card = new St.BoxLayout({vertical: true, can_focus: false});
+        this._cardScroll.set_child(this._card);
+        this._popup.add_child(this._cardScroll);
         this._announcements = new CandidateAnnouncements(announcement =>
             this._popup.get_accessible().emit('notification', announcement, Atk.Live.POLITE));
         this._composition = new CandidateComposition(selection => this._call('Select', selection));
-        this._popup.add_child(this._composition.actor);
         this._navigation = new CandidateNavigation({
             select: selection => { if (selection) this._call('Select', selection); },
             changed: () => { if (this._lastSnapshot) this._render(this._lastSnapshot); },
             preview: () => this._refreshDetails(),
+            confirmation: this._composition.actor,
+            compact: true,
+            toggleTree: () => {
+                this._treeExpanded = !this._treeExpanded;
+                if (this._lastSnapshot) this._render(this._lastSnapshot);
+            },
         });
-        this._popup.add_child(this._navigation.actor);
+        this._columnsScroll = new St.ScrollView({can_focus: false, reactive: true,
+            hscrollbar_policy: St.PolicyType.AUTOMATIC, vscrollbar_policy: St.PolicyType.NEVER});
+        this._columns = new St.BoxLayout({can_focus: false});
+        this._candidateColumn = new St.BoxLayout({vertical: true, can_focus: false});
+        this._columns.add_child(this._candidateColumn);
+        this._columnsScroll.set_child(this._columns);
+        this._card.add_child(this._columnsScroll);
+        this._candidateColumn.add_child(this._navigation.actor);
         this._treeScroll = new St.ScrollView({
             reactive: true, can_focus: false,
             hscrollbar_policy: St.PolicyType.AUTOMATIC,
@@ -53,7 +86,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._canvas = new St.Widget({layout_manager: new Clutter.FixedLayout()});
         this._content.add_child(this._canvas);
         this._treeScroll.set_child(this._content);
-        this._popup.add_child(this._treeScroll);
+        this._candidateColumn.add_child(this._treeScroll);
         this._details = new CandidateDetail({
             changed: () => { if (this._lastSnapshot) this._render(this._lastSnapshot); },
             toggleTree: () => {
@@ -61,7 +94,7 @@ export default class AzooKeyTreeExtension extends Extension {
                 if (this._lastSnapshot) this._render(this._lastSnapshot);
             },
         });
-        this._popup.add_child(this._details.actor);
+        this._columns.add_child(this._details.actor);
         this._interfaceSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
         this._theme = new CandidateTheme(() => {
             if (this._popup.visible && this._lastSnapshot) this._render(this._lastSnapshot);
@@ -103,7 +136,9 @@ export default class AzooKeyTreeExtension extends Extension {
     }
 
     _hideCandidates() {
+        this._clearWordDefinitions();
         this._hoveredAction = null;
+        this._dictionaryHoverTarget = null;
         this._candidateIdentity = null;
         this._announcements.reset();
         this._popup.hide();
@@ -127,11 +162,13 @@ export default class AzooKeyTreeExtension extends Extension {
     }
 
     _suspendCandidates() {
+        this._clearWordDefinitions({preserveDefinition: true});
         // Keep only presentation preferences. No old action survives the pending interval.
         this._popup.hide();
         this._lastSnapshot = null;
         this._detailState = null;
         this._hoveredAction = null;
+        this._dictionaryHoverTarget = null;
         this._navigation.retire({preserveViewport: true});
         this._details.retire();
         this._composition.retire();
@@ -150,8 +187,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._lastSnapshot = data;
         const anchor = this._cursor.anchor(data.location);
         const palette = this._theme.palette;
-        this._popup.set_style(`background-color: ${palette.background}; color: ${palette.text};
-            border: 1px solid ${palette.border}; border-radius: 12px;`);
+        this._popup.set_style('background-color: transparent; border: none; box-shadow: none;');
         this._canvas.set_style(`background-color: ${palette.background};`);
         this._details.applyPalette(palette);
         const nodes = data.nodes ?? [];
@@ -161,6 +197,8 @@ export default class AzooKeyTreeExtension extends Extension {
         const candidateIdentity = JSON.stringify([data.contextId, data.reading, data.candidates,
             nodes.map(({relativeScore, scorePresentation, preview, previewDescription, ...node}) => node)]);
         if (candidateIdentity !== this._candidateIdentity || presentationMode !== this._presentationMode) {
+            this._columnsScroll.get_hadjustment().value = 0;
+            this._cardScroll.get_vadjustment().value = 0;
             this._navigation.reset();
             this._details.reset();
             this._composition.retire();
@@ -173,6 +211,7 @@ export default class AzooKeyTreeExtension extends Extension {
         const actionIdentity = JSON.stringify([candidateIdentity, data.generation, data.selection, data.focusedNode,
             presentationMode, this._treeExpanded]);
         if (actionIdentity !== this._actionIdentity) {
+            this._dictionaryHoverTarget = null;
             this._clearButtons();
             this._actionIdentity = actionIdentity;
         }
@@ -397,66 +436,205 @@ export default class AzooKeyTreeExtension extends Extension {
     _layoutCard(data, {bounds, fontSize, treeContentWidth, treeContentHeight, nodes, actionIdentity, location, palette}) {
         const isMenu = this._presentationMode === 'menu';
         for (const actor of [this._composition.actor, this._navigation.actor, this._details.actor]) actor.visible = isMenu;
+        this._candidateColumn.set_style(`background-color: ${palette.background}; color: ${palette.text};
+            border: ${CARD_BORDER_WIDTH}px solid ${palette.border}; border-radius: 8px;`);
         if (!isMenu) {
+            this._clearWordDefinitions();
             this._detailState = null;
             const treeWidth = Math.min(bounds.width, treeContentWidth, CARD_LAYOUT.maximumWidth);
             const treeHeight = Math.min(treeContentHeight, bounds.height * CARD_LAYOUT.treeFraction);
             this._treeScroll.show();
             const placement = candidatePlacement({cursor: location, bounds, contentWidth: treeWidth,
                 contentHeight: treeHeight, detailHeight: 0, aligned: false, preferredSide: this._placementSide});
-            this._treeScroll.set_size(placement.width, placement.treeHeight);
+            this._columns.set_style('spacing: 0;');
+            this._columnsScroll.hscrollbar_policy = St.PolicyType.NEVER;
+            this._candidateColumn.set_size(placement.width, placement.treeHeight);
+            this._columns.set_size(placement.width, placement.treeHeight);
+            this._columnsScroll.set_size(placement.width, placement.treeHeight);
+            this._treeScroll.set_size(Math.max(0, placement.width - CARD_BORDER_WIDTH * 2),
+                Math.max(0, placement.treeHeight - CARD_BORDER_WIDTH * 2));
+            this._card.set_size(placement.width, placement.treeHeight);
+            this._cardScroll.set_size(placement.width, placement.treeHeight);
             this._popup.set_size(placement.width, placement.height);
             return placement;
         }
-        // Three independently scrollable regions keep long sentences and enlarged text reachable.
-        const popupWidth = Math.min(bounds.width, Math.max(CARD_LAYOUT.minimumWidth,
-            Math.min(CARD_LAYOUT.maximumWidth, fontSize * CARD_LAYOUT.lineCharacters)));
-        const compositionHeight = this._composition.update(data,
-            {fontSize, width: popupWidth, maximumHeight: bounds.height * CARD_LAYOUT.compositionFraction, palette});
         this._detailState = {nodes, showScores: data.showRelativeScores};
-        const navigationMinimum = this._navigation.update(data,
-            {fontSize, width: popupWidth, listHeight: 1, palette});
         this._refreshDetails();
-        const detailHeight = this._details.layout({identity: actionIdentity, treeExpanded: this._treeExpanded,
-            fontSize, width: popupWidth, maximumHeight: bounds.height * CARD_LAYOUT.detailsFraction});
-        const available = Math.max(1, bounds.height - compositionHeight - detailHeight - navigationMinimum - 2);
-        const treeHeight = this._treeExpanded ? Math.min(treeContentHeight, available * CARD_LAYOUT.treeFraction) : 0;
-        const navigationHeight = this._navigation.update(data,
-            {fontSize, width: popupWidth, listHeight: Math.min(available - treeHeight, bounds.height * CARD_LAYOUT.listFraction), palette});
-        this._navigation.actor.set_size(popupWidth, navigationHeight);
+        const showsDefinition = this._details.hasDefinition;
+        this._details.actor.visible = showsDefinition;
+        this._lookupDefinitionAvailability(data);
+        this._navigation.definitionIndices = this._definitionAvailableIndices ?? new Set();
+        const columns = candidateColumns({availableWidth: Math.max(1, bounds.width - CARD_BORDER_WIDTH * 2),
+            fontSize, showsDefinition});
+        const candidateInnerWidth = columns.candidateWidth - CARD_BORDER_WIDTH * 2;
+        const availableHeight = candidateAvailableHeight({cursor: location, bounds});
+        this._columns.set_style(`spacing: ${columns.gap}px;`);
+        // A partial commit still needs its remaining reading. Full candidates
+        // use only the footer action because the document shows their text.
+        const hasRemaining = Boolean(data.candidates?.find(item => item.index === data.selection)?.commitScope?.remainingReading);
+        const compositionParent = hasRemaining ? this._candidateColumn : this._navigation.footer;
+        if (this._composition.actor.get_parent() !== compositionParent) {
+            this._composition.actor.get_parent()?.remove_child(this._composition.actor);
+            if (hasRemaining) compositionParent.insert_child_at_index(this._composition.actor, 0);
+            else compositionParent.add_child(this._composition.actor);
+        }
+        const compositionHeight = this._composition.update(data, {fontSize, width: candidateInnerWidth,
+            maximumHeight: availableHeight * CARD_LAYOUT.compositionFraction, palette, compact: !hasRemaining});
+        const proposalHeight = hasRemaining ? compositionHeight : 0;
+        const overflowsHorizontally = columns.contentWidth > columns.viewportWidth;
+        // Theme minimum widths can otherwise add a redundant horizontal bar to
+        // a fully visible pair. Only genuinely narrow work areas scroll sideways.
+        this._columnsScroll.hscrollbar_policy = overflowsHorizontally ? St.PolicyType.AUTOMATIC : St.PolicyType.NEVER;
+        const scrollbarHeight = overflowsHorizontally ?
+            Math.ceil(this._columnsScroll.get_hscroll_bar().get_preferred_height(columns.viewportWidth)[1]) : 0;
+        const bodyAvailable = Math.max(0, Math.floor(availableHeight -
+            CARD_BORDER_WIDTH * 2 - scrollbarHeight - 1));
+        this._detailState = {nodes, showScores: data.showRelativeScores};
+        const navigationMinimum = Math.ceil(this._navigation.update(data,
+            {fontSize, width: candidateInnerWidth, listHeight: 0, palette, showsDefinition, treeExpanded: this._treeExpanded}));
+        this._refreshDetails();
+        const detailHeight = showsDefinition ? this._details.layout({identity: actionIdentity, treeExpanded: this._treeExpanded,
+            allowTree: (data.columns?.length ?? 0) > 1,
+            fontSize, width: columns.definitionWidth,
+            maximumHeight: Math.min(bodyAvailable, this._details.expanded ? COMPACT_MENU.fullHeight : COMPACT_MENU.summaryHeight)}) : 0;
+        const rowMinimum = this._navigation.expanded ? this._navigation.minimumRowHeight({fontSize}) : 0;
+        const bodyBudget = Math.max(bodyAvailable, navigationMinimum + rowMinimum);
+        const available = Math.max(0, bodyBudget - navigationMinimum - proposalHeight);
+        const treeHeight = this._treeExpanded ? Math.floor(Math.min(treeContentHeight,
+            Math.max(0, available - rowMinimum) * CARD_LAYOUT.treeFraction)) : 0;
+        const navigationHeight = Math.ceil(this._navigation.update(data,
+            {fontSize, width: candidateInnerWidth,
+                listHeight: Math.max(rowMinimum, Math.min(available - treeHeight,
+                    rowMinimum * this._navigation.visibleRows)), palette, showsDefinition, treeExpanded: this._treeExpanded}));
+        this._navigation.actor.set_size(candidateInnerWidth, navigationHeight);
+        const candidateHeight = proposalHeight + navigationHeight + treeHeight + CARD_BORDER_WIDTH * 2;
+        const bodyHeight = Math.max(candidateHeight, detailHeight);
+        this._candidateColumn.set_size(columns.candidateWidth, candidateHeight);
+        this._candidateColumn.y_align = Clutter.ActorAlign.START;
+        this._details.actor.y_align = Clutter.ActorAlign.START;
+        this._columns.set_size(columns.contentWidth, bodyHeight);
+        this._columnsScroll.set_size(columns.viewportWidth, bodyHeight + scrollbarHeight);
+        const cardHeight = bodyHeight + scrollbarHeight;
+        this._card.set_size(columns.viewportWidth, cardHeight);
+        // Fixed controls and at least one readable row keep their natural size.
+        // A very short caret-side region scrolls the whole card to reach them.
+        const viewportHeight = Math.min(cardHeight, Math.max(0, availableHeight - CARD_BORDER_WIDTH * 2));
+        this._cardScroll.set_size(columns.viewportWidth, viewportHeight);
+        this._cardScroll.vscrollbar_policy = cardHeight > viewportHeight ? St.PolicyType.AUTOMATIC : St.PolicyType.NEVER;
         const placement = candidatePlacement({cursor: location, bounds,
-            contentWidth: popupWidth, contentHeight: treeHeight,
-            detailHeight: compositionHeight + navigationHeight + detailHeight, aligned: false,
-            preferredSide: this._placementSide});
+            contentWidth: columns.viewportWidth + CARD_BORDER_WIDTH * 2,
+            maximumWidth: columns.viewportWidth + CARD_BORDER_WIDTH * 2,
+            contentHeight: 0, detailHeight: viewportHeight + CARD_BORDER_WIDTH * 2,
+            aligned: false, preferredSide: this._placementSide});
         this._treeScroll.visible = this._treeExpanded;
-        this._treeScroll.set_size(popupWidth, treeHeight);
-        this._popup.set_size(popupWidth, placement.height);
+        this._treeScroll.set_size(candidateInnerWidth, treeHeight);
+        this._popup.set_size(placement.width, placement.height);
         return placement;
     }
 
     _showDetails(nodeID) {
         const state = this._detailState;
         const node = state?.nodes.get(nodeID);
-        if (!node) return;
+        if (!node) { this._clearWordDefinitions(); return; }
+        this._lookupWordDefinitions('node', nodeID);
         const scoreDescription = state.showScores ? node.scorePresentation?.detailDescription : null;
         const text = [node.text, node.reading, node.previewDescription, scoreDescription, messages.detailKeys].filter(Boolean).join('\n');
         this._details.update({text});
     }
 
+    _clearWordDefinitions({preserveDefinition = false} = {}) {
+        this._definitionEpoch++;
+        this._definitionKey = null;
+        if (!preserveDefinition) {
+            this._retainedDefinition = null;
+            this._definitionAvailabilityKey = null;
+            this._definitionAvailabilityRequest = null;
+            this._definitionAvailableIndices = new Set();
+        }
+        this._details?.setWordDefinitions(null);
+    }
+
+    _lookupWordDefinitions(kind, index) {
+        const data = this._lastSnapshot;
+        if (!data || this._presentationMode !== 'menu' || !Number.isInteger(index)) {
+            this._clearWordDefinitions();
+            return;
+        }
+        const key = JSON.stringify([data.contextId, data.generation, kind, index]);
+        if (key === this._definitionKey) return;
+        this._definitionKey = key;
+        const epoch = ++this._definitionEpoch;
+        // A pending generation of the identical word must not collapse its full
+        // card and clamp the reader's scroll position before the cached reply.
+        const displayKey = JSON.stringify([data.contextId, this._candidateIdentity, kind, index]);
+        this._details.setWordDefinitions(this._retainedDefinition?.key === displayKey ?
+            this._retainedDefinition.response : {status: 'loading'});
+        Gio.DBus.session.call(NAME, PATH, NAME, 'LookupWordDefinitions',
+            new GLib.Variant('(sisi)', [data.contextId, data.generation, kind, index]), null,
+            Gio.DBusCallFlags.NONE, DEFINITION_TIMEOUT_MILLISECONDS, null, (connection, result) => {
+                let response;
+                try { response = JSON.parse(connection.call_finish(result).deepUnpack()[0]); }
+                catch { response = {status: 'error'}; }
+                if (epoch !== this._definitionEpoch || key !== this._definitionKey || !this._lastSnapshot || !this._popup.visible)
+                    return;
+                this._retainedDefinition = ['found', 'notFound'].includes(response.status) ? {key: displayKey, response} : null;
+                this._details.setWordDefinitions(response);
+                // Data remains outside the candidate snapshot and its action identity.
+                this._render(this._lastSnapshot);
+            });
+    }
+
+    _lookupDefinitionAvailability(data) {
+        const key = JSON.stringify([data.contextId, data.generation, data.focusedNode, data.candidatePage?.items]);
+        if (this._definitionAvailabilityKey === key) return;
+        this._definitionAvailabilityKey = key;
+        const request = {};
+        this._definitionAvailabilityRequest = request;
+        this._definitionAvailableIndices = new Set();
+        Gio.DBus.session.call(NAME, PATH, NAME, 'LookupWordDefinitionAvailability',
+            new GLib.Variant('(si)', [data.contextId, data.generation]), null,
+            Gio.DBusCallFlags.NONE, DEFINITION_AVAILABILITY_TIMEOUT_MILLISECONDS, null, (connection, result) => {
+                let indices;
+                try { indices = JSON.parse(connection.call_finish(result).deepUnpack()[0]); }
+                catch { return; }
+                if (this._definitionAvailabilityRequest !== request || this._definitionAvailabilityKey !== key || !this._lastSnapshot || !this._popup.visible ||
+                    this._presentationMode !== 'menu') return;
+                const pageIndices = new Set((data.candidatePage?.items ?? []).map(item => item.index));
+                this._definitionAvailableIndices = new Set(Array.isArray(indices) ? indices.filter(
+                    index => Number.isInteger(index) && pageIndices.has(index)) : []);
+                this._render(this._lastSnapshot);
+            });
+    }
+
     _refreshDetails() {
         if (!this._detailState) return;
+        if (this._dictionaryHoverTarget?.kind === 'candidate' && !this._navigation.expanded ||
+            this._dictionaryHoverTarget?.kind === 'node' && !this._treeExpanded)
+            this._dictionaryHoverTarget = null;
         const item = this._navigation.expanded ? this._navigation.hoveredItem : null;
+        let inspected = null;
         if (item) {
-            this._details.update({text: item.detailDescription});
-            return;
+            this._dictionaryHoverTarget = {kind: 'candidate', index: item.index, text: item.detailDescription};
+            inspected = this._dictionaryHoverTarget;
+        } else {
+            const target = this._hoveredAction;
+            if (target && this._buttons.has(target.identity)) {
+                this._dictionaryHoverTarget = {kind: 'node', index: target.index};
+                inspected = this._dictionaryHoverTarget;
+            }
         }
-        const target = this._hoveredAction;
-        if (target && this._buttons.has(target.identity)) {
-            this._showDetails(target.index);
-            return;
+        // Moving from a candidate into its right-hand definition stays within the
+        // same popup. A keyboard selection, new generation or popup exit retires it.
+        inspected ??= this._popup.hover ? this._dictionaryHoverTarget : null;
+        if (inspected?.kind === 'candidate') {
+            this._lookupWordDefinitions('candidate', inspected.index);
+            this._details.update({text: inspected.text});
+        } else if (inspected) {
+            this._showDetails(inspected.index);
+        } else {
+            const snapshot = this._lastSnapshot;
+            this._showDetails(snapshot?.focusedNode ?? snapshot?.columns?.[0]?.[0]);
         }
-        const snapshot = this._lastSnapshot;
-        this._showDetails(snapshot?.focusedNode ?? snapshot?.columns?.[0]?.[0]);
     }
 
     disable() {

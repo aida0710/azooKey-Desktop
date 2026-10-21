@@ -7,6 +7,7 @@ from .labeled_controls import label_control
 from .learning_settings import learning_choices
 from .prompts import shortcut_text
 from .support_page import SupportPage
+from .candidate_layout_preferences import DEFAULT_VISIBLE_CANDIDATE_ROWS, VISIBLE_CANDIDATE_ROWS
 
 
 def populate_settings_pages(window, book):
@@ -40,6 +41,9 @@ def populate_conversion_page(window, parent):
     add_checkboxes(window, parent, [("tree", "木構造の候補ウィンドウ"), ("live", "ライブ変換")])
     window.combo(parent, "candidateTextSize", label=message("candidate.textSize"),
                  choices=[("standard", message("candidate.textSize.standard")), ("large", message("candidate.textSize.large"))])
+    window.values.setdefault("candidateVisibleRows", DEFAULT_VISIBLE_CANDIDATE_ROWS)
+    window.combo(parent, "candidateVisibleRows", label=message("candidate.visibleRows"),
+                 choices=[(count, message("candidate.visibleRows.count", count=count)) for count in VISIBLE_CANDIDATE_ROWS])
     add_checkboxes(window, parent, [("showRelativeScores", message("candidate.score.show"))])
     parent.pack_start(Gtk.Label(label=message("candidate.score.explanation"), xalign=0, wrap=True), False, False, 0)
     window.entry(parent, "inferenceLimit", "推論回数 (1–100)")

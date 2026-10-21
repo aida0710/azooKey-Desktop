@@ -8,11 +8,13 @@ VERSION="${1:?Pass MAJOR.MINOR.PATCH}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 2
 [[ "${AZOOKEY_CPU_TRAIT:-0}" == 1 ]] || { echo 'Use the Zenzai CPU image.' >&2; exit 2; }
 MODEL_DIR="${AZOOKEY_RESOURCES:?Verified model directory is required}"
+WORDNET_DIR="${AZOOKEY_WORDNET_RESOURCES:-$PWD/build/wordnet}"
+python3 Tools/fetch-wordnet.py --verify-only --output-dir "$WORDNET_DIR"
 ARCH="$(dpkg --print-architecture)"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 DEST="$STAGE/opt/azookey-tree"
-mkdir -p "$DEST/libexec" "$DEST/models" "$STAGE/usr/bin" "$STAGE/usr/share/ibus/component" \
+mkdir -p "$DEST/libexec" "$DEST/models" "$DEST/dictionaries" "$STAGE/usr/bin" "$STAGE/usr/share/ibus/component" \
     "$STAGE/usr/share/applications" "$STAGE/usr/share/gnome-shell/extensions" "$STAGE/DEBIAN"
 swift build --package-path Core --configuration release --product azookey-desktop-bridge \
     --jobs 4 --traits ZenzaiCPU -Xlinker -L/opt/azookey/lib -Xlinker -lggml \
@@ -25,6 +27,8 @@ cp -a /usr/lib/swift/linux/*.so* /opt/azookey/lib/*.so* "$DEST/libexec/"
 cp -a Linux/azookey Linux/ibus-azookey-tree.py "$DEST/"
 find "$DEST" -type d -name __pycache__ -exec rm -rf '{}' +
 cp -a "$MODEL_DIR/." "$DEST/models/"
+cp "$WORDNET_DIR/wnjpn.db" "$WORDNET_DIR/source.json" \
+    "$WORDNET_DIR/japanese-wordnet.txt" "$WORDNET_DIR/princeton-wordnet-3.0.txt" "$DEST/dictionaries/"
 cp -a Linux/gnome-extension "$STAGE/usr/share/gnome-shell/extensions/azookey-tree@aida0710"
 cat > "$STAGE/usr/bin/ibus-azookey-tree" <<'LAUNCH'
 #!/bin/sh

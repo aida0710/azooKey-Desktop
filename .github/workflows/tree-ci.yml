@@ -37,7 +37,11 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Check offline dictionary preparation
+        run: python3 Tools/tests/test-fetch-wordnet.py
       - run: bash Tools/test-docker.sh
+      - name: Check dictionary lookup and candidate surfaces
+        run: bash Tools/test-docker.sh bash Tools/tests/linux-word-definitions.sh
       - name: Fetch pinned model pointers without LFS installation
         env:
           GIT_LFS_SKIP_SMUDGE: '1'
@@ -57,8 +61,21 @@ jobs:
       - run: bash Tools/tests/test-docker-preflight.sh
       - run: bash Tools/test-tree-model.sh
       - run: swift test --package-path Core
+      - name: Check candidate word definitions
+        run: bash Tools/test-macos-app.sh test --filter WordDefinitions --jobs 4
+      - name: Check compact candidate navigation
+        run: bash Tools/test-macos-app.sh test --filter CandidateNavigationViewTests --jobs 4
+      - name: Check candidate menu layout
+        run: bash Tools/test-macos-app.sh test --filter CandidateTreeViewTests --jobs 4
+      - name: Check live conversion branches
+        run: bash Tools/test-macos-app.sh test --filter CandidateLiveTreeViewTests --jobs 4
+      - name: Check candidate confirmation and appearance
+        run: bash Tools/test-macos-app.sh test --filter 'CandidateConfirmationAdapterTests|CandidateThemeTests|CandidateVisibleRowsTests' --jobs 4
       - run: bash Tools/test-macos-app.sh test --jobs 4
       - run: AZOOKEY_INFERENCE_BACKEND=cpu bash Tools/test-macos-app.sh test --jobs 4
       - name: Diagnose a macOS test-process crash
         if: failure()
         run: bash Tools/diagnose-macos-test.sh
+      - name: Diagnose a reconversion test-process crash
+        if: failure()
+        run: bash Tools/diagnose-macos-test.sh azooKeyMacTests.ReconversionCommitLifetimeTests/testCancelingBeforeCommitStillRestoresTheOriginalSelection

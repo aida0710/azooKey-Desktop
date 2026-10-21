@@ -5,6 +5,7 @@ import KanaKanjiConverterModuleWithDefaultDictionary
 struct DesktopSettings: Codable {
     var tree = Config.TreeCandidates().value
     var candidateTextSize = Config.CandidateTextSize().value
+    var candidateVisibleRows = Config.CandidateVisibleRows().value
     var showRelativeScores = Config.ShowRelativeScores().value
     var live = Config.LiveConversion().value
     var halfSpace = Config.TypeHalfSpace().value
@@ -46,6 +47,7 @@ struct DesktopSettings: Codable {
         }
         Config.TreeCandidates().value = tree
         Config.CandidateTextSize().value = candidateTextSize
+        Config.CandidateVisibleRows().value = candidateVisibleRows
         Config.ShowRelativeScores().value = showRelativeScores
         Config.LiveConversion().value = live
         Config.TypeHalfSpace().value = halfSpace

@@ -6,6 +6,37 @@ import XCTest
 
 @MainActor
 final class CandidateNavigationViewTests: XCTestCase {
+    func testAvailabilityDecoratesOnlyTheConfirmedRealRowWithoutReplacingItsActionOrNumber() throws {
+        let entries = [CandidateTree.Entry(text: "語彙", tokens: [], candidateIndex: 42),
+                       CandidateTree.Entry(text: "虚無", tokens: [], candidateIndex: 7)]
+        let view = CandidateNavigationView(frame: NSRect(x: 0, y: 0, width: 260, height: 100))
+        var selected: [Int] = []
+        view.onSelection = { selected.append($0) }
+        view.update(page: CandidatePage(entries: entries, selectionIndex: 7), numbers: [42: "1", 7: "2"], fontSize: 24, compact: true)
+        view.layoutSubtreeIfNeeded()
+        let rows = buttons(in: view).compactMap { $0 as? CandidateRowButton }
+        let word = try XCTUnwrap(rows.first { $0.candidateIndex == 42 })
+        let missing = try XCTUnwrap(rows.first { $0.candidateIndex == 7 })
+        let originalHeight = view.preferredHeight(width: 260)
+        view.setDefinitionAvailability([42])
+        XCTAssertTrue(word.hasDefinition)
+        XCTAssertFalse(missing.hasDefinition)
+        XCTAssertTrue(missing.definitionIconFrame.isEmpty)
+        XCTAssertTrue(word.bounds.contains(word.definitionIconFrame))
+        XCTAssertLessThanOrEqual(word.candidateTextFrame.maxX, word.definitionIconFrame.minX)
+        XCTAssertEqual(word.title, "1. 語彙")
+        XCTAssertEqual(missing.title, "2. 虚無")
+        XCTAssertEqual(view.preferredHeight(width: 260), originalHeight)
+        XCTAssertTrue(buttons(in: view).contains { $0 === word })
+        XCTAssertFalse(word.acceptsFirstResponder)
+        XCTAssertTrue(selected.isEmpty)
+        word.performClick(nil)
+        XCTAssertEqual(selected, [42])
+        view.setDefinitionAvailability([])
+        XCTAssertFalse(word.hasDefinition)
+        XCTAssertFalse(word.accessibilityHelp()?.contains(String(format: Localization.text("candidate.definition.title"), "語彙")) ?? true)
+    }
+
     private func buttons(in view: NSView) -> [NSButton] {
         view.subviews.flatMap { child in
             child.isHidden ? [] : ((child as? NSButton).map { [$0] } ?? buttons(in: child))
@@ -24,7 +55,8 @@ final class CandidateNavigationViewTests: XCTestCase {
             CandidatePresentation(candidate: Candidate(text: "候補\($0)", value: 0,
                                                        composingCount: .surfaceCount(0), lastMid: 0, data: []))
         }
-        controller.updateCandidatePresentations(candidates, selectionIndex: 0, cursorLocation: .zero)
+        controller.updateCandidatePresentations(candidates, selectionIndex: 0, cursorLocation: .zero,
+                                                enterConfirmsCandidate: true)
         for _ in 0..<9 { controller.selectNextCandidate() }
         XCTAssertEqual(controller.currentSelectedRow, 9)
         XCTAssertEqual(controller.getNumberCandidate(num: 1), 9)
@@ -162,5 +194,87 @@ final class CandidateNavigationViewTests: XCTestCase {
         }
         controller.selectNextCandidate()
         XCTAssertEqual(controller.getSelectedCandidate()?.text, "第二案")
+    }
+
+    func testCompactRowsKeepLongOriginalTextAccessibleWhileEveryChosenViewportRevealsKeyboardSelection() throws {
+        let word = String(repeating: "長い候補👩‍💻ABC", count: 20)
+        let entries = (0..<9).map { CandidateTree.Entry(text: word + String($0), tokens: [], candidateIndex: $0 + 40) }
+        let view = CandidateNavigationView(frame: .zero)
+        for fontSize: CGFloat in [18, 24] {
+            for visibleRows in Config.CandidateVisibleRows.Value.allCases {
+                let page = CandidatePage(entries: entries, selectionIndex: 48)
+                view.update(page: page, numbers: [48: "9"], fontSize: fontSize, compact: true, visibleRows: visibleRows)
+                view.frame = NSRect(x: 0, y: 0, width: 260 * fontSize / 18, height: view.preferredHeight(width: 260 * fontSize / 18))
+                view.layoutSubtreeIfNeeded()
+                let scroll = try XCTUnwrap(view.subviews.compactMap { $0 as? NSScrollView }.first)
+                let row = try XCTUnwrap(buttons(in: view).compactMap { $0 as? CandidateRowButton }.first { $0.candidateIndex == 48 })
+                XCTAssertTrue(row.title.contains(word + "8"))
+                XCTAssertTrue(row.accessibilityLabel()?.contains(word + "8") == true)
+                XCTAssertTrue(row.toolTip?.contains(word + "8") == true)
+                XCTAssertEqual(row.font?.pointSize, fontSize)
+                XCTAssertGreaterThanOrEqual(row.frame.height, 32)
+                if fontSize == 18 { XCTAssertLessThan(row.frame.height, 44) }
+                let font = try XCTUnwrap(row.font)
+                let measuredTextHeight = ((word + "8") as NSString).size(withAttributes: [.font: font]).height
+                XCTAssertGreaterThanOrEqual(row.candidateTextFrame.height, measuredTextHeight)
+                XCTAssertTrue(row.bounds.contains(row.candidateTextFrame))
+                XCTAssertEqual(scroll.contentSize.height, row.frame.height * CGFloat(visibleRows.rawValue), accuracy: 0.01)
+                XCTAssertTrue(scroll.documentVisibleRect.contains(row.frame))
+                XCTAssertFalse(row.acceptsFirstResponder)
+            }
+        }
+    }
+
+    func testReducingTheVisibleCountKeepsTheNinthCandidateAndRetiresItOnANewGeneration() throws {
+        let entries = (0..<20).map { CandidateTree.Entry(text: "候補\($0)", tokens: [], candidateIndex: $0 + 40) }
+        let page = CandidatePage(entries: entries, selectionIndex: 48)
+        let view = CandidateNavigationView(frame: .zero)
+        var selected: [Int] = []
+        var previewed: [Int] = []
+        view.onSelection = { selected.append($0) }
+        view.onPreview = { index, _, _ in previewed.append(index) }
+        view.update(page: page, numbers: [48: "9"], fontSize: 18, generation: 1, compact: true, visibleRows: .nine)
+        let ninth = try XCTUnwrap(buttons(in: view).compactMap { $0 as? CandidateRowButton }.first { $0.candidateIndex == 48 })
+        for count in [Config.CandidateVisibleRows.Value.five, .seven, .nine, .five] {
+            view.update(page: page, numbers: [48: "9"], fontSize: 18, generation: 1, compact: true, visibleRows: count)
+            view.frame = NSRect(x: 0, y: 0, width: 260, height: view.preferredHeight(width: 260))
+            view.layoutSubtreeIfNeeded()
+            let scroll = try XCTUnwrap(view.subviews.compactMap { $0 as? NSScrollView }.first)
+            XCTAssertEqual(buttons(in: view).compactMap { $0 as? CandidateRowButton }.count, 9)
+            XCTAssertEqual(ninth.title, "9. 候補8")
+            XCTAssertTrue(scroll.documentVisibleRect.contains(ninth.frame))
+            XCTAssertTrue(view.isCurrentCandidateButton(ninth, candidateIndex: 48))
+        }
+        ninth.performClick(nil)
+        XCTAssertEqual(selected, [48])
+        selected.removeAll()
+        view.update(page: page, numbers: [48: "9"], fontSize: 18, generation: 2, compact: true, visibleRows: .five)
+        ninth.performClick(nil)
+        ninth.preview?(true)
+        XCTAssertTrue(selected.isEmpty)
+        XCTAssertTrue(previewed.isEmpty)
+    }
+
+    func testShrinkingTheViewportRevealsAVisibleSelectionWithoutUndoingManualScrolling() throws {
+        let entries = (0..<9).map { CandidateTree.Entry(text: "候補\($0)", tokens: [], candidateIndex: $0 + 40) }
+        let view = CandidateNavigationView(frame: .zero)
+        view.update(page: CandidatePage(entries: entries, selectionIndex: 48), numbers: [48: "9"], fontSize: 24,
+                    compact: true, visibleRows: .nine)
+        view.frame = NSRect(x: 0, y: 0, width: 347, height: view.preferredHeight(width: 347))
+        view.layoutSubtreeIfNeeded()
+        let scroll = try XCTUnwrap(view.subviews.compactMap { $0 as? NSScrollView }.first)
+        let selected = try XCTUnwrap(buttons(in: view).compactMap { $0 as? CandidateRowButton }.first { $0.candidateIndex == 48 })
+        XCTAssertTrue(scroll.documentVisibleRect.contains(selected.frame))
+        view.setFrameSize(NSSize(width: 347, height: 160))
+        view.layoutSubtreeIfNeeded()
+        XCTAssertTrue(scroll.documentVisibleRect.contains(selected.frame))
+        scroll.contentView.scroll(to: .zero)
+        scroll.reflectScrolledClipView(scroll.contentView)
+        XCTAssertFalse(scroll.documentVisibleRect.contains(selected.frame))
+        view.setFrameSize(NSSize(width: 347, height: 120))
+        view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(scroll.documentVisibleRect.minY, 0)
+        XCTAssertFalse(scroll.documentVisibleRect.contains(selected.frame))
+        XCTAssertFalse(selected.acceptsFirstResponder)
     }
 }

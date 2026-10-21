@@ -3,6 +3,9 @@ import json
 import weakref
 from gi.repository import Gio, GLib
 from .async_bridge import AsyncBridge
+from .word_definition_target import word_definition_target
+from .word_definition_lookup import word_definition_worker, word_definition_availability_worker
+from .word_definition_availability import WordDefinitionAvailability, page_definition_targets
 
 NAME = "org.azookey.Tree"
 PATH = "/org/azookey/Tree"
@@ -13,6 +16,10 @@ XML = """<node><interface name="org.azookey.Tree">
   <method name="SetRenderer"><arg type="b" direction="in"/></method>
   <method name="Select"><arg type="s" direction="in"/><arg type="i" direction="in"/>
     <arg type="b" direction="in"/><arg type="i" direction="in"/><arg type="s" direction="in"/></method>
+  <method name="LookupWordDefinitions"><arg type="s" direction="in"/><arg type="i" direction="in"/>
+    <arg type="s" direction="in"/><arg type="i" direction="in"/><arg type="s" direction="out"/></method>
+  <method name="LookupWordDefinitionAvailability"><arg type="s" direction="in"/>
+    <arg type="i" direction="in"/><arg type="s" direction="out"/></method>
   <signal name="Update"><arg type="s"/></signal>
   <signal name="Hide"/>
   <signal name="Suspend"/>
@@ -51,6 +58,12 @@ class ShellSurface:
             invocation.return_dbus_error(NAME + ".Busy", "Another renderer is registered")
             return
         values = parameters.unpack()
+        if name == "LookupWordDefinitions" and sender == self.renderer:
+            self.lookup_word_definitions(sender, values, invocation)
+            return
+        if name == "LookupWordDefinitionAvailability" and sender == self.renderer:
+            self.lookup_word_definition_availability(sender, values, invocation)
+            return
         if name == "SetRenderer":
             if self.watch:
                 Gio.bus_unwatch_name(self.watch)
@@ -69,6 +82,71 @@ class ShellSurface:
             invocation.return_dbus_error(NAME + ".Invalid", "Invalid method")
             return
         invocation.return_value(GLib.Variant("()", ()))
+
+    def lookup_word_definitions(self, sender, values, invocation):
+        engine = self.engine() if self.engine else None
+        context, generation, kind, index = values
+        revision = object()
+        self.definition_revision = revision
+        if (not engine or not engine.focused or engine.input.pending or context != engine.context_id
+                or generation != engine.snapshot.get("generation")
+                or engine.snapshot.get("inputState") not in ("selecting", "previewing", "replaceSuggestion")
+                or kind not in ("node", "candidate")):
+            invocation.return_dbus_error(NAME + ".Stale", "The dictionary target is no longer active")
+            return
+        arguments = {"node_id" if kind == "node" else "candidate_index": index}
+        target = word_definition_target(engine.snapshot, **arguments)
+        if target is None:
+            invocation.return_value(GLib.Variant("(s)", (json.dumps({"status": "noTarget"}),)))
+            return
+        focus_revision = engine.focus_revision
+        input_epoch = engine.input.cancelled
+
+        def completed(response):
+            current = self.engine() if self.engine else None
+            if (response.get("status") == "stale" or self.definition_revision is not revision
+                    or current is not engine or self.renderer != sender or not engine.focused or engine.input.pending
+                    or engine.focus_revision is not focus_revision or engine.input.cancelled is not input_epoch
+                    or word_definition_target(engine.snapshot, **arguments) != target):
+                invocation.return_dbus_error(NAME + ".Stale", "The dictionary target has changed")
+                return
+            invocation.return_value(GLib.Variant("(s)", (json.dumps(response, ensure_ascii=False),)))
+
+        word_definition_worker().request(target, completed)
+
+    def lookup_word_definition_availability(self, sender, values, invocation):
+        engine = self.engine() if self.engine else None
+        context, generation = values
+        if (not engine or not engine.focused or engine.input.pending or context != engine.context_id
+                or generation != engine.snapshot.get("generation")
+                or engine.snapshot.get("inputState") not in ("selecting", "previewing", "replaceSuggestion")):
+            invocation.return_dbus_error(NAME + ".Stale", "The candidate page is no longer active")
+            return
+        previous = getattr(self, "availability_request", None)
+        if previous:
+            previous[0].invalidate()
+            previous[1].return_dbus_error(NAME + ".Stale", "The candidate page has changed")
+        snapshot = {**engine.snapshot, "contextId": context}
+        targets = page_definition_targets(snapshot)
+        focus_revision = engine.focus_revision
+        input_epoch = engine.input.cancelled
+
+        def completed():
+            self.availability_request = None
+            current = self.engine() if self.engine else None
+            if (current is not engine or self.renderer != sender or not engine.focused or engine.input.pending
+                    or engine.focus_revision is not focus_revision or engine.input.cancelled is not input_epoch
+                    or context != engine.context_id or generation != engine.snapshot.get("generation")
+                    or engine.snapshot.get("inputState") not in ("selecting", "previewing", "replaceSuggestion")
+                    or page_definition_targets({**engine.snapshot, "contextId": context}) != targets):
+                invocation.return_dbus_error(NAME + ".Stale", "The candidate page has changed")
+                return
+            invocation.return_value(GLib.Variant("(s)", (json.dumps(sorted(lookup.found_indices)),)))
+
+        lookup = WordDefinitionAvailability(word_definition_availability_worker(), lambda _indices: None,
+                                            completed=completed)
+        self.availability_request = (lookup, invocation)
+        lookup.update(snapshot)
 
     def lost(self):
         self.renderer = None

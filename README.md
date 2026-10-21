@@ -8,6 +8,8 @@
 
 [相対スコア](docs/relative-scores.md)は設定で非表示にできます。0・100・未評価の意味を候補の詳細から確認でき、表示を切り替えても選択する候補は変わりません。
 
+開発版では、変換メニューで[選択中の単語の意味・用例](docs/word-definitions.md)を確認できます。Ubuntuは日本語ワードネットを同梱し、macOSはOSの辞典を利用します。
+
 **試験版の配布物は [Releases](https://github.com/aida0710/azooKey-Desktop/releases) から取得できます。** macOS版はad-hoc署名・未公証です。ATOKと同等の精度や全アプリの互換性を保証する段階ではありません。下記の「上流の案内」にあるインストール方法では、このフォークの追加機能は入りません。
 
 Apple Silicon Mac（macOS 14以降）:

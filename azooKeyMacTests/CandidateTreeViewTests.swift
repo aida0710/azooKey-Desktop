@@ -12,7 +12,7 @@ final class CandidateTreeViewTests: XCTestCase {
     }
 
     private func candidateButtons(in view: CandidateTreeView) -> [NSButton] {
-        view.subviews.filter { $0.accessibilityIdentifier() == "candidate-segments" }.flatMap { buttons(in: $0) }
+        candidateViewDescendants(in: view).filter { $0.accessibilityIdentifier() == "candidate-segments" }.flatMap { buttons(in: $0) }
     }
 
     private let entries: [CandidateTree.Entry] = [
@@ -38,7 +38,7 @@ final class CandidateTreeViewTests: XCTestCase {
     }
 
     private func detailText(in view: NSView) -> String {
-        let details = view.subviews.first { $0.accessibilityIdentifier() == "candidate-details" } ?? view
+        let details = candidateViewDescendants(in: view).first { $0.accessibilityIdentifier() == "candidate-details" } ?? view
         return textFields(in: details).map(\.stringValue).joined(separator: "\n")
     }
 
@@ -49,7 +49,7 @@ final class CandidateTreeViewTests: XCTestCase {
     }
 
     private func openTree(in view: CandidateTreeView, file: StaticString = #filePath, line: UInt = #line) {
-        let toggle = buttons(in: view).first { $0.title == Localization.text("candidate.openTree") }
+        let toggle = buttons(in: view).first { $0.accessibilityIdentifier() == "candidate-tree-toggle" }
         XCTAssertNotNil(toggle, file: file, line: line)
         toggle?.performClick(nil)
     }
@@ -67,9 +67,17 @@ final class CandidateTreeViewTests: XCTestCase {
         ))
     }
 
+    private func commitPreview(_ text: String) -> String {
+        String(format: Localization.text("candidate.preview.commit"), text)
+    }
+
+    private func remainingPreview(_ reading: String) -> String {
+        String(format: Localization.text("candidate.preview.remaining"), reading)
+    }
+
     private func assertPartialPreview(in view: NSView, file: StaticString = #filePath, line: UInt = #line) {
         let preview = detailText(in: view)
-        XCTAssertTrue(preview.contains("確定予定: 日本語\n"), file: file, line: line)
+        XCTAssertTrue(preview.contains(commitPreview("日本語") + "\n"), file: file, line: line)
         XCTAssertTrue(preview.contains("にゅうりょく"), file: file, line: line)
         XCTAssertFalse(preview.contains("全文の注釈"), file: file, line: line)
         XCTAssertFalse(preview.contains("別候補の注釈"), file: file, line: line)
@@ -135,7 +143,7 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertTrue(textFields(in: view).contains { $0.stringValue.contains("全文の注釈") })
         number.mouseEntered(with: entered)
         let details = textFields(in: view).map(\.stringValue).joined(separator: "\n")
-        XCTAssertTrue(details.contains("確定予定: 日本語\n"))
+        XCTAssertTrue(details.contains(commitPreview("日本語") + "\n"))
         XCTAssertTrue(details.contains("にゅうりょく"))
         XCTAssertFalse(details.contains("全文の注釈"))
         XCTAssertTrue(number.accessibilityHelp()?.contains("にゅうりょく") == true)
@@ -217,13 +225,13 @@ final class CandidateTreeViewTests: XCTestCase {
             oldControl.mouseExited(with: try hoverEvent(.mouseExited))
             oldControl.performClick(nil)
         }
-        XCTAssertTrue(detailText(in: view).contains("確定予定: 現在の候補"))
-        XCTAssertFalse(detailText(in: view).contains("確定予定: 別の候補"))
+        XCTAssertTrue(detailText(in: view).contains(commitPreview("現在の候補")))
+        XCTAssertFalse(detailText(in: view).contains(commitPreview("別の候補")))
         XCTAssertFalse(detailText(in: view).contains("日本語"))
         XCTAssertEqual(submitted, [])
         updateMenu(view, entries: [], selectionIndex: nil)
         oldNumber.mouseEntered(with: try hoverEvent(.mouseEntered))
-        XCTAssertFalse(detailText(in: view).contains("確定予定:"))
+        XCTAssertFalse(detailText(in: view).contains(commitPreview("")))
     }
 
     func testRemovingANumberDuringSelectionUpdateReturnsToCurrentDetails() throws {
@@ -243,7 +251,7 @@ final class CandidateTreeViewTests: XCTestCase {
         let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 500, height: 520))
         let numbers = [0: "1", 1: "2", 2: "3"]
         updateMenu(view, entries: partialEntries, selectionIndex: 1, numbers: numbers)
-        let list = try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateNavigationView }.first)
+        let list = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateNavigationView }.first)
         let row = try XCTUnwrap(buttons(in: list).first { $0.title == "1. 日本語" })
         row.mouseEntered(with: try hoverEvent(.mouseEntered))
         for index in [2, 1] {
@@ -261,17 +269,17 @@ final class CandidateTreeViewTests: XCTestCase {
         var submitted: [Int] = []
         view.onCandidateSubmitted = { submitted.append($0) }
         updateMenu(view, entries: entries, selectionIndex: 1, numbers: [0: "1", 1: "2"])
-        let list = try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateNavigationView }.first)
+        let list = try XCTUnwrap(candidateViewDescendants(in: view).compactMap { $0 as? CandidateNavigationView }.first)
         let row = try XCTUnwrap(buttons(in: list).first { $0.title == "1. 候補0" })
         row.mouseEntered(with: try hoverEvent(.mouseEntered))
-        XCTAssertTrue(detailText(in: view).contains("確定予定: 候補0"))
+        XCTAssertTrue(detailText(in: view).contains(commitPreview("候補0")))
         updateMenu(view, entries: entries, selectionIndex: 10, numbers: [9: "1", 10: "2", 11: "3"])
         XCTAssertNil(row.superview)
         row.mouseEntered(with: try hoverEvent(.mouseEntered))
         row.mouseExited(with: try hoverEvent(.mouseExited))
         row.performClick(nil)
-        XCTAssertTrue(detailText(in: view).contains("確定予定: 候補10"))
-        XCTAssertFalse(detailText(in: view).contains("確定予定: 候補0"))
+        XCTAssertTrue(detailText(in: view).contains(commitPreview("候補10")))
+        XCTAssertFalse(detailText(in: view).contains(commitPreview("候補0")))
         XCTAssertEqual(submitted, [])
     }
 
@@ -284,11 +292,11 @@ final class CandidateTreeViewTests: XCTestCase {
         updateMenu(view, entries: scored, selectionIndex: 0)
         openTree(in: view)
         let selection = try XCTUnwrap(buttons(in: view).first { $0.title == "選択" })
-        XCTAssertTrue(selection.toolTip?.contains("相対スコア 69") == true)
+        XCTAssertTrue(selection.toolTip?.contains(String(format: Localization.text("candidate.score.value"), 69)) == true)
         XCTAssertEqual(selection.accessibilityLabel(), "選択（センタク）")
-        XCTAssertTrue(selection.accessibilityHelp()?.contains("確率ではありません") == true)
+        XCTAssertTrue(selection.accessibilityHelp()?.contains(Localization.text("candidate.score.explanation")) == true)
         updateMenu(view, entries: entries, selectionIndex: 0)
-        XCTAssertFalse(buttons(in: view).contains { $0.toolTip?.contains("相対スコア 69") == true })
+        XCTAssertFalse(buttons(in: view).contains { $0.toolTip?.contains(String(format: Localization.text("candidate.score.value"), 69)) == true })
     }
 
     func testHidingScoresPreservesTheFocusedCandidateAndExplicitCommit() throws {
@@ -358,7 +366,7 @@ final class CandidateTreeViewTests: XCTestCase {
         let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 1000, height: 180))
         updateMenu(view, entries: entries, selectionIndex: 0, numbers: [0: "1"], documentWidths: [810, 40])
         openTree(in: view)
-        XCTAssertGreaterThan(view.preferredSize.width, 830)
+        XCTAssertEqual(view.preferredSize.width, 550, "Explicit word columns scroll inside the compact candidate card")
         let controls = buttons(in: view)
         let word = try XCTUnwrap(controls.compactMap { $0 as? TreeButton }.first { $0.title == "語" })
         let number = try XCTUnwrap(word.numberBadgeFrame)
@@ -431,11 +439,11 @@ final class CandidateTreeViewTests: XCTestCase {
         updateMenu(view, entries: alternatives, selectionIndex: 0)
         let visible = buttons(in: view)
         XCTAssertLessThanOrEqual(view.preferredSize.height, 600, "The primary list remains bounded")
-        XCTAssertEqual(view.preferredSize.width, CandidateDetailView.minimumWidth)
-        XCTAssertLessThanOrEqual(visible.count, CandidatePage.size + 5)
+        XCTAssertEqual(view.preferredSize.width, 550, "The small candidate card and independent definition have a transparent gap")
+        XCTAssertLessThanOrEqual(visible.count, CandidatePage.size + 6)
         XCTAssertTrue(visible.contains { $0.title == "日本語候補0" })
-        XCTAssertTrue(visible.contains { $0.title == Localization.text("candidate.openTree") })
-        XCTAssertTrue(visible.contains { $0.title == Localization.text("candidate.openDetails") })
+        XCTAssertTrue(visible.contains { $0.accessibilityIdentifier() == "candidate-tree-toggle" })
+        XCTAssertFalse(visible.contains { $0.accessibilityIdentifier() == "candidate-details-toggle" }, "Metadata opens after the segment controls are requested")
         XCTAssertTrue(candidateButtons(in: view).isEmpty, "Segments are disclosed only when needed")
     }
 
@@ -562,7 +570,7 @@ final class CandidateTreeViewTests: XCTestCase {
         openTree(in: view)
         updateMenu(view, entries: [.init(text: "更新", tokens: [], candidateIndex: 0)], selectionIndex: 0)
         XCTAssertEqual(candidateButtons(in: view).map(\.title), ["更新"])
-        XCTAssertEqual(view.subviews.compactMap { $0 as? CandidateNavigationView }.count, 1)
+        XCTAssertEqual(candidateViewDescendants(in: view).compactMap { $0 as? CandidateNavigationView }.count, 1)
     }
 
     func testChangingAppearancePreservesCandidateActionsAndNeverSubmitsText() {
@@ -571,6 +579,8 @@ final class CandidateTreeViewTests: XCTestCase {
         view.onCandidateSubmitted = { submitted.append($0) }
         updateMenu(view, entries: entries, selectionIndex: 0)
         openTree(in: view)
+        view.setFrameSize(view.preferredSize)
+        view.layoutSubtreeIfNeeded()
         let original = Set(buttons(in: view).map(ObjectIdentifier.init))
         for appearance in [NSAppearance.Name.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua] {
             view.appearance = NSAppearance(named: appearance)
@@ -594,7 +604,7 @@ final class CandidateTreeViewTests: XCTestCase {
         openTree(in: view)
         XCTAssertEqual(candidateButtons(in: view).map(\.title), ["同じ"])
         XCTAssertEqual(candidateButtons(in: view).compactMap { $0 as? TreeButton }.first?.candidateNumber, "2")
-        XCTAssertEqual(view.subviews.compactMap { $0 as? CandidateNavigationView }.count, 1)
+        XCTAssertEqual(candidateViewDescendants(in: view).compactMap { $0 as? CandidateNavigationView }.count, 1)
     }
 
     func testAlternativeClickSelectsItsRealCandidateBeforeExplicitCommit() {
@@ -633,6 +643,8 @@ final class CandidateTreeViewTests: XCTestCase {
             XCTAssertEqual(bitmap.colorAt(x: bitmap.pixelsWide - 1, y: bitmap.pixelsHigh - 1)?.alphaComponent, 0)
             XCTAssertEqual(bitmap.colorAt(x: 10, y: 10)?.alphaComponent, 1,
                            "The document behind the candidate region must not show through")
+            XCTAssertEqual(bitmap.colorAt(x: 265, y: bitmap.pixelsHigh - 20)?.alphaComponent, 0,
+                           "The two independent cards leave a transparent gap")
             if let directory = ProcessInfo.processInfo.environment["AZOOKEY_TREE_SNAPSHOT_DIR"] {
                 let url = URL(fileURLWithPath: directory).appendingPathComponent("macos-compact-\(name).png")
                 try bitmap.representation(using: .png, properties: [:])?.write(to: url)
@@ -640,7 +652,7 @@ final class CandidateTreeViewTests: XCTestCase {
         }
     }
 
-    func testKeyboardNavigationRevealsOffscreenChildAndTerminal() {
+    func testKeyboardNavigationRevealsOffscreenChildAndTerminal() throws {
         let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 480, height: 180))
         let tokens = (0..<20).map { CandidateTree.Token(text: "文節\($0)") }
         var submitted: [Int] = []
@@ -648,11 +660,13 @@ final class CandidateTreeViewTests: XCTestCase {
         updateMenu(view, entries: [.init(text: tokens.map(\.text).joined(), tokens: tokens, candidateIndex: 42)],
                     selectionIndex: 42, numbers: [42: "7"])
         openTree(in: view)
+        view.setFrameSize(NSSize(width: view.preferredSize.width, height: min(600, view.preferredSize.height)))
+        view.layoutSubtreeIfNeeded()
         XCTAssertFalse(buttons(in: view).contains { $0.title == "文節19" })
         for _ in 0..<19 { XCTAssertTrue(view.navigate(.right)) }
         XCTAssertTrue(buttons(in: view).contains { $0.title == "文節19" })
-        let terminal = candidateButtons(in: view).compactMap { $0 as? TreeButton }.first { $0.candidateNumber == "7" }
-        let scroll = view.subviews.compactMap { $0 as? NSScrollView }.first!
+        let terminal = candidateButtons(in: view).compactMap { $0 as? TreeButton }.first { $0.title == "文節19" && $0.candidateNumber == "7" }
+        let scroll = try XCTUnwrap(candidateViewDescendants(in: view).first { $0.accessibilityIdentifier() == "candidate-segments" } as? NSScrollView)
         XCTAssertNotNil(terminal)
         XCTAssertTrue(terminal.map { scroll.documentVisibleRect.contains($0.frame) } ?? false,
                       "The word containing the terminal number must be fully visible")
@@ -673,7 +687,7 @@ final class CandidateTreeViewTests: XCTestCase {
         updateMenu(view, entries: partialEntries, selectionIndex: 0, numbers: [0: "1", 1: "2", 2: "3"])
         let composition = try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateCompositionView }.first)
         XCTAssertTrue(textFields(in: composition).contains { $0.stringValue == "日本語" })
-        XCTAssertTrue(textFields(in: composition).contains { $0.stringValue.contains("残る読み: にゅうりょく") })
+        XCTAssertTrue(textFields(in: composition).contains { $0.stringValue.contains(remainingPreview("にゅうりょく")) })
         XCTAssertFalse(composition.subviews.contains { $0.isHidden })
         let full = try XCTUnwrap(buttons(in: view).compactMap { $0 as? CandidateRowButton }
             .first { $0.candidateIndex == 1 })
@@ -785,12 +799,12 @@ final class CandidateTreeViewTests: XCTestCase {
         openTree(in: view)
         let oldAlternative = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "画" })
         oldAlternative.mouseEntered(with: try hoverEvent(.mouseEntered))
-        XCTAssertTrue(detailText(in: view).contains("確定予定: 日本画"))
-        try XCTUnwrap(buttons(in: view).first { $0.title == Localization.text("candidate.closeTree") }).performClick(nil)
+        XCTAssertTrue(detailText(in: view).contains(commitPreview("日本画")))
+        try XCTUnwrap(buttons(in: view).first { $0.accessibilityIdentifier() == "candidate-tree-toggle" }).performClick(nil)
         oldAlternative.mouseEntered(with: try hoverEvent(.mouseEntered))
         oldAlternative.mouseExited(with: try hoverEvent(.mouseExited))
         oldAlternative.performClick(nil)
-        XCTAssertTrue(detailText(in: view).contains("確定予定: 日本語"))
+        XCTAssertTrue(detailText(in: view).contains(commitPreview("日本語")))
         XCTAssertEqual(selected, [])
         XCTAssertTrue(candidateButtons(in: view).isEmpty)
     }
@@ -806,7 +820,7 @@ final class CandidateTreeViewTests: XCTestCase {
         let composition = try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateCompositionView }.first)
         let areas = composition.subviews.compactMap { $0 as? CandidateDetailView }
         let commitArea = try XCTUnwrap(areas.first { textFields(in: $0).contains { $0.stringValue == text } })
-        let readingArea = try XCTUnwrap(areas.first { textFields(in: $0).contains { $0.stringValue.contains("残る読み: つづき") } })
+        let readingArea = try XCTUnwrap(areas.first { textFields(in: $0).contains { $0.stringValue.contains(remainingPreview("つづき")) } })
         XCTAssertGreaterThan(readingArea.frame.height, 0)
         XCTAssertLessThanOrEqual(readingArea.frame.maxY, commitArea.frame.minY)
         let readingFrame = readingArea.frame
@@ -822,10 +836,11 @@ final class CandidateTreeViewTests: XCTestCase {
         let view = CandidateTreeView()
         updateMenu(view, entries: [.init(text: "候補", tokens: [], candidateIndex: 0,
                                     annotation: String(repeating: "長い注釈です。", count: 100))], selectionIndex: 0)
-        try XCTUnwrap(buttons(in: view).first { $0.title == Localization.text("candidate.openDetails") }).performClick(nil)
+        openTree(in: view)
+        try XCTUnwrap(buttons(in: view).first { $0.accessibilityIdentifier() == "candidate-details-toggle" }).performClick(nil)
         view.setFrameSize(view.preferredSize)
         view.layoutSubtreeIfNeeded()
-        let details = try XCTUnwrap(view.subviews.first { $0.accessibilityIdentifier() == "candidate-details" } as? CandidateDetailView)
+        let details = try XCTUnwrap(candidateViewDescendants(in: view).first { $0.accessibilityIdentifier() == "candidate-details" } as? CandidateDetailView)
         let composition = try XCTUnwrap(view.subviews.compactMap { $0 as? CandidateCompositionView }.first)
         let before = textFields(in: composition).map(\.stringValue)
         XCTAssertTrue(view.scrollDetails(forward: true))

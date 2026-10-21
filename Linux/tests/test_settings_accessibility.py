@@ -24,7 +24,7 @@ class SettingsAccessibilityTests(unittest.TestCase):
             ("tree", "live", "halfSpace", "backslash", "optionDirect", "aiEnabled", "includeContext",
              "predictiveTyping", "typoCorrection", "debug"), False,
         )
-        values.update(candidateTextSize="large", showRelativeScores=True, inputStyle="default", learning="onlyOutput",
+        values.update(candidateTextSize="large", candidateVisibleRows=9, showRelativeScores=True, inputStyle="default", learning="onlyOutput",
                       punctuation=3, personalization="soft", profile="保持するプロフィール", inferenceLimit=10,
                       userDictionary={"items": []}, customTable="", aiModel="fixture",
                       aiEndpoint="https://example.invalid", transformShortcut={"key": "g", "modifiers": 6})
@@ -76,7 +76,16 @@ class SettingsAccessibilityTests(unittest.TestCase):
         self.assertEqual(self.window.widgets["profile"].get_text(), stored["profile"])
         self.assertEqual(self.window.widgets["learning"].get_active_id(), stored["learning"])
         self.assertEqual(self.window.widgets["candidateTextSize"].get_active_id(), stored["candidateTextSize"])
+        self.assertEqual(self.window.widgets["candidateVisibleRows"].get_active_id(), str(stored["candidateVisibleRows"]))
         self.assertEqual(self.window.widgets["personalization"].get_active_id(), stored["personalization"])
+
+    def test_visible_candidate_count_is_saved_as_an_integer_without_changing_other_preferences(self):
+        original = json.loads(self.store.path.read_text())
+        self.window.widgets["candidateVisibleRows"].set_active_id("5")
+        self.window.save(None)
+        stored = json.loads(self.store.path.read_text())
+        self.assertEqual(stored, {**original, "candidateVisibleRows": 5})
+        self.assertIs(type(stored["candidateVisibleRows"]), int)
 
     def test_tab_moves_between_ai_fields_in_visual_order(self):
         from gi.repository import Gtk

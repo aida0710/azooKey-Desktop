@@ -1,5 +1,7 @@
 import {attachCandidateAction} from '../gnome-extension/candidateAccessibility.js';
 import {messages} from '../gnome-extension/candidateMessages.js';
+import {candidateColumns} from '../gnome-extension/candidateColumns.js';
+import {candidateAvailableHeight} from '../gnome-extension/candidatePlacement.js';
 import {Actor, ScrollableActor, ScrollViewActor, drainActions, loadShellClass} from './gnome_actor_fixture.js';
 
 function equal(actual, expected) {
@@ -24,50 +26,67 @@ class MeasuredLabelActor extends Actor {
     }
 }
 const imports = {
-    St: {Button: Actor, BoxLayout: ScrollableActor, Label: MeasuredLabelActor, ScrollView: ScrollViewActor, DrawingArea: Actor,
+    // Keep the old hover scenarios independent of dictionary I/O; new dictionary tests deliver replies.
+    Gio: {DBus: {session: {call() {}}}, DBusCallFlags: {NONE: 0}},
+    St: {Icon: Actor, Button: Actor, BoxLayout: ScrollableActor, Label: MeasuredLabelActor, ScrollView: ScrollViewActor, DrawingArea: Actor,
         PolicyType: {NEVER: 0, AUTOMATIC: 1}},
     Clutter: {ActorAlign: {CENTER: 0, START: 1}, EVENT_PROPAGATE: false},
     GLib: {Variant: class { constructor(_signature, values) { this.values = values; } },
         idle_add: (_priority, reveal) => { const identity = nextReveal++; pendingReveals.set(identity, reveal); return identity; },
         source_remove: identity => pendingReveals.delete(identity)},
     Pango: {AttrList: class { insert() {} }, attr_underline_new() {}, Underline: {SINGLE: 0},
-        WrapMode: {WORD_CHAR: 0}, EllipsizeMode: {NONE: 0}},
+        WrapMode: {WORD_CHAR: 0}, EllipsizeMode: {NONE: 0, END: 1}},
     Main: {layoutManager: {monitors: [bounds], primaryIndex: 0}},
     global: {workspace_manager: {get_active_workspace: () => ({get_work_area_for_monitor: () => bounds})}},
     Extension: class {},
-    attachCandidateAction, messages,
+    attachCandidateAction, messages, candidateColumns, candidateAvailableHeight,
     candidatePlacement: () => ({x: 100, y: 100, width: 400, height: 300, treeHeight: 80,
         side: 'below', permitsAlignment: true}),
 };
 imports.createWrappingLabel = loadShellClass({fileName: 'candidateText.js', imports, className: 'createWrappingLabel'});
+imports.candidateLineHeight = loadShellClass({fileName: 'candidateText.js', imports, className: 'candidateLineHeight'});
 const Navigation = loadShellClass({fileName: 'candidateNavigation.js', imports, className: 'CandidateNavigation'});
 const Composition = loadShellClass({fileName: 'candidateComposition.js', imports, className: 'CandidateComposition'});
 const Detail = loadShellClass({fileName: 'candidateDetail.js', imports, className: 'CandidateDetail'});
 const TreeExtension = loadShellClass({fileName: 'extension.js', imports, className: 'AzooKeyTreeExtension'});
 const extension = new TreeExtension();
 extension._buttons = new Map();
+extension._definitionEpoch = 0;
+extension._definitionKey = null;
 extension._hoveredAction = null;
 extension._treeExpanded = true;
 extension._popup = new Actor();
+extension._cardScroll = new ScrollViewActor({overlay_scrollbars: true});
+extension._card = new ScrollableActor({vertical: true});
+extension._cardScroll.set_child(extension._card);
+extension._popup.add_child(extension._cardScroll);
+extension._columnsScroll = new ScrollViewActor();
+extension._columnsScroll.get_hscroll_bar = () => ({get_preferred_height: () => [14, 14]});
+extension._columns = new ScrollableActor();
+extension._candidateColumn = new ScrollableActor({vertical: true});
+extension._columns.add_child(extension._candidateColumn);
+extension._columnsScroll.set_child(extension._columns);
+extension._card.add_child(extension._columnsScroll);
 extension._canvas = new Actor();
 extension._treeScroll = new ScrollViewActor();
 extension._content = new ScrollableActor();
 extension._content.add_child(extension._canvas);
 extension._treeScroll.set_child(extension._content);
-extension._popup.add_child(extension._treeScroll);
+extension._candidateColumn.add_child(extension._treeScroll);
 extension._theme = {palette: {background: 'white', text: 'black', surface: 'gray', border: 'black',
     selection: 'blue', selectionText: 'white'}};
 extension._cursor = {anchor: () => ({location: [100, 100, 0, 20], permitsWordAlignment: false, source: 'synthetic'})};
 extension._interfaceSettings = {get_double: () => 1};
 extension._details = new Detail({changed: () => extension._render(extension._lastSnapshot),
     toggleTree: () => { extension._treeExpanded = !extension._treeExpanded; extension._render(extension._lastSnapshot); }});
-extension._popup.add_child(extension._details.actor);
+extension._columns.add_child(extension._details.actor);
 extension._layoutDiagnostics = {update() {}, clear() {}};
 extension._announcements = {update() {}, reset() {}};
-extension._navigation = new Navigation({select: value => extension._call('Select', value), changed() {}, preview: () => extension._refreshDetails()});
 extension._composition = new Composition(value => extension._call('Select', value));
-extension._popup.add_child(extension._composition.actor);
-extension._popup.add_child(extension._navigation.actor);
+extension._navigation = new Navigation({select: value => extension._call('Select', value), changed() {},
+    preview: () => extension._refreshDetails(), compact: true, confirmation: extension._composition.actor,
+    toggleTree: () => { extension._treeExpanded = !extension._treeExpanded; extension._render(extension._lastSnapshot); }});
+extension._candidateColumn.add_child(extension._navigation.actor);
 const submitted = [];
 extension._call = (method, variant) => submitted.push([method, ...variant.values]);
 const partial = '確定予定: 日本語\n確定する読み: にほんご\n残る読み: にゅうりょく';
@@ -324,7 +343,9 @@ equal(extension._navigation.expanded, true);
 equal(extension._composition.actor.visible, true);
 equal(extension._navigation.actor.visible, true);
 equal(extension._details.expanded, false);
-extension._details._tree.get_accessible().do_action();
+equal(extension._details.actor.visible, false);
+equal(extension._navigation._treeToggle.visible, true);
+extension._navigation._treeToggle.get_accessible().do_action();
 drainActions();
 equal(extension._treeScroll.visible, true);
 equal(extension._buttons.has(JSON.stringify(['node', 2])), false);
@@ -334,7 +355,7 @@ extension._render({...liveBranches, inputState: 'selecting', generation: 5});
 equal(extension._navigation.expanded, false);
 equal(extension._treeScroll.visible, true);
 equal(extension._details.expanded, true);
-const oldTreeToggle = extension._details._tree;
+const oldTreeToggle = extension._navigation._treeToggle;
 oldTreeToggle.get_accessible().do_action();
 extension._render({...liveBranches, generation: 5});
 drainActions();

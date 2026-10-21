@@ -44,6 +44,8 @@ export class Actor {
     get_parent() { return this.parent; }
     get_children() { return this.children; }
     add_child(child) { this.children.push(child); child.parent = this; }
+    remove_child(child) { this.children = this.children.filter(item => item !== child); child.parent = null; }
+    insert_child_at_index(child, index) { this.children.splice(index, 0, child); child.parent = this; }
     set_child(child) { this.add_child(child); }
     set_width(width) { this.width = width; }
     set_size(width, height) { this.width = width; this.height = height; }

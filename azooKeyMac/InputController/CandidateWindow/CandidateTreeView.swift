@@ -27,6 +27,15 @@ final class CandidateTreeView: NSView {
     private let composition = CandidateCompositionView(frame: .zero)
     private let navigation = CandidateNavigationView(frame: .zero)
     private let actions = CandidateActionsView(frame: .zero)
+    private let definitions: WordDefinitionsModel
+    private let definitionSide = WordDefinitionsSideView(frame: .zero)
+    private let bodyViewport = NSScrollView()
+    private let body = NSView()
+    private let pointerLocation: (NSView) -> NSPoint?
+    private var pointerTracking: NSTrackingArea?
+    private var retainingDetailHover = false
+    private var availableWidth: CGFloat?
+    private var definitionsEnabled = true
     private let canvas = TreeCanvas()
     private var nodeButtons: [Int: TreeButton] = [:]
     private var hoveredDetail: DetailTarget?
@@ -56,20 +65,63 @@ final class CandidateTreeView: NSView {
     }
     // Optional branches stay scrollable without displacing the primary candidate list.
     private let maximumTreeHeight: CGFloat = 220
+    // Long commit text scrolls without consuming the candidate body's minimum height.
+    private let maximumCompositionHeightFraction: CGFloat = 0.35
     // Detail text needs a readable line even when the selected word is one character.
     private let minimumDetailWidth = CandidateDetailView.minimumWidth
+    private var showsComposition: Bool {
+        guard enterConfirmsCandidate else {
+            return false
+        }
+        let current = selection.selectedCandidateIndex.flatMap { tree.entry(candidateIndex: $0) }
+        return treeExpanded || detailsExpanded || !(current?.scope?.remainingReading ?? "").isEmpty
+    }
     var hasDocumentAlignment: Bool { documentWidths != nil }
     private var treePreferredSize = NSSize(width: 80, height: 46)
     private var showsTree: Bool { !tree.nodes.isEmpty && (!enterConfirmsCandidate || treeExpanded) }
     var preferredSize: NSSize {
-        let width = showsTree ? treePreferredSize.width : minimumDetailWidth
-        let menuHeight = enterConfirmsCandidate ? composition.preferredHeight(width: width) + navigation.preferredHeight(width: width) : 0
-        let height = menuHeight + actions.preferredHeight(width: width) + (showsTree ? min(maximumTreeHeight, treePreferredSize.height) : 0) +
-            (detailsExpanded ? CandidateDetailView.maximumHeight : 0)
-        return NSSize(width: width, height: height)
+        let columns = columns(availableWidth: availableWidth ?? .greatestFiniteMagnitude)
+        let compositionHeight = showsComposition ? composition.preferredHeight(width: columns.leftWidth) : 0
+        let bodyHeight = max(leftHeights(width: columns.leftWidth).total, definitionSide.isHidden ? 0 : definitionSide.preferredHeight)
+        let scrollerHeight = columns.contentWidth > columns.viewportWidth ?
+            NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        return NSSize(width: columns.viewportWidth, height: compositionHeight + bodyHeight + scrollerHeight)
     }
 
-    override init(frame: NSRect) {
+    private func columns(availableWidth: CGFloat) -> WordDefinitionsSideLayout {
+        WordDefinitionsSideLayout(availableWidth: availableWidth,
+                                  preferredLeftWidth: showsTree ? treePreferredSize.width : minimumDetailWidth,
+                                  showsDefinitions: !definitionSide.isHidden, compactMenu: enterConfirmsCandidate,
+                                  fontSize: CGFloat(textSize.pointSize))
+    }
+
+    private func leftHeights(width: CGFloat) -> WordDefinitionsSideLayout.LeftHeights {
+        .init(navigation: enterConfirmsCandidate ? navigation.preferredHeight(width: width) : 0,
+              tree: showsTree ? min(maximumTreeHeight, treePreferredSize.height) : 0,
+              details: detailsExpanded ? CandidateDetailView.maximumHeight : 0,
+              actions: actions.preferredHeight(width: width), minimumNavigation: enterConfirmsCandidate ? navigation.minimumHeight : 0)
+    }
+
+    func setAvailableWidth(_ width: CGFloat) {
+        guard availableWidth != width else {
+            return
+        }
+        availableWidth = width
+        needsLayout = true
+    }
+
+    override convenience init(frame: NSRect) {
+        self.init(frame: frame, definitions: WordDefinitionsModel())
+    }
+
+    init(frame: NSRect, definitions: WordDefinitionsModel, pointerLocation: ((NSView) -> NSPoint?)? = nil) {
+        self.definitions = definitions
+        self.pointerLocation = pointerLocation ?? { view in
+            guard let window = view.window else {
+                return nil
+            }
+            return view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        }
         super.init(frame: frame)
         scrollView.documentView = canvas
         scrollView.hasHorizontalScroller = true
@@ -83,11 +135,29 @@ final class CandidateTreeView: NSView {
                                                name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(refreshAppearance),
                                                            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
-        addSubview(scrollView)
-        addSubview(details)
         addSubview(composition)
-        addSubview(navigation)
-        addSubview(actions)
+        bodyViewport.frame = bounds
+        body.frame = bounds
+        bodyViewport.documentView = body
+        bodyViewport.hasVerticalScroller = false
+        bodyViewport.scrollerStyle = .legacy
+        bodyViewport.autohidesScrollers = true
+        bodyViewport.drawsBackground = false
+        bodyViewport.setAccessibilityIdentifier("candidate-side-viewport")
+        addSubview(bodyViewport)
+        for view in [scrollView as NSView, details, navigation, actions, definitionSide] { body.addSubview(view) }
+        definitionSide.onLayoutChanged = { [weak self] in
+            self?.needsLayout = true
+            self?.onLayoutChanged?()
+        }
+        definitionSide.onPointerExit = { [weak self] in self?.clearRetainedDetailHoverIfNeeded() }
+        definitions.onChange = { [weak self] in self?.refreshDetails() }
+        definitions.availability.onChange = { [weak self] in
+            guard let self else {
+                return
+            }
+            self.navigation.setDefinitionAvailability(self.definitions.availability.availableCandidateIndices)
+        }
         navigation.onSelection = { [weak self] index in
             self?.selectCandidate(index)
         }
@@ -98,6 +168,7 @@ final class CandidateTreeView: NSView {
             guard let self else {
                 return
             }
+            self.clearDetailHover()
             self.treeExpanded.toggle()
             self.generation &+= 1
             self.retireTreeControls()
@@ -113,6 +184,7 @@ final class CandidateTreeView: NSView {
             self.onLayoutChanged?()
         }
         actions.onSubmit = { [weak self] index in self?.submit(candidateIndex: index) }
+        actions.onPageSelection = { [weak self] index in self?.selectCandidate(index) }
         scrollView.isHidden = true
         details.isHidden = true
         details.setAccessibilityIdentifier("candidate-details")
@@ -126,27 +198,46 @@ final class CandidateTreeView: NSView {
 
     override func layout() {
         super.layout()
-        let actionHeight = min(actions.preferredHeight(width: bounds.width), bounds.height)
-        let available = max(0, bounds.height - actionHeight)
-        let compositionHeight = enterConfirmsCandidate ? composition.preferredHeight(width: bounds.width) : 0
-        let navigationHeight = enterConfirmsCandidate ? navigation.preferredHeight(width: bounds.width) : 0
-        let treeHeight = showsTree ? min(maximumTreeHeight, treePreferredSize.height) : 0
-        let detailHeight = detailsExpanded ? CandidateDetailView.maximumHeight : 0
-        let scale = min(1, available / max(1, compositionHeight + navigationHeight + treeHeight + detailHeight))
-        var top = bounds.height
-        for (view, height) in [(composition as NSView, compositionHeight * scale),
-                               (navigation, navigationHeight * scale),
-                               (scrollView, treeHeight * scale), (details, detailHeight * scale)] {
-            top -= height
-            view.frame = NSRect(x: 0, y: top, width: bounds.width, height: height)
-        }
-        actions.frame = NSRect(x: 0, y: 0, width: bounds.width, height: actionHeight)
+        let columns = columns(availableWidth: bounds.width)
+        let compositionHeight = showsComposition ?
+            min(bounds.height * maximumCompositionHeightFraction, composition.preferredHeight(width: columns.leftWidth)) : 0
+        composition.frame = NSRect(x: 0, y: bounds.height - compositionHeight,
+                                   width: min(bounds.width, columns.leftWidth), height: compositionHeight)
+        bodyViewport.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - compositionHeight))
+        bodyViewport.hasHorizontalScroller = columns.contentWidth > bounds.width
+        body.frame = NSRect(x: 0, y: 0, width: columns.contentWidth, height: bodyViewport.bounds.height)
+        bodyViewport.tile()
+        body.setFrameSize(NSSize(width: columns.contentWidth, height: bodyViewport.contentSize.height))
+        let frames = columns.frames(height: body.bounds.height, left: leftHeights(width: columns.leftWidth),
+                                    definitionHeight: definitionSide.isHidden ? 0 : definitionSide.preferredHeight)
+        navigation.frame = frames.navigation
+        scrollView.frame = frames.tree
+        details.frame = frames.details
+        actions.frame = frames.actions
+        definitionSide.frame = frames.definitions
+        let maximumOffset = max(0, body.bounds.width - bodyViewport.contentSize.width)
+        bodyViewport.contentView.scroll(to: NSPoint(x: min(maximumOffset, max(0, bodyViewport.contentView.bounds.minX)), y: 0))
+        bodyViewport.reflectScrolledClipView(bodyViewport.contentView)
+        needsDisplay = true
         updateVisibleControls()
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        CandidateTheme.palette(for: effectiveAppearance).background.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill()
+        let palette = CandidateTheme.palette(for: effectiveAppearance)
+        palette.background.setFill()
+        guard enterConfirmsCandidate else {
+            NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill()
+            return
+        }
+        let columns = columns(availableWidth: bounds.width)
+        let frames = columns.frames(height: body.bounds.height, left: leftHeights(width: columns.leftWidth), definitionHeight: 0)
+        var cardFrame = convert(frames.candidateCard, from: body)
+        if showsComposition { cardFrame.size.height += composition.frame.height }
+        let card = NSBezierPath(roundedRect: cardFrame.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        card.fill()
+        palette.border.setStroke()
+        card.lineWidth = 1
+        card.stroke()
     }
 
     @objc private func viewportChanged() { updateVisibleControls() }
@@ -162,9 +253,21 @@ final class CandidateTreeView: NSView {
         nodeButtons.values.forEach { $0.needsDisplay = true }
         let palette = CandidateTheme.palette(for: effectiveAppearance)
         details.applyPalette(palette)
+        definitionSide.applyPalette(palette)
         composition.applyPalette(palette)
         navigation.applyPalette(palette)
         actions.subviews.forEach { $0.needsDisplay = true }
+    }
+
+    func setDefinitionsEnabled(_ enabled: Bool) {
+        definitionsEnabled = enabled
+        if !enabled {
+            definitions.invalidate()
+            definitions.availability.invalidate()
+            navigation.setDefinitionAvailability([])
+            clearDetailHover()
+            definitionSide.update(target: nil, result: nil, fontSize: CGFloat(textSize.pointSize))
+        }
     }
 
     func update(entries: [CandidateTree.Entry], selectionIndex: Int?, numbers: [Int: String] = [:],
@@ -176,6 +279,9 @@ final class CandidateTreeView: NSView {
         let readableWidths = documentWidths?.allSatisfy { $0 >= minimumColumnWidth } == true ? documentWidths : nil
         let changed = updatedTree != tree || self.documentWidths != readableWidths || textSize != size || showsScores != scoresVisible
         let phaseChanged = self.enterConfirmsCandidate != enterConfirmsCandidate
+        if (retainingDetailHover && selection.selectedCandidateIndex != selectionIndex) || updatedTree != tree || phaseChanged {
+            clearDetailHover()
+        }
         if updatedTree != tree || phaseChanged {
             generation &+= 1
             retireTreeControls()
@@ -212,7 +318,7 @@ final class CandidateTreeView: NSView {
         }
         if detailsExpanded {
             details.scrollPage(forward: forward)
-        } else if enterConfirmsCandidate {
+        } else if showsComposition {
             composition.scrollPage(forward: forward)
         } else {
             detailsExpanded = true
@@ -225,6 +331,7 @@ final class CandidateTreeView: NSView {
 
     @discardableResult
     func navigate(_ direction: CandidateTreeSelection.Direction) -> Bool {
+        if retainingDetailHover { clearDetailHover() }
         if !treeExpanded && (direction == .up || direction == .down) {
             guard !entries.isEmpty else {
                 return false
@@ -257,6 +364,7 @@ final class CandidateTreeView: NSView {
         guard tree.paths[candidateIndex] != nil else {
             return
         }
+        clearDetailHover()
         selection.synchronize(tree: tree, candidateIndex: candidateIndex)
         refreshSelection()
         // Submission carries its index so a click can't commit an old selection.
@@ -267,6 +375,7 @@ final class CandidateTreeView: NSView {
         guard tree.paths[index] != nil else {
             return
         }
+        clearDetailHover()
         selection.synchronize(tree: tree, candidateIndex: index)
         refreshSelection()
         // Selecting the already-highlighted composing candidate must still enter selection mode.
@@ -277,6 +386,7 @@ final class CandidateTreeView: NSView {
         guard let index = selection.select(nodeID: nodeID, in: tree) else {
             return
         }
+        clearDetailHover()
         refreshSelection()
         onSelectionChanged?(index)
     }
@@ -426,13 +536,24 @@ final class CandidateTreeView: NSView {
     private func refreshSelection() {
         candidatePage = CandidatePage(entries: entries, selectionIndex: selection.selectedCandidateIndex,
                                       pageStart: numberLabels.keys.min())
-        navigation.update(page: candidatePage, numbers: numberLabels, fontSize: textSize.pointSize, generation: generation)
+        navigation.update(page: candidatePage, numbers: numberLabels, fontSize: textSize.pointSize,
+                          generation: generation, compact: enterConfirmsCandidate, visibleRows: Config.CandidateVisibleRows().value)
         navigation.isHidden = !enterConfirmsCandidate || entries.isEmpty
+        let definitionTargets: [WordDefinitionsModel.Target] = definitionsEnabled && enterConfirmsCandidate ? candidatePage.items.compactMap { item in
+            candidateNodeID(candidateIndex: item.index).map { nodeID in
+                let token = tree.nodes[nodeID].token
+                return WordDefinitionsModel.Target(generation: generation, candidateIndex: item.index, nodeID: nodeID,
+                                                   word: token.text, reading: token.reading)
+            }
+        } : []
+        definitions.availability.update(targets: definitionTargets)
+        navigation.setDefinitionAvailability(definitions.availability.availableCandidateIndices)
         let currentEntry = selection.selectedCandidateIndex.flatMap { tree.entry(candidateIndex: $0) }
         composition.update(entry: currentEntry, fontSize: textSize.pointSize, enterConfirmsCandidate: enterConfirmsCandidate)
-        composition.isHidden = !enterConfirmsCandidate
+        composition.isHidden = !showsComposition
         actions.update(candidateIndex: selection.selectedCandidateIndex, generation: generation,
-                       treeExpanded: treeExpanded, detailsExpanded: detailsExpanded, enterConfirmsCandidate: enterConfirmsCandidate)
+                       treeExpanded: treeExpanded, detailsExpanded: detailsExpanded, enterConfirmsCandidate: enterConfirmsCandidate,
+                       page: enterConfirmsCandidate ? candidatePage : nil)
         scrollView.isHidden = !showsTree
         details.isHidden = !detailsExpanded
         needsLayout = true
@@ -491,16 +612,57 @@ final class CandidateTreeView: NSView {
             }
             hoveredDetail = target
             hoveredControl = control
+            retainingDetailHover = false
         } else {
             // A late exit from the previous control must not clear a newer hover.
             guard hoveredControl === control else {
                 return
             }
-            hoveredDetail = nil
-            hoveredControl = nil
+            if pointerRemainsWithinDefinition(control: control) {
+                retainingDetailHover = true
+                return
+            }
+            clearDetailHover()
         }
         refreshDetails()
     }
+
+    private func clearDetailHover() {
+        hoveredDetail = nil
+        hoveredControl = nil
+        retainingDetailHover = false
+    }
+
+    private func pointerRemainsWithinDefinition(control: NSView) -> Bool {
+        guard !definitionSide.isHidden, let point = pointerLocation(self) else {
+            return false
+        }
+        return WordDefinitionsSideLayout.retainsHover(at: point, source: convert(control.bounds, from: control),
+                                                     definitions: convert(definitionSide.bounds, from: definitionSide), viewport: bounds)
+    }
+
+    private func clearRetainedDetailHoverIfNeeded() {
+        guard retainingDetailHover else {
+            return
+        }
+        if let control = hoveredControl, let target = hoveredDetail,
+           isCurrentDetailControl(control, target: target), pointerRemainsWithinDefinition(control: control) {
+            return
+        }
+        clearDetailHover()
+        refreshDetails()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let pointerTracking { removeTrackingArea(pointerTracking) }
+        let tracking = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(tracking)
+        pointerTracking = tracking
+    }
+
+    override func mouseMoved(with event: NSEvent) { clearRetainedDetailHoverIfNeeded() }
+    override func mouseExited(with event: NSEvent) { clearRetainedDetailHoverIfNeeded() }
 
     private func refreshDetails() {
         if let target = hoveredDetail, let control = hoveredControl, isCurrentDetailControl(control, target: target) {
@@ -509,28 +671,40 @@ final class CandidateTreeView: NSView {
             case .candidate(let index): showCandidateDetails(candidateIndex: index)
             }
         } else {
-            hoveredDetail = nil
-            hoveredControl = nil
+            clearDetailHover()
             showDetails(nodeID: selection.focusedNodeID ?? displayedColumns.first?.first)
         }
     }
 
-    private func showDetails(nodeID: Int?) {
+    private func showDetails(nodeID: Int?, candidateIndex: Int? = nil, previewText: String? = nil) {
         guard let nodeID, tree.nodes.indices.contains(nodeID) else {
+            definitions.invalidate()
+            definitionSide.update(target: nil, result: nil, fontSize: CGFloat(textSize.pointSize))
             details.update(text: "", fontSize: CGFloat(textSize.pointSize))
             return
         }
         let token = tree.nodes[nodeID].token
         let word = token.reading.isEmpty ? token.text : "\(token.text)\n\(token.reading)"
         let preview = tree.preview(at: nodeID, preserving: selection.selectedCandidateIndex)?.detailDescription
-        let description = [word, preview, scorePresentations[nodeID]?.detailDescription, Localization.text("candidate.detailKeys")]
+        let description = previewText ?? [word, preview, scorePresentations[nodeID]?.detailDescription, Localization.text("candidate.detailKeys")]
             .compactMap { $0 }.joined(separator: "\n")
+        let index = candidateIndex ?? tree.preferredCandidate(at: nodeID, preserving: selection.selectedCandidateIndex)
+        let target = definitionsEnabled && enterConfirmsCandidate ? index.map {
+            WordDefinitionsModel.Target(generation: generation, candidateIndex: $0, nodeID: nodeID, word: token.text, reading: token.reading)
+        } : nil
+        definitions.update(target: target)
+        definitionSide.update(target: definitions.target, result: definitions.result, fontSize: CGFloat(textSize.pointSize))
         details.update(text: description, fontSize: CGFloat(textSize.pointSize))
     }
 
     private func showCandidateDetails(candidateIndex: Int) {
-        // A shared word and its adjacent number may commit different entries.
         let preview = candidatePage.items.first { $0.index == candidateIndex }?.detailDescription ?? ""
-        details.update(text: preview, fontSize: CGFloat(textSize.pointSize))
+        showDetails(nodeID: candidateNodeID(candidateIndex: candidateIndex), candidateIndex: candidateIndex, previewText: preview)
+    }
+
+    private func candidateNodeID(candidateIndex: Int) -> Int? {
+        // A full row keeps its real candidate path and the user's current word depth.
+        let depth = selection.focusedNodeID.map { tree.nodes[$0].depth } ?? 0
+        return tree.paths[candidateIndex].flatMap { path in path.isEmpty ? nil : path[min(depth, path.count - 1)] }
     }
 }

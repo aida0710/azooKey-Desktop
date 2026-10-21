@@ -3,13 +3,16 @@ import GLib from 'gi://GLib';
 import St from 'gi://St';
 import {attachCandidateAction} from './candidateAccessibility.js';
 import {messages} from './candidateMessages.js';
-import {createWrappingLabel} from './candidateText.js';
+import {createWrappingLabel, candidateLineHeight} from './candidateText.js';
 
 // Compact spacing leaves the sentence readable without enlarging the popup.
 const COMPOSITION_INSET = 8;
 const SENTENCE_GAP = 6;
+const READING_GAP = 4;
 // A long proposal must not scroll its unconverted remainder out of sight.
 const REMAINING_HEIGHT_FRACTION = 0.35;
+// Small text actions keep the candidate footer visually separate from words.
+const CONFIRM_LAYOUT = {minimumHeight: 20, verticalInset: 2, horizontalInset: 6, minimumFontSize: 12, fontSizeReduction: 6};
 
 // The selected sentence stays visible while hover explains another candidate below.
 export class CandidateComposition {
@@ -40,7 +43,7 @@ export class CandidateComposition {
         this.actor.add_child(this._remainingScroll);
     }
 
-    update(snapshot, {fontSize, width, maximumHeight, palette}) {
+    update(snapshot, {fontSize, width, maximumHeight, palette, compact = false}) {
         const candidate = snapshot.candidates?.find(item => item.index === snapshot.selection);
         const enterConfirmsCandidate = ['selecting', 'previewing', 'replaceSuggestion'].includes(snapshot.inputState);
         const identity = JSON.stringify([snapshot.contextId, snapshot.generation, snapshot.selection, enterConfirmsCandidate]);
@@ -50,6 +53,8 @@ export class CandidateComposition {
             if (candidate) this._createConfirm(snapshot, candidate, enterConfirmsCandidate);
         }
         this._title.text = enterConfirmsCandidate ? messages.composition : messages.proposal;
+        this._title.visible = !compact;
+        this._scroll.visible = !compact;
         const sentence = candidate?.text ?? snapshot.preedit ?? '';
         if (sentence !== this._sentence.text) {
             this._sentence.text = sentence;
@@ -69,19 +74,44 @@ export class CandidateComposition {
         this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text}; padding: ${COMPOSITION_INSET}px;`);
         this._title.set_style(`font-size: ${Math.max(12, fontSize - 4)}px;`);
         this._sentence.set_style(`font-size: ${fontSize + 2}px; font-weight: 600; padding-top: ${SENTENCE_GAP}px;`);
+        const readingFontSize = Math.max(14, fontSize - 2);
         for (const label of [this._reading, this._remaining])
-            label.set_style(`font-size: ${Math.max(14, fontSize - 2)}px; padding-top: 4px;`);
+            label.set_style(`font-size: ${readingFontSize}px; padding-top: ${READING_GAP}px;`);
         const innerWidth = Math.max(1, width - COMPOSITION_INSET * 2);
         for (const label of [this._sentence, this._reading, this._remaining]) label.set_width(innerWidth);
-        if (this._confirm) this._confirm.set_style(`color: ${palette.selectionText}; background-color: ${palette.selection};
-            border: 2px solid ${palette.text}; border-radius: 8px; padding: 4px 12px; min-height: 32px; font-size: ${fontSize}px;`);
-        const headerHeight = this._header.get_preferred_height(innerWidth)[1];
-        const remainingHeight = remaining ? Math.min(this._remaining.get_preferred_height(innerWidth)[1],
-            maximumHeight * REMAINING_HEIGHT_FRACTION) : 0;
-        const contentHeight = this._content.get_preferred_height(innerWidth)[1];
-        const textHeight = Math.min(contentHeight,
-            Math.max(1, maximumHeight - headerHeight - remainingHeight - COMPOSITION_INSET * 2));
-        const height = Math.min(maximumHeight, headerHeight + textHeight + remainingHeight + COMPOSITION_INSET * 2);
+        if (this._confirm) this._confirm.set_style(`color: ${palette.text}; background-color: transparent;
+            background-gradient-direction: none; box-shadow: none; border: 0; border-radius: 0;
+            padding: ${CONFIRM_LAYOUT.verticalInset}px ${CONFIRM_LAYOUT.horizontalInset}px;
+            min-height: ${CONFIRM_LAYOUT.minimumHeight}px;
+            font-size: ${Math.max(CONFIRM_LAYOUT.minimumFontSize, fontSize - CONFIRM_LAYOUT.fontSizeReduction)}px;`);
+        if (compact) {
+            // The document already shows the proposal. Keep its explicit commit
+            // action in the candidate footer rather than repeating the sentence.
+            this.actor.set_style('padding: 0;');
+            this._remainingScroll.hide();
+            this._scroll.height = 0;
+            this._remainingScroll.height = 0;
+            const buttonWidth = Math.ceil(this._header.get_preferred_width(-1)[1]);
+            const buttonHeight = Math.ceil(this._header.get_preferred_height(buttonWidth)[1]);
+            this.actor.set_size(buttonWidth, buttonHeight);
+            return buttonHeight;
+        }
+        const headerHeight = Math.ceil(this._header.get_preferred_height(innerWidth)[1]);
+        const minimumTextHeight = candidateLineHeight(fontSize + 2, this.actor) + SENTENCE_GAP;
+        const minimumRemainingHeight = remaining ? candidateLineHeight(readingFontSize, this.actor) + READING_GAP : 0;
+        const fixedHeight = headerHeight + COMPOSITION_INSET * 2;
+        // A short work area scrolls the whole card; clipping its fixed header or
+        // the first sentence/remainder line would make those controls unreadable.
+        const heightBudget = Math.max(fixedHeight + minimumTextHeight + minimumRemainingHeight,
+            Math.max(0, Math.floor(maximumHeight)));
+        const contentBudget = heightBudget - fixedHeight;
+        const remainingBudget = Math.min(contentBudget - minimumTextHeight,
+            Math.max(minimumRemainingHeight, Math.floor(heightBudget * REMAINING_HEIGHT_FRACTION)));
+        const remainingHeight = remaining ? Math.min(remainingBudget,
+            Math.max(minimumRemainingHeight, Math.ceil(this._remaining.get_preferred_height(innerWidth)[1]))) : 0;
+        const contentHeight = Math.max(minimumTextHeight, Math.ceil(this._content.get_preferred_height(innerWidth)[1]));
+        const textHeight = Math.min(contentHeight, contentBudget - remainingHeight);
+        const height = fixedHeight + textHeight + remainingHeight;
         this._scroll.height = textHeight;
         this._remainingScroll.height = remainingHeight;
         this.actor.set_size(width, height);
