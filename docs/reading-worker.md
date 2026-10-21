@@ -87,7 +87,7 @@ frontend coordinator、通常製品入口への切替、一般設定同期、予
 
 ## 再変換と確定取消
 
-再変換と確定取消のCore操作は [再変換契約](reading-reconversion.md) を参照してください。復元済み再変換の取消だけは、`submit=false` でも元本文を一度返します。上記の通常入力の取消とは区別し、adapter未接続の再変換gateは維持します。
+再変換と確定取消のCore操作は [再変換契約](reading-reconversion.md) を参照してください。`reset` / `focus-out` の `submit=false` は、再変換中もcommitとcompletionを返しません。Escによる読みの取消だけが元本文を一度返します。元欄の復旧はIBus・入力先クライアント・adapterが担当し、adapter未接続の再変換gateは維持します。
 
 ## 全量設定の同期
 
