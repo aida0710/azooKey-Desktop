@@ -100,7 +100,8 @@ struct DesktopReadingSession {
     mutating func reset(commit: Bool) throws -> DesktopSnapshot {
         var next = self
         next.candidateCompletions = []
-        let commits = commit ? [try next.commitDisplayedText()] : [next.reconversionOriginalText ?? ""]
+        // A non-submitting control retires state; native focus/reset handling owns document recovery.
+        let commits = commit ? [try next.commitDisplayedText()] : []
         next.composition.stopComposition()
         next.candidates.invalidate()
         next.candidateContext = nil

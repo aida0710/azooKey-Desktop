@@ -110,8 +110,9 @@ import Testing
         #expect(differentBytes.reconversionError == "changed_context")
         let restored = try Support.confirm(&fixture, token: replacement.token, context: Support.document(before: "\u{212B}"))
         #expect(restored.snapshot?.preedit == "えもじ")
-        let cancelled = try fixture.worker.process(.init(operation: "reset", reference: fixture.reference, submit: false))
-        #expect(cancelled.snapshot?.commits.first?.utf8.elementsEqual(selected.utf8) == true)
+        #expect(try fixture.key(53).commits.isEmpty)
+        let cancelled = try fixture.key(53)
+        #expect(cancelled.commits.first?.utf8.elementsEqual(selected.utf8) == true)
     }
 
     @Test func stagingAWorkerCopyDoesNotConsumeTheOriginalDeletionToken() throws {

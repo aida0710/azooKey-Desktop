@@ -59,6 +59,8 @@ adapterは削除直前に元欄・本文・選択・位置を再確認します�
 
 復元するraw入力は直近確定のcheckpointを使います。元候補の本文は新batchのUTF-8一致かつ全読み消費の実候補から探し、旧candidateIDやlearning receiptを再利用しません。候補到着だけでは正式snapshotを変えず、次の明示変換キーで復元候補を選びます。
 
-再変換中の部分候補確定・部分F6〜F10は `whole_selection_required` で拒否し、元の読みと選択を保持します。新しい全体候補を確定した場合だけ、その実IDのcompletionを一度返します。候補を確定せず取消した場合、元の本文を一度返します。このため、通常入力の `reset(submit:false)` と異なり、復元済み再変換の取消は元本文のcommitを伴います。未confirmの取消はcommitを伴いません。
+再変換中の部分候補確定・部分F6〜F10は `whole_selection_required` で拒否し、元の読みと選択を保持します。新しい全体候補を確定した場合だけ、その実IDのcompletionを一度返します。候補を確定せずEscで未確定入力を取り消した場合は、元の本文を一度返します。Escは既存の候補選択・プレビュー・読みの取消段階を保ち、読みの取消時に元本文を戻します。
+
+`reset` / `focus-out` の `submit:false` は、再変換中もcommitとcompletionを返しません。元欄の確定・消去・原文の復旧表示はIBusと入力先クライアント、元欄/tokenを保持するadapterが担当します。制御応答から原文を再確定すると、二重確定や別欄への配送になるためです。読み側は入力・候補・元本文・削除tokenを退役させ、後のEscや古い候補IDから原文を再送しません。未confirmの `cancel-reconversion` もcommitを伴いません。
 
 入力応答が不明な場合、焦点変更後、削除済み本文の復旧はadapter側の検証対象です。Core回帰の成功を実IBus/GTK/Qtの削除・表示・焦点受入へ読み替えません。
