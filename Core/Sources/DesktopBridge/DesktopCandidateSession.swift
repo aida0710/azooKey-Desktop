@@ -57,7 +57,7 @@ final class DesktopCandidateSession {
         latestAuthority = request.authority
         requestIDs.insert(request.authority.requestID)
         return .init(authority: request.authority, workerGeneration: workerGeneration,
-                     batchID: batchID, candidates: conversion.items.map(\.item))
+                     batchID: batchID, candidates: conversion.items.map(\.item), mainCandidateID: conversion.mainCandidateID)
     }
 
     func retain(_ reference: DesktopCandidateBatchReference) throws {

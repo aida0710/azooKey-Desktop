@@ -6,6 +6,16 @@ struct DesktopCandidateBatch: Codable, Sendable {
     let workerGeneration: String
     let batchID: String
     let candidates: [DesktopCandidateItem]
+    let mainCandidateID: String?
+
+    init(authority: CandidateRequestAuthority, workerGeneration: String, batchID: String,
+         candidates: [DesktopCandidateItem], mainCandidateID: String? = nil) {
+        self.authority = authority
+        self.workerGeneration = workerGeneration
+        self.batchID = batchID
+        self.candidates = candidates
+        self.mainCandidateID = mainCandidateID
+    }
 }
 
 /// Ordinary conversion only: nonzero formal consumption, with no debug/action entries.

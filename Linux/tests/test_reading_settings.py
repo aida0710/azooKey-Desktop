@@ -16,11 +16,13 @@ class ReadingSettingsTests(ReadingSettingsTestCase):
     def test_candidate_startup_does_not_delay_configured_reading_or_original_replies(self):
         startup = self.converter.gate("settings")
         self.start(settings_values(halfSpace=True, punctuation=4))
+        # Hold the candidate worker at the gate before measuring independent input.
+        self.assertTrue(startup.entered.wait(WAIT_SECONDS))
         self.focus()
         self.key("a")
         self.key("", 49)
         self.key("", 36)
-        self.assertTrue(startup.entered.is_set())
+        self.assertFalse(startup.proceed.is_set())
         self.assertEqual(self.inputs[-1].snapshot["commits"], ["a"])
         self.assertEqual(len(self.finished), 3)
         self.assertEqual(self.panels, [])
@@ -32,12 +34,17 @@ class ReadingSettingsTests(ReadingSettingsTestCase):
         self.assertEqual(self.converter.values, self.reader.values)
 
     def test_candidate_configuration_ack_must_arrive_before_prepare_and_display(self):
+        startup = self.converter.gate("settings")
         configured = self.converter.gate("configure-settings")
         self.start()
+        self.assertTrue(startup.entered.wait(WAIT_SECONDS))
         self.focus()
         self.key("a")
         self.key("", 49)
-        self.until(lambda: self.agreement().reader is not None)
+        startup.proceed.set()
+        # Dispatch both settings replies before waiting on the configuration
+        # thread; an undelivered startup reply cannot schedule its request.
+        self.until(lambda: self.agreement().reader is not None and self.agreement().observed is not None)
         self.assertTrue(configured.entered.wait(WAIT_SECONDS))
         self.assertFalse(any(name == "prepare-candidates" for name, _ in self.reader.calls))
         self.assertEqual(self.panels, [])
