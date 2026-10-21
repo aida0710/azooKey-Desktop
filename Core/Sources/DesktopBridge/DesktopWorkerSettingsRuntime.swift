@@ -11,14 +11,17 @@ struct DesktopWorkerSettingsRuntime {
     private static var registeredTableNames: Set<String> = []
 
     let settings: DesktopWorkerSettings
+    let dictionaryRevision: String?
     let identity: Data
     let inputStyle: InputStyle
     let customInputTableRevisions: [String: String]
     private let overrides: [String: Config.OverrideValue]
 
-    init(_ settings: DesktopWorkerSettings) throws {
+    init(_ settings: DesktopWorkerSettings, dictionaryRevision: String? = nil) throws {
         try Self.validate(settings)
+        try DesktopDictionarySyncFailure.validate(dictionaryRevision)
         self.settings = settings
+        self.dictionaryRevision = dictionaryRevision
         identity = try Self.identity(settings)
         overrides = try settings.configOverrides()
         let revisions = try Self.registerTable(settings.customTable)
@@ -39,11 +42,18 @@ struct DesktopWorkerSettingsRuntime {
     }
 
     static func isChange(
-        _ settings: DesktopWorkerSettings, revision: Int, currentRevision: Int, current: Self?
+        _ settings: DesktopWorkerSettings, revision: Int, currentRevision: Int, current: Self?,
+        dictionaryRevision: String? = nil
     ) throws -> Bool {
         guard revision >= 0 else { throw DesktopWorkerSettingsFailure.invalidSettings }
+        try DesktopDictionarySyncFailure.validate(dictionaryRevision)
+        guard current?.dictionaryRevision == nil || dictionaryRevision != nil else {
+            throw DesktopDictionarySyncFailure.revisionRequired
+        }
         if revision == currentRevision, let current {
-            guard try identity(settings) == current.identity else { throw DesktopWorkerSettingsFailure.staleSettings }
+            guard try identity(settings) == current.identity, dictionaryRevision == current.dictionaryRevision else {
+                throw DesktopWorkerSettingsFailure.staleSettings
+            }
             return false
         }
         guard revision > currentRevision || (current == nil && currentRevision == 0 && revision == 0) else {

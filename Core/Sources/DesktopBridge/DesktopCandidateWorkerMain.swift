@@ -2,7 +2,7 @@ import Core
 import Foundation
 
 extension DesktopCandidateWorker {
-    static func run(output: FileHandle, environment: [String: String]) throws {
+    static func run(output: FileHandle, environment: [String: String]) async throws {
         let dataPath = environment["AZOOKEY_DATA_DIR"] ??
             (environment["XDG_DATA_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share").path) + "/azookey-tree"
         let resources = environment["AZOOKEY_RESOURCES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -15,7 +15,7 @@ extension DesktopCandidateWorker {
                 guard line.utf8.count <= CompositionSnapshotLimits.jsonByteCount else { throw DesktopCandidateFailure.invalidRequest }
                 let request = try JSONDecoder().decode(DesktopCandidateWorkerRequest.self, from: Data(line.utf8))
                 do {
-                    response = try worker.process(request)
+                    response = try await worker.processAsync(request)
                 } catch {
                     response = worker.rejected(error, authority: request.authority)
                 }

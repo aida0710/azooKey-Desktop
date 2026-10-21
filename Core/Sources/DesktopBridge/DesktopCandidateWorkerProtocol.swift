@@ -12,6 +12,7 @@ struct DesktopCandidateWorkerRequest: Decodable {
     var context: String?
     var readingProcessGeneration: String?
     var settings: DesktopWorkerSettings?
+    var dictionaryRevision: String?
     var reconversionReadingRequest: DesktopReconversionReadingRequest?
 
     var authority: CandidateRequestAuthority? {
@@ -36,6 +37,8 @@ struct DesktopCandidateWorkerResponse: Encodable {
     var customInputTableRevisions: [String: String]?
     var settingsContract: String?
     var settings: DesktopWorkerSettings?
+    var dictionaryRevision: String?
+    var preparedDictionaryRevision: String?
     var unsupportedFeatures: [String]?
     var error: String?
     var reconversionReadingResult: DesktopReconversionReadingResult?
@@ -44,7 +47,7 @@ struct DesktopCandidateWorkerResponse: Encodable {
 extension DesktopCandidateWorkerRequest {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case operation, request, reference, completion, workerGeneration, settingsRevision, learning
-        case context, readingProcessGeneration, settings
+        case context, readingProcessGeneration, settings, dictionaryRevision
         case reconversionReadingRequest
     }
 
@@ -52,7 +55,10 @@ extension DesktopCandidateWorkerRequest {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         let operation = try fields.decode(String.self, forKey: .operation)
         if operation == "configure-settings" {
-            try DesktopReadingProtocolValidation.keys(decoder, allowed: ["operation", "workerGeneration", "settingsRevision", "settings"])
+            try DesktopReadingProtocolValidation.keys(decoder, allowed: ["operation", "workerGeneration", "settingsRevision", "settings", "dictionaryRevision"])
+        }
+        if operation == "prepare-dictionary" {
+            try DesktopReadingProtocolValidation.keys(decoder, allowed: ["operation", "workerGeneration"])
         }
         if operation == "resolve-reconversion-reading" {
             try DesktopReadingProtocolValidation.keys(decoder, allowed: ["operation", "reconversionReadingRequest"])
@@ -67,6 +73,7 @@ extension DesktopCandidateWorkerRequest {
                   context: try fields.decodeIfPresent(String.self, forKey: .context),
                   readingProcessGeneration: try fields.decodeIfPresent(String.self, forKey: .readingProcessGeneration),
                   settings: try fields.decodeIfPresent(DesktopWorkerSettings.self, forKey: .settings),
+                  dictionaryRevision: try fields.decodeIfPresent(String.self, forKey: .dictionaryRevision),
                   reconversionReadingRequest: try fields.decodeIfPresent(DesktopReconversionReadingRequest.self, forKey: .reconversionReadingRequest))
     }
 }
