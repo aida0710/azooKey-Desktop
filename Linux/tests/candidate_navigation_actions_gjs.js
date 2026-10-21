@@ -191,3 +191,16 @@ compactScroll.page_size = 4 * 36;
 compact._viewportChanged();
 equal(compactScroll.value, 0);
 print('GNOME configurable rows: five/seven/nine preserve the nine real entries and reveal the selected last entry after shrinking PASS');
+
+const shortRows = new Navigation({select() {}, changed() {}, preview() {}, compact: true});
+shortRows.update(snapshot(0, 1), layout);
+for (const row of shortRows._rows.get_children()) row.get_preferred_height = () => [30, 30];
+shortRows._rows.get_children()[0].get_preferred_height = () => [60, 60];
+for (const count of [5, 7, 9]) {
+    shortRows.update({...snapshot(0, 1), candidateVisibleRows: count}, {...layout, listHeight: count * 33});
+    equal(shortRows._scroll.height, count * 30);
+    equal(shortRows._rows.get_children().length, 9);
+}
+shortRows.update({...snapshot(0, 1), candidateVisibleRows: 7}, {...layout, listHeight: 100});
+equal(shortRows._scroll.height, 100);
+print('GNOME row count: short real rows stop at the chosen count while a smaller screen still limits the viewport PASS');

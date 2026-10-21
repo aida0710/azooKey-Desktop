@@ -192,7 +192,11 @@ export class CandidateNavigation {
         }
         this._hint.set_style(`font-size: ${Math.max(12, fontSize - 4)}px; padding: 3px 8px;`);
         if (palette) this.applyPalette(palette);
-        const height = Math.min(listHeight, this._rows.get_preferred_height(width)[1]);
+        // Use the shortest real row so wrapped candidates cannot enlarge the
+        // viewport past the requested count of ordinary single-line words.
+        const visibleRowsHeight = this._compact ? Math.min(...this._rows.get_children()
+            .map(row => row.get_preferred_height(width)[1])) * this.visibleRows : Infinity;
+        const height = Math.min(listHeight, visibleRowsHeight, this._rows.get_preferred_height(width)[1]);
         this._scroll.height = height;
         this._scroll.visible = this.expanded;
         this._revealSelection();
