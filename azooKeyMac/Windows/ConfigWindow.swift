@@ -6,6 +6,7 @@ struct ConfigWindow: View {
     @ConfigState private var liveConversion = Config.LiveConversion()
     @ConfigState private var treeCandidates = Config.TreeCandidates()
     @ConfigState private var candidateTextSize = Config.CandidateTextSize()
+    @ConfigState private var candidateVisibleRows = Config.CandidateVisibleRows()
     @ConfigState private var showRelativeScores = Config.ShowRelativeScores()
     @ConfigState private var inputStyle = Config.InputStyle()
     @ConfigState private var typeBackSlash = Config.TypeBackSlash()
@@ -270,6 +271,11 @@ struct ConfigWindow: View {
                 Picker(Localization.text("candidate.textSize"), selection: $candidateTextSize) {
                     Text(Localization.text("candidate.textSize.standard")).tag(Config.CandidateTextSize.Value.standard)
                     Text(Localization.text("candidate.textSize.large")).tag(Config.CandidateTextSize.Value.large)
+                }
+                Picker(Localization.text("candidate.visibleRows"), selection: $candidateVisibleRows) {
+                    ForEach(Config.CandidateVisibleRows.Value.allCases, id: \.self) { count in
+                        Text(String(format: Localization.text("candidate.visibleRows.count"), String(count.rawValue))).tag(count)
+                    }
                 }
                 Toggle(Localization.text("candidate.score.show"), isOn: $showRelativeScores)
                 Text(CandidateScorePresentation.explanation)

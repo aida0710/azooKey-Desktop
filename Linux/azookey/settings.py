@@ -287,7 +287,7 @@ class SettingsWindow(Gtk.Window):
                     values[key] = widget.get_active_id()
                 else:
                     values[key] = widget.get_text()
-            for key in ("punctuation", "inferenceLimit"):
+            for key in ("punctuation", "inferenceLimit", "candidateVisibleRows"):
                 values[key] = int(values[key])
             values["customTable"] = self.text(self.custom_table)
             values["transformShortcut"] = parse_shortcut(self.transform_shortcut.get_text())

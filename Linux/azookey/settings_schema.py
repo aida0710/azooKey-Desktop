@@ -5,6 +5,7 @@ import uuid
 
 from .i18n import text
 from .graphemes import cursor_boundaries
+from .candidate_layout_preferences import DEFAULT_VISIBLE_CANDIDATE_ROWS, VISIBLE_CANDIDATE_ROWS
 
 
 BOOLEAN_KEYS = frozenset({
@@ -19,7 +20,7 @@ CHOICES = {
     "candidateTextSize": {"standard", "large"},
 }
 KNOWN_KEYS = BOOLEAN_KEYS | STRING_KEYS | CHOICES.keys() | {
-    "punctuation", "inferenceLimit", "transformShortcut", "userDictionary",
+    "punctuation", "inferenceLimit", "transformShortcut", "userDictionary", "candidateVisibleRows",
 }
 MAX_INFERENCE_LIMIT = 100
 MAX_PROFILE_LENGTH = 4096
@@ -30,6 +31,7 @@ SHORTCUT_MODIFIER_MASK = 15
 INPUT_DEFAULTS = {
     "tree": True, "live": True, "halfSpace": False, "backslash": False,
     "optionDirect": False, "inputStyle": "default", "candidateTextSize": "standard",
+    "candidateVisibleRows": DEFAULT_VISIBLE_CANDIDATE_ROWS,
     "punctuation": 1, "inferenceLimit": 5, "predictiveTyping": False,
     "typoCorrection": False, "debug": False, "showRelativeScores": True,
 }
@@ -104,6 +106,10 @@ def validate_settings(document, *, defaults=None):
             raise invalid_setting(key)
     if "punctuation" in values and (type(values["punctuation"]) is not int or values["punctuation"] not in range(1, 5)):
         raise invalid_setting("punctuation")
+    if "candidateVisibleRows" in values:
+        rows = values["candidateVisibleRows"]
+        if type(rows) is not int or rows not in VISIBLE_CANDIDATE_ROWS:
+            raise invalid_setting("candidateVisibleRows")
     if "inferenceLimit" in values:
         limit = values["inferenceLimit"]
         if type(limit) is not int or not 1 <= limit <= MAX_INFERENCE_LIMIT:

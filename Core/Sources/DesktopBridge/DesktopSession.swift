@@ -60,6 +60,7 @@ struct DesktopSnapshot: Encodable {
     var candidatePage = CandidatePage(entries: [], selectionIndex: nil)
     var showCandidateIndex = false
     var candidateTextSize = Config.CandidateTextSize().value
+    var candidateVisibleRows = Config.CandidateVisibleRows().value
     var showRelativeScores = Config.ShowRelativeScores().value
     var zenzaiLoaded = false
     var personalizationConfigured = false

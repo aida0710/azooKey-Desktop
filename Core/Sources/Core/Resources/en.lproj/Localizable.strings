@@ -6,6 +6,8 @@
 "candidate.textSize" = "Candidate text size";
 "candidate.textSize.standard" = "Standard";
 "candidate.textSize.large" = "Large";
+"candidate.visibleRows" = "Visible candidates";
+"candidate.visibleRows.count" = "%@ candidates";
 "candidate.detailKeys" = "Arrow keys show details; PageUp / PageDown scroll the details";
 "candidate.preview.commit" = "Will commit: %@";
 "candidate.position" = "Candidates %@ / %@";

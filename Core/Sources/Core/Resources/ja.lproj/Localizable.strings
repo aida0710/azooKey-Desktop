@@ -6,6 +6,8 @@
 "candidate.textSize" = "候補の文字サイズ";
 "candidate.textSize.standard" = "標準";
 "candidate.textSize.large" = "大きい";
+"candidate.visibleRows" = "候補の表示件数";
+"candidate.visibleRows.count" = "%@件";
 "candidate.detailKeys" = "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール";
 "candidate.preview.commit" = "確定予定: %@";
 "candidate.position" = "変換候補 %@ / %@";
