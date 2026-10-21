@@ -77,7 +77,7 @@ class CandidateVisibilityTests(unittest.TestCase):
         self.surface_patch.start()
         self.addCleanup(self.surface_patch.stop)
         self.engine = SimpleNamespace(
-            focused=True, private=False,
+            focused=True, private=False, focus_identity=None,
             panel=mock.Mock(spec=("suspend", "dismiss")),
             update_preedit_text_with_mode=mock.Mock(),
             hide_lookup_table=mock.Mock(), hide_preedit_text=mock.Mock(),

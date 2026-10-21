@@ -19,6 +19,7 @@ from .keymap import translate
 from .tree_panel import TreePanel
 from .candidate_announcements import CandidateAnnouncements
 from .preedit_anchor import PreeditAnchor
+from .preedit_ownership import preedit_focus_mode
 from .settings import read_key
 from .settings_store import SettingsStore
 from .i18n import text
@@ -227,7 +228,9 @@ class Engine(IBus.Engine):
             self.pending_settings_stamp = None
             self.snapshot = {}
             self.anchor.update("", 0)
-            self.update_preedit_text_with_mode(IBus.Text.new_from_string(""), 0, False, IBus.PreeditFocusMode.COMMIT)
+            self.update_preedit_text_with_mode(
+                IBus.Text.new_from_string(""), 0, False, preedit_focus_mode(self.focus_identity),
+            )
             surface().hide(self)
             self.panel.dismiss()
             self.hide_preedit_text()
@@ -246,9 +249,11 @@ class Engine(IBus.Engine):
     def preview_pending(self, text, cursor):
         if not self.focused or self.private:
             return
-        # IBus commits this visible text to the old input context on focus-out,
-        # before notifying the engine. No asynchronous commit may follow it.
-        self.update_preedit_text_with_mode(IBus.Text.new_from_string(text), cursor, bool(text), IBus.PreeditFocusMode.COMMIT)
+        # The client or IBus owns focus-change submission. A later asynchronous
+        # Engine completion must not submit the same visible text again.
+        self.update_preedit_text_with_mode(
+            IBus.Text.new_from_string(text), cursor, bool(text), preedit_focus_mode(self.focus_identity),
+        )
         # A pending key retires old actions while preserving the user's open list.
         surface().suspend(self)
         self.panel.suspend()
@@ -479,8 +484,7 @@ class Engine(IBus.Engine):
             self.commit_text(IBus.Text.new_from_string(text))
         preedit = snapshot.get("preedit", "")
         self.anchor.update(preedit, snapshot.get("cursor", 0), committed=bool(snapshot.get("commits")))
-        focus_mode = (IBus.PreeditFocusMode.CLEAR if snapshot.get("inputState") == "unicodeInput"
-                      else IBus.PreeditFocusMode.COMMIT)
+        focus_mode = preedit_focus_mode(self.focus_identity, input_state=snapshot.get("inputState"))
         self.update_preedit_text_with_mode(IBus.Text.new_from_string(preedit), snapshot.get("cursor", 0),
                                           bool(preedit), focus_mode)
         snapshot = self.render_candidates(snapshot)
