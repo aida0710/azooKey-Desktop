@@ -16,11 +16,13 @@ class ReadingSettingsTests(ReadingSettingsTestCase):
     def test_candidate_startup_does_not_delay_configured_reading_or_original_replies(self):
         startup = self.converter.gate("settings")
         self.start(settings_values(halfSpace=True, punctuation=4))
+        # Hold the candidate worker at the gate before measuring independent input.
+        self.assertTrue(startup.entered.wait(WAIT_SECONDS))
         self.focus()
         self.key("a")
         self.key("", 49)
         self.key("", 36)
-        self.assertTrue(startup.entered.is_set())
+        self.assertFalse(startup.proceed.is_set())
         self.assertEqual(self.inputs[-1].snapshot["commits"], ["a"])
         self.assertEqual(len(self.finished), 3)
         self.assertEqual(self.panels, [])
