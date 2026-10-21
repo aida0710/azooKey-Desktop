@@ -18,6 +18,7 @@
 | `close` | workerGeneration、context、readingProcessGeneration | contextを終了した応答 |
 | `resolve-reconversion-reading` | reconversionReadingRequest | 元要求と解決した読み。候補計算・学習なし |
 | `prepare-dictionary` | workerGeneration | settings応答とpreparedDictionaryRevision。現在の入力・候補・適用値は不変 |
+| `bind-initial-dictionary` | workerGeneration / settingsRevision / settings / dictionaryRevision | 初回だけ既存設定のまま辞書版を適用するsettings ACK |
 
 辞書読み解決のpayload、本文照合、削除ACKとの境界は [再変換契約](reading-reconversion.md) を参照してください。
 

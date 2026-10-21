@@ -9,12 +9,14 @@ struct DesktopReadingContext {
     var surroundings = DesktopReadingSurroundings(leftContext: "", rightContext: "", privateInput: false)
     var reconversion = DesktopReadingReconversion()
     private var candidateWorkerGeneration: String?
+    private(set) var hasRequestedDictionaryData = false
 
     init(reference: DesktopReadingContextReference) { self.reference = reference }
 
     mutating func configureSettings(_ runtime: DesktopWorkerSettingsRuntime) {
         session.configureSettings(runtime)
         candidateWorkerGeneration = nil
+        hasRequestedDictionaryData = false
         reconversion.clear()
     }
 
@@ -26,7 +28,9 @@ struct DesktopReadingContext {
 
     mutating func process(_ request: DesktopReadingWorkerRequest, settingsRevision: Int) throws -> DesktopReadingWorkerResponse {
         if Self.reconversionOperations.contains(request.operation) {
-            return try processReconversion(request, settingsRevision: settingsRevision)
+            let response = try processReconversion(request, settingsRevision: settingsRevision)
+            hasRequestedDictionaryData = hasRequestedDictionaryData || response.reconversionReadingRequest != nil
+            return response
         }
         var response = DesktopReadingWorkerResponse(
             kind: ["key", "reset", "focus-out", "select", "commit-candidate"].contains(request.operation) ? .input : .acknowledgement,
@@ -57,6 +61,7 @@ struct DesktopReadingContext {
                 leftContext: surroundings.leftContext, rightContext: surroundings.rightContext,
                 privateInput: surroundings.privateInput))
             candidateWorkerGeneration = generation
+            hasRequestedDictionaryData = true
             return .init(kind: .candidates, readingProcessGeneration: reference.readingProcessGeneration,
                          settingsRevision: settingsRevision, reference: reference, candidateRequest: candidateRequest)
         case "adopt-candidates":

@@ -13,6 +13,16 @@
 
 prepareは入力欄への応答、候補batch、候補選択、確定、learning receiptを作りません。candidate内のI/O・辞書作成を待ってreaderのキー返信を保留してはいけません。辞書編集画面の「保存」は別Bridgeのtransactionで完了でき、上記の適用条件を待ちません。入力中に保存された辞書のworker反映は次の安全な境界へ保留します。適用のために未確定文字を消したり、利用者の確定を捏造したりしません。
 
+## 起動時の初回binding
+
+初回のprepareを待っている間も読み入力を進められるよう、全量settingsを適用済みでdictionaryRevisionがまだない場合に限り、`bind-initial-dictionary` を使えます。readerには `readingProcessGeneration`、candidateには `workerGeneration` を付け、両方に現在と同一の `settingsRevision`、19項目の `settings`、準備済みの `dictionaryRevision` を渡します。設定の同一性はJSONのUTF-8 bytesで検査します。
+
+readerは入力状態・caret・reference・compositionRevision・入力表登録を変えず、適用値にdigestだけを記録します。開いているcontextが候補または辞書逆引きを既に要求していたら `dictionary_binding_busy` で拒否します。そのcontextのresetやworker停止でも、旧要求を初回bindingで再有効化しません。候補取得前の純粋な読み入力は継続できます。
+
+candidateは全contextが空であること、準備済みdigestと現在の保存源が一致することを確認し、I/O後にもworker・全設定・revision・context条件を再検査します。適用時にlearningの保存・再設定は行いません。成功ACKは既存の全量settings応答で、input/view/commitやlearning receiptを含みません。
+
+同じdigestの再送は、初回成功後に入力や候補が始まっていても同じACKを返します。別digest・別設定・別revisionへの変更には使えません。readerだけ成功しcandidateが失敗した場合は、両ACKが揃うまで候補と逆引きを保留し、元キーを再送せず同digestを再確認します。その間に保存源が変わった場合は、既存の非focus・全context close・revision前進による更新へ進みます。初回bindingだけで通常入口や表示のgateを開きません。
+
 ## 同じ版を使う根拠
 
 保存と同じ辞書path lockの内側で、同期したUserDefaultsからuser/systemの保存値を読みます。未保存の画面の下書きや、保存・rollback途中の値は取りません。欠落値だけは既存の初期辞書を使い、保存値の型・JSON不正や合計2MiB超過は明示拒否します。

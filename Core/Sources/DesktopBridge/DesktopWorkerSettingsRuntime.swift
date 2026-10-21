@@ -11,7 +11,7 @@ struct DesktopWorkerSettingsRuntime {
     private static var registeredTableNames: Set<String> = []
 
     let settings: DesktopWorkerSettings
-    let dictionaryRevision: String?
+    private(set) var dictionaryRevision: String?
     let identity: Data
     let inputStyle: InputStyle
     let customInputTableRevisions: [String: String]
@@ -39,6 +39,19 @@ struct DesktopWorkerSettingsRuntime {
 
     func perform<Value>(_ operation: () throws -> Value) rethrows -> Value {
         try Config.withOverrides(overrides, perform: operation)
+    }
+
+    func bindingDictionary(_ dictionaryRevision: String, settings: DesktopWorkerSettings,
+                           revision: Int, currentRevision: Int) throws -> Self {
+        try DesktopDictionarySyncFailure.validate(dictionaryRevision)
+        guard revision == currentRevision, try Self.identity(settings) == identity,
+              self.dictionaryRevision == nil || self.dictionaryRevision == dictionaryRevision else {
+            throw DesktopWorkerSettingsFailure.staleSettings
+        }
+        // Initial binding changes metadata only: retain the registered table and every applied override.
+        var bound = self
+        bound.dictionaryRevision = dictionaryRevision
+        return bound
     }
 
     static func isChange(

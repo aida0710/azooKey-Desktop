@@ -44,6 +44,9 @@ final class DesktopCandidateWorker {
 
     /// File work stays in the candidate process and cannot hold a reading input reply.
     func processAsync(_ message: DesktopCandidateWorkerRequest) async throws -> DesktopCandidateWorkerResponse {
+        if message.operation == "bind-initial-dictionary" {
+            return try await bindInitialDictionary(message)
+        }
         if message.operation == "prepare-dictionary" {
             try validatePreparation(message)
             let revision = try await dictionary.prepare()
@@ -168,6 +171,16 @@ final class DesktopCandidateWorker {
     }
 
     private func settingsChange(_ message: DesktopCandidateWorkerRequest) throws -> (settings: DesktopWorkerSettings, revision: Int)? {
+        let (settings, revision) = try settingsPayload(message)
+        guard try DesktopWorkerSettingsRuntime.isChange(settings, revision: revision,
+                                                        currentRevision: settingsRevision, current: appliedSettings,
+                                                        dictionaryRevision: message.dictionaryRevision) else {
+            return nil
+        }
+        return (settings, revision)
+    }
+
+    private func settingsPayload(_ message: DesktopCandidateWorkerRequest) throws -> (settings: DesktopWorkerSettings, revision: Int) {
         try validateWorker(DesktopCandidateValidation.required(message.workerGeneration))
         let revision = try DesktopCandidateValidation.required(message.settingsRevision)
         let settings = try DesktopCandidateValidation.required(message.settings)
@@ -176,12 +189,31 @@ final class DesktopCandidateWorker {
               message.reconversionReadingRequest == nil else {
             throw DesktopWorkerSettingsFailure.invalidSettings
         }
-        guard try DesktopWorkerSettingsRuntime.isChange(settings, revision: revision,
-                                                        currentRevision: settingsRevision, current: appliedSettings,
-                                                        dictionaryRevision: message.dictionaryRevision) else {
-            return nil
-        }
         return (settings, revision)
+    }
+
+    private func dictionaryBinding(_ message: DesktopCandidateWorkerRequest) throws -> DesktopWorkerSettingsRuntime {
+        let (settings, revision) = try settingsPayload(message)
+        guard let current = appliedSettings else { throw DesktopWorkerSettingsFailure.fullSettingsRequired }
+        return try current.bindingDictionary(DesktopCandidateValidation.required(message.dictionaryRevision),
+            settings: settings, revision: revision, currentRevision: settingsRevision)
+    }
+
+    private func bindInitialDictionary(_ message: DesktopCandidateWorkerRequest) async throws -> DesktopCandidateWorkerResponse {
+        let bound = try dictionaryBinding(message)
+        if appliedSettings?.dictionaryRevision != nil {
+            return settingsSnapshot()
+        }
+        guard sessions.isEmpty else { throw DesktopDictionarySyncFailure.bindingBusy }
+        let snapshot = try await dictionary.verify(DesktopCandidateValidation.required(bound.dictionaryRevision))
+        // File work yields the actor. Reject contexts/settings created before this operation resumes.
+        let confirmed = try dictionaryBinding(message)
+        if appliedSettings?.dictionaryRevision == nil {
+            guard sessions.isEmpty else { throw DesktopDictionarySyncFailure.bindingBusy }
+            appliedSettings = confirmed
+            dictionary.apply(snapshot)
+        }
+        return settingsSnapshot()
     }
 
     private func configureSettings(_ message: DesktopCandidateWorkerRequest,
