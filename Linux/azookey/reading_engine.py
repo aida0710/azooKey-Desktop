@@ -90,6 +90,8 @@ class ReadingEngine(IBus.Engine):
         if (self.native_key_passthrough or self.destroyed or self.private
                 or not self.frontend.focused or self.native_key_reply is None):
             return False
+        if state & IBus.ModifierType.RELEASE_MASK and self.reconversion.can_finish_release:
+            return False
         event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
         if self.reconversion.process(event, (keyval, keycode, state), key_reply=self.native_key_reply):
             return True
