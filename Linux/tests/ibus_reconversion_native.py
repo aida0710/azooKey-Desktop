@@ -4,7 +4,8 @@ import os
 from pathlib import Path
 import time
 
-from ibus_native_field import Field, IBus, RESPONSIVE_SECONDS, wait_for
+from ibus_native_field import IBus, RESPONSIVE_SECONDS, wait_for
+from native_surrounding_field import SurroundingField
 
 
 CONTROL = IBus.ModifierType.CONTROL_MASK
@@ -13,7 +14,7 @@ RELEASE = IBus.ModifierType.RELEASE_MASK
 ORIGINAL = "前ニホンゴ後"
 
 
-class ReconversionField(Field):
+class ReconversionField(SurroundingField):
     def __init__(self, bus, name, *, hold_ack=False, editable=True):
         super().__init__(bus, name)
         self.document = ORIGINAL
@@ -23,22 +24,6 @@ class ReconversionField(Field):
         self.deletions = []
         self.events = []
         self.visible_preedits = []
-        self.auxiliary = ""
-        self.context.set_capabilities(
-            IBus.Capabilite.PREEDIT_TEXT | IBus.Capabilite.FOCUS
-            | IBus.Capabilite.SURROUNDING_TEXT | IBus.Capabilite.AUXILIARY_TEXT,
-        )
-        self.context.connect("require-surrounding-text", lambda *_: self.surrounding())
-        self.context.connect("delete-surrounding-text", self.delete)
-        self.context.connect("update-auxiliary-text", self.auxiliary_changed)
-
-    def focus(self):
-        super().focus()
-        wait_for(self.context.needs_surrounding_text)
-        self.surrounding()
-
-    def surrounding(self):
-        self.context.set_surrounding_text(IBus.Text.new_from_string(self.document), self.cursor, self.anchor)
 
     def delete(self, _context, offset, count):
         self.deletions.append((offset, count))
@@ -52,12 +37,6 @@ class ReconversionField(Field):
         if not self.hold_ack:
             self.surrounding()
 
-    def insert(self, text):
-        start, end = sorted((self.cursor, self.anchor))
-        self.document = self.document[:start] + text + self.document[end:]
-        self.cursor = self.anchor = start + len(text)
-        self.surrounding()
-
     def commit(self, context, text):
         self.events.append(("commit", text.get_text()))
         super().commit(context, text)
@@ -65,8 +44,6 @@ class ReconversionField(Field):
     def deliver_native(self, keyval, state, *, route):
         self.events.append(("native", keyval, int(state), route))
         super().deliver_native(keyval, state, route=route)
-        self.anchor = self.cursor
-        self.surrounding()
 
     def preedit_changed(self, context, text, cursor, visible):
         super().preedit_changed(context, text, cursor, visible)

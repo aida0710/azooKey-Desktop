@@ -31,6 +31,7 @@ AZOOKEY_IBUS_TEST=Linux/tests/ibus_settings_integration.py dbus-run-session -- x
 dbus-run-session -- xvfb-run -a env AZOOKEY_IBUS_TEST=Linux/tests/ibus_composition_editing.py bash Tools/tests/linux-desktop.sh
 dbus-run-session -- xvfb-run -a env AZOOKEY_IBUS_TEST=Linux/tests/ibus_reconversion.py bash Tools/tests/linux-desktop.sh
 bash Tools/tests/linux-reconversion-native.sh
+bash Tools/tests/linux-reading-reconversion-native.sh
 bash Tools/tests/linux-ai-target.sh
 bash Tools/tests/linux-ime-shortcuts.sh
 bash Tools/tests/linux-async.sh
