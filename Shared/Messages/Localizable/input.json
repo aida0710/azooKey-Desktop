@@ -1,0 +1,29 @@
+{
+  "input.menu.dictionary": {
+    "ja": "ユーザー辞書…",
+    "en": "User Dictionary…",
+    "note": "Opens the dictionary page of the settings window from the input mode menu."
+  },
+  "input.menu.settings": {
+    "ja": "設定…",
+    "en": "Settings…"
+  },
+  "input.menu.settingsDescription": {
+    "ja": "azooKey Tree の設定",
+    "en": "azooKey Tree settings"
+  },
+  "input.menu.toggleMode": {
+    "ja": "日本語 / 英数を切り替え",
+    "en": "Switch between Japanese and alphanumeric input"
+  },
+  "input.mode.alphanumeric": {
+    "ja": "A",
+    "en": "A",
+    "note": "Input mode indicator while alphanumeric input is active."
+  },
+  "input.mode.japanese": {
+    "ja": "あ",
+    "en": "あ",
+    "note": "Input mode indicator while Japanese input is active; Japanese IMEs show it in every UI language."
+  }
+}
