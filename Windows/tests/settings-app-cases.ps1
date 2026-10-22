@@ -38,10 +38,22 @@ Remove-Item $readableCopy
 Check ($target -eq (Join-Path $Destination 'azookey-settings.exe')) 'the entry starts the installed settings app'
 Check (Test-Path (Join-Path $Destination 'build-info.txt')) 'the package records its build for the support report'
 
+# Returns the settings window once it exists, or zero after the start limit.
+# WaitForInputIdle is not enough: the app can be idle while it is still starting
+# (CI run 39785837868 found no window right after it returned).
+function Wait-SettingsWindow {
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($startLimitMilliseconds)
+    do {
+        $found = [SettingsAppWindows]::FindWindow($settingsWindowClass, $null)
+        if ($found -ne [IntPtr]::Zero) { return $found }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return [IntPtr]::Zero
+}
+
 $first = Start-Process -FilePath $target -ArgumentList '--page', 'ai' -PassThru
-Check ($first.WaitForInputIdle($startLimitMilliseconds)) 'the settings app starts'
-$window = [SettingsAppWindows]::FindWindow($settingsWindowClass, $null)
-Check ($window -ne [IntPtr]::Zero) 'the settings window opens'
+$window = Wait-SettingsWindow
+Check ($window -ne [IntPtr]::Zero -and -not $first.HasExited) 'the settings window opens'
 
 $second = Start-Process -FilePath $target -ArgumentList '--page', 'dictionary' -PassThru
 Check ($second.WaitForExit($startLimitMilliseconds) -and $second.ExitCode -eq 0) 'a second start hands its page to the open window and exits'
