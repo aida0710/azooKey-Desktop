@@ -46,12 +46,17 @@ foreach ($entry in $registrations) {
 $hostPath = Join-Path $Destination 'azookey-windows-host.exe'
 Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name $hostRunValue -Value "`"$hostPath`""
 
-# Every user finds the settings window in the Start menu.
-$settingsShortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\azooKey Tree の設定.lnk'))
+# Every user finds the settings window in the Start menu. WScript.Shell saves a
+# shortcut only under a name in the system's ANSI code page (an English system
+# cannot save a Japanese name), so it is saved under an ASCII name and renamed.
+$startMenu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'
+$settingsShortcutName = 'azooKey Tree の設定.lnk'
+$asciiShortcut = Join-Path $startMenu 'azooKey Tree Settings.lnk'
+$settingsShortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($asciiShortcut)
 $settingsShortcut.TargetPath = Join-Path $Destination 'azookey-settings.exe'
 $settingsShortcut.WorkingDirectory = $Destination
-$settingsShortcut.Description = 'azooKey Tree の設定'
 $settingsShortcut.Save()
+Move-Item -Force $asciiShortcut (Join-Path $startMenu $settingsShortcutName)
 
 # Show azooKey Tree in this user's Japanese keyboards. The International
 # module fails to marshal its arguments under PowerShell 7 on some systems

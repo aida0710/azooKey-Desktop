@@ -21,7 +21,7 @@ Set-WinUserLanguageList `$languages -Force
 
 Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'azooKeyTreeHost' -ErrorAction SilentlyContinue
 Get-Process azookey-windows-host, azookey-desktop-bridge, azookey-settings -ErrorAction SilentlyContinue | Stop-Process -Force
-Remove-Item -Force (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\azooKey Tree の設定.lnk') -ErrorAction SilentlyContinue
+Remove-Item -Force -LiteralPath (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\azooKey Tree の設定.lnk') -ErrorAction SilentlyContinue
 
 foreach ($entry in @(@{ Dll = (Join-Path $Destination 'x86\azookey-tsf.dll'); Regsvr32 = "$env:SystemRoot\SysWOW64\regsvr32.exe" },
                      @{ Dll = (Join-Path $Destination 'azookey-tsf.dll'); Regsvr32 = "$env:SystemRoot\System32\regsvr32.exe" })) {

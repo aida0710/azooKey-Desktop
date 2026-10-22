@@ -2,6 +2,7 @@
 
 #include <commctrl.h>
 
+#include <algorithm>
 #include <numeric>
 
 namespace azookey::settings {
@@ -26,10 +27,15 @@ void ResizeColumns(HWND list, const std::vector<int>& weights) {
     RECT client{};
     GetClientRect(list, &client);
     int total = std::accumulate(weights.begin(), weights.end(), 0);
-    if (total <= 0) return;
-    for (size_t index = 0; index < weights.size(); ++index) {
-        ListView_SetColumnWidth(list, static_cast<int>(index), MulDiv(client.right, weights[index], total));
+    if (total <= 0 || weights.empty()) return;
+    // The last column takes what rounding left, so the columns never need a horizontal scroll bar.
+    int used = 0;
+    for (size_t index = 0; index + 1 < weights.size(); ++index) {
+        int width = MulDiv(client.right, weights[index], total);
+        ListView_SetColumnWidth(list, static_cast<int>(index), width);
+        used += width;
     }
+    ListView_SetColumnWidth(list, static_cast<int>(weights.size() - 1), std::max(0, static_cast<int>(client.right) - used));
 }
 
 void AppendRow(HWND list, const std::vector<std::wstring>& texts, LPARAM data) {

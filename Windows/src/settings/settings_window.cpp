@@ -24,6 +24,12 @@ constexpr DWORD kButtonStyle = WS_TABSTOP | BS_PUSHBUTTON;
 constexpr char kSupportPage[] = "support";
 constexpr char kResetLearningAction[] = "resetLearning";
 
+// Core reports paths with "/"; Windows users read and paste them with "\\".
+std::wstring WindowsPath(std::wstring path) {
+    std::replace(path.begin(), path.end(), L'/', L'\\');
+    return path;
+}
+
 }  // namespace
 
 SettingsWindow::SettingsWindow(Options options) : options_(std::move(options)) {
@@ -113,7 +119,7 @@ void SettingsWindow::ApplyLoad(const SettingsReply& loaded, bool first) {
     }
     values_ = *loaded.values;
     stamp_ = loaded.file->stamp;
-    settingsFilePath_ = loaded.file->path;
+    settingsFilePath_ = WindowsPath(loaded.file->path);
     if (!form_) BuildForm();
     form_->Show(values_);
     if (support_) support_->SetSettingsFilePath(settingsFilePath_);
@@ -272,7 +278,7 @@ void SettingsWindow::Recover(bool useDefaults) {
         form_->Show(values_);
         ShowRecoveryNotice(std::nullopt);
         SetFocus(pageList_);
-        std::wstring backup = recovered.saved ? recovered.saved->recoveredPath : L"";
+        std::wstring backup = recovered.saved ? WindowsPath(recovered.saved->recoveredPath) : L"";
         SetStatus(recovered.saved && !recovered.saved->lastGoodSaved
                       ? Text("settings.backup_warning")
                       : messages::Text("settings.restored", options_.language, {{L"backup", backup}}));

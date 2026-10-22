@@ -29,8 +29,12 @@ function Check([bool]$condition, [string]$description) {
 }
 
 $shortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\azooKey Tree の設定.lnk'
-Check (Test-Path $shortcut) 'the Start menu has "azooKey Tree の設定"'
-$target = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut).TargetPath
+Check (Test-Path -LiteralPath $shortcut) 'the Start menu has "azooKey Tree の設定"'
+# WScript.Shell reads shortcuts only under names in the system's ANSI code page (see install.ps1).
+$readableCopy = Join-Path ([IO.Path]::GetTempPath()) 'azookey-settings-shortcut.lnk'
+Copy-Item -LiteralPath $shortcut $readableCopy -Force
+$target = (New-Object -ComObject WScript.Shell).CreateShortcut($readableCopy).TargetPath
+Remove-Item $readableCopy
 Check ($target -eq (Join-Path $Destination 'azookey-settings.exe')) 'the entry starts the installed settings app'
 Check (Test-Path (Join-Path $Destination 'build-info.txt')) 'the package records its build for the support report'
 

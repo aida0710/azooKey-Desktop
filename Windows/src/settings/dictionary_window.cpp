@@ -167,6 +167,9 @@ void DictionaryWindow::Layout() {
     bottom -= buttonsHeight + gap;
     MoveControl(list_, margin, listTop, width, std::max(metrics.Scale(kMinimumListHeight), bottom - listTop));
     ResizeColumns(list_, kColumnWeights);
+    // A selection made while the list was smaller may have scrolled it; keep the selected row in view.
+    int selectedRow = ListView_GetNextItem(list_, -1, LVNI_SELECTED);
+    if (selectedRow >= 0) ListView_EnsureVisible(list_, selectedRow, FALSE);
 }
 
 std::wstring DictionaryWindow::IssuesText(const std::wstring& id, const wchar_t* separator) const {
