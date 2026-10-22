@@ -18,6 +18,8 @@ public:
 
     // Shows the preview over `owner` until the user decides; true to add the additions.
     static bool Ask(HWND owner, const ImportPreview& preview, messages::Language language);
+    // Shows this window and runs it with its owner disabled until the user decides.
+    bool RunModal();
 
     HWND list() const { return list_; }
     HWND applyButton() const { return apply_; }
@@ -37,6 +39,7 @@ private:
 
     const ImportPreview& preview_;
     messages::Language language_;
+    HWND owner_ = nullptr;
     HWND counts_ = nullptr;
     HWND notices_ = nullptr;
     HWND help_ = nullptr;

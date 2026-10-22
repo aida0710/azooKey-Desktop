@@ -26,18 +26,23 @@ const std::vector<int> kColumnWeights = {2, 3, 3, 3, 2, 5};
 }  // namespace
 
 ImportPreviewWindow::ImportPreviewWindow(HWND owner, const ImportPreview& preview, messages::Language language)
-    : preview_(preview), language_(language) {
+    : preview_(preview), language_(language), owner_(owner) {
     if (!Create(kClassName, DictionaryText("import.preview", language), owner, kClientSize)) return;
     Build();
 }
 
 bool ImportPreviewWindow::Ask(HWND owner, const ImportPreview& preview, messages::Language language) {
     ImportPreviewWindow dialog(owner, preview, language);
-    if (!dialog.window()) return false;
-    ShowWindow(dialog.window(), SW_SHOW);
-    SetFocus(dialog.list());
-    RunModalLoop(owner, dialog.finished_);
-    return dialog.accepted_;
+    return dialog.RunModal();
+}
+
+bool ImportPreviewWindow::RunModal() {
+    if (!window()) return false;
+    ShowWindow(window(), SW_SHOW);
+    SetFocus(list_);
+    // The owner is enabled again before this window goes away, so activation returns to it.
+    RunModalLoop(owner_, finished_);
+    return accepted_;
 }
 
 void ImportPreviewWindow::Build() {
@@ -146,7 +151,6 @@ void ImportPreviewWindow::Layout() {
 void ImportPreviewWindow::Finish(bool accepted) {
     accepted_ = accepted;
     finished_ = true;
-    ShowWindow(window(), SW_HIDE);
 }
 
 void ImportPreviewWindow::OnCancel() { Finish(false); }

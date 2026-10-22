@@ -48,7 +48,7 @@ HWND DictionaryWindow::AddFormField(const std::string& labelKey, DictionaryField
     // The label's access key would need a letter per language; the list and Tab reach the fields.
     HWND label = CreateChildControl(window(), WC_STATICW, Text(labelKey), kTextStyle, commands_.Reserve());
     formLabels_.push_back(label);
-    HWND edit = CreateChildControl(window(), WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL | style,
+    HWND edit = CreateChildControl(window(), WC_EDITW, L"", WS_TABSTOP | style,
                                    commands_.Register([this, field](unsigned notification) {
                                        if (notification != EN_CHANGE) return;
                                        Edit(field, field == DictionaryField::Word      ? word_
@@ -83,8 +83,8 @@ void DictionaryWindow::Build() {
     remove_ = AddButton("remove", [this] { RemoveEntry(); });
     import_ = AddButton("import.title", [this] { Import(); });
     export_ = AddButton("export.title", [this] { Export(); });
-    word_ = AddFormField("word", DictionaryField::Word, 0);
-    reading_ = AddFormField("reading", DictionaryField::Reading, 0);
+    word_ = AddFormField("word", DictionaryField::Word, ES_AUTOHSCROLL);
+    reading_ = AddFormField("reading", DictionaryField::Reading, ES_AUTOHSCROLL);
     hint_ = AddFormField("hint", DictionaryField::Hint, WS_VSCROLL | ES_MULTILINE | ES_WANTRETURN | ES_AUTOVSCROLL);
     issues_ = CreateChildControl(window, WC_STATICW, L"", kTextStyle, commands_.Reserve());
     status_ = CreateChildControl(window, WC_STATICW, L"", kTextStyle, commands_.Reserve());
@@ -227,6 +227,9 @@ void DictionaryWindow::RefreshFeedback() {
     if (closed_) return;
     const bool editable = draft_.CanEdit();
     const bool selected = !selectedId_.empty() && draft_.Find(selectedId_);
+    // Disabling the focused control drops keyboard focus; it comes back when the work is done.
+    HWND focus = GetFocus();
+    if (!editable && focus && IsChild(window(), focus)) focusBeforeWork_ = focus;
     EnableWindow(list_, editable);
     EnableWindow(search_, editable);
     EnableWindow(sortReset_, editable);
@@ -237,6 +240,11 @@ void DictionaryWindow::RefreshFeedback() {
     for (HWND field : {word_, reading_, hint_}) EnableWindow(field, editable && selected);
     EnableWindow(save_, editable && !draft_.needsRecovery());
     EnableWindow(cancel_, editable);
+    if (editable && focusBeforeWork_) {
+        HWND restore = IsWindowEnabled(focusBeforeWork_) ? focusBeforeWork_ : list_;
+        focusBeforeWork_ = nullptr;
+        if (!GetFocus() || GetFocus() == window()) SetFocus(restore);
+    }
 
     std::wstring count = Text("filtered_count", {{L"visible", std::to_wstring(ListView_GetItemCount(list_))},
                                                  {L"total", std::to_wstring(draft_.entries().size())}});

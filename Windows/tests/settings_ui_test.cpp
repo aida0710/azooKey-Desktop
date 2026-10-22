@@ -77,9 +77,15 @@ public:
     }
     std::optional<ImportSelection> ChooseImportFile(HWND) override { return importSelection; }
     std::optional<std::wstring> ChooseExportFile(HWND) override { return exportPath; }
-    bool ConfirmImport(HWND, const ImportPreview& preview) override {
+    // Runs the real preview window modally and presses its apply button, so the
+    // modal loop and the owner's return to the foreground are exercised too.
+    bool ConfirmImport(HWND owner, const ImportPreview& preview) override {
         lastPreviewAdditions = preview.additions;
-        return true;
+        ImportPreviewWindow window(owner, preview, kLanguage);
+        PostMessageW(window.applyButton(), BM_CLICK, 0, 0);
+        bool accepted = window.RunModal();
+        ownerEnabledAfterPreview = IsWindowEnabled(owner) != FALSE;
+        return accepted;
     }
 
     int resetLearningAsked = 0;
@@ -89,6 +95,7 @@ public:
     std::optional<ImportSelection> importSelection;
     std::optional<std::wstring> exportPath;
     int lastPreviewAdditions = -1;
+    bool ownerEnabledAfterPreview = false;
 };
 
 struct Environment {
@@ -275,6 +282,9 @@ void TestSavingWritesTheFileAndKeepsTheKeyOut(SettingsWindow& window, const Envi
     SendMessageW(form.ControlFor("live"), BM_SETCHECK, BST_UNCHECKED, 0);
     SelectChoice(form.ControlFor("punctuation"), 1);
     SetText(form.ControlFor("inferenceLimit"), L"7");
+    // A layout (after any status change or resize) must keep what the user typed.
+    SendMessageW(window.window(), WM_SIZE, SIZE_RESTORED, 0);
+    Check(WindowText(form.ControlFor("inferenceLimit")) == L"7", "a typed number survives a layout");
     SetText(form.ControlFor("profile"), L"技術文書を書くことが多い");
     PressShortcut(form.ControlFor("transformShortcut"), 'E');
     Check(WindowText(form.ControlFor("transformShortcut")) == L"Ctrl+Alt+E", "the shortcut field shows the pressed keys");
@@ -453,6 +463,7 @@ void TestDictionaryImportAndExport(SettingsWindow& window, const Environment& en
     Click(dictionary->importButton());
     PumpUntil([&] { return !window.busy(); }, kStepLimitMilliseconds);
     Check(dialogs.lastPreviewAdditions == kImportedEntries, "the import preview counts every addition");
+    Check(dialogs.ownerEnabledAfterPreview, "the editor is enabled again when the preview closes");
     Check(dictionary->draft().entries().size() == static_cast<size_t>(kImportedEntries), "accepting the preview fills the draft");
     auto started = std::chrono::steady_clock::now();
     SaveDictionary(window, *dictionary);
@@ -629,6 +640,8 @@ int wmain(int argc, wchar_t** argv) {
     CloseHandle(host.hThread);
     CloseHandle(host.hProcess);
     CoUninitialize();
+    std::error_code ignored;
+    std::filesystem::remove_all(environment.root, ignored);
     std::printf("%s\n", failures == 0 ? "PASS" : "FAIL");
     return failures == 0 ? 0 : 1;
 }

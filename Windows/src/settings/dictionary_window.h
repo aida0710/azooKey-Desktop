@@ -95,6 +95,7 @@ private:
     bool settingText_ = false;
     bool updatingRows_ = false;
     bool closed_ = false;
+    HWND focusBeforeWork_ = nullptr;
 
     HWND instructions_ = nullptr;
     HWND search_ = nullptr;

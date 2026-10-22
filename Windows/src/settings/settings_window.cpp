@@ -213,7 +213,7 @@ void SettingsWindow::ShowFailure(const SettingsReply& reply) {
 void SettingsWindow::Save() {
     if (!form_ || busy()) return;
     json::Value values = form_->Collect(values_);
-    EnableWindow(save_, FALSE);
+    // Save stays enabled (disabling the focused button would drop keyboard focus); busy() refuses a second save.
     SetStatus(L"");
     worker_->Send(SaveRequest(values, stamp_), [this](const std::optional<json::Value>& reply) {
         FinishSave(ParseSettingsReply(reply));
@@ -221,7 +221,6 @@ void SettingsWindow::Save() {
 }
 
 void SettingsWindow::FinishSave(const SettingsReply& reply) {
-    EnableWindow(save_, TRUE);
     if (reply.error && reply.error->code == "changed") {
         ReloadAfterChange();
         return;
@@ -259,11 +258,7 @@ void SettingsWindow::ReloadAfterChange() {
 
 void SettingsWindow::Recover(bool useDefaults) {
     if (busy() || !options_.dialogs->ConfirmRecovery(window())) return;
-    EnableWindow(recover_, FALSE);
-    EnableWindow(recoverDefaults_, FALSE);
     worker_->Send(RecoverRequest(stamp_, useDefaults), [this](const std::optional<json::Value>& reply) {
-        EnableWindow(recover_, TRUE);
-        EnableWindow(recoverDefaults_, TRUE);
         SettingsReply recovered = ParseSettingsReply(reply);
         if (recovered.error && recovered.error->code == "changed") {
             ReloadAfterChange();

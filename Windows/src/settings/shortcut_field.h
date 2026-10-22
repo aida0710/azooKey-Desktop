@@ -31,6 +31,8 @@ private:
 
     HWND edit_;
     std::optional<Shortcut> value_;
+    // The key press just recorded still has its character message coming.
+    bool swallowCharacter_ = false;
 };
 
 }  // namespace azookey::settings

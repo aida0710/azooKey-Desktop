@@ -118,12 +118,16 @@ int PageView::Place(const UiMetrics& metrics) {
             height = metrics.FieldHeight();
             MoveControl(control, margin, y, std::min(width, metrics.Scale(kMaximumFieldWidth)), height);
             break;
-        case RowSizing::NarrowField:
+        case RowSizing::NarrowField: {
             height = metrics.FieldHeight();
-            MoveControl(control, margin, y, metrics.Scale(kNumberFieldWidth), height);
-            // The up-down arrows attach to the edit's new position.
-            if (row.controls.size() > 1) SendMessageW(row.controls[1], UDM_SETBUDDY, reinterpret_cast<WPARAM>(control), 0);
+            // The arrows sit right of the edit. Attaching them again (UDM_SETBUDDY)
+            // could rewrite the edit's text from their own position.
+            int arrowsWidth = row.controls.size() > 1 ? GetSystemMetricsForDpi(SM_CXVSCROLL, metrics.dpi()) : 0;
+            int editWidth = metrics.Scale(kNumberFieldWidth) - arrowsWidth;
+            MoveControl(control, margin, y, editWidth, height);
+            if (row.controls.size() > 1) MoveControl(row.controls[1], margin + editWidth, y, arrowsWidth, height);
             break;
+        }
         case RowSizing::DropDown:
             height = metrics.FieldHeight();
             // A drop-down list's window height includes the list it opens.
@@ -229,7 +233,8 @@ LRESULT PageView::Handle(UINT message, WPARAM wParam, LPARAM lParam) {
         if (metrics_) Layout(*metrics_);
         return 0;
     case WM_VSCROLL: {
-        if (!metrics_) return 0;
+        // Up-down arrows report their changes with WM_VSCROLL too; only the panel's own bar scrolls it.
+        if (lParam != 0 || !metrics_) return 0;
         RECT client{};
         GetClientRect(window_, &client);
         int offset = scrollOffset_;

@@ -197,6 +197,12 @@ void TestDictionaryRequestsAndReplies() {
         "settingsResult":{"error":{"code":"changed","message":"settings.changed","arguments":{}}}})"));
     Check(!refused.saved && refused.failureStage == "persistence" && refused.settings.error, "a refused save keeps Core's reason");
     Check(ParseDictionarySaveReply(std::nullopt).failureStage == "unknown", "no reply is an unknown failure");
+    auto withIssues = ParseDictionarySaveReply(Parse(R"({"dictionarySaved":false,"dictionarySaveError":"compile",
+        "dictionaryIssues":[{"rowID":"a0000000-0000-0000-0000-000000000001","field":"word","reason":"empty","characters":""}]})"));
+    Check(withIssues.failureStage.empty() && withIssues.issues.size() == 1, "refused entries are reported as issues, not as a stage");
+    auto rollback = ParseDictionarySaveReply(Parse(R"({"dictionarySaved":false,"dictionarySaveError":"rollback",
+        "dictionaryIssues":[{"rowID":"a0000000-0000-0000-0000-000000000001","field":"word","reason":"empty","characters":""}]})"));
+    Check(rollback.failureStage == "rollback", "a failed rollback stays reported with its issues");
 }
 
 void TestImportPreviewMustKeepTheDraft() {
@@ -254,6 +260,13 @@ void TestDraftEditsIssuesAndStatus() {
     draft.FinishSave(*sent, {}, "rollback");
     Check(draft.needsRecovery() && !draft.BeginSave(), "after a failed rollback no further save starts");
     Check(draft.Status().front().key == "failure.rollback", "the status explains the rollback failure");
+
+    DictionaryDraft refused(SampleEntries());
+    sent = refused.BeginSave();
+    refused.FinishSave(*sent, {}, "persistence");
+    refused.SetSaveProblem(L"設定ファイルが変わりました。");
+    Check(refused.Status().front().key.empty() && refused.Status().front().text == L"設定ファイルが変わりました。",
+          "Core's own explanation of a refused save is shown as it is");
 }
 
 void TestDraftFiltersSortsAndImports() {

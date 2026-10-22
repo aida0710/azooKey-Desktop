@@ -125,7 +125,7 @@ void SupportPanel::Refresh() {
 void SupportPanel::Copy() {
     RequestReport([this](const std::wstring& report) {
         if (!report.empty()) {
-            bool copied = CopyToClipboard(GetParent(report_), report);
+            bool copied = CopyToClipboard(GetParent(report_), ToEditLineBreaks(report));
             AnnounceText(notice_, copied ? messages::Text("support.copied", context_.language) : L"");
         }
         page_.Relayout();

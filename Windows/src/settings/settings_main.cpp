@@ -25,6 +25,10 @@ namespace {
 using namespace azookey::settings;
 
 constexpr wchar_t kSingleInstanceMutex[] = L"Local\\azooKeyTreeSettings";
+// Set once the first start's window exists, so a second start can hand over its page.
+constexpr wchar_t kWindowReadyEvent[] = L"Local\\azooKeyTreeSettingsWindowReady";
+// A first start that has not made its window by then has failed to start.
+constexpr DWORD kHandOverLimitMilliseconds = 15000;
 constexpr int kApplicationIcon = 1;  // azookey-settings.rc
 
 std::wstring ModuleDirectory() {
@@ -47,6 +51,12 @@ std::string RequestedPage() {
 
 // Gives the page to the window that is already open and brings it forward.
 void ShowInOpenWindow(const std::string& page) {
+    // The first start may still be creating its window.
+    HANDLE ready = CreateEventW(nullptr, TRUE, FALSE, kWindowReadyEvent);
+    if (ready) {
+        WaitForSingleObject(ready, kHandOverLimitMilliseconds);
+        CloseHandle(ready);
+    }
     HWND existing = FindWindowW(SettingsWindow::kClassName, nullptr);
     if (!existing) return;
     DWORD process = 0;
@@ -92,6 +102,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         SettingsWindow window(options);
         if (!window.window()) return 1;
         window.Present();
+        HANDLE ready = CreateEventW(nullptr, TRUE, FALSE, kWindowReadyEvent);
+        if (ready) SetEvent(ready);
         MSG message;
         while (GetMessageW(&message, nullptr, 0, 0) > 0) {
             if (TranslateDialogKeys(&message)) continue;
@@ -99,8 +111,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             DispatchMessageW(&message);
         }
         exitCode = static_cast<int>(message.wParam);
+        // The window is closed. Let the next start open its own window at once,
+        // even while this process still waits for a request it sent.
+        if (ready) {
+            ResetEvent(ready);
+            CloseHandle(ready);
+        }
+        if (instanceMutex) {
+            ReleaseMutex(instanceMutex);
+            CloseHandle(instanceMutex);
+        }
     }
     CoUninitialize();
-    if (instanceMutex) CloseHandle(instanceMutex);
     return exitCode;
 }

@@ -107,7 +107,8 @@ void SettingsForm::AddSetting(const SettingItem& item, WidgetKind kind, PageView
         AddLabel(label, item.accessKey, view);
         setting.control = view.AddControl(WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL | ES_NUMBER, commands_.Reserve(),
                                           WS_EX_CLIENTEDGE);
-        HWND arrows = view.AddControl(UPDOWN_CLASSW, L"", UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_ARROWKEYS | UDS_NOTHOUSANDS,
+        // The page places the arrows beside the edit; UDS_SETBUDDYINT keeps the edit's text as the value.
+        HWND arrows = view.AddControl(UPDOWN_CLASSW, L"", UDS_SETBUDDYINT | UDS_ARROWKEYS | UDS_NOTHOUSANDS,
                                       commands_.Reserve());
         SendMessageW(arrows, UDM_SETBUDDY, reinterpret_cast<WPARAM>(setting.control), 0);
         SendMessageW(arrows, UDM_SETRANGE32, static_cast<WPARAM>(item.minimum.value_or(0)),

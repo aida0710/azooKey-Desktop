@@ -60,13 +60,22 @@ LRESULT CALLBACK ShortcutField::Procedure(HWND window, UINT message, WPARAM wPar
         return DLGC_WANTALLKEYS | DLGC_WANTCHARS;
     case WM_KEYDOWN:
     case WM_SYSKEYDOWN:
-        if (self->Record(static_cast<UINT>(wParam))) return 0;
-        // Modifier presses and keys that type nothing do not reach the read-only edit.
-        if (message == WM_SYSKEYDOWN) return 0;
+        self->swallowCharacter_ = false;
+        if (self->Record(static_cast<UINT>(wParam))) {
+            self->swallowCharacter_ = true;
+            return 0;
+        }
+        // Alt alone would open the window menu; Alt+F4, Alt+Space and others keep working.
+        if (message == WM_SYSKEYDOWN && wParam == VK_MENU) return 0;
         break;
     case WM_CHAR:
     case WM_SYSCHAR:
-        return 0;  // the characters of a recorded combination are not typed
+        // The character of a recorded combination is not typed or taken as an access key.
+        if (self->swallowCharacter_) {
+            self->swallowCharacter_ = false;
+            return 0;
+        }
+        break;
     default:
         break;
     }

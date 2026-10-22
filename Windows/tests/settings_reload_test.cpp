@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <string>
 
@@ -117,6 +118,8 @@ int wmain(int argc, wchar_t** argv) {
     WaitForSingleObject(host.hProcess, 5000);
     CloseHandle(host.hThread);
     CloseHandle(host.hProcess);
+    std::error_code ignored;
+    std::filesystem::remove_all(root, ignored);
     std::printf("%s\n", failures == 0 ? "PASS" : "FAIL");
     return failures == 0 ? 0 : 1;
 }

@@ -140,6 +140,9 @@ DictionarySaveReply ParseDictionarySaveReply(const std::optional<json::Value>& r
     }
     result.issues = IssuesFromJson((*reply)["dictionaryIssues"]);
     result.failureStage = (*reply)["dictionarySaveError"].AsString();
+    // Core reports refused entries as a compile failure; the entries say more (as on Linux).
+    // A failed rollback stays, because no further save may start after it.
+    if (!result.issues.empty() && result.failureStage != "rollback") result.failureStage.clear();
     result.saved = (*reply)["dictionarySaved"].AsBoolean() && result.failureStage.empty() && result.settings.succeeded();
     if (!result.saved && result.failureStage.empty() && result.issues.empty()) result.failureStage = "unknown";
     return result;
