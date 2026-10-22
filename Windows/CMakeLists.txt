@@ -37,6 +37,51 @@ if(NOT AZOOKEY_X86)
         src/host/settings_reload.cpp
     )
     target_link_libraries(azookey-windows-host PRIVATE azookey_shared shell32 ole32)
+
+    # The settings app's logic without windows, tested by azookey-settings-tests.
+    add_library(azookey_settings_model STATIC
+        src/settings/access_key_label.cpp
+        src/settings/dictionary_draft.cpp
+        src/settings/dictionary_protocol.cpp
+        src/settings/dictionary_text.cpp
+        src/settings/problem_text.cpp
+        src/settings/settings_protocol.cpp
+        src/settings/settings_schema.cpp
+        src/settings/settings_widgets.cpp
+        src/settings/shortcut.cpp
+        src/settings/support_environment.cpp
+    )
+    target_link_libraries(azookey_settings_model PUBLIC azookey_shared)
+
+    # The settings windows, shared by the app and its screen test.
+    add_library(azookey_settings_screens STATIC
+        src/settings/bridge_worker.cpp
+        src/settings/child_controls.cpp
+        src/settings/command_map.cpp
+        src/settings/control_accessibility.cpp
+        src/settings/dictionary_window.cpp
+        src/settings/file_replace.cpp
+        src/settings/import_preview_window.cpp
+        src/settings/list_view.cpp
+        src/settings/page_view.cpp
+        src/settings/settings_form.cpp
+        src/settings/settings_window.cpp
+        src/settings/shortcut_field.cpp
+        src/settings/support_panel.cpp
+        src/settings/system_dialogs.cpp
+        src/settings/top_level_window.cpp
+        src/settings/ui_metrics.cpp
+        src/settings/window_classes.cpp
+    )
+    target_link_libraries(azookey_settings_screens PUBLIC azookey_settings_model user32 gdi32 comctl32 oleacc ole32 shell32 uuid)
+
+    # The manifest selects common controls 6 and Per-Monitor V2 DPI awareness.
+    add_executable(azookey-settings WIN32
+        src/settings/settings_main.cpp
+        src/settings/azookey-settings.rc
+        src/settings/azookey-settings.manifest
+    )
+    target_link_libraries(azookey-settings PRIVATE azookey_settings_screens)
 endif()
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/textservice/dll_main.cpp)
@@ -55,12 +100,27 @@ if(NOT AZOOKEY_X86)
 
     add_executable(azookey-host-integration-test tests/host_integration_test.cpp)
     target_link_libraries(azookey-host-integration-test PRIVATE azookey_shared)
+
+    add_executable(azookey-settings-tests tests/settings_tests.cpp)
+    target_link_libraries(azookey-settings-tests PRIVATE azookey_settings_model)
+
+    # Drives the settings windows; the manifest gives it the same controls and DPI handling as the app.
+    add_executable(azookey-settings-ui-test
+        tests/settings_ui_test.cpp
+        tests/screen_capture.cpp
+        src/settings/azookey-settings.manifest
+    )
+    target_link_libraries(azookey-settings-ui-test PRIVATE azookey_settings_screens dwmapi windowscodecs)
+
+    add_executable(azookey-settings-reload-test tests/settings_reload_test.cpp)
+    target_link_libraries(azookey-settings-reload-test PRIVATE azookey_shared)
 endif()
 
-add_executable(tsf-harness tests/tsf_harness.cpp)
+add_executable(tsf-harness tests/tsf_harness.cpp tests/screen_capture.cpp)
 target_link_libraries(tsf-harness PRIVATE ole32 oleaut32 user32 gdi32 uuid windowscodecs)
 
 if(NOT AZOOKEY_X86)
     enable_testing()
     add_test(NAME shared COMMAND azookey-windows-tests)
+    add_test(NAME settings COMMAND azookey-settings-tests)
 endif()
