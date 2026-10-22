@@ -41,7 +41,10 @@ $cases = @(
 function Wait-HostReady([string]$hostExecutable, [int]$limitMilliseconds = 60000) {
     $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $pipeName = "azooKeyTree-$sid"
-    if (-not (Test-Path "\\.\pipe\$pipeName")) { Start-Process -FilePath $hostExecutable -WindowStyle Hidden }
+    if (-not (Test-Path "\\.\pipe\$pipeName")) {
+        Remove-Item $hostTrace -ErrorAction SilentlyContinue
+        Start-Process -FilePath $hostExecutable -ArgumentList '--trace', "`"$hostTrace`"" -WindowStyle Hidden
+    }
     $pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', $pipeName, [System.IO.Pipes.PipeDirection]::InOut)
     $pipe.Connect($limitMilliseconds)
     $writer = [System.IO.StreamWriter]::new($pipe, [System.Text.UTF8Encoding]::new($false))
@@ -53,6 +56,10 @@ function Wait-HostReady([string]$hostExecutable, [int]$limitMilliseconds = 60000
     if (-not $reply.Wait($limitMilliseconds)) { throw 'the host did not answer after warming up' }
     $pipe.Dispose()
 }
+# The host started here records every converter request, so a case that a slow
+# reply broke shows which request kept its key waiting.
+New-Item -ItemType Directory -Force -Path $Screenshots | Out-Null
+$hostTrace = Join-Path (Resolve-Path $Screenshots) 'host-trace.log'
 Wait-HostReady (Join-Path $env:ProgramFiles 'azooKey Tree\azookey-windows-host.exe')
 
 $failed = 0
@@ -66,4 +73,15 @@ foreach ($case in $cases) {
     '{0} {1}: {2}' -f ($(if ($passed) { 'PASS' } else { 'FAIL' })), $case.Name, $details.Trim()
 }
 "$($cases.Count - $failed)/$($cases.Count) cases passed"
+# The text service waits 2 s for a reply; show the start of the trace (warm-up
+# and the first case) and every request that took half of that or more.
+$slowMilliseconds = 1000
+if (Test-Path $hostTrace) {
+    "host requests (waited for the converter / converted), first 40 and those of $slowMilliseconds ms or more:"
+    $traceLines = @(Get-Content $hostTrace)
+    for ($index = 0; $index -lt $traceLines.Count; $index++) {
+        $slow = $traceLines[$index] -match 'waited=(\d+)ms converted=(\d+)ms' -and ([int]$Matches[1] + [int]$Matches[2]) -ge $slowMilliseconds
+        if ($index -lt 40 -or $slow) { "  $($traceLines[$index])" }
+    }
+}
 exit $failed

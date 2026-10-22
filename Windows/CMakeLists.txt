@@ -38,6 +38,7 @@ if(NOT AZOOKEY_X86)
         src/host/bridge_process.cpp
         src/host/settings_reload.cpp
         src/host/request_route.cpp
+        src/host/request_trace.cpp
         src/host/ai_service.cpp
         src/host/ai_transform_handoff.cpp
     )

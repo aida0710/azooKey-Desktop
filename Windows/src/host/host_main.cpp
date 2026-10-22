@@ -3,13 +3,14 @@
 // single converter so the dictionary and learning data load once.
 //
 // Options (for tests): --pipe <name> --bridge <exe> --data <directory> --resources <directory>
-//                      --api-key-credential <target> --ai-transform-window <exe>
+//                      --api-key-credential <target> --ai-transform-window <exe> --trace <file>
 #include <windows.h>
 #include <sddl.h>
 #include <shellapi.h>
 #include <shlobj.h>
 
 #include <atomic>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -24,6 +25,7 @@
 #include "ai_transform_handoff.h"
 #include "bridge_process.h"
 #include "request_route.h"
+#include "request_trace.h"
 #include "settings_reload.h"
 
 namespace {
@@ -32,6 +34,7 @@ using azookey::host::AIService;
 using azookey::host::AITransformHandoff;
 using azookey::host::BridgeProcess;
 using azookey::host::RequestRoute;
+using azookey::host::RequestTrace;
 using azookey::host::SettingsReload;
 
 constexpr DWORD kPipeBufferBytes = 64 * 1024;
@@ -43,12 +46,21 @@ constexpr DWORD kClientReadTimeoutMilliseconds = INFINITE;
 // Sent when the converter could not answer, so the client recovers its
 // composition instead of waiting.
 constexpr char kUnavailableReply[] = "{\"consumed\":false,\"error\":\"converter_unavailable\"}";
-// Typing one letter into a context nobody else uses loads the dictionary and,
-// through live conversion, Zenzai's model; closing it commits and learns nothing.
-constexpr char kWarmUpKeyRequest[] =
-    "{\"operation\":\"key\",\"context\":\"azookey-host-warm-up\",\"event\":{\"keyCode\":65535,\"characters\":\"a\","
-    "\"charactersIgnoringModifiers\":\"a\",\"modifierFlags\":0}}";
+// The warm-up types a word and converts it in a context nobody else uses, the
+// way a user's first word goes, so that loading the dictionary and Zenzai's
+// first conversions happen before anyone types. Closing the context commits
+// and learns nothing.
+constexpr char kWarmUpReading[] = "nihongo";
 constexpr char kWarmUpCloseRequest[] = "{\"operation\":\"close\",\"context\":\"azookey-host-warm-up\"}";
+// Core's key codes (macOS kVK_*): a letter goes by its characters alone.
+constexpr int kCharacterKeyCode = 65535;
+constexpr int kSpaceKeyCode = 49;
+
+std::string WarmUpKeyRequest(const std::string& characters, int keyCode) {
+    std::string quoted = azookey::json::Quote(characters);
+    return "{\"operation\":\"key\",\"context\":\"azookey-host-warm-up\",\"event\":{\"keyCode\":" + std::to_string(keyCode) +
+           ",\"characters\":" + quoted + ",\"charactersIgnoringModifiers\":" + quoted + ",\"modifierFlags\":0}}";
+}
 
 struct Options {
     std::wstring pipeName = azookey::channel::HostPipeName();
@@ -57,6 +69,7 @@ struct Options {
     std::wstring resourcesDirectory;
     std::wstring apiKeyCredential = azookey::credentials::kApiKeyTarget;
     std::wstring aiTransformWindow;
+    std::wstring trace;  // empty: no request trace
 };
 
 std::wstring ModuleDirectory() {
@@ -82,6 +95,7 @@ Options ParseOptions() {
         else if (name == L"--resources") options.resourcesDirectory = arguments[i + 1];
         else if (name == L"--api-key-credential") options.apiKeyCredential = arguments[i + 1];
         else if (name == L"--ai-transform-window") options.aiTransformWindow = arguments[i + 1];
+        else if (name == L"--trace") options.trace = arguments[i + 1];
     }
     LocalFree(arguments);
     return options;
@@ -117,7 +131,8 @@ public:
         : options_(options),
           bridge_({options.bridge, options.dataDirectory, options.resourcesDirectory}),
           aiService_({options.bridge, options.dataDirectory + L"\\ai", options.apiKeyCredential}),
-          aiTransformHandoff_({options.aiTransformWindow, options.pipeName}) {}
+          aiTransformHandoff_({options.aiTransformWindow, options.pipeName}),
+          trace_(options.trace) {}
 
     int Run() {
         SECURITY_ATTRIBUTES security{};
@@ -136,8 +151,8 @@ public:
             }
             if (first) {
                 // Loading the converter takes longer than the text service waits for
-                // a key (2 s on a cold disk); do it now, before anyone types. Keys
-                // that arrive meanwhile wait for the converter like any other.
+                // a key (2 s on a cold disk); do it now, before anyone types.
+                // Conversion requests that arrive meanwhile wait until it is done.
                 std::thread([this] { WarmUp(); }).detach();
             }
             first = false;
@@ -176,7 +191,8 @@ private:
             switch (request ? azookey::host::RouteFor(*request) : RequestRoute::Conversion) {
             case RequestRoute::Conversion:
                 if (request && azookey::host::OwnsContext(*request)) contexts.insert((*request)["context"].AsString());
-                reply = Convert(*line);
+                warmedUp_.wait();
+                reply = Convert(*line, request ? (*request)["operation"].AsString() : "invalid");
                 break;
             case RequestRoute::AIService:
                 reply = aiService_.Handle(*request);
@@ -201,23 +217,35 @@ private:
     }
 
     void WarmUp() {
-        Convert(kWarmUpKeyRequest);
-        Convert(kWarmUpCloseRequest);
+        for (char letter : std::string_view(kWarmUpReading)) {
+            Convert(WarmUpKeyRequest(std::string(1, letter), kCharacterKeyCode), "warm-up key");
+        }
+        Convert(WarmUpKeyRequest(" ", kSpaceKeyCode), "warm-up space");
+        Convert(kWarmUpCloseRequest, "warm-up close");
+        warmUpFinished_.set_value();
     }
 
-    std::string Convert(const std::string& line) {
+    std::string Convert(const std::string& line, std::string_view operation) {
+        RequestTrace::Timing timing{RequestTrace::Clock::now()};
         std::lock_guard<std::mutex> lock(bridgeMutex_);
+        timing.started = RequestTrace::Clock::now();
         settingsReload_.BeforeRequest([this](const std::string& request) { return bridge_.Request(request); },
                                       bridge_.restarts());
-        return bridge_.Request(line).value_or(kUnavailableReply);
+        std::string reply = bridge_.Request(line).value_or(kUnavailableReply);
+        timing.finished = RequestTrace::Clock::now();
+        trace_.Record(operation, timing);
+        return reply;
     }
 
     Options options_;
+    std::promise<void> warmUpFinished_;
+    std::shared_future<void> warmedUp_ = warmUpFinished_.get_future().share();
     std::mutex bridgeMutex_;
     BridgeProcess bridge_;
     SettingsReload settingsReload_;  // guarded by bridgeMutex_
     AIService aiService_;
     AITransformHandoff aiTransformHandoff_;
+    RequestTrace trace_;
 };
 
 }  // namespace
