@@ -39,6 +39,8 @@ enum DesktopSettingsItems {
         .init(key: "aiEndpoint", control: .text, labelKey: "ai.endpoint", keptOnRecovery: true),
         .init(key: "includeContext", control: .toggle, labelKey: "ai.scope.include-context", keptOnRecovery: true),
         .init(key: "transformShortcut", control: .shortcut, labelKey: "ai.shortcut", accessKey: "S", keptOnRecovery: true),
+        .init(key: "aiPromptLanguage", control: .choice, labelKey: "ai.prompt-language",
+              descriptionKey: "ai.prompt-language.explanation", choices: aiPromptLanguageChoices, keptOnRecovery: true),
         .init(key: "userDictionary", control: .dictionary, labelKey: "settings.dictionary_edit",
               descriptionKey: "settings.dictionary_separate_save", keptOnRecovery: true),
         .init(key: "customTable", control: .multilineText, labelKey: "settings.custom-table", keptOnRecovery: true)
@@ -51,6 +53,11 @@ enum DesktopSettingsItems {
     private static let candidateTextSizeChoices: [DesktopSettingItem.Choice] = Config.CandidateTextSize.Value.allCases.map {
         .init(value: .string($0.rawValue), labelKey: "candidate.textSize.\($0.rawValue)")
     }
+
+    /// The default comes first.
+    private static let aiPromptLanguageChoices: [DesktopSettingItem.Choice] = [
+        Config.AIPromptLanguage.Value.english, .japanese
+    ].map { .init(value: .string($0.rawValue), labelKey: "ai.prompt-language.\($0.rawValue)") }
 
     private static let punctuationChoices: [DesktopSettingItem.Choice] = [
         (Config.PunctuationStyle.Value.kutenAndToten, "kutenAndToten"), (.kutenAndComma, "kutenAndComma"),

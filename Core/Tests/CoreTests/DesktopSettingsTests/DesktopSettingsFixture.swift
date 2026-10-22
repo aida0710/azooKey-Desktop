@@ -19,6 +19,7 @@ final class DesktopSettingsFixture {
         settings.aiEndpoint = "https://example.invalid/v1"
         settings.includeContext = false
         settings.transformShortcut = KeyboardShortcut(key: "s", modifiers: .control)
+        settings.aiPromptLanguage = .japanese
         var entry = Config.UserDictionaryEntry(word: "試験", reading: "てすと")
         entry.id = entryID
         settings.userDictionary = .init(items: [entry])

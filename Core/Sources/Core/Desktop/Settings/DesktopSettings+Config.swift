@@ -26,6 +26,7 @@ extension DesktopSettings {
             aiEndpoint: Config.OpenAiApiEndpoint().value,
             includeContext: Config.IncludeContextInAITransform().value,
             transformShortcut: Config.TransformShortcut().value,
+            aiPromptLanguage: Config.AIPromptLanguage().value,
             userDictionary: Config.UserDictionary().value,
             customTable: CustomInputTableStore.load() ?? ""
         )
@@ -65,6 +66,7 @@ extension DesktopSettings {
         Config.OpenAiApiEndpoint().value = aiEndpoint
         Config.IncludeContextInAITransform().value = includeContext
         Config.TransformShortcut().value = transformShortcut
+        Config.AIPromptLanguage().value = aiPromptLanguage
         Config.userDefaults.synchronize()
     }
 

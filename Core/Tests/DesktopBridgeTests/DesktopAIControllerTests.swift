@@ -11,7 +11,8 @@ import Testing
     func withController(aiEnabled: Bool = true,
                         _ test: (DesktopAIController, DesktopSession, AIPromptHistory) throws -> Void) throws {
         let saved = (Config.AIBackendPreference().value, Config.OpenAiModelName().value, Config.OpenAiApiEndpoint().value,
-                     Config.IncludeContextInAITransform().value, Config.TransformShortcut().value, Config.LiveConversion().value)
+                     Config.IncludeContextInAITransform().value, Config.TransformShortcut().value, Config.LiveConversion().value,
+                     Config.AIPromptLanguage().value)
         defer {
             Config.AIBackendPreference().value = saved.0
             Config.OpenAiModelName().value = saved.1
@@ -19,6 +20,7 @@ import Testing
             Config.IncludeContextInAITransform().value = saved.3
             Config.TransformShortcut().value = saved.4
             Config.LiveConversion().value = saved.5
+            Config.AIPromptLanguage().value = saved.6
         }
         Config.AIBackendPreference().value = aiEnabled ? .openAI : .off
         Config.OpenAiModelName().value = "reviewed-model"
@@ -26,6 +28,7 @@ import Testing
         Config.IncludeContextInAITransform().value = false
         Config.TransformShortcut().value = .defaultTransformShortcut
         Config.LiveConversion().value = false
+        Config.AIPromptLanguage().value = .english
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ai-controller-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let history = AIPromptHistory(fileURL: directory.appendingPathComponent("config/prompts.json"))
@@ -242,10 +245,22 @@ import Testing
             #expect(opened["target"] as? String == "原文")
             #expect(opened["destination"] as? String == "reviewed.example.invalid:8443")
             #expect(opened["includeContext"] as? Bool == false)
-            #expect((opened["history"] as? [[String: Any]])?.compactMap { $0["prompt"] as? String } == AIPromptHistory.defaultPrompts)
+            #expect(Self.historyPrompts(opened) == AIPromptHistory.defaultPrompts(in: .english))
             #expect(try transform(controller, "open", ["field": Self.field(sensitive: true)])["transformation"] == nil)
             #expect(try transform(controller, "open", ["field": Self.field(cursor: 4, anchor: 4)])["transformation"] == nil)
         }
+    }
+
+    @Test func theOfferedDefaultsFollowTheLanguageSetting() throws {
+        try withController { controller, _, _ in
+            Config.AIPromptLanguage().value = .japanese
+            let opened = try transform(controller, "open", ["field": Self.field()])
+            #expect(Self.historyPrompts(opened) == AIPromptHistory.defaultPrompts(in: .japanese))
+        }
+    }
+
+    static func historyPrompts(_ opened: [String: Any]) -> [String]? {
+        (opened["history"] as? [[String: Any]])?.compactMap { $0["prompt"] as? String }
     }
 
     @Test func aVerifiedResultIsAppliedOnceToTheOriginalSelection() throws {

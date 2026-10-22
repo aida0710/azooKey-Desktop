@@ -1,4 +1,5 @@
 #if os(Linux)
+import Core
 import Foundation
 import Testing
 
@@ -68,6 +69,25 @@ struct DesktopSettingsBridgeTests {
         #expect((invalid["arguments"] as? [String: String])?["field"] == "inferenceLimit")
         let saved = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: fixture.settingsURL)) as? [String: Any])
         #expect(saved["live"] as? Bool == false)
+    }
+
+    @Test("保存した既定の指示の言語を同じbridgeの指示の履歴がすぐに使う")
+    func savedPromptLanguageReachesTheInstructionHistory() throws {
+        let fixture = try DesktopDictionaryBridgeFixture()
+        let field: [String: Any] = ["identity": ["/input/1", "fixture"], "hasSurroundingUpdate": true, "isSensitive": false,
+                                    "surrounding": ["text": "前 原文 後", "cursorUTF16": 4, "anchorUTF16": 2]]
+        let open: [String: Any] = ["operation": "ai-transform-open", "context": "field", "ai": ["field": field]]
+        let responses = try fixture.run([
+            ["operation": "settings-save", "settings": ["aiEnabled": true]],
+            open,
+            ["operation": "settings-save", "settings": ["aiPromptLanguage": "ja"]],
+            open
+        ])
+        let prompts = responses.map { ($0["history"] as? [[String: Any]])?.compactMap { $0["prompt"] as? String } }
+        #expect(prompts[1] == AIPromptHistory.defaultPrompts(in: .english))
+        #expect(prompts[3] == AIPromptHistory.defaultPrompts(in: .japanese))
+        let saved = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: fixture.settingsURL)) as? [String: Any])
+        #expect(saved["aiPromptLanguage"] as? String == "ja")
     }
 }
 #endif

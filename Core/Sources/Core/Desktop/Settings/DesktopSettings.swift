@@ -23,6 +23,7 @@ public struct DesktopSettings: Sendable {
     public var aiEndpoint: String
     public var includeContext: Bool
     public var transformShortcut: KeyboardShortcut
+    public var aiPromptLanguage: Config.AIPromptLanguage.Value
     public var userDictionary: Config.UserDictionary.Value
     public var customTable: String
 
@@ -49,6 +50,7 @@ public struct DesktopSettings: Sendable {
         aiEndpoint: Config.OpenAiApiEndpoint.default,
         includeContext: Config.IncludeContextInAITransform.default,
         transformShortcut: Config.TransformShortcut.default,
+        aiPromptLanguage: Config.AIPromptLanguage.default,
         userDictionary: Config.UserDictionary.default,
         customTable: ""
     )

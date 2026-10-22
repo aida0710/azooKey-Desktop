@@ -9,6 +9,7 @@ struct AISettingsView: View {
     @ConfigState private var aiBackend = Config.AIBackendPreference()
     @ConfigState private var includeContextInAITransform = Config.IncludeContextInAITransform()
     @ConfigState private var transformShortcut = Config.TransformShortcut()
+    @ConfigState private var aiPromptLanguage = Config.AIPromptLanguage()
     @State private var openAiApiKeyPopover = false
     @State private var connectionTestInProgress = false
     @State private var connectionTestResult: String?
@@ -180,6 +181,14 @@ struct AISettingsView: View {
                 LabeledContent(Localization.text("ai.shortcut")) {
                     KeyboardShortcutRecorder(shortcut: $transformShortcut, accessibilityName: Localization.text("ai.shortcut"))
                 }
+                Picker(Localization.text("ai.prompt-language"), selection: $aiPromptLanguage) {
+                    Text(Localization.text("ai.prompt-language.en")).tag(Config.AIPromptLanguage.Value.english)
+                    Text(Localization.text("ai.prompt-language.ja")).tag(Config.AIPromptLanguage.Value.japanese)
+                }
+                Text(Localization.text("ai.prompt-language.explanation"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .formStyle(.grouped)

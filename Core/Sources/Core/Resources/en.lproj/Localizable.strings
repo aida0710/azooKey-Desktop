@@ -29,6 +29,10 @@
 "ai.preview.ready" = "Review the preview before applying it to the document.";
 "ai.preview.reload" = "Regenerate (Command+R)";
 "ai.preview.target-changed" = "The original field or selection could not be verified, so the result was not applied. Copy the result and paste it where needed.";
+"ai.prompt-language" = "Default instruction language";
+"ai.prompt-language.en" = "English";
+"ai.prompt-language.explanation" = "The language of the instructions listed in the AI conversion history from the start. Only default instructions you have not used yet change.";
+"ai.prompt-language.ja" = "Japanese";
 "ai.scope.api-key" = "The API key is stored on this device and sent to the configured destination to authenticate requests. External API usage may incur charges.";
 "ai.scope.cancel" = "Cancel";
 "ai.scope.changed" = "The text, instructions, or surrounding-text setting changed. Review them and generate again.";
