@@ -80,19 +80,20 @@ public struct AITextSelection: Sendable {
 
     /// The same input target, selection direction and exact text.
     public func matches(_ other: AITextSelection) -> Bool {
-        Self.sameIdentity(identity, other.identity)
+        isSameTarget(as: other.identity)
             && cursorUTF16 == other.cursorUTF16 && anchorUTF16 == other.anchorUTF16
             && before.hasSameScalars(as: other.before)
             && selected.hasSameScalars(as: other.selected)
             && after.hasSameScalars(as: other.after)
     }
 
-    static func sameIdentity(_ first: [String]?, _ second: [String]?) -> Bool {
-        switch (first, second) {
+    /// Whether `identity` names the input target this selection was captured from.
+    func isSameTarget(as identity: [String]?) -> Bool {
+        switch (self.identity, identity) {
         case (nil, nil):
             return true
-        case let (first?, second?):
-            return first.count == second.count && zip(first, second).allSatisfy { $0.hasSameScalars(as: $1) }
+        case let (captured?, other?):
+            return captured.hasSameScalars(as: other)
         default:
             return false
         }

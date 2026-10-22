@@ -37,7 +37,7 @@ public struct AISelectionWitness: Codable, Sendable {
 
     /// The same object, window, bounds and exact text.
     public func matches(_ other: AISelectionWitness) -> Bool {
-        AITextSelection.sameIdentity(object, other.object) && AITextSelection.sameIdentity(window, other.window)
+        object.hasSameScalars(as: other.object) && window.hasSameScalars(as: other.window)
             && start == other.start && end == other.end
             && before.hasSameScalars(as: other.before)
             && selected.hasSameScalars(as: other.selected)

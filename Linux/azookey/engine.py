@@ -96,7 +96,8 @@ class Engine(IBus.Engine):
         }
 
     def refresh_shortcuts(self):
-        """Ask Core again which chords it needs: settings or pins may have changed."""
+        """Ask Core which chords it needs. Settings and pinned instructions are
+        changed in other windows, so this is asked again whenever a field gains focus."""
         def received(reply):
             if reply is not None:
                 publish_shortcuts(reply["shortcuts"])
@@ -142,7 +143,6 @@ class Engine(IBus.Engine):
             self.settings = loaded.values
             self.input.settings = loaded.values
             self.settings_stamp = loaded.stamp
-            self.refresh_shortcuts()
 
         self.input.submit(
             "configure", payload={"settings": loaded.values}, completion=configured,
@@ -401,6 +401,8 @@ class Engine(IBus.Engine):
         self.has_transform_surrounding_update = False
         self.anchor.update("", 0)
         self.reload_settings()
+        # Queued after any settings reload, so Core answers with the new settings.
+        self.refresh_shortcuts()
         self.get_surrounding_text()
         properties = IBus.PropList()
         properties.append(IBus.Property.new("InputMode", IBus.PropType.NORMAL, IBus.Text.new_from_string("あ"), "",

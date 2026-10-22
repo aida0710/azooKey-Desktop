@@ -45,7 +45,7 @@ class SelectedTextTransformation:
         self.opening_focus_seen = False
         self.opening_reset_pending = False
 
-    def core(self, operation, completion=None, **values):
+    def ask_core(self, operation, completion=None, **values):
         """Ask Core about this prompt's transformation. A failed or stale
         reply reaches the completion as None; a closed prompt gets nothing."""
         revision = self.revision
@@ -70,39 +70,45 @@ class SelectedTextTransformation:
         def opened(reply):
             if revision is not self.revision:
                 return
-            if reply is None or reply.get("transformation") is None or focus_revision is not self.engine.focus_revision:
-                self.close()
+            if reply is None or reply.get("transformation") is None:
+                self.close()  # Nothing selected, or a protected field.
                 return
             self.transformation = reply["transformation"]
             self.context_characters = reply["contextCharacters"]
-            if not reply["needsWitness"]:
+            if focus_revision is not self.engine.focus_revision:
+                self.close()
+            elif reply["needsWitness"]:
+                self.capture_target(reply, initial_prompt, focus_revision)
+            else:
                 self.open_dialog(reply, initial_prompt, target_available=False)
-                return
-
-            def captured(witness):
-                if revision is not self.revision:
-                    return
-                if focus_revision is not self.engine.focus_revision:
-                    self.close()
-                    return
-
-                def targeted(target):
-                    if focus_revision is not self.engine.focus_revision:
-                        self.close()
-                        return
-                    self.open_dialog(reply, initial_prompt, target_available=bool(target and target["targetAvailable"]))
-
-                self.core("target", targeted, field=self.engine.ai_field(), witness=witness)
-
-            self.inspect(self.context_characters, captured)
 
         self.engine.ai.submit("ai-transform-open", completion=opened, ai={"field": field})
+
+    def capture_target(self, opened, initial_prompt, focus_revision):
+        """Read the witness, then let Core decide whether the selection can be replaced later."""
+        revision = self.revision
+
+        def targeted(target):
+            if focus_revision is not self.engine.focus_revision:
+                self.close()
+                return
+            self.open_dialog(opened, initial_prompt, target_available=bool(target and target["targetAvailable"]))
+
+        def captured(witness):
+            if revision is not self.revision:
+                return
+            if focus_revision is not self.engine.focus_revision:
+                self.close()
+                return
+            self.ask_core("target", targeted, field=self.engine.ai_field(), witness=witness)
+
+        self.inspect(self.context_characters, captured)
 
     def open_dialog(self, opened, initial_prompt, *, target_available):
         self.target_available = target_available
         self.dialog = PromptDialog(
             opened, initial_prompt, request_preview=self.request_preview,
-            invalidate_preview=lambda: self.core("invalidate"), on_context_changed=self.engine.save_ai_context,
+            invalidate_preview=lambda: self.ask_core("invalidate"), on_context_changed=self.engine.save_ai_context,
         )
         self.dialog.set_modal(True)
         self.dialog.set_target_available(target_available)
@@ -114,30 +120,32 @@ class SelectedTextTransformation:
 
     def request_preview(self, prompt, pinned, shortcut_text, include_context):
         dialog, edits = self.dialog, self.dialog.edits
-        snapshot = dict(self.engine.snapshot)
 
         def started(reply):
             if dialog is not self.dialog or dialog.edits != edits or reply is None:
                 return
             if reply.get("historyError"):
                 dialog.history_failed(reply["historyError"])
-                return
-            if reply.get("revision") is None:
-                return  # Core refused: a blank instruction, or a preview is still generating.
-            dialog.preview_started()
-            request = reply.get("request")
-            if request is None:
-                dialog.preview_finished(None)
-                return
+            elif reply.get("revision") is not None:
+                # Without a revision Core refused: a blank instruction, or one still generating.
+                dialog.preview_started()
+                self.send_request(dialog, reply)
 
-            def completed(text, *, input_context_unchanged=True):
-                self.core("result", lambda result: self.preview_delivered(dialog, result), revision=reply["revision"],
+        self.ask_core("preview", started, prompt=prompt, pinned=pinned, shortcutText=shortcut_text,
+                      includeContext=include_context, field=self.engine.ai_field())
+
+    def send_request(self, dialog, started):
+        """Send the request Core described; Core decides whether its reply is current."""
+        request = started.get("request")
+        if request is None:
+            dialog.preview_finished(None)  # Core ended this preview without sending anything.
+            return
+
+        def completed(text, *, input_context_unchanged=True):
+            self.ask_core("result", lambda result: self.preview_delivered(dialog, result), revision=started["revision"],
                           text=text, inputContextChanged=not input_context_unchanged)
 
-            self.engine.start_ai(snapshot, request, prompt=request["prompt"], completion=completed)
-
-        self.core("preview", started, prompt=prompt, pinned=pinned, shortcutText=shortcut_text,
-                  includeContext=include_context, field=self.engine.ai_field())
+        self.engine.start_ai(dict(self.engine.snapshot), request, prompt=request["prompt"], completion=completed)
 
     def preview_delivered(self, dialog, result):
         if dialog is not self.dialog:
@@ -228,7 +236,7 @@ class SelectedTextTransformation:
             self.engine.get_surrounding_text()
             GLib.idle_add(self.context_changed)
 
-        self.core("confirm", confirmed)
+        self.ask_core("confirm", confirmed)
 
     def focus_entered(self):
         # Closing the prompt can pass through IBus's temporary fake context.
@@ -267,7 +275,7 @@ class SelectedTextTransformation:
             # text. Core compares the fresh AT-SPI read with the original.
             self.inspect(self.context_characters, lambda witness: self.verified(witness, revision, focus_revision))
 
-        self.core("check", checked, field=field)
+        self.ask_core("check", checked, field=field)
         return GLib.SOURCE_REMOVE
 
     def verified(self, witness, revision, focus_revision):
@@ -290,7 +298,7 @@ class SelectedTextTransformation:
             self.close()
             self.engine.commit_text(IBus.Text.new_from_string(replacement))
 
-        self.core("take", taken, field=self.engine.ai_field(), witness=witness)
+        self.ask_core("take", taken, field=self.engine.ai_field(), witness=witness)
 
     def focus_return_expired(self):
         self.restore_timeout = None
@@ -318,7 +326,7 @@ class SelectedTextTransformation:
 
     def reject(self):
         self.forget_target()
-        self.core("reject")
+        self.ask_core("reject")
         if self.dialog:
             self.dialog.set_target_available(False)
             self.dialog.show_all()
@@ -332,7 +340,7 @@ class SelectedTextTransformation:
 
     def close(self):
         if self.transformation is not None:
-            self.core("close")
+            self.ask_core("close")
         self.revision = object()
         self.transformation = None
         self.forget_target()

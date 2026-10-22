@@ -157,7 +157,7 @@ class SelectedTextTransformationTests(SelectedTextTransformationFixture):
             focus_identity=("/input/1", "gnome-shell"), has_transform_surrounding_update=True,
             client_capabilities=IBus.Capabilite.SURROUNDING_TEXT,
             anchor=SimpleNamespace(update=lambda *_: None),
-            reload_settings=lambda: None, get_surrounding_text=lambda: None,
+            reload_settings=lambda: None, refresh_shortcuts=lambda: None, get_surrounding_text=lambda: None,
             register_properties=lambda _: None,
             transformation=SimpleNamespace(focus_entered=lambda: None),
         )

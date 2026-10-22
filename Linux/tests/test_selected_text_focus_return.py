@@ -18,6 +18,7 @@ class SelectedTextFocusReturnTests(SelectedTextTransformationFixture):
         self.engine.client_capabilities = IBus.Capabilite.SURROUNDING_TEXT
         self.engine.anchor = SimpleNamespace(update=lambda *_: None)
         self.engine.reload_settings = lambda: None
+        self.engine.refresh_shortcuts = lambda: None
         self.engine.register_properties = lambda _: None
         self.engine.transformation = self.session
         self.engine.activate_input_context = lambda: Engine.activate_input_context(self.engine)

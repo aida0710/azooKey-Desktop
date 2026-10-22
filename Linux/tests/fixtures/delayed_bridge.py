@@ -2,8 +2,18 @@
 """Synthetic converter for real IBus delay/failure tests; never uses a model."""
 import json
 import os
+import subprocess
 import sys
 import time
+
+
+def core_shortcuts():
+    """Which keys Core needs is Core's decision; ask the real bridge once."""
+    reply = subprocess.run(
+        [os.environ["AZOOKEY_REAL_BRIDGE"]], input='{"operation": "ime-shortcuts"}\n',
+        capture_output=True, text=True, check=True, timeout=30,
+    )
+    return json.loads(reply.stdout.splitlines()[0])["shortcuts"]
 
 
 def main():
@@ -20,6 +30,8 @@ def main():
         snapshot = {"consumed": True, "commits": [], "candidates": []}
         if operation == "settings":
             snapshot["settings"] = {"tree": False, "aiEnabled": False, "live": False, "halfSpace": True}
+        elif operation == "ime-shortcuts":
+            snapshot = {"shortcuts": core_shortcuts()}
         elif operation == "key":
             event = request["event"]
             characters = event.get("characters")

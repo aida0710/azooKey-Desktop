@@ -24,3 +24,10 @@ extension String {
         String(String.UnicodeScalarView(unicodeScalars.suffix(count)))
     }
 }
+
+extension Array where Element == String {
+    /// Identities are compared like document text: element by element, scalar by scalar.
+    func hasSameScalars(as other: [String]) -> Bool {
+        count == other.count && zip(self, other).allSatisfy { $0.hasSameScalars(as: $1) }
+    }
+}

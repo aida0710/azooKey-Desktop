@@ -22,8 +22,7 @@ public struct AITransformationTarget: Sendable {
     /// report the same identity is enough to start a fresh witness read; a
     /// newer report must still show the original selection.
     public func isOriginal(_ field: AITextField) -> Bool {
-        guard !field.isSensitive, let identity = field.identity,
-              AITextSelection.sameIdentity(identity, selection.identity) else {
+        guard !field.isSensitive, field.identity != nil, selection.isSameTarget(as: field.identity) else {
             return false
         }
         guard field.hasSurroundingUpdate else {
