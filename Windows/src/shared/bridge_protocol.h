@@ -39,6 +39,9 @@ struct Snapshot {
     int pageStart = 0;
     bool showCandidateIndex = false;
     bool japanese = true;
+    // Zenzai loads its model on the first conversion, so this turns true only
+    // after the bridge has converted with it.
+    bool zenzaiLoaded = false;
     std::string error;
 };
 

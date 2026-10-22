@@ -1,5 +1,6 @@
 #include "bridge_process.h"
 
+#include <algorithm>
 #include <chrono>
 #include <vector>
 
@@ -10,18 +11,31 @@ constexpr DWORD kReadChunkBytes = 64 * 1024;
 // Lets the bridge flush learning data after stdin closes before it is killed.
 constexpr DWORD kGracefulExitMilliseconds = 3000;
 
-std::wstring BuildEnvironmentBlock(const std::wstring& dataDirectory) {
-    // Inherit the user's environment and add the data directory.
+struct EnvironmentVariable {
+    std::wstring name;
+    std::wstring value;
+};
+
+bool IsVariable(const wchar_t* entry, const std::wstring& name) {
+    return _wcsnicmp(entry, name.c_str(), name.size()) == 0 && entry[name.size()] == L'=';
+}
+
+// Inherits the user's environment with the bridge's own variables replaced.
+std::wstring BuildEnvironmentBlock(const std::vector<EnvironmentVariable>& variables) {
     std::wstring block;
     wchar_t* current = GetEnvironmentStringsW();
     for (const wchar_t* entry = current; entry && *entry; entry += wcslen(entry) + 1) {
-        if (_wcsnicmp(entry, L"AZOOKEY_DATA_DIR=", 17) == 0) continue;
+        bool replaced = std::any_of(variables.begin(), variables.end(),
+                                    [entry](const EnvironmentVariable& variable) { return IsVariable(entry, variable.name); });
+        if (replaced) continue;
         block.append(entry);
         block.push_back(L'\0');
     }
     if (current) FreeEnvironmentStringsW(current);
-    block.append(L"AZOOKEY_DATA_DIR=" + dataDirectory);
-    block.push_back(L'\0');
+    for (const auto& variable : variables) {
+        block.append(variable.name + L"=" + variable.value);
+        block.push_back(L'\0');
+    }
     block.push_back(L'\0');
     return block;
 }
@@ -87,7 +101,8 @@ bool BridgeProcess::EnsureRunning() {
     UpdateProcThreadAttribute(startup.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited,
                               sizeof(inherited), nullptr, nullptr);
 
-    std::wstring environment = BuildEnvironmentBlock(options_.dataDirectory);
+    std::wstring environment = BuildEnvironmentBlock({{L"AZOOKEY_DATA_DIR", options_.dataDirectory},
+                                                      {L"AZOOKEY_RESOURCES", options_.resourcesDirectory}});
     std::wstring commandLine = L"\"" + options_.executable + L"\"";
     PROCESS_INFORMATION info{};
     BOOL created = CreateProcessW(options_.executable.c_str(), commandLine.data(), nullptr, nullptr, TRUE,

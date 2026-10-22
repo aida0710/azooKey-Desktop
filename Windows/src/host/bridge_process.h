@@ -18,8 +18,12 @@ public:
     struct Options {
         std::wstring executable;
         std::wstring dataDirectory;
+        // Holds Zenzai's model (AZOOKEY_RESOURCES). Without the model there the
+        // bridge converts with the dictionary alone.
+        std::wstring resourcesDirectory;
         // A conversion normally answers in milliseconds; the first request also
-        // loads the dictionary. Past this the bridge is treated as hung.
+        // loads the dictionary, and the first conversion Zenzai's model. Past
+        // this the bridge is treated as hung.
         DWORD replyTimeoutMilliseconds = 15000;
     };
 

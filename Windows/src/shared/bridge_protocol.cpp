@@ -83,6 +83,7 @@ std::optional<Snapshot> ParseSnapshot(const std::string& line) {
     snapshot.pageStart = static_cast<int>(value["pageStart"].AsInteger(0));
     snapshot.showCandidateIndex = value["showCandidateIndex"].AsBoolean(false);
     snapshot.japanese = value["language"].AsString() != "english";
+    snapshot.zenzaiLoaded = value["zenzaiLoaded"].AsBoolean(false);
     snapshot.error = value["error"].AsString();
     return snapshot;
 }

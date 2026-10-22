@@ -1,12 +1,18 @@
 // Starts azookey-windows-host.exe on a private pipe and converts through it the
 // way the text service does. Needs the built bridge; no desktop session.
 //
-//   azookey-host-integration-test.exe <host exe> <bridge exe>
+//   azookey-host-integration-test.exe <host exe> <bridge exe> [--expect-zenzai]
+//
+// The host gives the bridge the models folder next to itself. --expect-zenzai
+// requires Zenzai to load that model; without it the Zenzai check is reported
+// as not run, never as passed.
 #include <windows.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include "../src/shared/bridge_protocol.h"
 #include "../src/shared/host_channel.h"
@@ -34,11 +40,17 @@ std::wstring TemporaryDirectory(const std::wstring& name) {
     return directory;
 }
 
+double Median(std::vector<double> values) {
+    std::sort(values.begin(), values.end());
+    return values.empty() ? 0 : values[values.size() / 2];
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
-    if (argc < 3) {
-        std::fprintf(stderr, "usage: azookey-host-integration-test <host exe> <bridge exe>\n");
+    bool expectZenzai = argc == 4 && std::wstring(argv[3]) == L"--expect-zenzai";
+    if (argc != 3 && !expectZenzai) {
+        std::fprintf(stderr, "usage: azookey-host-integration-test <host exe> <bridge exe> [--expect-zenzai]\n");
         return 64;
     }
     std::wstring pipe = L"\\\\.\\pipe\\azooKeyTree-test-" + std::to_wstring(GetCurrentProcessId());
@@ -61,22 +73,35 @@ int wmain(int argc, wchar_t** argv) {
     azookey::protocol::RequestContext context{"integration", L"", false};
 
     std::optional<azookey::protocol::Snapshot> last;
-    double slowestMilliseconds = 0;
+    std::vector<double> keyMilliseconds;
     for (wchar_t c : std::wstring(L"nihongo")) {
         auto event = azookey::keys::Translate(towupper(c), {}, std::wstring(1, c));
         auto started = std::chrono::steady_clock::now();
         auto reply = connection.Request(azookey::protocol::KeyRequest(context, event));
-        double elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-        if (c != L'n' || last) slowestMilliseconds = std::max(slowestMilliseconds, elapsed);
+        keyMilliseconds.push_back(
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
         last = reply ? azookey::protocol::ParseSnapshot(*reply) : std::nullopt;
         if (!last) break;
     }
     Check(last && last->preedit == L"日本語", "typing nihongo composes 日本語");
-    std::printf("slowest key after the first: %.1f ms\n", slowestMilliseconds);
+    // The first key also starts the bridge and loads the dictionary (and the
+    // first conversion Zenzai's model), so it is reported on its own.
+    std::vector<double> laterKeys(keyMilliseconds.begin() + std::min<size_t>(1, keyMilliseconds.size()), keyMilliseconds.end());
+    std::printf("first key: %.1f ms; later keys: median %.1f ms, slowest %.1f ms\n",
+                keyMilliseconds.empty() ? 0 : keyMilliseconds.front(), Median(laterKeys),
+                laterKeys.empty() ? 0 : *std::max_element(laterKeys.begin(), laterKeys.end()));
 
     auto space = connection.Request(azookey::protocol::KeyRequest(context, azookey::keys::Translate(0x20, {}, L" ")));
     auto converting = space ? azookey::protocol::ParseSnapshot(*space) : std::nullopt;
     Check(converting && converting->selection.has_value() && !converting->candidates.empty(), "Space opens candidates");
+    bool zenzaiLoaded = converting && converting->zenzaiLoaded;
+    if (expectZenzai) {
+        Check(zenzaiLoaded, "Zenzai converts with the model next to the host");
+    } else {
+        std::printf("NOT RUN: Zenzai (zenzaiLoaded=%s; pass --expect-zenzai with a package that has "
+                    "models\\ggml-model-Q5_K_M.gguf)\n",
+                    zenzaiLoaded ? "true" : "false");
+    }
 
     // A second client (another application) gets its own composition.
     azookey::channel::HostConnection other(options);
@@ -96,6 +121,6 @@ int wmain(int argc, wchar_t** argv) {
     WaitForSingleObject(host.hProcess, 5000);
     CloseHandle(host.hThread);
     CloseHandle(host.hProcess);
-    std::printf("%s\n", failures == 0 ? "PASS" : "FAIL");
+    std::printf("%s%s\n", failures == 0 ? "PASS" : "FAIL", expectZenzai ? "" : " (Zenzai not run)");
     return failures == 0 ? 0 : 1;
 }
