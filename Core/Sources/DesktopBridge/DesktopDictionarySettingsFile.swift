@@ -1,10 +1,5 @@
 import Core
 import Foundation
-#if canImport(Glibc)
-import Glibc
-#else
-import Darwin
-#endif
 
 /// The caller holds SettingsStore's writer lock; Core also holds the dictionary path lock.
 final class DesktopDictionarySettingsFile: @unchecked Sendable {
@@ -101,26 +96,26 @@ final class DesktopDictionarySettingsFile: @unchecked Sendable {
     }
 
     private static func replaceFile(_ source: URL, to destination: URL) throws {
-        guard rename(source.path, destination.path) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
+        try PlatformFileOperations.replaceFile(source, to: destination)
     }
 
     private static func requireRegularFile(_ url: URL) throws {
         // Re-read the path without following links; compilation may outlive a file replacement.
-        var fileStatus = stat()
-        guard lstat(url.path, &fileStatus) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        guard fileStatus.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
+        guard try PlatformFileOperations.isRegularFileWithoutFollowingLinks(url) else {
             throw Failure.invalidStagingFile
         }
     }
 
     static func settingsURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        #if os(Windows)
+        let base = environment["APPDATA"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("AppData/Roaming", isDirectory: true)
+        return base.appendingPathComponent("azooKey Tree/settings.json")
+        #else
         let base = environment["XDG_CONFIG_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config", isDirectory: true)
         return base.appendingPathComponent("azookey-tree/settings.json")
+        #endif
     }
 
     static func dictionary(in content: Data) throws -> Config.UserDictionary.Value? {
