@@ -404,8 +404,8 @@ class Engine(IBus.Engine):
         self.get_surrounding_text()
         properties = IBus.PropList()
         properties.append(IBus.Property.new("InputMode", IBus.PropType.NORMAL, IBus.Text.new_from_string("あ"), "",
-                                            IBus.Text.new_from_string("日本語 / 英数を切り替え"), True, True, IBus.PropState.UNCHECKED, None))
-        properties.append(IBus.Property.new("setup", IBus.PropType.NORMAL, IBus.Text.new_from_string("設定…"), "", IBus.Text.new_from_string("azooKey Tree の設定"), True, True, IBus.PropState.UNCHECKED, None))
+                                            IBus.Text.new_from_string(message("inputMenu.toggleLanguage")), True, True, IBus.PropState.UNCHECKED, None))
+        properties.append(IBus.Property.new("setup", IBus.PropType.NORMAL, IBus.Text.new_from_string(message("inputMenu.settings")), "", IBus.Text.new_from_string(message("inputMenu.settingsDescription")), True, True, IBus.PropState.UNCHECKED, None))
         for name, key in (("undo-commit", "undo_menu"), ("reconvert", "selection_menu")):
             label = IBus.Text.new_from_string(reconversion_message(key))
             properties.append(IBus.Property.new(name, IBus.PropType.NORMAL, label, "", label, True, True,
@@ -495,7 +495,7 @@ class Engine(IBus.Engine):
         self.snapshot = {**snapshot, "commits": [], "request": None}
         mode = "あ" if snapshot.get("language", "japanese") == "japanese" else "A"
         self.update_property(IBus.Property.new("InputMode", IBus.PropType.NORMAL, IBus.Text.new_from_string(mode), "",
-                                              IBus.Text.new_from_string("日本語 / 英数を切り替え"), True, True, IBus.PropState.UNCHECKED, None))
+                                              IBus.Text.new_from_string(message("inputMenu.toggleLanguage")), True, True, IBus.PropState.UNCHECKED, None))
         for text in snapshot.get("commits", []):
             self.commit_text(IBus.Text.new_from_string(text))
         preedit = snapshot.get("preedit", "")

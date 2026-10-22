@@ -104,6 +104,9 @@
 "dictionary.imported.reset.confirm" = "Delete imported dictionary";
 "dictionary.imported.reset.explanation" = "Only the copy imported into azooKey is deleted. The macOS original, azooKey user dictionary, learning history and personalization models are kept. This cannot be undone, but the system dictionary can be imported again.";
 "dictionary.imported.reset.title" = "Delete the imported system dictionary?";
+"inputMenu.settings" = "Settings…";
+"inputMenu.settingsDescription" = "azooKey Tree settings";
+"inputMenu.toggleLanguage" = "Switch between Japanese and alphanumeric input";
 "learning.mode.inputAndOutput" = "Learn and use learning history";
 "learning.mode.nothing" = "Do not use learning history";
 "learning.mode.onlyOutput" = "Stop new learning and use existing history";
