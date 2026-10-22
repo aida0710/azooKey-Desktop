@@ -128,6 +128,16 @@ private:
     void ToggleAIReviewContext();
     void FinishAISuggestions(const protocol::AISuggestionRequest& request, std::optional<std::string> reply);
 
+    // Selected-text transformation (text_service_ai_transform.cpp): Core opens
+    // it, the host shows the instruction window in its own process, and the
+    // result replaces the selection once focus is back in the same field.
+    void StartAITransformation(ITfContext* context, const std::wstring& initialPrompt);
+    void ReturnToAITransformation(ITfContext* context);
+    // `reject`: the target is gone (the user typed), but the window keeps its result to copy.
+    void ForgetAITransformation(bool reject);
+    protocol::AITextField AIFieldFacts(ITfContext* context, const InputField& field) const;
+    protocol::AISelectionWitness AIWitness(ITfContext* context, const InputField& field) const;
+
     bool IsInputOpen();
     void SetInputOpen(bool open);
     DWORD AdviseCompartment(const GUID& compartment);
@@ -152,6 +162,11 @@ private:
     std::unique_ptr<AIReviewWindow> aiReviewWindow_;
     std::unique_ptr<BackgroundRequests> backgroundRequests_;
     std::optional<protocol::AIReview> aiReview_;  // set while the review is shown
+    struct PendingAITransformation {
+        int id = 0;
+        ITfDocumentMgr* document = nullptr;  // AddRef'd: the field the result goes back to
+    };
+    std::optional<PendingAITransformation> aiTransformation_;
     bool aiReviewIncludeContext_ = false;         // the user's choice in the open review
     CandidateListElement* candidateElement_ = nullptr;  // COM object; the application may hold it too
     InputModeButton* inputModeButton_ = nullptr;        // COM object owned with the language bar

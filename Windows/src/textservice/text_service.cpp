@@ -130,6 +130,7 @@ STDMETHODIMP TextService::Deactivate() {
     candidatePanel_.reset();
     notice_.reset();
     aiReview_.reset();
+    ForgetAITransformation(false);
     aiReviewWindow_.reset();
     backgroundRequests_.reset();
     converter_.reset();
@@ -174,7 +175,7 @@ void TextService::RegisterClauseAttributes() {
     categories->Release();
 }
 
-STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) {
+STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* focus, ITfDocumentMgr*) {
     // Moving to another field must not carry the composition along with it.
     if (IsComposing()) FinishComposition(true, kAnytimeWrite);
     HideNotice();
@@ -183,6 +184,14 @@ STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) {
     // Settings may have changed while another window had focus.
     presentationSettings_.reset();
     if (converter_) coreShortcuts_ = converter_->ImeShortcuts();
+    // Back from the instruction window: the confirmed result may replace the selection.
+    if (aiTransformation_ && focus && focus == aiTransformation_->document) {
+        ITfContext* context = nullptr;
+        if (SUCCEEDED(focus->GetTop(&context)) && context) {
+            ReturnToAITransformation(context);
+            context->Release();
+        }
+    }
     lastPlacementSide_.clear();
     return S_OK;
 }
@@ -294,6 +303,8 @@ void TextService::HandleKey(ITfContext* context, WPARAM virtualKey, const KeyInp
         break;
     }
     auto event = keys::Translate(static_cast<uint32_t>(virtualKey), input.modifiers, input.typedText);
+    // Typing again means the selection waiting for an AI result is no longer the target.
+    ForgetAITransformation(true);
     if (reconversionReading_) {
         HandleReadingKey(context, event);
         return;
@@ -316,6 +327,10 @@ void TextService::HandleKey(ITfContext* context, WPARAM virtualKey, const KeyInp
         return;
     }
     if (!wasComposing && HandleReconversionReply(context, *snapshot, field)) return;
+    if (snapshot->aiPrompt) {
+        StartAITransformation(context, *snapshot->aiPrompt);
+        return;
+    }
     // Ctrl+S with nothing composed reviews a request for the continuation.
     if (snapshot->aiReview && snapshot->preedit.empty()) {
         ShowAIReview(*snapshot->aiReview, field.caret);

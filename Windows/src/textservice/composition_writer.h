@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "shared/ai_protocol.h"
 #include "shared/bridge_protocol.h"
 
 namespace azookey::tsf {
@@ -36,6 +37,11 @@ struct InputField {
     protocol::DocumentContext document;
     bool hasSelection = false;  // also where reconversion is unavailable
     std::optional<RECT> caret;  // physical screen pixels
+    // The text around the selection with the selection's place in it, for AI;
+    // read even where the document has no character positions.
+    std::optional<protocol::AISurrounding> surrounding;
+    // The selection in the document's own positions (ITfRangeACP), for a witness.
+    std::optional<std::pair<int, int>> selectionExtent;
 };
 
 // One undo of a commit or reconversion of a selection, as Core asked for it.

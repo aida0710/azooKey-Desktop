@@ -77,6 +77,40 @@ std::wstring ReadBeside(TfEditCookie cookie, ITfRange* range, TfAnchor end, LONG
     return text;
 }
 
+std::wstring LastUnits(const std::wstring& text, LONG units) {
+    return text.size() > static_cast<size_t>(units) ? text.substr(text.size() - units) : text;
+}
+
+// What ReadInputField read around the selection.
+struct SelectionText {
+    std::wstring before;
+    std::wstring selected;
+    std::wstring after;
+    bool caretAtStart = false;  // the caret is at the selection's start (selected leftwards)
+};
+
+protocol::AISurrounding SurroundingOf(const SelectionText& text) {
+    int start = static_cast<int>(text.before.size());
+    int end = start + static_cast<int>(text.selected.size());
+    return {text.before + text.selected + text.after, text.caretAtStart ? start : end, text.caretAtStart ? end : start};
+}
+
+// Core compares the positions between requests, so they count from the document start.
+protocol::ReconversionContext ReconversionContextOf(const SelectionText& text, const Extent& extent, bool canReplace,
+                                                    bool isSensitive) {
+    protocol::ReconversionContext reconversion;
+    reconversion.before = text::LastScalars(text.before, protocol::kReconversionContextLimit);
+    reconversion.selected = text.selected;
+    reconversion.after = text::FirstScalars(text.after, protocol::kReconversionContextLimit);
+    int start = static_cast<int>(extent.start);
+    int end = start + static_cast<int>(extent.length);
+    reconversion.cursorUTF16 = text.caretAtStart ? start : end;
+    reconversion.anchorUTF16 = text.caretAtStart ? end : start;
+    reconversion.canReplace = canReplace;
+    reconversion.isSensitive = isSensitive;
+    return reconversion;
+}
+
 bool IsPrivateScope(InputScope scope) {
     switch (scope) {
     case IS_PASSWORD:
@@ -88,6 +122,28 @@ bool IsPrivateScope(InputScope scope) {
     default:
         return false;
     }
+}
+
+// Password and PIN fields, by the input scope the application gives the caret.
+bool IsPrivateField(TfEditCookie cookie, ITfContext* context, ITfRange* caret) {
+    bool privateInput = false;
+    Releaser<ITfReadOnlyProperty> scopeProperty;
+    if (FAILED(context->GetAppProperty(kInputScopeProperty, &scopeProperty))) return false;
+    VARIANT value;
+    VariantInit(&value);
+    if (SUCCEEDED(scopeProperty->GetValue(cookie, caret, &value)) && value.vt == VT_UNKNOWN && value.punkVal) {
+        Releaser<ITfInputScope> inputScope;
+        if (SUCCEEDED(value.punkVal->QueryInterface(IID_ITfInputScope, reinterpret_cast<void**>(&inputScope)))) {
+            InputScope* scopes = nullptr;
+            UINT count = 0;
+            if (SUCCEEDED(inputScope->GetInputScopes(&scopes, &count))) {
+                for (UINT i = 0; i < count; ++i) privateInput = privateInput || IsPrivateScope(scopes[i]);
+                CoTaskMemFree(scopes);
+            }
+        }
+    }
+    VariantClear(&value);
+    return privateInput;
 }
 
 }  // namespace
@@ -249,57 +305,32 @@ std::optional<RECT> CompositionWriter::ScreenRectangle(TfEditCookie cookie, ITfC
 
 InputField CompositionWriter::ReadInputField(TfEditCookie cookie, ITfContext* context) {
     InputField field;
-    protocol::DocumentContext& document = field.document;
     TF_SELECTION selection{};
     ULONG fetched = 0;
     if (FAILED(context->GetSelection(cookie, TF_DEFAULT_SELECTION, 1, &selection, &fetched)) || fetched == 0) return field;
     Releaser<ITfRange> caret;
     caret.pointer = selection.range;
 
-    Releaser<ITfReadOnlyProperty> scopeProperty;
-    if (SUCCEEDED(context->GetAppProperty(kInputScopeProperty, &scopeProperty))) {
-        VARIANT value;
-        VariantInit(&value);
-        if (SUCCEEDED(scopeProperty->GetValue(cookie, caret.pointer, &value)) && value.vt == VT_UNKNOWN && value.punkVal) {
-            Releaser<ITfInputScope> inputScope;
-            if (SUCCEEDED(value.punkVal->QueryInterface(IID_ITfInputScope, reinterpret_cast<void**>(&inputScope)))) {
-                InputScope* scopes = nullptr;
-                UINT count = 0;
-                if (SUCCEEDED(inputScope->GetInputScopes(&scopes, &count))) {
-                    for (UINT i = 0; i < count; ++i) document.privateInput = document.privateInput || IsPrivateScope(scopes[i]);
-                    CoTaskMemFree(scopes);
-                }
-            }
-        }
-        VariantClear(&value);
-    }
-
-    std::wstring before = ReadBeside(cookie, caret.pointer, TF_ANCHOR_START, -kSurroundingReadUnits);
-    document.leftContext = before.size() > static_cast<size_t>(kLeftContextUnits) ? before.substr(before.size() - kLeftContextUnits) : before;
+    field.document.privateInput = IsPrivateField(cookie, context, caret.pointer);
+    SelectionText text;
+    text.before = ReadBeside(cookie, caret.pointer, TF_ANCHOR_START, -kSurroundingReadUnits);
+    text.selected = ReadRange(cookie, caret.pointer, kSurroundingReadUnits + 1);
+    text.after = ReadBeside(cookie, caret.pointer, TF_ANCHOR_END, kSurroundingReadUnits);
+    text.caretAtStart = selection.style.ase == TF_AE_START;
+    field.document.leftContext = LastUnits(text.before, kLeftContextUnits);
     field.caret = ScreenRectangle(cookie, context, caret.pointer);
+    field.hasSelection = !text.selected.empty();
+    // A selection longer than the read is described by nothing below.
+    if (static_cast<LONG>(text.selected.size()) > kSurroundingReadUnits) return field;
+    field.surrounding = SurroundingOf(text);
 
     auto extent = DocumentExtent(caret.pointer);
-    std::wstring selected = ReadRange(cookie, caret.pointer, kSurroundingReadUnits + 1);
-    field.hasSelection = !selected.empty();
-    if (!extent || static_cast<LONG>(selected.size()) != extent->length ||
-        text::ScalarCount(selected) > protocol::kReconversionContextLimit) {
-        return field;  // no character positions, or a selection Core does not reconvert
-    }
+    if (!extent || static_cast<LONG>(text.selected.size()) != extent->length) return field;
+    field.selectionExtent = std::make_pair(static_cast<int>(extent->start), static_cast<int>(extent->start + extent->length));
+    if (text::ScalarCount(text.selected) > protocol::kReconversionContextLimit) return field;
     TF_STATUS status{};
     bool readOnly = SUCCEEDED(context->GetStatus(&status)) && (status.dwDynamicFlags & TF_SD_READONLY);
-    protocol::ReconversionContext reconversion;
-    reconversion.before = text::LastScalars(before, protocol::kReconversionContextLimit);
-    reconversion.selected = selected;
-    reconversion.after = text::FirstScalars(ReadBeside(cookie, caret.pointer, TF_ANCHOR_END, kSurroundingReadUnits),
-                                            protocol::kReconversionContextLimit);
-    int start = static_cast<int>(extent->start);
-    int end = start + static_cast<int>(extent->length);
-    bool caretAtStart = selection.style.ase == TF_AE_START;
-    reconversion.cursorUTF16 = caretAtStart ? start : end;
-    reconversion.anchorUTF16 = caretAtStart ? end : start;
-    reconversion.canReplace = !readOnly;
-    reconversion.isSensitive = document.privateInput;
-    document.reconversion = reconversion;
+    field.document.reconversion = ReconversionContextOf(text, *extent, !readOnly, field.document.privateInput);
     return field;
 }
 

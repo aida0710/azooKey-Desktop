@@ -315,6 +315,53 @@ void TestAIRepliesAndRequests() {
     Check(withSelection && (*withSelection)["ai"]["hasSelection"].AsBoolean(false), "a key on a selection says so");
 }
 
+void TestAITransformationRequestsAndReplies() {
+    azookey::protocol::RequestContext context{"ctx", {}};
+    azookey::protocol::AITextField field;
+    field.identity = {"tsf", "0001", "0002"};
+    field.surrounding = azookey::protocol::AISurrounding{L"前 原文 後", 2, 4};
+    auto open = azookey::json::Parse(azookey::protocol::AITransformOpenRequest(context, field));
+    const auto& sent = (*open)["ai"]["field"];
+    Check(open && (*open)["operation"].AsString() == "ai-transform-open" && sent["identity"].AsArray().size() == 3,
+          "ai-transform-open carries the field's identity");
+    Check(sent["surrounding"]["text"].AsString() == "前 原文 後" && sent["surrounding"]["cursorUTF16"].AsInteger() == 2 &&
+              sent["hasSurroundingUpdate"].AsBoolean(false) && !sent["isSensitive"].AsBoolean(true),
+          "the surrounding text is sent as read now");
+    azookey::protocol::AITextField unnamed;
+    auto openUnnamed = azookey::json::Parse(azookey::protocol::AITransformOpenRequest(context, unnamed));
+    Check((*openUnnamed)["ai"]["field"]["identity"].IsNull() && !(*openUnnamed)["ai"]["field"]["hasSurroundingUpdate"].AsBoolean(true),
+          "a field that cannot be named sends null and no surrounding update");
+
+    azookey::protocol::AISelectionWitness witness;
+    witness.object = {"tsf-context", "0002"};
+    witness.window = {"0003"};
+    witness.start = 12;
+    witness.end = 14;
+    witness.selected = L"原文";
+    auto take = azookey::json::Parse(azookey::protocol::AITransformRequest(context, "ai-transform-take", 3, {field, witness}));
+    Check(take && (*take)["operation"].AsString() == "ai-transform-take" && (*take)["ai"]["transformation"].AsInteger() == 3 &&
+              (*take)["ai"]["witness"]["start"].AsInteger() == 12 && (*take)["ai"]["witness"]["selected"].AsString() == "原文",
+          "ai-transform-take carries the field and the witness");
+    auto close = azookey::json::Parse(azookey::protocol::AITransformRequest(context, "ai-transform-close", 3, {}));
+    Check(close && !(*close)["ai"].Has("field") && !(*close)["ai"].Has("witness"), "closing needs only the id");
+
+    auto opened = azookey::protocol::ParseAITransformOpen(
+        R"({"transformation":3,"target":"原文","needsWitness":true,"history":[{"prompt":"敬語に直す","pinned":true,"shortcutText":""}]})");
+    Check(opened && opened->transformation == 3 && opened->needsWitness, "an opened transformation is read");
+    Check(!azookey::protocol::ParseAITransformOpen("{}"), "an empty reply opens nothing");
+    auto host = azookey::json::Parse(azookey::protocol::HostOpenAITransformRequest(context, *opened, L"敬語に直す", field));
+    Check(host && (*host)["operation"].AsString() == "host-open-ai-transform" && (*host)["open"]["target"].AsString() == "原文" &&
+              (*host)["initialPrompt"].AsString() == "敬語に直す" && (*host)["context"].AsString() == "ctx",
+          "the host gets Core's answer, the prompt and the field");
+
+    auto taken = azookey::protocol::ParseAITransformReply(R"({"transformation":3,"replacement":"変換した本文"})");
+    Check(taken && taken->replacement == L"変換した本文" && !taken->stale, "the confirmed result is read once");
+    auto stale = azookey::protocol::ParseAITransformReply(R"({"transformation":3,"stale":true})");
+    Check(stale && stale->stale && !stale->matches, "a stale transformation is recognised");
+    auto matches = azookey::protocol::ParseAITransformReply(R"({"transformation":3,"matches":true})");
+    Check(matches && matches->matches, "a matching return is read");
+}
+
 void TestTreeAndPageParsing() {
     auto snapshot = azookey::protocol::ParseSnapshot(
         R"({"inputState":"composing","preedit":"日本語","nodes":[)"
@@ -433,6 +480,7 @@ int main() {
     TestSnapshotParsing();
     TestReconversionReplyParsing();
     TestAIRepliesAndRequests();
+    TestAITransformationRequestsAndReplies();
     TestTreeAndPageParsing();
     TestCandidateDisplayParsing();
     TestLayoutRequestAndResult();

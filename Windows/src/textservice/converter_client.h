@@ -43,6 +43,13 @@ public:
     // What Core allows to be sent for a confirmed review; nullopt when the review no longer applies.
     std::optional<protocol::AISuggestionRequest> AIReviewSend(int review, bool includeContext);
     bool SaveIncludeContext(bool includeContext);
+    // Selected-text transformation: nullopt when Core does not open one.
+    std::optional<protocol::AITransformOpened> OpenAITransformation(const protocol::AITextField& field);
+    std::optional<protocol::AITransformReply> AITransformation(const std::string& operation, int transformation,
+                                                               const protocol::AITransformFacts& facts);
+    // Has the host open the instruction window; false when it could not.
+    bool OpenAITransformationWindow(const protocol::AITransformOpened& opened, const std::wstring& initialPrompt,
+                                    const protocol::AITextField& field);
     // Offers AI suggestions to the composition they were asked for.
     std::optional<protocol::Snapshot> Suggestions(const std::vector<std::wstring>& texts, int generation, const std::wstring& reading);
 

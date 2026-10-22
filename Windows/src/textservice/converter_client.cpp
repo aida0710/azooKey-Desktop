@@ -103,6 +103,23 @@ std::optional<protocol::Snapshot> ConverterClient::Suggestions(const std::vector
     return Send(protocol::SuggestionsRequest(context_, texts, generation, reading));
 }
 
+std::optional<protocol::AITransformOpened> ConverterClient::OpenAITransformation(const protocol::AITextField& field) {
+    auto reply = connection_.Request(protocol::AITransformOpenRequest(context_, field));
+    return reply ? protocol::ParseAITransformOpen(*reply) : std::nullopt;
+}
+
+std::optional<protocol::AITransformReply> ConverterClient::AITransformation(const std::string& operation, int transformation,
+                                                                            const protocol::AITransformFacts& facts) {
+    auto reply = connection_.Request(protocol::AITransformRequest(context_, operation, transformation, facts));
+    return reply ? protocol::ParseAITransformReply(*reply) : std::nullopt;
+}
+
+bool ConverterClient::OpenAITransformationWindow(const protocol::AITransformOpened& opened, const std::wstring& initialPrompt,
+                                                 const protocol::AITextField& field) {
+    auto reply = connection_.Request(protocol::HostOpenAITransformRequest(context_, opened, initialPrompt, field));
+    return reply && protocol::ParseHostOpened(*reply);
+}
+
 std::optional<protocol::PresentationSettings> ConverterClient::PresentationSettings() {
     auto reply = connection_.Request(protocol::SettingsRequest(context_.context));
     return reply ? protocol::ParsePresentationSettings(*reply) : std::nullopt;

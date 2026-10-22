@@ -46,4 +46,66 @@ bool IsSettingsUpdateSaved(const std::string& line);
 std::string SuggestionsRequest(const RequestContext& context, const std::vector<std::wstring>& texts, int generation,
                                const std::wstring& reading);
 
+// --- Selected-text transformation (ai-transform-*) ---
+
+// The text around the selection as the field shows it; positions are UTF-16
+// offsets into `text`.
+struct AISurrounding {
+    std::wstring text;
+    int cursorUTF16 = 0;
+    int anchorUTF16 = 0;
+};
+
+// Core's AITextField: what the text service observes about the focused field.
+struct AITextField {
+    std::vector<std::string> identity;  // empty when the field cannot be named
+    std::optional<AISurrounding> surrounding;
+    bool isSensitive = false;
+};
+
+// Core's AISelectionWitness: a second read of the selection, made right
+// before a result may replace it.
+struct AISelectionWitness {
+    std::vector<std::string> object;
+    std::vector<std::string> window;
+    int start = 0;  // in the reading API's own units; compared only with another witness
+    int end = 0;
+    std::wstring before;
+    std::wstring selected;
+    std::wstring after;
+};
+
+// `ai` members beyond the transformation id, for the request builders below.
+struct AITransformFacts {
+    std::optional<AITextField> field;
+    std::optional<AISelectionWitness> witness;
+};
+
+std::string AITransformOpenRequest(const RequestContext& context, const AITextField& field);
+// operation is one of ai-transform-target / -check / -take / -reject / -close.
+std::string AITransformRequest(const RequestContext& context, const std::string& operation, int transformation,
+                               const AITransformFacts& facts);
+
+struct AITransformOpened {
+    int transformation = 0;
+    bool needsWitness = false;
+    json::Value reply;  // passed to the instruction window as it is
+};
+// nullopt when Core does not open one (no selection, protected field, AI off).
+std::optional<AITransformOpened> ParseAITransformOpen(const std::string& line);
+
+struct AITransformReply {
+    bool stale = false;  // Core no longer holds this transformation
+    bool targetAvailable = false;
+    bool matches = false;
+    std::optional<std::wstring> replacement;
+};
+std::optional<AITransformReply> ParseAITransformReply(const std::string& line);
+
+// Asks the host to open the instruction window for this transformation. The
+// field and Core's answer stay with the host; nothing goes on a command line.
+std::string HostOpenAITransformRequest(const RequestContext& context, const AITransformOpened& opened,
+                                       const std::wstring& initialPrompt, const AITextField& field);
+bool ParseHostOpened(const std::string& line);
+
 }  // namespace azookey::protocol
