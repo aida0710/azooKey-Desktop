@@ -22,6 +22,16 @@ public struct WindowsSystemError: Error, Equatable {
 /// File operations whose atomicity or link handling Foundation does not guarantee
 /// the same way on every platform.
 public enum PlatformFileOperations {
+    /// File attributes that keep other users out: a POSIX mode such as 0o600.
+    /// Windows has no POSIX modes; the user's profile folders' ACLs do this there.
+    public static func ownerOnlyAttributes(_ mode: Int) -> [FileAttributeKey: Any]? {
+        #if os(Windows)
+        return nil
+        #else
+        return [.posixPermissions: mode]
+        #endif
+    }
+
     /// Atomically replaces `destination` with `source` on the same volume.
     public static func replaceFile(_ source: URL, to destination: URL) throws {
         #if os(Windows)

@@ -1,9 +1,4 @@
 import Foundation
-#if canImport(Glibc)
-import Glibc
-#elseif canImport(Darwin)
-import Darwin
-#endif
 
 /// Instructions the user gave the selected-text AI, never the document text.
 /// Pinned instructions stay and may carry a shortcut; the most recent
@@ -100,21 +95,21 @@ public struct AIPromptHistory: Sendable {
         let directory = fileURL.deletingLastPathComponent()
         // The instructions are private to the user, like the settings beside them.
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                                attributes: [.posixPermissions: 0o700])
+                                                attributes: PlatformFileOperations.ownerOnlyAttributes(0o700))
         let data = try JSONEncoder().encode(items)
-        #if os(Windows)
-        // Windows has no POSIX modes; Foundation replaces the file in one step.
-        try data.write(to: fileURL, options: .atomic)
-        #else
         // Created private from the start (an atomic Data write starts at 0644),
-        // then renamed over the old file so a reader never sees a partial file.
+        // then moved over the old file so a reader never sees a partial file.
         // Foundation's replaceItemAt does not work on Linux.
         let temporaryURL = directory.appendingPathComponent(".prompts-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: temporaryURL) }
-        guard FileManager.default.createFile(atPath: temporaryURL.path, contents: data, attributes: [.posixPermissions: 0o600]),
-              rename(temporaryURL.path, fileURL.path) == 0 else {
+        guard FileManager.default.createFile(atPath: temporaryURL.path, contents: data,
+                                             attributes: PlatformFileOperations.ownerOnlyAttributes(0o600)) else {
             throw Failure.saveFailed
         }
-        #endif
+        do {
+            try PlatformFileOperations.replaceFile(temporaryURL, to: fileURL)
+        } catch {
+            throw Failure.saveFailed
+        }
     }
 }

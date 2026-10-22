@@ -47,9 +47,10 @@ public enum PersonalizationModelImport {
         let fileManager = FileManager.default
         let stage = root.appendingPathComponent("model-\(UUID().uuidString.lowercased())", isDirectory: true)
         do {
-            try fileManager.createDirectory(at: root, withIntermediateDirectories: true, attributes: ownerOnly(0o700))
+            let directoryAttributes = PlatformFileOperations.ownerOnlyAttributes(0o700)
+            try fileManager.createDirectory(at: root, withIntermediateDirectories: true, attributes: directoryAttributes)
             // Exclusive creation: an existing directory with this name fails.
-            try fileManager.createDirectory(at: stage, withIntermediateDirectories: false, attributes: ownerOnly(0o700))
+            try fileManager.createDirectory(at: stage, withIntermediateDirectories: false, attributes: directoryAttributes)
         } catch {
             throw Failure(reason: .placement)
         }
@@ -58,7 +59,7 @@ public enum PersonalizationModelImport {
             for name in fileNames {
                 let destination = stage.appendingPathComponent(name)
                 try fileManager.copyItem(at: source.appendingPathComponent(name).resolvingSymlinksInPath(), to: destination)
-                if let attributes = ownerOnly(0o600) {
+                if let attributes = PlatformFileOperations.ownerOnlyAttributes(0o600) {
                     try fileManager.setAttributes(attributes, ofItemAtPath: destination.path)
                 }
             }
@@ -95,16 +96,6 @@ public enum PersonalizationModelImport {
             return nil
         }
         return entry.resolvingSymlinksInPath()
-        #endif
-    }
-
-    /// POSIX permissions keep other users out; on Windows the data directory's
-    /// ACL already does, and Foundation cannot express the mode there.
-    private static func ownerOnly(_ mode: Int) -> [FileAttributeKey: Any]? {
-        #if os(Windows)
-        return nil
-        #else
-        return [.posixPermissions: mode]
         #endif
     }
 
