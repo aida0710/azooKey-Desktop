@@ -94,7 +94,7 @@
 | `textSize`・`textScale` | 候補の文字サイズ設定と OS の文字倍率（GTK は `gtk-xft-dpi / 96`、GNOME は `text-scaling-factor`） |
 | `measuredFontSize` | `textWidth` と `lineHeight` を測った文字の大きさ。Core が候補の文字の大きさへ比例で直す |
 | `columns` | `candidateDisplay.columns` の順の節点（`id` と、描く木の上での親 `parent`）と、列の先頭の節点の文字の幅 |
-| `lineHeight` | 任意。1行の高さを測った値。共通の高さ（文字 + 14）より高いフォントのときだけ効く |
+| `lineHeight` | 任意。`measuredFontSize` で1行を測った高さ（節点の中に枠線を描くならその分も含める）。語の行は「文字 + 14」、番号の行は「番号の文字 + 6」を最小に、この比率より低くしない |
 | `documentWordWidths` | 任意。文書上の語の幅が分かるとき（GTK の推定語幅、Windows の文字矩形）。全列の幅が揃い、どれも読める幅のときだけ整列する |
 | `columnAnchorX` | 任意。整列するときの文頭の x |
 | `showScores`・`showNumbers` | スコアの行・番号の行を確保するか（`showRelativeScores` と `candidateDisplay.showsNumbers`） |
@@ -111,7 +111,8 @@
  "tree": {
    "aligned": false, "reason": "unavailable-or-narrow", "textAlignment": "center", "rowHeight": 66,
    "metrics": {"fontSize": 18, "numberFontSize": 12, "scoreFontSize": 12,
-               "wordHeight": 32, "numberHeight": 18, "scoreHeight": 16},
+               "wordHeight": 32, "numberHeight": 18, "scoreHeight": 16,
+               "scoreBadgeMinimumWidth": 22, "scoreBadgeHorizontalInset": 3},
    "nodes": [{"id": 0, "column": 0, "row": 0,
               "frame": {"x": 12, "y": 6, "width": 66, "height": 66},
               "textFrame": {"x": 16, "y": 6, "width": 58, "height": 32},
@@ -126,7 +127,7 @@
 | --- | --- |
 | `tree.nodes[].frame` | 押せる範囲（ポインターと支援技術の対象）。番号とスコアの行を含む |
 | `textFrame` | 語を描く範囲。`textAlignment` が `leading` なら左寄せ、`center` なら中央。はみ出す語は末尾を省略する |
-| `scoreFrame` | スコアのバッジを描く行。バッジは幅 22 以上、文字の幅 + 6 で中央に置く |
+| `scoreFrame` | スコアのバッジを描く行。バッジの幅は文字の幅 + `scoreBadgeHorizontalInset` × 2（`scoreBadgeMinimumWidth` 以上、`scoreFrame` の幅以下）で、中央に置く。色は `scorePresentation.role` |
 | `numberFrame` | 番号を左寄せで描く行 |
 | `edges` | 親から子へ線を引く。`start` は親の右端の中央、親が描かれていない節点は `rootAnchor` から。線は `node` が選択中の文の語なら太く実線、ほかは細い点線 |
 | `contentSize` | 木を描く面の大きさ。ポップアップより大きいときはスクロールする |
@@ -163,7 +164,7 @@ GTK と GNOME で別々だった判断を1つにしたため、次の点が変�
 - 表示の種類: GTK は `composing` 以外をすべて一覧、GNOME は選択系の3状態以外をすべて木としていた。今は選択系の3状態が一覧、それ以外が木。
 - 一覧のときの木: GTK はすべての列で兄弟を並べていた。今は GNOME と同じく、操作中の列だけ兄弟を並べる。
 - 配置: GNOME は下か上だけで、入らないときは作業領域の端へ寄せていた。今は GTK と同じく、右と左も使い、キャレットを覆わない。
-- 列の幅: GNOME は文字の幅 + 24（最大 280）、行の高さは測った値だった。今は GTK と同じく文字の幅 + 12（最大 240、最小は 44 と文字 + 8 の大きい方）、行の高さは文字 + 14（測った `lineHeight` が高ければそれ）。スコアのバッジは GNOME でも節点の中に置く。
-- ポップアップの幅: 一覧のときは、GTK の 420 以上と GNOME の文字 26 字分（最大 560）の両方を満たす幅にした。標準の文字で 468。
+- 列の幅: GNOME は文字の幅 + 24（最大 280）、行の高さは測った値だった。今は GTK と同じく文字の幅 + 12（最大 240、最小は 44 と文字 + 8 の大きい方）、行の高さは文字 + 14。どちらの OS も測った `lineHeight` を渡し、それより高いフォントでは行を高くする（GTK の番号の行は大きい文字で少し高くなる）。スコアのバッジは GNOME でも節点の中に置く。
+- ポップアップの幅: 一覧のときは、GTK の 420 以上と GNOME の文字 26 字分（最大 560）の両方を満たす幅にした。標準の文字で 468。木だけのときは GTK と同じく 240 以上（GNOME は 320 以上、最大 560 だった）。
 - 木の始点: GTK は (4, 18) に固定していた。今は最初の行の中央。
 - 節点の支援技術向けの名前: GNOME は「語・読み・候補番号」を改行で並べていた。今は GTK と同じく名前を「語（読み）」、候補番号は説明に入れる。
