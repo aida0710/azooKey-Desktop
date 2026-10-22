@@ -1,15 +1,20 @@
 """Acknowledge surrounding-text replacement before restoring composition."""
 from collections import deque
 
+from .i18n import text
 from .input_preview import ENTER_KEYS
 from .reconversion_key import ReconversionKey, ReconversionRecovery
-from .reconversion_strings import message
 
 
 CONTEXT_LIMIT = 256
 # A host that never acknowledges deletion must not hold later input indefinitely.
 # Expiry reports uncertainty; it never repeats deletion or assumes success.
 DELETION_ACK_TIMEOUT_MS = 3000
+
+
+def reconversion_message(name, **values):
+    """A menu/status text or the text for a Core ReconversionSession.Failure raw value."""
+    return text(f"reconversion.{name}", **values)
 
 
 def reconversion_operation(event):
@@ -129,11 +134,11 @@ class ReconversionCoordinator:
     def _available_context(self):
         pending_input = any(pending.operation not in ("settings", "configure") for pending in self.inputs.pending)
         if self.active or pending_input or self.inputs.snapshot.get("preedit"):
-            self.status(message("composition_active"))
+            self.status(reconversion_message("composition_active"))
             return None
         source = self.context()
         if not source or not source["canReplace"] or source["isSensitive"]:
-            self.status(message("replacement_unavailable"))
+            self.status(reconversion_message("replacement_unavailable"))
             return None
         return dict(source)
 
@@ -147,7 +152,7 @@ class ReconversionCoordinator:
         self.source = source
         self.phase = "menu-confirmation"
         self.menu_operation = "undo-commit" if undo else "reconvert"
-        self.status(message("confirm_undo" if undo else "confirm_selection"))
+        self.status(reconversion_message("confirm_undo" if undo else "confirm_selection"))
 
     def _confirm_menu(self, event, key, *, key_reply):
         if event is None:
@@ -195,7 +200,7 @@ class ReconversionCoordinator:
             self._finish_start(epoch)
             if epoch != self.epoch or self.phase != "reading":
                 return
-            self.status(message("reading_input", reading=snapshot["reconversionReading"]))
+            self.status(reconversion_message("reading_input", reading=snapshot["reconversionReading"]))
             self._drain(epoch)
         elif snapshot.get("reconversion"):
             self._replace(snapshot["reconversion"])
@@ -258,7 +263,7 @@ class ReconversionCoordinator:
         if not self._validate_confirmation(epoch):
             return
         if snapshot.get("reconversionError") or snapshot.get("error"):
-            self.status(message(snapshot.get("reconversionError", "replacement_unavailable")))
+            self.status(reconversion_message(snapshot.get("reconversionError", "replacement_unavailable")))
             self.inputs.recover_pending()
             return
         self.inputs.publish(snapshot)
@@ -292,7 +297,7 @@ class ReconversionCoordinator:
         self.cancel()
         self.inputs.cancel()
         self.inputs.recover("")
-        self.status(message("changed_context"))
+        self.status(reconversion_message("changed_context"))
         return False
 
     def take_recovery(self, text):
@@ -302,7 +307,7 @@ class ReconversionCoordinator:
         recovery = self._retire()
         if changed:
             self.finish_recovery(recovery, allow_native=False)
-            self.status(message("changed_context"))
+            self.status(reconversion_message("changed_context"))
             return "", recovery
         return text, recovery
 
@@ -353,7 +358,7 @@ class ReconversionCoordinator:
             if recovery.epoch == self.epoch:
                 self.inputs.cancel()
                 if recovery.epoch == self.epoch:
-                    self.status(message(reason))
+                    self.status(reconversion_message(reason))
         finally:
             self.finish_recovery(recovery, allow_native=allow_native and self.is_current_recovery(recovery))
 

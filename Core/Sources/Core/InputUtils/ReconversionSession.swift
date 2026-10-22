@@ -3,7 +3,7 @@ import Foundation
 /// Coordinates the one destructive step with an acknowledgement from the host.
 /// Each platform keeps one instance per focused input context.
 public final class ReconversionSession {
-    public enum Failure: String, Error {
+    public enum Failure: String, Error, CaseIterable {
         case privateInput = "private_input"
         case replacementUnavailable = "replacement_unavailable"
         case invalidContext = "invalid_context"

@@ -29,8 +29,7 @@ from .ai_scope import AIRequestConfiguration, AIRequestScope, MODIFIER_KEYS
 from .ai_review import AISuggestionReview
 from .i18n import text as message
 from .settings_store import update_settings
-from .reconversion import ReconversionCoordinator, surrounding_context
-from .reconversion_strings import message as reconversion_message
+from .reconversion import ReconversionCoordinator, reconversion_message, surrounding_context
 
 
 class Engine(IBus.Engine):
