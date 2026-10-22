@@ -503,6 +503,13 @@ void TextService::ShowCandidates(const protocol::Snapshot& snapshot, const std::
     const display::CandidateDisplay& shown = snapshot.display;
     bool listMode = shown.mode == display::DisplayMode::List;
     bool treeMode = shown.mode == display::DisplayMode::Tree && TreeCandidatesEnabled();
+    // Like the GTK and GNOME windows, the list keeps the tree from the response
+    // that asks for it until the list closes; Core moves ↑/↓ in the tree from then on.
+    if (!listMode) {
+        listShowsTree_ = false;
+    } else if (shown.expandTree) {
+        listShowsTree_ = true;
+    }
     if (!geometry || !converter_ || !candidatePanel_ || (!listMode && !treeMode)) {
         HideCandidates();
         return;
@@ -570,7 +577,7 @@ void TextService::ShowCandidates(const protocol::Snapshot& snapshot, const std::
     content.nodes = snapshot.nodes;
     content.showList = listMode;
     content.showScores = snapshot.showRelativeScores;
-    bool drawsTree = treeMode || (listMode && shown.expandTree);
+    bool drawsTree = treeMode || (listMode && listShowsTree_);
     auto measure = [&](const display::LayoutResult& layout) {
         content.tree = drawsTree ? layout.tree : std::nullopt;
         content.fontSize = layout.tree ? layout.tree->metrics.fontSize : shown.baseFontSize;
