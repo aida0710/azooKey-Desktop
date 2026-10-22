@@ -124,6 +124,15 @@ if(NOT AZOOKEY_X86)
     add_executable(azookey-windows-tests tests/shared_tests.cpp)
     target_link_libraries(azookey-windows-tests PRIVATE azookey_shared)
 
+    # The text service's window plumbing, built without the rest of the DLL.
+    add_executable(azookey-background-requests-test
+        tests/background_requests_test.cpp
+        src/textservice/background_requests.cpp
+        src/textservice/ime_windows.cpp
+        src/textservice/module.cpp
+    )
+    target_link_libraries(azookey-background-requests-test PRIVATE azookey_shared user32 gdi32 dwmapi)
+
     add_executable(azookey-host-integration-test tests/host_integration_test.cpp)
     target_link_libraries(azookey-host-integration-test PRIVATE azookey_shared)
 
@@ -162,5 +171,6 @@ target_link_libraries(tsf-harness PRIVATE ole32 oleaut32 user32 gdi32 uuid windo
 if(NOT AZOOKEY_X86)
     enable_testing()
     add_test(NAME shared COMMAND azookey-windows-tests)
+    add_test(NAME background-requests COMMAND azookey-background-requests-test)
     add_test(NAME settings COMMAND azookey-settings-tests)
 endif()

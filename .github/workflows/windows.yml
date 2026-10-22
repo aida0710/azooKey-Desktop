@@ -57,6 +57,8 @@ jobs:
         run: |
           build/windows-frontend/azookey-windows-tests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          build/windows-frontend/azookey-background-requests-test.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Convert through the host with the packaged bridge
         shell: pwsh
         run: |

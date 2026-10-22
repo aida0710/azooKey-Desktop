@@ -159,6 +159,7 @@ build\windows-package\install.ps1
 | 試験 | 内容 | 必要な環境 |
 | --- | --- | --- |
 | `azookey-windows-tests.exe` | JSON、UTF-8/UTF-16の位置換算、キーの振り分けと変換、要求・応答の形式、確定後の文書の進め方 | なし |
+| `azookey-background-requests-test.exe` | テキストサービスの裏の要求の受け口を、TSFの外で単独に作って片付ける。アプリが`PostQuitMessage`した後に片付けても、アプリの`WM_QUIT`が残ること | なし |
 | `azookey-host-integration-test.exe` | 常駐プロセスとブリッジを起動し、「nihongo→Space→Enter」で「日本語」を確定。2つのアプリの入力が混ざらないこと。確定の取り消しと、読みを入力しての選択の再変換を Core と往復して確かめる。`--expect-zenzai`を付けると、常駐プロセスの隣の`models`のモデルでZenzaiが変換したこと（`zenzaiLoaded`）も確かめます。付けないときはZenzaiを「NOT RUN」と表示し、成功とは扱いません | なし（SSHのセッションでも可） |
 | `azookey-settings-tests.exe` | 設定画面の定義の読み取り、どの定義がどの部品になるか、保存・復旧・辞書の要求の組み立て、応答の読み取り、エラーの文言（設定項目の名前への置き換え）、辞書の下書き（追加・編集・削除・検索・並べ替え・取込・状態の文言）、ショートカットの記録と表示 | なし |
 | `azookey-settings-reload-test.exe` | 常駐プロセスを専用のパイプと一時フォルダーの`APPDATA`で起動し、`settings.json`を書き換えると次の打鍵から変わること（ライブ変換を切ると「nihongo」の未確定文字が「にほんご」のまま、戻すと「日本語」） | なし（SSHのセッションでも可） |

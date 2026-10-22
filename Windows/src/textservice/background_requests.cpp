@@ -70,6 +70,14 @@ BackgroundRequests::~BackgroundRequests() {
     // Replies already posted would be discarded with the window; free them first.
     MSG message;
     while (PeekMessageW(&message, window, kReplyMessage, kReplyMessage, PM_REMOVE)) {
+        if (message.message == WM_QUIT) {
+            // PeekMessage hands out WM_QUIT whatever the filter. The text service
+            // is often torn down while the application's main window is being
+            // destroyed, after it has called PostQuitMessage; without the quit
+            // message its loop would wait forever.
+            PostQuitMessage(static_cast<int>(message.wParam));
+            break;
+        }
         delete reinterpret_cast<Delivery*>(message.lParam);
     }
     DestroyWindow(window);
