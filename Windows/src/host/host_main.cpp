@@ -3,7 +3,7 @@
 // single converter so the dictionary and learning data load once.
 //
 // Options (for tests): --pipe <name> --bridge <exe> --data <directory> --resources <directory>
-//                      --api-key-credential <target> --ai-transform-window <exe>
+//                      --api-key-credential <target> --ai-transform-window <exe> --trace <file>
 #include <windows.h>
 #include <sddl.h>
 #include <shellapi.h>
@@ -24,6 +24,7 @@
 #include "ai_transform_handoff.h"
 #include "bridge_process.h"
 #include "request_route.h"
+#include "request_trace.h"
 #include "settings_reload.h"
 
 namespace {
@@ -32,6 +33,7 @@ using azookey::host::AIService;
 using azookey::host::AITransformHandoff;
 using azookey::host::BridgeProcess;
 using azookey::host::RequestRoute;
+using azookey::host::RequestTrace;
 using azookey::host::SettingsReload;
 
 constexpr DWORD kPipeBufferBytes = 64 * 1024;
@@ -57,6 +59,7 @@ struct Options {
     std::wstring resourcesDirectory;
     std::wstring apiKeyCredential = azookey::credentials::kApiKeyTarget;
     std::wstring aiTransformWindow;
+    std::wstring trace;  // empty: no request trace
 };
 
 std::wstring ModuleDirectory() {
@@ -82,6 +85,7 @@ Options ParseOptions() {
         else if (name == L"--resources") options.resourcesDirectory = arguments[i + 1];
         else if (name == L"--api-key-credential") options.apiKeyCredential = arguments[i + 1];
         else if (name == L"--ai-transform-window") options.aiTransformWindow = arguments[i + 1];
+        else if (name == L"--trace") options.trace = arguments[i + 1];
     }
     LocalFree(arguments);
     return options;
@@ -117,7 +121,8 @@ public:
         : options_(options),
           bridge_({options.bridge, options.dataDirectory, options.resourcesDirectory}),
           aiService_({options.bridge, options.dataDirectory + L"\\ai", options.apiKeyCredential}),
-          aiTransformHandoff_({options.aiTransformWindow, options.pipeName}) {}
+          aiTransformHandoff_({options.aiTransformWindow, options.pipeName}),
+          trace_(options.trace) {}
 
     int Run() {
         SECURITY_ATTRIBUTES security{};
@@ -176,7 +181,7 @@ private:
             switch (request ? azookey::host::RouteFor(*request) : RequestRoute::Conversion) {
             case RequestRoute::Conversion:
                 if (request && azookey::host::OwnsContext(*request)) contexts.insert((*request)["context"].AsString());
-                reply = Convert(*line);
+                reply = Convert(*line, request ? (*request)["operation"].AsString() : "invalid");
                 break;
             case RequestRoute::AIService:
                 reply = aiService_.Handle(*request);
@@ -201,15 +206,20 @@ private:
     }
 
     void WarmUp() {
-        Convert(kWarmUpKeyRequest);
-        Convert(kWarmUpCloseRequest);
+        Convert(kWarmUpKeyRequest, "warm-up key");
+        Convert(kWarmUpCloseRequest, "warm-up close");
     }
 
-    std::string Convert(const std::string& line) {
+    std::string Convert(const std::string& line, std::string_view operation) {
+        RequestTrace::Timing timing{RequestTrace::Clock::now()};
         std::lock_guard<std::mutex> lock(bridgeMutex_);
+        timing.started = RequestTrace::Clock::now();
         settingsReload_.BeforeRequest([this](const std::string& request) { return bridge_.Request(request); },
                                       bridge_.restarts());
-        return bridge_.Request(line).value_or(kUnavailableReply);
+        std::string reply = bridge_.Request(line).value_or(kUnavailableReply);
+        timing.finished = RequestTrace::Clock::now();
+        trace_.Record(operation, timing);
+        return reply;
     }
 
     Options options_;
@@ -218,6 +228,7 @@ private:
     SettingsReload settingsReload_;  // guarded by bridgeMutex_
     AIService aiService_;
     AITransformHandoff aiTransformHandoff_;
+    RequestTrace trace_;
 };
 
 }  // namespace
