@@ -72,17 +72,35 @@ public struct SupportDiagnostics: Equatable, Sendable {
         ]
     }
 
-    public static func macOS(
-        version: String?, source: String?, operatingSystem: String, cpu: String?, backend: String?, treeEnabled: Bool
-    ) -> Self {
+    /// Values the macOS app reads from its bundle and process.
+    public struct MacOSEnvironment: Equatable, Sendable {
+        public var version: String?
+        public var source: String?
+        public var operatingSystem: String
+        public var cpu: String?
+        public var backend: String?
+        public var treeEnabled: Bool
+
+        public init(version: String?, source: String?, operatingSystem: String, cpu: String?, backend: String?, treeEnabled: Bool) {
+            self.version = version
+            self.source = source
+            self.operatingSystem = operatingSystem
+            self.cpu = cpu
+            self.backend = backend
+            self.treeEnabled = treeEnabled
+        }
+    }
+
+    public static func macOS(_ environment: MacOSEnvironment) -> Self {
         let fields = [
-            Field(labelKey: "support.version", value: .text(version)),
-            Field(labelKey: "support.source", value: .text(source)),
-            Field(labelKey: "support.os", value: .text(operatingSystem)),
-            Field(labelKey: "support.cpu", value: .text(cpu)),
-            Field(labelKey: "support.backend", value: .text(backend)),
+            Field(labelKey: "support.version", value: .text(environment.version)),
+            Field(labelKey: "support.source", value: .text(environment.source)),
+            Field(labelKey: "support.os", value: .text(environment.operatingSystem)),
+            Field(labelKey: "support.cpu", value: .text(environment.cpu)),
+            Field(labelKey: "support.backend", value: .text(environment.backend)),
             Field(labelKey: "support.session", value: .text("AppKit"))
         ]
+        let treeEnabled = environment.treeEnabled
         return .init(fields: fields + rendererFields(renderer: treeEnabled ? .macTree : .macList,
                                                      fallback: treeEnabled ? nil : .setting))
     }

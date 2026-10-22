@@ -18,6 +18,34 @@ jobs:
       - name: Install Swift
         shell: pwsh
         run: Windows/scripts/install-swift.ps1
+      - name: Read the pinned Zenzai model revision
+        id: model
+        shell: pwsh
+        run: '"revision=$((git ls-tree HEAD azooKeyMac/Resources/gguf).Split()[2])" >> $env:GITHUB_OUTPUT'
+      - uses: actions/cache@v4
+        with:
+          path: build/models/ggml-model-Q5_K_M.gguf
+          key: zenzai-model-${{ steps.model.outputs.revision }}
+      - name: Fetch and verify Zenzai's model
+        shell: pwsh
+        env:
+          GIT_LFS_SKIP_SMUDGE: '1'
+        run: |
+          git submodule update --init azooKeyMac/Resources/gguf
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python Tools/fetch-models.py --model gguf
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/cache@v4
+        id: llama
+        with:
+          path: build/llama-windows/install
+          key: llama-windows-${{ hashFiles('Windows/scripts/build-llama.ps1') }}
+      - name: Build llama.cpp
+        if: steps.llama.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          . Windows/scripts/enter-dev-shell.ps1
+          Windows/scripts/build-llama.ps1
       - name: Build the package
         id: package
         shell: pwsh
@@ -32,8 +60,11 @@ jobs:
       - name: Convert through the host with the packaged bridge
         shell: pwsh
         run: |
-          build/windows-frontend/azookey-host-integration-test.exe build/windows-package/azookey-windows-host.exe build/windows-package/bridge/azookey-desktop-bridge.exe
+          build/windows-frontend/azookey-host-integration-test.exe build/windows-package/azookey-windows-host.exe build/windows-package/bridge/azookey-desktop-bridge.exe --expect-zenzai
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Measure the bridge with and without Zenzai
+        shell: pwsh
+        run: Windows/tools/measure-zenzai.ps1 -Package build/windows-package
       - name: Type through TSF with the installed text service
         shell: pwsh
         run: |

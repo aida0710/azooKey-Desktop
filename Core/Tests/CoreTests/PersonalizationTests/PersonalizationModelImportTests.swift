@@ -20,7 +20,7 @@ private final class ModelDirectories {
     }
 
     func currentFiles() throws -> [String: Data] {
-        let directory = current.resolvingSymlinksInPath()
+        let directory = try #require(PersonalizationModelImport.currentModelDirectory(in: destination))
         return try Dictionary(uniqueKeysWithValues: PersonalizationModelImport.fileNames.map {
             ($0, try Data(contentsOf: directory.appendingPathComponent($0)))
         })
@@ -29,7 +29,9 @@ private final class ModelDirectories {
 
 @Test func importCopiesAllFourFilesBehindTheCurrentLink() throws {
     let directories = try ModelDirectories()
+    #expect(PersonalizationModelImport.currentModelDirectory(in: directories.destination) == nil)
     let stage = try PersonalizationModelImport.importModel(from: directories.source, into: directories.destination)
+    #expect(PersonalizationModelImport.currentModelDirectory(in: directories.destination)?.lastPathComponent == stage.lastPathComponent)
     #expect(try FileManager.default.destinationOfSymbolicLink(atPath: directories.current.path) == stage.lastPathComponent)
     for (name, content) in try directories.currentFiles() {
         #expect(content == Data("We love Marisa.\0\(name)".utf8))

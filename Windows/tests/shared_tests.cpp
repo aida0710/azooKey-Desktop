@@ -194,7 +194,7 @@ void TestSnapshotParsing() {
     auto snapshot = azookey::protocol::ParseSnapshot(
         R"({"consumed":true,"preedit":"日本語","preeditSegments":[{"text":"日本語","focus":"focused"},{"text":"","focus":"unfocused"}],)"
         R"("cursor":3,"commits":["前"],"candidates":[{"index":0,"text":"日本語","annotation":"","tokens":[]}],)"
-        R"("selection":0,"generation":7,"pageStart":0,"showCandidateIndex":true,"language":"japanese"})");
+        R"("selection":0,"generation":7,"pageStart":0,"showCandidateIndex":true,"language":"japanese","zenzaiLoaded":true})");
     Check(snapshot.has_value(), "snapshot parses");
     Check(!snapshot->reconversion && snapshot->reconversionError.empty() && !snapshot->reconversionReading,
           "an ordinary snapshot has no reconversion state");
@@ -202,6 +202,7 @@ void TestSnapshotParsing() {
     Check(snapshot->segments.size() == 1 && snapshot->segments[0].focus == azookey::protocol::SegmentFocus::Focused,
           "the empty trailing segment is dropped");
     Check(snapshot->showCandidateIndex, "converting shows the candidate list");
+    Check(snapshot->zenzaiLoaded, "the Zenzai state is read");
     // While typing, Core still reports a selected index for live conversion.
     auto typing = azookey::protocol::ParseSnapshot(
         R"({"consumed":true,"preedit":"n","preeditSegments":[{"text":"n","focus":"none"}],"selection":0,"showCandidateIndex":false})");
@@ -211,6 +212,7 @@ void TestSnapshotParsing() {
     Check(snapshot->selection == 0 && snapshot->generation == 7, "selection and generation are read");
     auto idle = azookey::protocol::ParseSnapshot(R"({"consumed":false,"preedit":"","selection":null})");
     Check(idle && !idle->selection.has_value(), "a null selection means no candidate is being chosen");
+    Check(idle && !idle->zenzaiLoaded, "a reply without the Zenzai state means Zenzai is not loaded");
     Check(!azookey::protocol::ParseSnapshot("not json").has_value(), "a broken line is not a snapshot");
 }
 

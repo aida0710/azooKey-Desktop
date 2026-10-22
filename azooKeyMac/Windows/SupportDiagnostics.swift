@@ -12,13 +12,13 @@ enum SupportDiagnostics {
         let architecture: String? = nil
         #endif
         let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        return Core.SupportDiagnostics.macOS(
+        return Core.SupportDiagnostics.macOS(.init(
             version: version ?? PackageMetadata.gitTag,
             source: PackageMetadata.gitCommit,
             operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
             cpu: architecture,
             backend: bundle.object(forInfoDictionaryKey: "AzooKeyInferenceBackend") as? String,
             treeEnabled: Config.TreeCandidates().value
-        ).report()
+        )).report()
     }
 }
