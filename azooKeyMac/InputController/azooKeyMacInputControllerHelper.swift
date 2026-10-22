@@ -13,9 +13,18 @@ extension azooKeyMacInputController {
         self.transformSelectedTextMenuItem.keyEquivalentModifierMask = [.control]
         self.transformSelectedTextMenuItem.target = self
         self.appMenu.addItem(self.transformSelectedTextMenuItem)
+        let undoCommit = NSMenuItem(title: Localization.text("reconversion.undo_menu"), action: #selector(self.undoLastCommit(_:)), keyEquivalent: "")
+        undoCommit.target = self
+        self.appMenu.addItem(undoCommit)
+        let reconvert = NSMenuItem(title: Localization.text("reconversion.selection_menu"), action: #selector(self.reconvertSelection(_:)), keyEquivalent: "")
+        reconvert.target = self
+        self.appMenu.addItem(reconvert)
         self.appMenu.addItem(NSMenuItem.separator())
         self.appMenu.addItem(NSMenuItem(title: "設定…", action: #selector(self.openConfigWindow(_:)), keyEquivalent: ""))
-        self.appMenu.addItem(NSMenuItem(title: "View on GitHub…", action: #selector(self.openGitHubRepository(_:)), keyEquivalent: ""))
+        self.appMenu.addItem(NSMenuItem(title: Localization.text("support.title"), action: #selector(self.openSupportWindow(_:)), keyEquivalent: ""))
+        self.appMenu.addItem(NSMenuItem(title: Localization.text("support.issues"), action: #selector(self.openIssueReport(_:)), keyEquivalent: ""))
+        self.appMenu.addItem(NSMenuItem(title: Localization.text("support.releases"), action: #selector(self.openReleases(_:)), keyEquivalent: ""))
+        self.appMenu.addItem(NSMenuItem(title: Localization.text("support.upstream"), action: #selector(self.openUpstreamRepository(_:)), keyEquivalent: ""))
         self.updateTransformSelectedTextMenuItemEnabledState()
     }
 
@@ -32,8 +41,8 @@ extension azooKeyMacInputController {
     }
 
     private enum TransformMenuTitle {
-        static let normal = "いい感じ変換"
-        static let noBackend = "いい感じ変換（無効/バックエンドなし）"
+        static var normal: String { Localization.text("ai.title") }
+        static var noBackend: String { Localization.text("ai.disabled") }
     }
 
     @MainActor @objc func performTransformSelectedText(_ sender: Any) {
@@ -55,9 +64,9 @@ extension azooKeyMacInputController {
         }
         switch self.inputState {
         case .composing, .replaceSuggestion:
-            _ = self.handleClientAction(.requestReplaceSuggestion, clientActionCallback: .transition(.replaceSuggestion), client: client)
+            _ = self.handleClientAction(.requestReplaceSuggestion, clientActionCallback: .transition(.composing), client: client)
         case .none:
-            _ = self.handleClientAction(.requestPredictiveSuggestion, clientActionCallback: .transition(.replaceSuggestion), client: client)
+            _ = self.handleClientAction(.requestPredictiveSuggestion, clientActionCallback: .transition(.composing), client: client)
         default:
             break
         }
@@ -93,11 +102,20 @@ extension azooKeyMacInputController {
         self.transformSelectedTextMenuItem.title = aiBackendEnabled ? TransformMenuTitle.normal : TransformMenuTitle.noBackend
     }
 
-    @objc func openGitHubRepository(_ sender: Any) {
-        guard let url = URL(string: "https://github.com/azooKey/azooKey-Desktop") else {
-            return
-        }
-        NSWorkspace.shared.open(url)
+    @objc func openIssueReport(_ sender: Any) {
+        NSWorkspace.shared.open(SupportLinks.issues)
+    }
+
+    @objc func openReleases(_ sender: Any) {
+        NSWorkspace.shared.open(SupportLinks.releases)
+    }
+
+    @objc func openUpstreamRepository(_ sender: Any) {
+        NSWorkspace.shared.open(SupportLinks.upstream)
+    }
+
+    @objc func openSupportWindow(_ sender: Any) {
+        (NSApplication.shared.delegate as? AppDelegate)?.openSupportWindow()
     }
 
     @objc func openConfigWindow(_ sender: Any) {

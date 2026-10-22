@@ -12,10 +12,11 @@ extension Notification.Name {
 
 final class PromptInputWindow: NSWindow {
     private var completion: ((String?) -> Void)?
-    private var previewCallback: ((String, @escaping (String) -> Void) -> Void)?
+    private var previewCallback: ((String, Bool, @escaping (Result<String, TransformationPreviewError>) -> Void) -> Void)?
     private var applyCallback: ((String) -> Void)?
     private var isTextFieldCurrentlyFocused: Bool = false
-    private var initialPrompt: String?
+    private var request: PromptInputRequest?
+    private var requestIdentifier = UUID()
     private var previousApp: NSRunningApplication?
 
     init() {
@@ -26,6 +27,7 @@ final class PromptInputWindow: NSWindow {
             defer: false
         )
 
+        self.title = Localization.text("ai.title")
         self.level = .floating
         self.isReleasedWhenClosed = false
         self.backgroundColor = NSColor.clear
@@ -54,24 +56,32 @@ final class PromptInputWindow: NSWindow {
     }
 
     private func setupUI() {
+        guard let request else {
+            return
+        }
+        let requestIdentifier = self.requestIdentifier
         let contentView = PromptInputView(
-            initialPrompt: initialPrompt,
-            onSubmit: { [weak self] prompt in
-                self?.completion?(prompt)
-                self?.close()
+            initialPrompt: request.initialPrompt,
+            requestConfiguration: request.configuration,
+            targetText: request.targetText,
+            onPreview: { [weak self] prompt, includeContext, callback in
+                guard let self, self.isCurrentRequest(requestIdentifier) else {
+                    callback(.failure(.targetChanged))
+                    return
+                }
+                self.previewCallback?(prompt, includeContext, callback)
             },
-            onPreview: { [weak self] prompt, _, callback in
-                self?.previewCallback?(prompt, callback)
-            },
-            onApply: { [weak self] transformedText in
-                self?.applyCallback?(transformedText)
+            onApply: { [weak self] text, prompt in
+                self?.finish(prompt: prompt, textToApply: text, requestIdentifier: requestIdentifier)
             },
             onCancel: { [weak self] in
-                self?.completion?(nil)
-                self?.close()
+                self?.finish(prompt: nil, requestIdentifier: requestIdentifier)
             },
             onPreviewModeChanged: { [weak self] isPreviewMode in
-                self?.resizeWindowToContent(isPreviewMode: isPreviewMode)
+                guard let self, self.isCurrentRequest(requestIdentifier) else {
+                    return
+                }
+                self.resizeWindowToContent(isPreviewMode: isPreviewMode)
             }
         )
 
@@ -83,15 +93,16 @@ final class PromptInputWindow: NSWindow {
 
     func showPromptInput(
         at cursorLocation: NSPoint,
-        initialPrompt: String? = nil,
-        onPreview: @escaping (String, @escaping (String) -> Void) -> Void,
+        request: PromptInputRequest,
+        onPreview: @escaping (String, Bool, @escaping (Result<String, TransformationPreviewError>) -> Void) -> Void,
         onApply: @escaping (String) -> Void,
         completion: @escaping (String?) -> Void
     ) {
         self.previewCallback = onPreview
         self.applyCallback = onApply
         self.completion = completion
-        self.initialPrompt = initialPrompt
+        self.request = request
+        self.requestIdentifier = UUID()
         let frontmostApp = NSWorkspace.shared.frontmostApplication
         if let frontmostApp, frontmostApp.processIdentifier != NSRunningApplication.current.processIdentifier {
             self.previousApp = frontmostApp
@@ -123,13 +134,14 @@ final class PromptInputWindow: NSWindow {
         let historyHeight: CGFloat = isPreviewMode ? 0 : 200  // More space for 10 items when not in preview mode
         let buttonHeight: CGFloat = 36  // Compact button row
         let containerPadding: CGFloat = 16  // Reduced padding
+        let scopeHeight: CGFloat = 150  // Destination, scrollable target and history explanation.
 
         let previewHeight: CGFloat = isPreviewMode ? 90 : 0  // Compact preview
 
-        let totalHeight = headerHeight + textFieldHeight + historyHeight + buttonHeight + previewHeight + containerPadding
+        let totalHeight = headerHeight + textFieldHeight + historyHeight + buttonHeight + previewHeight + containerPadding + scopeHeight
 
         var currentFrame = self.frame
-        let newSize = NSSize(width: 360, height: totalHeight)
+        let newSize = NSSize(width: 460, height: totalHeight)
 
         // Adjust origin to keep the window in the same relative position
         currentFrame.origin.y += (currentFrame.size.height - newSize.height)
@@ -168,22 +180,34 @@ final class PromptInputWindow: NSWindow {
     }
 
     override func close() {
-        // Call completion handler to reset flags before closing
-        if let completion = self.completion {
-            completion(nil)
-        }
+        finish(prompt: nil)
+    }
 
-        // Restore focus to the previous application
-        if let previousApp = self.previousApp {
-            DispatchQueue.main.async {
-                previousApp.activate(options: [])
-            }
-        }
+    private func isCurrentRequest(_ identifier: UUID) -> Bool {
+        request != nil && requestIdentifier == identifier
+    }
 
-        super.close()
+    private func finish(prompt: String?, textToApply: String? = nil, requestIdentifier: UUID? = nil) {
+        guard requestIdentifier.map(isCurrentRequest) ?? true else {
+            return
+        }
+        let completion = self.completion
+        let apply = self.applyCallback
+        let previousApp = self.previousApp
+        // Clear callbacks before closing so reentrant close notifications finish once.
         self.completion = nil
         self.previewCallback = nil
         self.applyCallback = nil
+        self.previousApp = nil
+        self.request = nil
+        super.close()
+        self.contentView = nil
+        completion?(prompt)
+        if let textToApply {
+            apply?(textToApply)
+        } else if let previousApp {
+            previousApp.activate(options: [])
+        }
     }
 
     override var canBecomeKey: Bool {
@@ -202,7 +226,6 @@ final class PromptInputWindow: NSWindow {
         // Handle navigation keys at window level
         if event.keyCode == 53 { // Escape key
             // Send escape event to SwiftUI view and close window
-            completion?(nil)
             close()
         } else if event.keyCode == 126 { // Up arrow key
             // Only handle up arrow if not in text field (CustomTextField handles it directly)

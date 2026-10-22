@@ -4,6 +4,10 @@
 
 0.1.2では、選択中の文を上段にそろえ、各語の代替候補を2つまで下へ表示します。語をクリックすると対応する候補を確定します。候補背景は不透明で、語ごとの色と相対スコアを表示します。数値は正解確率ではありません。[元動画との違いと検証範囲](docs/reference-candidate-layout.md)を参照してください。
 
+開発版では、[学習済みの全文候補](docs/learned-candidates.md)の文字列と消費範囲を保ち、語境界が得られない文は一枠のまま全文を確認できます。
+
+[相対スコア](docs/relative-scores.md)は設定で非表示にできます。0・100・未評価の意味を候補の詳細から確認でき、表示を切り替えても選択する候補は変わりません。
+
 **試験版の配布物は [Releases](https://github.com/aida0710/azooKey-Desktop/releases) から取得できます。** macOS版はad-hoc署名・未公証です。ATOKと同等の精度や全アプリの互換性を保証する段階ではありません。下記の「上流の案内」にあるインストール方法では、このフォークの追加機能は入りません。
 
 Apple Silicon Mac（macOS 14以降）:
@@ -19,12 +23,15 @@ brew update
 brew upgrade --cask aida0710/tap/azookey-tree
 ```
 
-導入後、システム設定の「キーボード → 入力ソース」にazooKeyを追加します。表示されない場合はmacOSへの再ログインが必要です。公式azooKeyとは同じ入力方式IDのため同時に導入できません。ATOKは削除しません。
+導入後、システム設定の「キーボード → 入力ソース」にazooKeyを追加します。表示されない場合はmacOSへの再ログインが必要です。設定画面はメニューバーの入力メニューから「設定…」で開きます。公式azooKeyとは同じ入力方式IDのため同時に導入できません。ATOKは削除しません。
 
 Releaseには通常Mac用の `arm64.zip` と、macOS VM向けCPU専用の `arm64-cpu.zip` を用意しています。Ubuntu 24.04にはCPUに合う `arm64.deb` または `amd64.deb` を使ってください。
 
 - [対応範囲・検証状況](docs/platform-support.md)
 - [Ubuntuでの導入・設定](docs/ubuntu.md)
+- [初回導入・更新・復旧・問題報告](docs/setup-and-recovery.md)
+- [履歴学習の設定と削除対象](docs/learning-settings.md)
+- [確定取消・選択再変換・文書のUndoの違い](docs/reconversion.md)
 - [Docker・macOS/Ubuntu VMのテスト手順](docs/vm-testing.md)
 - [上流の定期同期・独自リリース・Homebrew](docs/tree-maintenance.md)
 
@@ -83,6 +90,7 @@ GitHub Sponsorsをご利用ください。
   * ユーザ辞書機能
   * 個人最適化システム「[Tuner](https://github.com/azooKey/Tuner)」との連携機能
 * LLMによる「いい感じ変換」機能
+  * [AI に渡す本文と送信先](docs/ai-send-scope.md)
 * ライブ変換
 * AZIKのネイティブサポート
 

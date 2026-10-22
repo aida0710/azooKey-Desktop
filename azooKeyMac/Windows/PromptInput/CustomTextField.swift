@@ -5,6 +5,7 @@ import SwiftUI
 struct CustomTextField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
+    var accessibilityName: String
     @FocusState.Binding var isFocused: Bool
     var onSubmit: () -> Void
     var onDownArrow: () -> Void
@@ -14,6 +15,7 @@ struct CustomTextField: NSViewRepresentable {
     func makeNSView(context: Context) -> NSTextField {
         let textField = KeyHandlingTextField()
         textField.placeholderString = placeholder
+        textField.setAccessibilityLabel(accessibilityName)
         textField.delegate = context.coordinator
         textField.target = context.coordinator
         textField.action = #selector(Coordinator.textFieldAction(_:))
@@ -21,7 +23,7 @@ struct CustomTextField: NSViewRepresentable {
         // Set up appearance
         textField.isBordered = false
         textField.backgroundColor = NSColor.clear
-        textField.focusRingType = .none
+        textField.focusRingType = .default
         textField.font = NSFont.systemFont(ofSize: 12)
         textField.textColor = NSColor.labelColor
 
@@ -35,7 +37,9 @@ struct CustomTextField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {
+        context.coordinator.parent = self
         nsView.stringValue = text
+        nsView.setAccessibilityLabel(accessibilityName)
 
         // Update callbacks in case they changed
         if let keyTextField = nsView as? KeyHandlingTextField {
@@ -46,9 +50,12 @@ struct CustomTextField: NSViewRepresentable {
         }
 
         // Handle focus changes
-        if isFocused && nsView.window?.firstResponder != nsView {
+        let hasFocus = nsView.window.map { window in
+            window.firstResponder === nsView || nsView.currentEditor() === window.firstResponder
+        } ?? false
+        if isFocused && !hasFocus {
             nsView.window?.makeFirstResponder(nsView)
-        } else if !isFocused && nsView.window?.firstResponder == nsView {
+        } else if !isFocused && hasFocus {
             nsView.window?.makeFirstResponder(nil)
         }
     }

@@ -4,6 +4,8 @@ import KanaKanjiConverterModule
 public enum UserAction {
     case input([InputPiece])
     case backspace
+    case deleteForward
+    case moveCompositionCursor(CompositionCursorMovement)
     case enter
     case space(prefersFullWidthWhenInput: Bool)
     case escape
@@ -259,8 +261,14 @@ public enum UserAction {
             return .input([.character(",")])
         case 0x41: // Numpad Period
             return .input([.character(".")])
-        case 0x73, 0x77, 0x74, 0x79, 0x75, 0x47:
-            // Numpadでそれぞれ「入力先頭にカーソルを移動」「入力末尾にカーソルを移動」「変換候補欄を1ページ戻る」「変換候補欄を1ページ進む」「順方向削除」「入力全消し（より強いエスケープ）」に対応するが、サポート外の動作として明示的に無効化
+        case 0x73: // Home
+            return .moveCompositionCursor(.start)
+        case 0x77: // End
+            return .moveCompositionCursor(.end)
+        case 0x75: // Forward Delete
+            return .deleteForward
+        case 0x74, 0x79, 0x47:
+            // PageUp、PageDown、Clearは候補操作として未対応。
             return .unknown
         case 18, 19, 20, 21, 23, 22, 26, 28, 25, 29:
             // Control+数字はアプリやOS側のショートカットとして使われるため、数字入力としない
@@ -300,7 +308,15 @@ public enum UserAction {
             .reduce(into: CharacterSet()) {
                 $0.formUnion($1)
             }
-        return CharacterSet(text.unicodeScalars).isSubset(of: printable)
+        guard !text.isEmpty else {
+            return false
+        }
+        return text.allSatisfy { character in
+            let scalars = character.unicodeScalars
+            // 絵文字等の結合子は、表示可能な文字と同じ書記素に含まれるときだけ受け付ける。
+            return scalars.contains(where: printable.contains)
+                && scalars.allSatisfy { printable.contains($0) || $0 == "\u{200D}" }
+        }
     }
 
 }

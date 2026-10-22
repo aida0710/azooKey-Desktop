@@ -3,25 +3,78 @@
 <meta charset="utf-8">
 <title>azooKey IME browser test</title>
 <style>
-  body { font: 20px system-ui; max-width: 960px; margin: 48px auto; padding: 24px; }
-  textarea { box-sizing: border-box; width: 100%; height: 240px; font: 24px system-ui; }
-  output { display: block; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 24px; }
+  body { font: 20px system-ui; max-width: 960px; margin: 16px auto; padding: 16px; }
+  h1 { font-size: 24px; }
+  textarea { display: block; box-sizing: border-box; width: 100%; height: 24vh; min-height: 100px;
+             font: 24px system-ui; margin: 8px 0 20px; }
+  output { display: block; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px monospace; }
 </style>
 <h1>azooKey IME browser test</h1>
 <p>Type a Japanese sentence, select a tree candidate, then type another character.
-   This page runs locally and does not send or store text.</p>
-<label for="editor">Test document</label>
+   This local fixture keeps observations in memory only. Use synthetic test text.</p>
+<label for="editor">Test input 1</label>
 <textarea id="editor" autofocus></textarea>
-<output id="state" aria-live="polite">Ready</output>
+<label for="editor2">Test input 2</label>
+<textarea id="editor2"></textarea>
+<details><summary>Observed state</summary><output id="state" aria-live="off"></output></details>
 <script>
-  const editor = document.querySelector('#editor');
-  const state = document.querySelector('#state');
-  let composing = false;
-  function show() {
-    state.textContent = `Composing: ${composing}\nFocused: ${document.activeElement === editor}\nText: ${editor.value}`;
+  const editors = [...document.querySelectorAll('textarea')];
+  const output = document.querySelector('#state');
+  const compositions = editors.map(() => ({active: false, text: ''}));
+  const observations = [];
+  const MAXIMUM_OBSERVATIONS = 2000; // Bound a long manual session's in-memory event history.
+
+  function snapshot() {
+    return {
+      at: performance.now(),
+      timeOrigin: performance.timeOrigin,
+      documentFocused: document.hasFocus(),
+      fields: editors.map((editor, index) => ({
+        id: editor.id, text: editor.value,
+        focused: document.hasFocus() && document.activeElement === editor,
+        composition: {...compositions[index]},
+        selection: {startUTF16: editor.selectionStart, endUTF16: editor.selectionEnd,
+                    direction: editor.selectionDirection},
+      })),
+      viewport: {width: innerWidth, height: innerHeight, devicePixelRatio,
+                 scale: visualViewport?.scale ?? 1},
+    };
   }
-  editor.addEventListener('compositionstart', () => { composing = true; show(); });
-  editor.addEventListener('compositionend', () => { composing = false; show(); });
-  for (const event of ['input', 'focus', 'blur']) editor.addEventListener(event, show);
+
+  function observe(event, fieldIndex = null) {
+    const state = snapshot();
+    observations.push({
+      at: state.at, event: event.type, fieldIndex,
+      text: typeof event.data === 'string' ? event.data : null,
+      inputType: event.inputType ?? null, isComposing: event.isComposing ?? null,
+      state,
+    });
+    if (observations.length > MAXIMUM_OBSERVATIONS) observations.shift();
+    output.textContent = JSON.stringify(state, null, 2);
+  }
+
+  for (const [index, editor] of editors.entries()) {
+    for (const type of ['compositionstart', 'compositionupdate', 'compositionend']) {
+      editor.addEventListener(type, event => {
+        compositions[index] = {active: type !== 'compositionend',
+                               text: type === 'compositionend' ? '' : event.data};
+        observe(event, index);
+      });
+    }
+    for (const type of ['beforeinput', 'input', 'focus', 'blur', 'select', 'keyup']) {
+      editor.addEventListener(type, event => observe(event, index));
+    }
+  }
+  document.addEventListener('selectionchange', event => observe(event));
+  for (const type of ['focus', 'blur', 'resize']) {
+    window.addEventListener(type, event => observe(event));
+  }
+  // Read-only observation entry points for CDP. Input still comes through the
+  // real keyboard/IME; the fixture does not synthesize edits or composition.
+  window.imeFixture = Object.freeze({
+    snapshot,
+    observations: () => structuredClone(observations),
+  });
+  observe({type: 'ready'});
 </script>
 </html>

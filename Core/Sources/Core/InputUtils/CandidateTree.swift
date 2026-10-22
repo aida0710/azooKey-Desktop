@@ -11,6 +11,17 @@ public struct CandidateTree: Sendable, Equatable {
             self.text = text
             self.reading = reading
         }
+
+        // Canonically equivalent strings can have different scalar/UTF-16
+        // lengths. A shared display node must preserve the actual candidate.
+        public static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.text.utf8.elementsEqual(rhs.text.utf8) && lhs.reading.utf8.elementsEqual(rhs.reading.utf8)
+        }
+
+        public func hash(into hasher: inout Hasher) {
+            hasher.combine(Array(text.utf8))
+            hasher.combine(Array(reading.utf8))
+        }
     }
 
     public struct Entry: Sendable, Equatable {
@@ -19,20 +30,25 @@ public struct CandidateTree: Sendable, Equatable {
         public var candidateIndex: Int
         public var score: Double?
         public var comparisonGroup: Int?
+        public var annotation: String?
+        public var scope: CandidateCommitScope?
 
-        public init(text: String, tokens: [Token], candidateIndex: Int, score: Double? = nil, comparisonGroup: Int? = nil) {
+        public init(text: String, tokens: [Token], candidateIndex: Int, score: Double? = nil,
+                    comparisonGroup: Int? = nil, annotation: String? = nil, scope: CandidateCommitScope? = nil) {
             self.text = text
             self.tokens = tokens
             self.candidateIndex = candidateIndex
             self.score = score?.isFinite == true ? score : nil
             self.comparisonGroup = comparisonGroup
+            self.annotation = annotation
+            self.scope = scope
         }
 
         fileprivate var displayTokens: [Token] {
             let nonempty = self.tokens.filter { !$0.text.isEmpty }
             // Templates and other special candidates can have text that differs
             // from their dictionary entries. Always show what will be committed.
-            if !nonempty.isEmpty, nonempty.map(\.text).joined() == self.text {
+            if !nonempty.isEmpty, nonempty.map(\.text).joined().utf8.elementsEqual(self.text.utf8) {
                 return nonempty
             }
             return [.init(text: self.text)]
@@ -53,29 +69,41 @@ public struct CandidateTree: Sendable, Equatable {
     public private(set) var roots: [Int] = []
     public private(set) var paths: [Int: [Int]] = [:]
     private var entries: [Entry] = []
+    private var entryPositions: [Int: Int] = [:]
+
+    private struct ReadingBoundaryKey: Hashable {
+        let reading: [Unicode.Scalar]
+        let consumedInputCount: Int
+    }
+
+    public func entry(candidateIndex: Int) -> Entry? {
+        entryPositions[candidateIndex].map { entries[$0] }
+    }
 
     public init(entries: [Entry]) {
         // Kana-only fallback sentences can reuse real dictionary reading
         // boundaries. Never guess a segmentation for learned kanji phrases.
-        var readingSegments: [String: [Token]] = [:]
+        var readingSegments: [ReadingBoundaryKey: [Token]] = [:]
         for entry in entries {
             let tokens = entry.displayTokens
-            if tokens.count > 1, tokens.allSatisfy({ !$0.reading.isEmpty }) {
-                let reading = Self.katakana(tokens.map(\.reading).joined())
-                if readingSegments[reading] == nil { readingSegments[reading] = tokens }
+            if tokens.count > 1, tokens.allSatisfy({ !$0.reading.isEmpty }),
+               let consumedInputCount = entry.comparisonGroup {
+                let key = ReadingBoundaryKey(reading: Array(Self.katakana(tokens.map(\.reading).joined()).unicodeScalars),
+                                             consumedInputCount: consumedInputCount)
+                if readingSegments[key] == nil { readingSegments[key] = tokens }
             }
         }
         for entry in entries where entry.candidateIndex >= 0 && self.paths[entry.candidateIndex] == nil {
+            self.entryPositions[entry.candidateIndex] = self.entries.count
             self.entries.append(entry)
             var parentID: Int?
             var path: [Int] = []
             var tokens = entry.displayTokens
             let reading = Self.katakana(tokens.map(\.reading).joined())
-            if tokens.count == 1, !reading.isEmpty, Self.katakana(entry.text) == reading,
-               let segments = readingSegments[reading],
-               // Swift String equality folds canonical Unicode equivalents;
-               // scalar slicing must also agree on the actual representation.
-               Array(Self.katakana(entry.text).unicodeScalars) == Array(Self.katakana(segments.map(\.reading).joined()).unicodeScalars) {
+            if tokens.count == 1, !reading.isEmpty, Self.katakana(entry.text).utf8.elementsEqual(reading.utf8),
+               let consumedInputCount = entry.comparisonGroup,
+               let segments = readingSegments[ReadingBoundaryKey(reading: Array(reading.unicodeScalars),
+                                                                 consumedInputCount: consumedInputCount)] {
                 let scalars = Array(entry.text.unicodeScalars)
                 var offset = 0
                 tokens = segments.map { segment in

@@ -1,0 +1,32 @@
+name: UX validation records
+on:
+  push:
+    paths:
+      - 'Tools/ux-validation.py'
+      - 'Tools/ux_validation/**'
+      - 'Tools/tests/test-ux-validation.py'
+      - '.github/workflows/ux-validation.yml'
+  pull_request:
+    paths:
+      - 'Tools/ux-validation.py'
+      - 'Tools/ux_validation/**'
+      - 'Tools/tests/test-ux-validation.py'
+      - '.github/workflows/ux-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  records:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, macos-26]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check evidence and release identity handling
+        run: python3 Tools/tests/test-ux-validation.py

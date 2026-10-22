@@ -11,6 +11,7 @@ struct DesktopSnapshot: Encodable {
         let annotation: String?
         let score: Double?
         let comparisonGroup: Int?
+        let commitScope: CandidateCommitScope?
     }
     struct Node: Encodable {
         let id: Int
@@ -21,6 +22,9 @@ struct DesktopSnapshot: Encodable {
         let terminals: [Int]
         let depth: Int
         let relativeScore: Int?
+        let scorePresentation: CandidateScorePresentation?
+        let preview: CandidateCommitPreview?
+        let previewDescription: String?
     }
     var consumed = true
     var preedit = ""
@@ -37,10 +41,26 @@ struct DesktopSnapshot: Encodable {
     var error: String?
     var settings: DesktopSettings?
     var suggestions: [String]?
+    var dictionaryIssues: [UserDictionaryValidation.Issue]?
+    var dictionarySaved: Bool?
+    var dictionarySaveError: String?
+    var dictionaryImportPreview: UserDictionaryImportPreview.Preview?
+    var dictionaryImportItems: [Config.UserDictionaryEntry]?
+    var dictionaryExportJSON: String?
+    var dictionaryExchangeError: String?
     var reading = ""
+    var readingCursor = 0
+    var inputState = "none"
+    var reconversion: ReconversionSession.Replacement?
+    var reconversionError: String?
+    var reconversionReading: String?
+    var canUndoCommit = false
     var prediction: String?
     var pageStart = 0
+    var candidatePage = CandidatePage(entries: [], selectionIndex: nil)
     var showCandidateIndex = false
+    var candidateTextSize = Config.CandidateTextSize().value
+    var showRelativeScores = Config.ShowRelativeScores().value
     var zenzaiLoaded = false
     var personalizationConfigured = false
     var language = "japanese"
@@ -60,11 +80,22 @@ final class DesktopSession: SegmentManagerDelegate {
     private var pageStart = 0
     private var suggestions: [Candidate] = []
     private var suggestionIndex = 0
+    private let reconversionSession = ReconversionSession()
+    private var reconversionOriginalText: String?
+    private var reconversionFailure: ReconversionSession.Failure?
+    private var reconversionReadingInput: ReconversionReadingInput?
+    private var reconversionReadingContext: ReconversionContext?
     private let modelURL: URL?
     var leftContext = ""
     var rightContext = ""
+    var reconversionContext: ReconversionContext?
     var privateInput = false {
-        didSet { segments.learningEnabled = !privateInput }
+        didSet {
+            segments.learningEnabled = !privateInput
+            if privateInput {
+                clearReconversion()
+            }
+        }
     }
 
     init(dataDirectory: URL, resourcesDirectory: URL?, useZenzai: Bool, converter: KanaKanjiConverter? = nil) throws {
@@ -104,7 +135,10 @@ final class DesktopSession: SegmentManagerDelegate {
 
     func reset(commit: Bool) -> DesktopSnapshot {
         generation += 1
-        let text = commit && !segments.isEmpty ? segments.commitMarkedText(inputState: state) : ""
+        let text = commit && !segments.isEmpty
+            ? segments.commitMarkedText(inputState: state)
+            : reconversionOriginalText ?? ""
+        clearReconversion()
         segments.stopComposition()
         state = .none
         pageStart = 0
@@ -113,31 +147,120 @@ final class DesktopSession: SegmentManagerDelegate {
         return snapshot(commits: text.isEmpty ? [] : [text])
     }
 
-    func close() { segments.deactivate() }
+    func close() {
+        clearReconversion()
+        segments.deactivate()
+    }
 
-    func reloadSettings() throws {
-        try CompiledUserDictionaryStore.exportCurrentDictionaries(memoryDirectoryURL: segments.azooKeyMemoryDir)
+    private func clearReconversion() {
+        reconversionSession.clear()
+        reconversionOriginalText = nil
+        cancelReconversionReading()
+    }
+
+    private func cancelReconversionReading() {
+        reconversionReadingInput = nil
+        reconversionReadingContext = nil
+    }
+
+    func prepareReconversion(undo: Bool, reading: String? = nil) -> DesktopSnapshot {
+        generation += 1
+        reconversionFailure = nil
+        cancelReconversionReading()
+        var response = snapshot()
+        do {
+            guard segments.isEmpty, state == .none else { throw ReconversionSession.Failure.compositionActive }
+            guard !privateInput else { throw ReconversionSession.Failure.privateInput }
+            guard let reconversionContext else { throw ReconversionSession.Failure.replacementUnavailable }
+            if undo {
+                response.reconversion = try reconversionSession.prepareUndo(in: reconversionContext)
+            } else {
+                let resolvedReading = reading ?? ReconversionReading.resolve(reconversionContext.selected, dictionary:
+                    Config.UserDictionary().value.items + Config.SystemUserDictionary().value.items)
+                response.reconversion = try reconversionSession.prepareSelection(in: reconversionContext, reading: resolvedReading)
+            }
+        } catch let failure as ReconversionSession.Failure {
+            response.reconversionError = failure.rawValue
+            if failure == .readingRequired {
+                reconversionReadingInput = .init()
+                reconversionReadingContext = reconversionContext
+                response.reconversionReading = ""
+            }
+        } catch {
+            response.reconversionError = ReconversionSession.Failure.invalidContext.rawValue
+        }
+        return response
+    }
+
+    func editReconversionReading(_ event: KeyEventCore) -> DesktopSnapshot {
+        guard reconversionReadingInput != nil, !privateInput,
+              let savedContext = reconversionReadingContext, let currentContext = reconversionContext,
+              savedContext.matchesDocument(currentContext) else {
+            cancelReconversionReading()
+            var response = snapshot()
+            response.reconversionError = ReconversionSession.Failure.changedContext.rawValue
+            return response
+        }
+        switch reconversionReadingInput?.process(event) {
+        case .submitted(let reading):
+            cancelReconversionReading()
+            return prepareReconversion(undo: false, reading: reading)
+        case .cancelled:
+            cancelReconversionReading()
+        default:
+            break
+        }
+        var response = snapshot()
+        response.reconversionReading = reconversionReadingInput?.text
+        return response
+    }
+
+    func confirmReconversion(_ token: String) -> DesktopSnapshot {
+        do {
+            guard !privateInput else { throw ReconversionSession.Failure.privateInput }
+            guard let reconversionContext else { throw ReconversionSession.Failure.replacementUnavailable }
+            let restored = try reconversionSession.confirm(token, in: reconversionContext)
+            generation += 1
+            reconversionOriginalText = restored.originalText
+            segments.restoreComposition(restored.checkpoint)
+            state = .selecting
+            return snapshot()
+        } catch let failure as ReconversionSession.Failure {
+            var response = snapshot()
+            response.reconversionError = failure.rawValue
+            return response
+        } catch {
+            var response = snapshot()
+            response.reconversionError = ReconversionSession.Failure.invalidContext.rawValue
+            return response
+        }
+    }
+
+    private func recordCommit(_ commits: [String], checkpoint: CompositionCheckpoint?) {
+        guard !commits.isEmpty else {
+            return
+        }
+        reconversionOriginalText = nil
+        guard !privateInput, commits.count == 1, segments.isEmpty else {
+            reconversionSession.clear()
+            return
+        }
+        reconversionSession.recordCommit(commits[0], checkpoint: checkpoint, context: reconversionContext)
+    }
+
+    func reloadSettings(rebuildDictionary: Bool = true) throws {
+        if rebuildDictionary {
+            try CompiledUserDictionaryStore.exportCurrentDictionaries(memoryDirectoryURL: segments.azooKeyMemoryDir)
+        }
         segments.reloadUserDictionary()
         segments.reloadPersonalization()
     }
 
     func resetLearning() throws {
-        // The upstream LearningConfig has no public initializer. A separate,
-        // non-learning conversion session initializes its storage URL through
-        // the public API without touching any application's composition.
-        let maintenance = converter.createSession()
-        defer { converter.removeSession(maintenance) }
-        try converter.withSession(maintenance) {
-            var probe = ComposingText()
-            probe.insertAtCursorPosition("あ", inputStyle: .direct)
-            _ = converter.requestCandidates(probe, options: .init(
-                requireJapanesePrediction: .disabled, requireEnglishPrediction: .disabled,
-                keyboardLanguage: .ja_JP,
-                learningType: .nothing, memoryDirectoryURL: segments.azooKeyMemoryDir,
-                sharedContainerURL: CompiledUserDictionaryStore.directoryURL(memoryDirectoryURL: segments.azooKeyMemoryDir),
-                textReplacer: .empty, specialCandidateProviders: [], zenzaiMode: .off, metadata: nil))
-            converter.resetMemory()
-        }
+        ConverterLearningConfiguration.apply(
+            learningType: .nothing, converter: converter, memoryDirectoryURL: segments.azooKeyMemoryDir
+        )
+        converter.resetMemory()
         guard !FileManager.default.fileExists(atPath: segments.azooKeyMemoryDir.appendingPathComponent("memory.louds").path) else {
             throw BridgeMain.ProtocolError.invalidRequest
         }
@@ -172,6 +295,7 @@ final class DesktopSession: SegmentManagerDelegate {
             return snapshot()
         }
         generation += 1
+        reconversionFailure = nil
         if state == .replaceSuggestion {
             suggestionIndex = candidateIndex
             segments.requestSelectingSuggestionRow(candidateIndex)
@@ -181,9 +305,11 @@ final class DesktopSession: SegmentManagerDelegate {
         }
         var commits: [String] = []
         if submit {
+            let checkpoint = segments.compositionCheckpoint()
             commitSelected(into: &commits)
             state = segments.isEmpty ? .none : .previewing
             converter.commitUpdateLearningData()
+            recordCommit(commits, checkpoint: checkpoint)
         }
         return snapshot(commits: commits)
     }
@@ -223,6 +349,10 @@ final class DesktopSession: SegmentManagerDelegate {
     }
 
     private func commit(_ candidate: Candidate, into commits: inout [String]) {
+        guard reconversionOriginalText == nil || segments.consumesWholeComposition(candidate) else {
+            reconversionFailure = .wholeSelectionRequired
+            return
+        }
         commits.append(candidate.text)
         segments.prefixCandidateCommited(candidate, leftSideContext: leftContext)
         leftContext += candidate.text
@@ -231,13 +361,20 @@ final class DesktopSession: SegmentManagerDelegate {
     // Keep the upstream ClientAction mapping exhaustive, as in InputState.event.
     // swiftlint:disable:next cyclomatic_complexity
     func key(_ event: KeyEventCore, doubleTap: Bool = false) -> DesktopSnapshot {
+        if let shortcut = ReconversionShortcut.resolve(event) {
+            return prepareReconversion(undo: shortcut == .undoCommit)
+        }
+        reconversionSession.clear()
+        reconversionFailure = nil
+        let checkpoint = segments.compositionCheckpoint()
         generation += 1
         if doubleTap, event.keyCode == 102, !segments.isEmpty {
             var commits: [String] = []
-            commit(segments.getModifiedRomanCandidate { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &commits)
+            commit(segments.getModifiedRomanCandidate(inputState: state) { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &commits)
             language = .english
             state = segments.isEmpty ? .none : .composing
             converter.commitUpdateLearningData()
+            recordCommit(commits, checkpoint: checkpoint)
             return snapshot(commits: commits)
         }
         if Config.OptionDirectFullWidthInput().value,
@@ -267,7 +404,7 @@ final class DesktopSession: SegmentManagerDelegate {
         case .consume: break
         case .fallthrough: result.consumed = false
         case .showCandidateWindow: segments.requestSetCandidateWindowState(visible: true)
-        case .hideCandidateWindow: segments.requestSetCandidateWindowState(visible: false)
+        case .hideCandidateWindow: segments.cancelCandidateSelection()
         case .enterFirstCandidatePreviewMode:
             segments.insertCompositionSeparator(inputStyle: inputStyle, skipUpdate: false)
             segments.requestSetCandidateWindowState(visible: false)
@@ -278,6 +415,7 @@ final class DesktopSession: SegmentManagerDelegate {
         case .appendPieceToMarkedText(let pieces): segments.insertAtCursorPosition(pieces: pieces, inputStyle: inputStyle)
         case .insertWithoutMarkedText(let text): result.commits.append(text)
         case .editSegment(let count): segments.editSegment(count: count)
+        case .moveCompositionCursor(let movement): segments.moveCompositionCursor(movement)
         case .commitMarkedText: result.commits.append(segments.commitMarkedText(inputState: state))
         case .commitMarkedTextAndAppendToMarkedText(let text):
             result.commits.append(segments.commitMarkedText(inputState: state))
@@ -289,15 +427,19 @@ final class DesktopSession: SegmentManagerDelegate {
         case .removeLastMarkedText:
             segments.deleteBackwardFromCursorPosition()
             segments.requestResettingSelection()
+        case .removeNextMarkedText:
+            segments.deleteForwardFromCursorPosition()
+            segments.requestResettingSelection()
         case .selectPrevCandidate: segments.requestSelectingPrevCandidate()
         case .selectNextCandidate: segments.requestSelectingNextCandidate()
         case .selectNumberCandidate(let number):
             let index = pageStart + number - 1
-            if currentCandidates.indices.contains(index) {
-                segments.requestSelectingRow(index)
-                commitSelected(into: &result.commits)
-                segments.requestResettingSelection()
+            guard currentCandidates.indices.contains(index) else {
+                return snapshot()
             }
+            segments.requestSelectingRow(index)
+            commitSelected(into: &result.commits)
+            segments.requestResettingSelection()
         case .submitHiraganaCandidate:
             commit(segments.getModifiedRubyCandidate(inputState: state) { $0.toHiragana() }, into: &result.commits)
         case .submitKatakanaCandidate:
@@ -305,12 +447,15 @@ final class DesktopSession: SegmentManagerDelegate {
         case .submitHankakuKatakanaCandidate:
             commit(segments.getModifiedRubyCandidate(inputState: state) { $0.toKatakana().applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &result.commits)
         case .submitFullWidthRomanCandidate:
-            commit(segments.getModifiedRomanCandidate { $0.applyingTransform(.fullwidthToHalfwidth, reverse: true) ?? $0 }, into: &result.commits)
+            commit(segments.getModifiedRomanCandidate(inputState: state) { $0.applyingTransform(.fullwidthToHalfwidth, reverse: true) ?? $0 }, into: &result.commits)
         case .submitHalfWidthRomanCandidate:
-            commit(segments.getModifiedRomanCandidate { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &result.commits)
+            commit(segments.getModifiedRomanCandidate(inputState: state) { $0.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? $0 }, into: &result.commits)
         case .enableDebugWindow: segments.requestDebugWindowMode(enabled: true)
         case .disableDebugWindow: segments.requestDebugWindowMode(enabled: false)
-        case .stopComposition: segments.stopComposition()
+        case .stopComposition:
+            if let reconversionOriginalText { result.commits.append(reconversionOriginalText) }
+            self.reconversionOriginalText = nil
+            segments.stopComposition()
         case .forgetMemory: segments.forgetMemory()
         case .selectInputLanguage(let newLanguage): language = newLanguage
         case .commitMarkedTextAndSelectInputLanguage(let newLanguage):
@@ -353,7 +498,12 @@ final class DesktopSession: SegmentManagerDelegate {
             suggestions = []
             segments.resetSuggestionSelection()
         }
+        if result.commits.isEmpty, segments.isEmpty, let reconversionOriginalText {
+            result.commits.append(reconversionOriginalText)
+            self.reconversionOriginalText = nil
+        }
         if !result.commits.isEmpty { converter.commitUpdateLearningData() }
+        recordCommit(result.commits, checkpoint: checkpoint)
         var response = snapshot(commits: result.commits)
         response.consumed = result.consumed
         response.request = result.request
@@ -367,6 +517,10 @@ final class DesktopSession: SegmentManagerDelegate {
         result.zenzaiLoaded = modelURL.map { converter.zenzStatus == "load \($0.absoluteString)" } ?? false
         result.personalizationConfigured = segments.hasPersonalizationConfiguration
         result.reading = segments.convertTarget
+        result.canUndoCommit = reconversionSession.hasRecentCommit && segments.isEmpty && !privateInput
+        result.reconversionError = reconversionFailure?.rawValue
+        result.readingCursor = unicodeScalarOffset(in: result.reading, utf16Offset: segments.readingCursorUTF16Offset)
+        result.inputState = state.bridgeName
         if state == .composing {
             result.prediction = SegmentsManager.preferredPredictionCandidates(
                 typoCorrectionCandidates: segments.requestTypoCorrectionPredictionCandidates(),
@@ -379,10 +533,7 @@ final class DesktopSession: SegmentManagerDelegate {
         } else {
             let marked = segments.getCurrentMarkedText(inputState: state)
             result.preedit = marked.map(\.content).joined()
-            let utf16Position = min(marked.selectionRange.location, result.preedit.utf16.count)
-            // IBus uses Unicode code points; upstream selection offsets are UTF-16.
-            let prefix = String(decoding: Array(result.preedit.utf16.prefix(utf16Position)), as: UTF16.self)
-            result.cursor = prefix.unicodeScalars.count
+            result.cursor = unicodeScalarOffset(in: result.preedit, utf16Offset: marked.selectionRange.location)
         }
         let candidates = currentCandidates
         switch segments.getCurrentCandidateWindow(inputState: state) {
@@ -390,32 +541,57 @@ final class DesktopSession: SegmentManagerDelegate {
         case .hidden: break
         }
         if state == .replaceSuggestion, !suggestions.isEmpty { result.selection = suggestionIndex }
-        result.candidates = segments.makeCandidatePresentations(candidates).enumerated().map { index, presentation in
+        let presentations = segments.makeCandidatePresentations(candidates)
+        result.candidates = presentations.enumerated().map { index, presentation in
             .init(index: index, text: presentation.candidate.text,
                   tokens: presentation.candidate.data.map { .init(text: $0.word, reading: $0.ruby) },
                   annotation: presentation.displayContext.annotationText,
                   score: presentation.candidate.value.isFinite ? Double(presentation.candidate.value) : nil,
-                  comparisonGroup: presentation.consumedInputCount)
+                  comparisonGroup: presentation.consumedInputCount, commitScope: presentation.commitScope)
         }
-        let nextTree = CandidateTree(entries: result.candidates.map {
-            .init(text: $0.text, tokens: $0.tokens.map { .init(text: $0.text, reading: $0.reading) },
-                  candidateIndex: $0.index, score: $0.score, comparisonGroup: $0.comparisonGroup)
-        })
+        let nextTree = CandidateTree(entries: presentations.enumerated().map { $0.element.treeEntry(index: $0.offset) })
         if nextTree != tree { generation += 1; tree = nextTree }
         treeSelection.synchronize(tree: tree, candidateIndex: result.selection)
         result.generation = generation
         let relativeScores = tree.relativeScores(candidateIndex: result.selection)
-        result.nodes = tree.nodes.map { .init(id: $0.id, text: $0.token.text, reading: $0.token.reading,
-                                             parent: $0.parentID, children: $0.children, terminals: $0.terminalCandidateIndices,
-                                             depth: $0.depth, relativeScore: relativeScores[$0.id]) }
         result.columns = tree.compactColumns(candidateIndex: result.selection)
+        let visibleNodes = Set(result.columns.flatMap { $0 })
+        result.nodes = tree.nodes.map { node in
+            let preview = visibleNodes.contains(node.id) ? tree.preview(at: node.id, preserving: result.selection) : nil
+            let scorePresentation = result.showRelativeScores && visibleNodes.contains(node.id)
+                ? CandidateScorePresentation(relativeScore: relativeScores[node.id]) : nil
+            return .init(id: node.id, text: node.token.text, reading: node.token.reading,
+                         parent: node.parentID, children: node.children, terminals: node.terminalCandidateIndices,
+                         depth: node.depth, relativeScore: relativeScores[node.id],
+                         scorePresentation: scorePresentation,
+                         preview: preview, previewDescription: preview?.detailDescription)
+        }
         result.selectedPath = result.columns.compactMap(\.first)
         result.focusedNode = treeSelection.focusedNodeID
         if let index = result.selection {
             pageStart = (index / 9) * 9
         } else { pageStart = 0 }
         result.pageStart = pageStart
-        result.showCandidateIndex = state == .selecting || state == .replaceSuggestion
+        result.candidatePage = CandidatePage(
+            entries: presentations.enumerated().map { $0.element.treeEntry(index: $0.offset) },
+            selectionIndex: result.selection, pageStart: pageStart)
+        // AI suggestions keep number keys as reading input, so only ordinary
+        // candidate selection can advertise numeric shortcuts.
+        result.showCandidateIndex = state == .selecting
         return result
+    }
+}
+
+private extension InputState {
+    var bridgeName: String {
+        switch self {
+        case .none: "none"
+        case .composing: "composing"
+        case .previewing: "previewing"
+        case .selecting: "selecting"
+        case .replaceSuggestion: "replaceSuggestion"
+        case .unicodeInput: "unicodeInput"
+        case .attachDiacritic: "attachDiacritic"
+        }
     }
 }

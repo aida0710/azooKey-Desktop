@@ -33,6 +33,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     weak var userDictionaryEditorWindow: NSWindow?
     var configWindowController: NSWindowController?
     var userDictionaryEditorWindowController: NSWindowController?
+    private weak var supportWindow: NSWindow?
+    private var supportWindowController: NSWindowController?
     let kanaKanjiConverter = KanaKanjiConverter.withDefaultDictionary()
     private let learningDataCommitScheduler = DebouncedActionScheduler()
     private static let learningDataCommitDelay: TimeInterval = 2
@@ -125,6 +127,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func openSupportWindow() {
+        if let supportWindow {
+            supportWindow.makeKeyAndOrderFront(nil)
+        } else {
+            (supportWindow, supportWindowController) = Self.buildSwiftUIWindow(
+                SupportSettingsView().frame(
+                    width: SupportSettingsView.preferredWindowSize.width,
+                    height: SupportSettingsView.preferredWindowSize.height
+                ),
+                title: Localization.text("support.title")
+            )
+        }
+    }
+
+    @MainActor
     func openUserDictionaryEditorWindow() {
         if let userDictionaryEditorWindow {
             // Show the window

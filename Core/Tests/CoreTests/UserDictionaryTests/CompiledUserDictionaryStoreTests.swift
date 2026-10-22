@@ -18,15 +18,20 @@ import Testing
     #expect(!FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("fallback.json").path))
 }
 
-@Test func rebuildCompiledUserDictionarySkipsUnsupportedReadings() throws {
+@Test func rebuildCompiledUserDictionaryRejectsUnsupportedReadingsWithoutReplacingTheOldFiles() throws {
     let directoryURL = try makeTemporaryDirectoryURL()
     let charIDFileURL = try makeTemporaryCharIDFileURL(characters: "\0テスト")
+    let markerURL = directoryURL.appendingPathComponent("previous-dictionary")
+    try Data("previous".utf8).write(to: markerURL)
     let entries = [
         DicdataElement(word: "外字単語", ruby: "\u{10FFFF}", cid: CIDData.固有名詞.cid, mid: MIDData.一般.mid, value: -5)
     ]
 
-    try CompiledUserDictionaryStore.rebuild(entries: entries, directoryURL: directoryURL, charIDFileURL: charIDFileURL)
+    #expect(throws: UserDictionaryValidation.InvalidEntries.self) {
+        try CompiledUserDictionaryStore.rebuild(entries: entries, directoryURL: directoryURL, charIDFileURL: charIDFileURL)
+    }
 
+    #expect(try Data(contentsOf: markerURL) == Data("previous".utf8))
     #expect(!CompiledUserDictionaryStore.hasCompiledDictionary(at: directoryURL))
     #expect(!FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("metadata.json").path))
     #expect(!FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("fallback.json").path))
@@ -34,9 +39,7 @@ import Testing
 
 @MainActor
 @Test func compiledUserDictionaryCandidatesUseExportDirectory() throws {
-    guard CompiledUserDictionaryStore.defaultCharIDFileURL() != nil else {
-        return
-    }
+    try #require(CompiledUserDictionaryStore.defaultCharIDFileURL() != nil)
     let memoryURL = try makeTemporaryDirectoryURL()
     let dictionaryURL = CompiledUserDictionaryStore.directoryURL(memoryDirectoryURL: memoryURL)
     try CompiledUserDictionaryStore.rebuild(entries: [

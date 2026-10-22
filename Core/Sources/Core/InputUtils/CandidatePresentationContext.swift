@@ -15,10 +15,13 @@ public struct CandidatePresentation: Sendable {
     public var displayContext: CandidatePresentationContext
     /// Canonical input span, independent of upstream input/surface count units.
     public var consumedInputCount: Int?
+    public var commitScope: CandidateCommitScope?
 
-    public init(candidate: Candidate, displayContext: CandidatePresentationContext = .init(), consumedInputCount: Int? = nil) {
+    public init(candidate: Candidate, displayContext: CandidatePresentationContext = .init(),
+                consumedInputCount: Int? = nil, commitScope: CandidateCommitScope? = nil) {
         self.candidate = candidate
         self.displayContext = displayContext
         self.consumedInputCount = consumedInputCount
+        self.commitScope = commitScope
     }
 }

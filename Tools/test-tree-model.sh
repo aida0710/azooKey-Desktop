@@ -15,9 +15,9 @@ let package = Package(
 )
 SWIFT
 printf '// Test module for the dependency-free tree model.\n' > "$TEST_ROOT/Sources/Core/Module.swift"
-if [[ -f "$REPO_ROOT/Core/Sources/Core/InputUtils/CandidateTree.swift" ]]; then
-    ln -sf "$REPO_ROOT/Core/Sources/Core/InputUtils/CandidateTree.swift" "$TEST_ROOT/Sources/Core/CandidateTree.swift"
-fi
+for MODEL in CandidateTree CandidateCommitScope CandidateCommitPreview; do
+    ln -sf "$REPO_ROOT/Core/Sources/Core/InputUtils/$MODEL.swift" "$TEST_ROOT/Sources/Core/$MODEL.swift"
+done
 ln -sf "$REPO_ROOT/Core/Tests/CoreTests/InputUtilsTests/CandidateTreeTests.swift" "$TEST_ROOT/Tests/CoreTests/CandidateTreeTests.swift"
 export CLANG_MODULE_CACHE_PATH="$REPO_ROOT/build/cache/modules"
 export SWIFTPM_MODULECACHE_OVERRIDE="$REPO_ROOT/build/cache/modules"

@@ -1,0 +1,20 @@
+{
+  "contextId": "synthetic-announcements",
+  "generation": 1,
+  "inputState": "selecting",
+  "reading": "にほんにいく",
+  "selection": 0,
+  "focusedNode": 10,
+  "selectedPath": [10, 12],
+  "nodes": [
+    {"id": 10, "text": "日本", "reading": "ニホン", "parent": null, "terminals": [], "scorePresentation": {"label": "100", "detailDescription": "相対スコアの長い説明"}},
+    {"id": 11, "text": "日本", "reading": "ニッポン", "parent": null, "terminals": [], "scorePresentation": {"label": "40", "detailDescription": "相対スコアの長い説明"}},
+    {"id": 12, "text": "に行く", "reading": "ニイク", "parent": 10, "terminals": [0]},
+    {"id": 13, "text": "に行く", "reading": "ニイク", "parent": 11, "terminals": [1]}
+  ],
+  "columns": [[10, 11], [12, 13]],
+  "candidates": [
+    {"index": 0, "text": "日本に行く", "commitScope": {"consumedReading": "にほんにいく", "remainingReading": ""}},
+    {"index": 1, "text": "日本に行く", "commitScope": {"consumedReading": "にっぽんにいく", "remainingReading": ""}}
+  ]
+}

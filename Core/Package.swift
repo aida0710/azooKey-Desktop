@@ -44,6 +44,7 @@ let targets: [Target] = [
             .product(name: "Crypto", package: "swift-crypto"),
             .product(name: "ZIPFoundation", package: "ZIPFoundation")
         ],
+        resources: [.process("Resources")],
         swiftSettings: [.interoperabilityMode(.Cxx)],
         plugins: [
             .plugin(name: "GitInfoPlugin")
@@ -51,13 +52,19 @@ let targets: [Target] = [
     ),
     .testTarget(
         name: "CoreTests",
-        dependencies: ["Core"],
+        dependencies: ["Core", "DictionaryLockProbe"],
         swiftSettings: [.interoperabilityMode(.Cxx)]
+    ),
+    // Only the test target launches this helper; the bridge and library do not depend on it.
+    .executableTarget(
+        name: "DictionaryLockProbe",
+        path: "Tests/DictionaryLockProbe"
     )
 ]
 
 let package = Package(
     name: "Core",
+    defaultLocalization: "ja",
     platforms: [.macOS(.v13)],
     products: products,
     traits: coreTraits,

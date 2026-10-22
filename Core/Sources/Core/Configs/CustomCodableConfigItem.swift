@@ -40,12 +40,14 @@ extension CustomCodableConfigItem {
 }
 
 extension Config {
-    /// ライブ変換を有効化する設定
+    /// 学習データの更新と変換への反映を選ぶ設定
     public struct Learning: CustomCodableConfigItem {
-        public enum Value: String, Codable, Equatable, Hashable, Sendable {
+        public enum Value: String, Codable, Equatable, Hashable, Sendable, CaseIterable {
             case inputAndOutput
             case onlyOutput
             case nothing
+
+            public var labelKey: String { "learning.mode.\(rawValue)" }
 
             public var learningType: LearningType {
                 switch self {
@@ -104,9 +106,17 @@ extension Config {
             self.items = items
         }
 
-        public static let `default`: Value = .init(items: [
-            .init(word: "azooKey", reading: "あずーきー", hint: "アプリ")
-        ])
+        // A restarted conversion process must recognize the same unsaved default
+        // entry when settings are reapplied. Persisted entries keep their own IDs.
+        private static let builtInEntryID = UUID(uuid: (
+            0x75, 0x15, 0x59, 0xb0, 0xa4, 0x3e, 0x5a, 0x34,
+            0x8d, 0xa9, 0x74, 0xa7, 0x47, 0xf3, 0x31, 0x10
+        ))
+        public static let `default`: Value = {
+            var entry = UserDictionaryEntry(word: "azooKey", reading: "あずーきー", hint: "アプリ")
+            entry.id = builtInEntryID
+            return .init(items: [entry])
+        }()
         public static let key: String = "dev.ensan.inputmethod.azooKeyMac.preference.user_dictionary_temporal2"
     }
 
