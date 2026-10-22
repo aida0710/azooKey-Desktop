@@ -47,6 +47,7 @@ struct DesktopSnapshot: Encodable {
     var request: String?
     var error: String?
     var settings: DesktopSettings?
+    var settingsResult: DesktopSettingsResult?
     var suggestions: [String]?
     var dictionaryIssues: [UserDictionaryValidation.Issue]?
     var dictionarySaved: Bool?

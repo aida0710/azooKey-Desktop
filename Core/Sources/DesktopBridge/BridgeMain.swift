@@ -11,7 +11,8 @@ struct BridgeRequest: Decodable {
     var submit: Bool?
     var leftContext: String?
     var rightContext: String?
-    var settings: DesktopSettings?
+    var settings: DesktopSettingsJSON?
+    var settingsFile: DesktopSettingsFileRequest?
     var suggestions: [String]?
     var reading: String?
     var apiKey: String?
@@ -26,7 +27,6 @@ struct BridgeRequest: Decodable {
     var reconversionContext: ReconversionContext?
     var reconversionToken: String?
     var items: [Config.UserDictionaryEntry]?
-    var stagedSettingsPath: String?
     var importPath: String?
     var importFormat: UserDictionaryExchange.Format?
     var importEncoding: UserDictionaryExchange.TextEncoding?
@@ -52,6 +52,7 @@ struct BridgeMain {
         let resources = environment["AZOOKEY_RESOURCES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
         let zenzai = resources.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("ggml-model-Q5_K_M.gguf").path) } ?? false
         let converter = KanaKanjiConverter.withDefaultDictionary()
+        let settings = DesktopSettingsController(memoryDirectoryURL: memoryDirectoryURL, converter: converter)
         var sessions: [String: DesktopSession] = [:]
         defer { for session in sessions.values { session.close() } }
         while let line = readLine() {
@@ -60,15 +61,20 @@ struct BridgeMain {
                 let request = try JSONDecoder().decode(BridgeRequest.self, from: Data(line.utf8))
                 // Persist already permitted learning before another context or
                 // preference can turn the shared converter's learning off.
-                if request.privateInput == true || request.operation == "configure" {
+                if request.privateInput == true || DesktopSettingsController.applyingOperations.contains(request.operation) {
                     converter.commitUpdateLearningData()
                 }
                 if let response = try DesktopCandidateController.response(to: request) {
                     try Self.write(response, to: output)
                     continue
                 }
+                let reloadSessions = { for item in sessions.values { try item.reloadSettings(rebuildDictionary: false) } }
+                if let response = try await settings.response(to: request, reloadSessions: reloadSessions) {
+                    try Self.write(response, to: output)
+                    continue
+                }
                 if let response = try await DesktopDictionaryController.response(
-                    to: request, memoryDirectoryURL: memoryDirectoryURL, converter: converter
+                    to: request, settings: settings, memoryDirectoryURL: memoryDirectoryURL, converter: converter
                 ) {
                     try Self.write(response, to: output)
                     continue
@@ -107,12 +113,8 @@ struct BridgeMain {
                     response = session.confirmReconversion(token)
                 case "snapshot": response = session.snapshot()
                 case "configure":
-                    guard let settings = request.settings else { throw ProtocolError.invalidRequest }
-                    try await DesktopDictionaryController.applyDictionary(
-                        settings.userDictionary.items, memoryDirectoryURL: memoryDirectoryURL, converter: converter
-                    )
-                    try settings.apply()
-                    for item in sessions.values { try item.reloadSettings(rebuildDictionary: false) }
+                    guard let document = request.settings else { throw ProtocolError.invalidRequest }
+                    try await settings.configure(document, reloadSessions: reloadSessions)
                     response = session.snapshot()
                 case "close":
                     session.close()
