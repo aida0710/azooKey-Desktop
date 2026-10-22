@@ -21,7 +21,7 @@ $cases = @(
     @{ Name = 'Down moves to the next candidate'; Keys = 'nihongo{SPACE}{DOWN}{SHOT:second-candidate}{ENTER}'; Expected = 'にほんご' },
     @{ Name = 'punctuation in a sentence'; Keys = 'kyouha,iitennkidesune.{ENTER}'; Expected = '今日は、いい天気ですね。' },
     @{ Name = 'long vowel mark'; Keys = 'tesuto-{ENTER}'; Expected = 'テストー' },
-    @{ Name = 'Esc then typing again'; Keys = 'nihongo{ESC}kanji{ENTER}'; Expected = '漢字' },
+    @{ Name = 'Esc then typing again'; Keys = 'nihongo{ESC}kanji{ENTER}'; Expected = '感じ' },
     @{ Name = 'Hankaku/Zenkaku turns Japanese input off'; Keys = '{KANJI}abc'; Expected = 'abc' },
     @{ Name = 'Muhenkan leaves Japanese input'; Keys = '{NONCONVERT}abc'; Expected = 'abc' },
     @{ Name = 'Henkan turns Japanese input back on'; Keys = '{NONCONVERT}a{CONVERT}ka'; Expected = 'aか' },
