@@ -199,11 +199,15 @@ RECT FrameOf(HWND window) {
 
 void Capture(const Environment& environment, HWND window, const std::wstring& name) {
     if (environment.screenshots.empty()) return;
+    // A test started in the background may not take the foreground; keeping the
+    // window topmost while it is captured puts it above the console instead.
+    SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
     SetForegroundWindow(window);
     RedrawWindow(window, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
     PumpFor(400);
     std::wstring path = environment.screenshots + L"\\" + name + L".png";
     bool saved = azookey::tests::SaveScreenRegionPng(path, FrameOf(window));
+    SetWindowPos(window, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     Check(saved, "screenshot " + Utf8(name) + " saved");
 }
 
