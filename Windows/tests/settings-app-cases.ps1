@@ -30,6 +30,36 @@ public static class SettingsAppWindows {
     public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")]
     public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
+    delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
+    [DllImport("user32.dll")]
+    static extern bool EnumWindows(EnumWindowsProc callback, IntPtr parameter);
+    [DllImport("user32.dll")]
+    static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern int GetClassName(IntPtr window, System.Text.StringBuilder name, int size);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern int GetWindowText(IntPtr window, System.Text.StringBuilder text, int size);
+    [DllImport("user32.dll")]
+    static extern bool IsWindowVisible(IntPtr window);
+
+    // "class / title / visible" of every top-level window the process owns.
+    public static string[] WindowsOf(uint processId) {
+        var found = new System.Collections.Generic.List<string>();
+        EnumWindows((window, parameter) => {
+            uint owner;
+            GetWindowThreadProcessId(window, out owner);
+            if (owner == processId) {
+                var name = new System.Text.StringBuilder(256);
+                var text = new System.Text.StringBuilder(256);
+                GetClassName(window, name, name.Capacity);
+                GetWindowText(window, text, text.Capacity);
+                found.Add(name + " / " + text + " / " + (IsWindowVisible(window) ? "visible" : "hidden"));
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found.ToArray();
+    }
 }
 '@
 $failed = 0
@@ -69,6 +99,22 @@ do {
 Check ($shownPage -eq $dictionaryPage) 'the open window switches to the page the second start asked for'
 
 [void][SettingsAppWindows]::PostMessage($window, $closeMessage, [IntPtr]::Zero, [IntPtr]::Zero)
-Check ($first.WaitForExit($startLimitMilliseconds)) 'closing the window ends the app'
+$closedAt = Get-Date
+$ended = $first.WaitForExit($startLimitMilliseconds)
+Check $ended 'closing the window ends the app'
+if (-not $ended) {
+    # What kept the app: a window still open (a dialog?) or a process without windows.
+    "  windows of the app: " + (([SettingsAppWindows]::WindowsOf([uint32]$first.Id)) -join ' | ')
+    $screenshots = Join-Path $PSScriptRoot '..\..\build\screenshots'
+    New-Item -ItemType Directory -Force -Path $screenshots | Out-Null
+    Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+    $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    $bitmap = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
+    [System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bitmap.Size)
+    $bitmap.Save((Join-Path $screenshots 'settings-app-not-closed.png'))
+    $exited = $first.WaitForExit(30000)
+    "  the app " + $(if ($exited) { "ended $([math]::Round(((Get-Date) - $closedAt).TotalSeconds, 1)) s after the close request" } else { 'was still running 45 s after the close request' })
+    if (-not $exited) { Stop-Process -Id $first.Id -Force }
+}
 "$failed check(s) failed"
 exit $failed
