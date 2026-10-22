@@ -27,6 +27,12 @@
 "candidate.focusedSelect" = "操作対象。押すと候補を選択";
 "candidate.numberSelect" = "候補 %@ を選択";
 "candidate.numberBadge" = "候補番号 %@";
+"candidate.withReading" = "%@（%@）";
+"candidate.confirm" = "押すと候補を確定";
+"candidate.announceReading" = "読み %@";
+"candidate.wordPosition" = "語 %@ / %@";
+"candidate.announceCommit" = "確定予定 %@";
+"candidate.announceRemaining" = "残る読み %@";
 "candidate.preview.scope" = "確定する読み: %@";
 "candidate.preview.remaining" = "残る読み: %@";
 "candidate.preview.following" = "この語の後続: %@";

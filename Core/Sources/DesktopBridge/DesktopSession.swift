@@ -71,6 +71,8 @@ struct DesktopSnapshot: Encodable {
     var zenzaiLoaded = false
     var personalizationConfigured = false
     var language = "japanese"
+    var candidateDisplay: CandidateDisplay?
+    var candidateLayout: CandidateLayout?
 }
 
 /// Platform-neutral adapter around upstream's input state and conversion session.
@@ -87,6 +89,7 @@ final class DesktopSession: SegmentManagerDelegate {
     private var pageStart = 0
     private var suggestions: [Candidate] = []
     private var suggestionIndex = 0
+    private var displayedSelection: CandidateDisplayInput.PreviousSelection?
     private let reconversionSession = ReconversionSession()
     private var reconversionOriginalText: String?
     private var reconversionFailure: ReconversionSession.Failure?
@@ -593,6 +596,8 @@ final class DesktopSession: SegmentManagerDelegate {
         // AI suggestions keep number keys as reading input, so only ordinary
         // candidate selection can advertise numeric shortcuts.
         result.showCandidateIndex = state == .selecting
+        result.candidateDisplay = CandidateDisplay(result.candidateDisplayInput(previous: displayedSelection))
+        displayedSelection = .init(selection: result.selection, focusedNode: result.focusedNode)
         return result
     }
 }
