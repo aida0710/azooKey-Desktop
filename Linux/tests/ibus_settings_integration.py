@@ -9,7 +9,7 @@ gi.require_version("IBus", "1.0")
 from gi.repository import IBus
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from azookey.settings_store import SettingsStore
+from azookey.bridge import Bridge
 from ibus_async_integration import Field, wait_until
 
 
@@ -17,8 +17,8 @@ def main():
     IBus.init()
     bus = IBus.Bus()
     assert bus.is_connected()
-    store = SettingsStore()
-    path = store.path
+    settings = Bridge()
+    path = pathlib.Path(settings.request("settings-load")["settingsResult"]["file"]["path"])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"live": False, "tree": False, "halfSpace": True, "learning": "nothing"}))
     field = Field(bus, "azookey-settings-recovery")
@@ -61,8 +61,10 @@ def main():
     original = path.read_bytes()
     # Repair the shared file while the same engine/context stays alive.
     # The next key must observe halfSpace=False without a process restart.
-    restored = store.save({"live": False, "tree": False, "halfSpace": False, "learning": "nothing"}, recover=True)
-    assert restored.backup_path.read_bytes() == original
+    restored = settings.request("settings-save", settings={"live": False, "tree": False, "halfSpace": False, "learning": "nothing"},
+                                settingsFile={"recover": True})
+    settings.close()
+    assert pathlib.Path(restored["settingsResult"]["saved"]["recoveredPath"]).read_bytes() == original
     previous_commits = list(field.commits)
     field.key(IBus.KEY_space)
     wait_until(lambda: field.commits == previous_commits + ["　"])

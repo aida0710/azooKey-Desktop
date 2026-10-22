@@ -107,9 +107,9 @@ struct DesktopSettingsFileStoreTests {
         #expect(await asyncSettingsProblem { _ = try await store.save(values, expectedStamp: nil) { try store.install($0) } }
             == .init(.recoveryRequired))
         #expect(await asyncSettingsProblem {
-            _ = try await store.modify(knownGood: values, expectedStamp: nil, change: { $0.includeContext = true }) {
-                try store.install($0)
-            }
+            _ = try await store.modify(
+                knownGood: values, expectedStamp: nil, change: { $0.includeContext = true }, publish: { try store.install($0) }
+            )
         } == .init(.recoveryRequired))
         #expect(try fixture.contents() == Data("{ invalid synthetic document".utf8))
     }
@@ -119,9 +119,9 @@ struct DesktopSettingsFileStoreTests {
         var latest = values
         latest.userDictionary.items[0].word = "最新"
         try fixture.write(latest)
-        let saved = try await store.modify(knownGood: values, expectedStamp: nil, change: { $0.includeContext = true }) {
-            try store.install($0)
-        }
+        let saved = try await store.modify(
+            knownGood: values, expectedStamp: nil, change: { $0.includeContext = true }, publish: { try store.install($0) }
+        )
         #expect(saved.values.includeContext)
         #expect(try fixture.savedSettings().userDictionary.items.map(\.word) == ["最新"])
     }
