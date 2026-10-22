@@ -130,11 +130,9 @@ void CompositionWriter::ApplyClauseAttributes(TfEditCookie cookie, ITfContext* c
         Releaser<ITfRange> clause;
         clause.pointer = SubRange(cookie, range, start, end);
         if (clause) {
-            // Core marks the clause being converted as focused and the other
-            // converted clauses as unfocused; plain typing has no focus state.
-            TfGuidAtom atom = segment.focused ? atoms_.targetClause
-                              : snapshot.selection ? atoms_.convertedClause
-                                                   : atoms_.input;
+            TfGuidAtom atom = segment.focus == protocol::SegmentFocus::Focused     ? atoms_.targetClause
+                              : segment.focus == protocol::SegmentFocus::Unfocused ? atoms_.convertedClause
+                                                                                   : atoms_.input;
             set(clause.pointer, atom);
         }
         start = end;

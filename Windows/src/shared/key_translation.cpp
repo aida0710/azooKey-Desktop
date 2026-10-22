@@ -49,11 +49,11 @@ KeyAction Classify(uint32_t virtualKey, Modifiers modifiers, const std::wstring&
     if (modifiers.alt) {
         return virtualKey == kOem3 && !modifiers.control ? KeyAction::ToggleInput : KeyAction::PassThrough;
     }
-    if (!state.inputOpen) return KeyAction::PassThrough;
     // Like the JIS keys on a Mac (英数/かな): 無変換 leaves Japanese input and
     // 変換 enters it. While composing, 変換 converts as Space does.
-    if (virtualKey == kNonConvert) return KeyAction::TurnInputOff;
     if (virtualKey == kConvert) return state.composing ? KeyAction::SendToConverter : KeyAction::TurnInputOn;
+    if (!state.inputOpen) return KeyAction::PassThrough;
+    if (virtualKey == kNonConvert) return KeyAction::TurnInputOff;
     if (!state.composing) {
         return !modifiers.control && IsPrintable(typedText) ? KeyAction::SendToConverter : KeyAction::PassThrough;
     }

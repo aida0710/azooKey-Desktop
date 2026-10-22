@@ -10,9 +10,13 @@
 
 namespace azookey::protocol {
 
+// Core's MarkedText focus: while typing every part is None; while choosing
+// candidates the clause being converted is Focused and the others Unfocused.
+enum class SegmentFocus { None, Focused, Unfocused };
+
 struct PreeditSegment {
     std::wstring text;
-    bool focused = false;  // the clause currently being converted
+    SegmentFocus focus = SegmentFocus::None;
 };
 
 struct Candidate {
@@ -28,7 +32,9 @@ struct Snapshot {
     size_t cursorScalars = 0;
     std::vector<std::wstring> commits;
     std::vector<Candidate> candidates;
-    std::optional<int> selection;  // set while the user is choosing a candidate
+    // Core keeps a selected index even while typing (live conversion); only
+    // showCandidateIndex says the user is choosing from the candidate list.
+    std::optional<int> selection;
     int generation = 0;
     int pageStart = 0;
     bool showCandidateIndex = false;

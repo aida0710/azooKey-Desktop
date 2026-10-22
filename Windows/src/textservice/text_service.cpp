@@ -278,7 +278,8 @@ void TextService::ApplySnapshot(ITfContext* context, const protocol::Snapshot& s
         CompositionWriter writer(this, clauseAtoms_);
         auto anchor = writer.Apply(cookie, context, snapshot, &composition_);
         if (!candidateWindow_) return;
-        if (anchor && snapshot.selection && !snapshot.candidates.empty()) candidateWindow_->Show(snapshot, *anchor);
+        // Typing shows only the composition; the list opens once the user converts.
+        if (anchor && snapshot.showCandidateIndex && !snapshot.candidates.empty()) candidateWindow_->Show(snapshot, *anchor);
         else candidateWindow_->Hide();
     });
 }
@@ -325,7 +326,7 @@ void TextService::FinishComposition(bool confirm, DWORD sessionFlags) {
 }
 
 void TextService::ShowPage(ITfContext* context, int delta) {
-    if (!snapshot_.selection || snapshot_.candidates.empty()) return;
+    if (!snapshot_.showCandidateIndex || !snapshot_.selection || snapshot_.candidates.empty()) return;
     int target = std::clamp(*snapshot_.selection + delta, 0, static_cast<int>(snapshot_.candidates.size()) - 1);
     auto snapshot = converter_->Select(target, snapshot_.generation, false);
     if (snapshot) ApplySnapshot(context, *snapshot, kSyncWrite);

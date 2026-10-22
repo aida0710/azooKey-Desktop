@@ -61,7 +61,11 @@ std::optional<Snapshot> ParseSnapshot(const std::string& line) {
         std::wstring text = text::Utf8ToUtf16(segment["text"].AsString());
         // Core appends an empty unfocused element after the converted clause.
         if (text.empty()) continue;
-        snapshot.segments.push_back({std::move(text), segment["focus"].AsString() == "focused"});
+        const std::string& focus = segment["focus"].AsString();
+        SegmentFocus kind = focus == "focused" ? SegmentFocus::Focused
+                            : focus == "unfocused" ? SegmentFocus::Unfocused
+                                                   : SegmentFocus::None;
+        snapshot.segments.push_back({std::move(text), kind});
     }
     snapshot.cursorScalars = static_cast<size_t>(std::max<int64_t>(0, value["cursor"].AsInteger(0)));
     for (const auto& commit : value["commits"].AsArray()) {

@@ -91,7 +91,8 @@ void TestModeKeys() {
     Check(Classify(kVkOem3, {false, false, true}, L"`", off) == KeyAction::ToggleInput, "Alt+` toggles input on US layouts");
     Check(Classify(kVkImeOn, {}, L"", off) == KeyAction::TurnInputOn, "the IME-on key turns input on");
     Check(Classify(kVkNonConvert, {}, L"", on) == KeyAction::TurnInputOff, "無変換 leaves Japanese input");
-    Check(Classify(kVkConvert, {}, L"", off) == KeyAction::PassThrough, "変換 does nothing while input is off");
+    Check(Classify(kVkConvert, {}, L"", off) == KeyAction::TurnInputOn, "変換 turns Japanese input on");
+    Check(Classify(kVkNonConvert, {}, L"", off) == KeyAction::PassThrough, "無変換 while input is off reaches the application");
     Check(Classify(kVkConvert, {}, L"", on) == KeyAction::TurnInputOn, "変換 without a composition keeps Japanese input");
     Check(Classify(kVkConvert, {}, L"", composing) == KeyAction::SendToConverter, "変換 converts while composing");
     Check(Classify(kVkA, {}, L"a", {true, false, true}) == KeyAction::PassThrough, "password fields bypass the converter");
@@ -130,7 +131,14 @@ void TestSnapshotParsing() {
         R"("selection":0,"generation":7,"pageStart":0,"showCandidateIndex":true,"language":"japanese"})");
     Check(snapshot.has_value(), "snapshot parses");
     Check(snapshot->preedit == L"日本語" && snapshot->cursorScalars == 3, "preedit and caret are read");
-    Check(snapshot->segments.size() == 1 && snapshot->segments[0].focused, "the empty trailing segment is dropped");
+    Check(snapshot->segments.size() == 1 && snapshot->segments[0].focus == azookey::protocol::SegmentFocus::Focused,
+          "the empty trailing segment is dropped");
+    Check(snapshot->showCandidateIndex, "converting shows the candidate list");
+    // While typing, Core still reports a selected index for live conversion.
+    auto typing = azookey::protocol::ParseSnapshot(
+        R"({"consumed":true,"preedit":"n","preeditSegments":[{"text":"n","focus":"none"}],"selection":0,"showCandidateIndex":false})");
+    Check(typing && typing->selection == 0 && !typing->showCandidateIndex, "typing keeps a selection without the candidate list");
+    Check(typing && typing->segments[0].focus == azookey::protocol::SegmentFocus::None, "typing has no clause focus");
     Check(snapshot->commits.size() == 1 && snapshot->commits[0] == L"前", "commits are read");
     Check(snapshot->selection == 0 && snapshot->generation == 7, "selection and generation are read");
     auto idle = azookey::protocol::ParseSnapshot(R"({"consumed":false,"preedit":"","selection":null})");

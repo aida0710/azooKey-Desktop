@@ -104,7 +104,7 @@ SIZE CandidateWindow::MeasureContent(HDC dc) {
 }
 
 void CandidateWindow::Show(const protocol::Snapshot& snapshot, const RECT& anchor) {
-    if (snapshot.candidates.empty() || !snapshot.selection || !EnsureWindow()) {
+    if (snapshot.candidates.empty() || !snapshot.showCandidateIndex || !snapshot.selection || !EnsureWindow()) {
         Hide();
         return;
     }
