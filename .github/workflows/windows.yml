@@ -36,6 +36,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path build/screenshots | Out-Null
           Windows/tests/tsf-cases.ps1 -Harness build/windows-frontend/tsf-harness.exe -Screenshots build/screenshots
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Type through TSF from a 32-bit application
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/screenshots/x86 | Out-Null
+          Windows/tests/tsf-cases.ps1 -Harness build/windows-frontend-x86/tsf-harness.exe -Screenshots build/screenshots/x86
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: azookey-tree-windows-x64

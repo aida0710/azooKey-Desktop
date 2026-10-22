@@ -8,9 +8,17 @@
 namespace azookey::tsf {
 namespace {
 
+// 32-bit applications load the x86 build from the x86 subfolder; both builds
+// share the one 64-bit host and converter in the installation folder.
+#if defined(_M_IX86)
+constexpr wchar_t kHostRelativePath[] = L"\\..\\azookey-windows-host.exe";
+#else
+constexpr wchar_t kHostRelativePath[] = L"\\azookey-windows-host.exe";
+#endif
+
 channel::HostConnection::Options ConnectionOptions() {
     channel::HostConnection::Options options;
-    options.hostExecutable = ModuleDirectory() + L"\\azookey-windows-host.exe";
+    options.hostExecutable = ModuleDirectory() + kHostRelativePath;
     return options;
 }
 

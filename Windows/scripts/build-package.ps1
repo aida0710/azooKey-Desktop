@@ -28,10 +28,25 @@ if ($LASTEXITCODE -ne 0) { throw "cmake configure failed ($LASTEXITCODE)" }
 cmake --build $frontendBuild
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed ($LASTEXITCODE)" }
 
+# The x86 text service needs the x86 compiler environment, so it is built in a
+# separate PowerShell that enters that developer shell.
+$frontendBuildX86 = Join-Path $repository 'build\windows-frontend-x86'
+$x86Build = @"
+. '$PSScriptRoot\enter-dev-shell.ps1' -Architecture x86
+cmake -S '$(Join-Path $repository 'Windows')' -B '$frontendBuildX86' -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl -DCMAKE_RC_COMPILER=rc
+if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }
+cmake --build '$frontendBuildX86' --target azookey-tsf tsf-harness
+exit `$LASTEXITCODE
+"@
+pwsh -NoProfile -NonInteractive -Command $x86Build
+if ($LASTEXITCODE -ne 0) { throw "x86 text service build failed ($LASTEXITCODE)" }
+
 if (Test-Path $Output) { Remove-Item -Recurse -Force $Output }
 $bridgeDirectory = Join-Path $Output 'bridge'
 New-Item -ItemType Directory -Force -Path $bridgeDirectory | Out-Null
 Copy-Item (Join-Path $frontendBuild 'azookey-tsf.dll'), (Join-Path $frontendBuild 'azookey-windows-host.exe') $Output
+New-Item -ItemType Directory -Force -Path (Join-Path $Output 'x86') | Out-Null
+Copy-Item (Join-Path $frontendBuildX86 'azookey-tsf.dll') (Join-Path $Output 'x86')
 Copy-Item (Join-Path $swiftBuild 'azookey-desktop-bridge.exe') $bridgeDirectory
 # SwiftPM looks for <Package>_<Target>.resources next to the executable.
 Get-ChildItem $swiftBuild -Directory -Filter '*.resources' | ForEach-Object {

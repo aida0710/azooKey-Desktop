@@ -20,9 +20,11 @@ Set-WinUserLanguageList `$languages -Force
 Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'azooKeyTreeHost' -ErrorAction SilentlyContinue
 Get-Process azookey-windows-host, azookey-desktop-bridge -ErrorAction SilentlyContinue | Stop-Process -Force
 
-$dll = Join-Path $Destination 'azookey-tsf.dll'
-if (Test-Path $dll) {
-    Start-Process -FilePath "$env:SystemRoot\System32\regsvr32.exe" -ArgumentList @('/u', '/s', "`"$dll`"") -Wait | Out-Null
+foreach ($entry in @(@{ Dll = (Join-Path $Destination 'x86\azookey-tsf.dll'); Regsvr32 = "$env:SystemRoot\SysWOW64\regsvr32.exe" },
+                     @{ Dll = (Join-Path $Destination 'azookey-tsf.dll'); Regsvr32 = "$env:SystemRoot\System32\regsvr32.exe" })) {
+    if (Test-Path $entry.Dll) {
+        Start-Process -FilePath $entry.Regsvr32 -ArgumentList @('/u', '/s', "`"$($entry.Dll)`"") -Wait | Out-Null
+    }
 }
 # Applications that still have the DLL loaded keep it until they exit; what
 # cannot be deleted now is left for the next uninstall or a restart.
