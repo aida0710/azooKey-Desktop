@@ -166,6 +166,119 @@ class CandidateDetailTests(unittest.TestCase):
             ]},
         }
 
+    @staticmethod
+    def move_pointer_over(widget, *, outside=False):
+        from gi.repository import Gdk
+
+        toplevel = widget.get_toplevel()
+        _, root_x, root_y = toplevel.get_window().get_origin()
+        left, top = widget.translate_coordinates(toplevel, 0, 0)
+        motion = Gdk.Event.new(Gdk.EventType.MOTION_NOTIFY)
+        motion.x_root = root_x + left + (widget.get_allocated_width() + 1 if outside else 0)
+        motion.y_root = root_y + top
+        widget.emit("motion-notify-event", motion)
+        return motion
+
+    def test_map_enter_does_not_override_list_details_or_show_a_pointer_tooltip(self):
+        self.assert_map_enter_is_ignored("list")
+
+    def test_map_enter_does_not_override_word_details_or_show_a_pointer_tooltip(self):
+        self.assert_map_enter_is_ignored("node")
+
+    def assert_map_enter_is_ignored(self, kind):
+        from gi.repository import Gdk, Gtk
+
+        self.panel.update(self.shared_word_snapshot())
+        self.panel.disclosure_actions["tree"].clicked()
+        selected_details = self.panel.details.displayed_text
+        target = (self.panel.navigation.row_buttons[0] if kind == "list" else self.panel.actions[("node", 1)])
+        crossing = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
+        crossing.mode = Gdk.CrossingMode.NORMAL
+        target.emit("enter-notify-event", crossing)
+        self.assertIsNone(self.panel.navigation.hovered_item)
+        self.assertIsNone(self.panel.hovered_action)
+        self.assertEqual(self.panel.details.displayed_text, selected_details)
+        self.assertFalse(target.emit("query-tooltip", 1, 1, False, Gtk.Tooltip()))
+        self.assertTrue(target.emit("query-tooltip", -1, -1, True, Gtk.Tooltip()))
+        self.assertTrue(target.get_accessible().get_description())
+        self.assertEqual(self.commits, [])
+        self.assertFalse(self.panel.get_accept_focus())
+
+    def test_actual_movement_enables_details_until_leave_or_remap(self):
+        from gi.repository import Gdk, Gtk
+
+        self.panel.update(self.shared_word_snapshot())
+        self.panel.disclosure_actions["tree"].clicked()
+        for kind in ("list", "node"):
+            with self.subTest(kind=kind):
+                target = (self.panel.navigation.row_buttons[0] if kind == "list"
+                          else self.panel.actions[("node", 1)])
+                self.move_pointer_over(target)
+                self.assertTrue(target.emit("query-tooltip", 1, 1, False, Gtk.Tooltip()))
+                self.assertIn("残る読み" if kind == "list" else "全文の注釈", self.panel.details.displayed_text)
+                for event in ("leave-notify-event", "unmap"):
+                    self.move_pointer_over(target)
+                    if event == "unmap":
+                        target.hide()
+                        target.show()
+                    else:
+                        target.emit(event, Gdk.Event.new(Gdk.EventType.LEAVE_NOTIFY))
+                    target.emit("enter-notify-event", Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY))
+                    self.assertFalse(target.emit("query-tooltip", 1, 1, False, Gtk.Tooltip()))
+                    self.assertIsNone(self.panel.navigation.hovered_item)
+                    self.assertIsNone(self.panel.hovered_action)
+                self.move_pointer_over(target)
+                self.assertTrue(target.emit("query-tooltip", 1, 1, False, Gtk.Tooltip()))
+                target.emit("leave-notify-event", Gdk.Event.new(Gdk.EventType.LEAVE_NOTIFY))
+        self.assertEqual(self.commits, [])
+
+    def test_canvas_keyboard_help_uses_the_selected_node_without_stale_pointer_coordinates(self):
+        from gi.repository import Gdk, Gtk
+
+        self.panel.update(self.shared_word_snapshot())
+        self.panel.disclosure_actions["tree"].clicked()
+        rectangle = self.panel.rectangles[0]
+        x, y = int(rectangle[2] + 1), int(rectangle[3] + 1)
+        self.panel.canvas.emit("enter-notify-event", Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY))
+        self.assertFalse(self.panel.canvas.emit("query-tooltip", x, y, False, Gtk.Tooltip()))
+        # GTK documents pointer coordinates as undefined for keyboard mode.
+        self.assertTrue(self.panel.canvas.emit("query-tooltip", -999, -999, True, Gtk.Tooltip()))
+        self.move_pointer_over(self.panel.canvas)
+        self.assertTrue(self.panel.canvas.emit("query-tooltip", x, y, False, Gtk.Tooltip()))
+        self.panel.canvas.hide()
+        self.panel.canvas.show()
+        self.assertFalse(self.panel.canvas.emit("query-tooltip", x, y, False, Gtk.Tooltip()))
+
+    def test_grab_motion_outside_a_candidate_cannot_start_or_keep_its_preview(self):
+        from gi.repository import Gtk
+
+        self.panel.update(self.shared_word_snapshot())
+        target = self.panel.navigation.row_buttons[0]
+        self.move_pointer_over(target)
+        self.assertIsNotNone(self.panel.navigation.hovered_item)
+        self.move_pointer_over(target, outside=True)
+        self.assertIsNone(self.panel.navigation.hovered_item)
+        self.assertFalse(target.emit("query-tooltip", 1, 1, False, Gtk.Tooltip()))
+        self.move_pointer_over(target, outside=True)
+        self.assertIsNone(self.panel.navigation.hovered_item)
+        self.assertEqual(self.commits, [])
+
+    def test_replacing_the_page_retires_the_old_pointer_details_and_tooltip(self):
+        from gi.repository import Gdk, Gtk
+
+        snapshot = self.shared_word_snapshot()
+        self.panel.update(snapshot)
+        target = self.panel.navigation.row_buttons[0]
+        self.move_pointer_over(target)
+        self.assertIn("残る読み", self.panel.details.displayed_text)
+        self.panel.update({**snapshot, "candidatePage": {**snapshot["candidatePage"], "start": 2,
+                           "items": snapshot["candidatePage"]["items"][2:]}})
+        self.assertIsNone(self.panel.navigation.hovered_item)
+        self.assertNotIn("残る読み", self.panel.details.displayed_text)
+        self.assertFalse(target.emit("query-tooltip", 1, 1, False, Gtk.Tooltip()))
+        self.assertFalse(self.panel.navigation.row_buttons[0].emit("query-tooltip", 1, 1, False, Gtk.Tooltip()))
+        self.assertEqual(self.commits, [])
+
     def test_node_badge_keeps_node_preview_while_the_sentence_list_exposes_the_partial_candidate(self):
         from copy import deepcopy
         from gi.repository import Gdk
@@ -179,17 +292,16 @@ class CandidateDetailTests(unittest.TestCase):
         partial_row = self.panel.navigation.row_buttons[0]
         self.assertNotIn(("select", 0), self.panel.actions)
         self.assertEqual(self.panel.candidate_numbers[0], 2)
-        entered = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
-        word.emit("enter-notify-event", entered)
+        self.move_pointer_over(word)
         self.assertIn(full, self.panel.details.displayed_text)
-        partial_row.emit("enter-notify-event", entered)
+        self.move_pointer_over(partial_row)
         self.assertIn(partial, self.panel.details.displayed_text)
         self.assertNotIn("全文の注釈", self.panel.details.displayed_text)
         self.assertIn(partial, partial_row.get_accessible().get_description())
         partial_row.emit("leave-notify-event", Gdk.Event.new(Gdk.EventType.LEAVE_NOTIFY))
-        word.emit("enter-notify-event", entered)
+        self.move_pointer_over(word)
         self.assertIn(full, self.panel.details.displayed_text)
-        partial_row.emit("enter-notify-event", entered)
+        self.move_pointer_over(partial_row)
         self.assertEqual(snapshot, original)
         self.assertEqual(self.commits, [])
         self.assertFalse(self.panel.get_accept_focus())
@@ -202,7 +314,6 @@ class CandidateDetailTests(unittest.TestCase):
     def test_stationary_hover_stays_on_its_target_after_keyboard_updates_and_leave_restores_selection(self):
         from gi.repository import Gdk
 
-        entered = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
         left = Gdk.Event.new(Gdk.EventType.LEAVE_NOTIFY)
         for kind in ("node", "list"):
             with self.subTest(kind=kind):
@@ -213,7 +324,7 @@ class CandidateDetailTests(unittest.TestCase):
                 self.panel.update(original)
                 target = (self.panel.navigation.row_buttons[0] if kind == "list"
                           else self.panel.actions[(kind, 0)])
-                target.emit("enter-notify-event", entered)
+                self.move_pointer_over(target)
                 for selection in (2, 1):
                     updated = self.shared_word_snapshot(selection)
                     self.panel.update(updated)
@@ -232,7 +343,6 @@ class CandidateDetailTests(unittest.TestCase):
     def test_replacing_the_context_retires_the_hover_target_and_collapsing_the_list_restores_selection(self):
         from gi.repository import Gdk
 
-        entered = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
         for kind in ("node", "list"):
             with self.subTest(kind=kind):
                 self.panel.update(self.shared_word_snapshot())
@@ -241,15 +351,15 @@ class CandidateDetailTests(unittest.TestCase):
                 self.panel.update(self.shared_word_snapshot())
                 target = (self.panel.navigation.row_buttons[0] if kind == "list"
                           else self.panel.actions[(kind, 0)])
-                target.emit("enter-notify-event", entered)
+                motion = self.move_pointer_over(target)
                 updated = {**self.shared_word_snapshot(2), "contextId": "another-editor"}
                 self.panel.update(updated)
                 self.assertIn("別の全文注釈", self.panel.details.displayed_text)
-                target.emit("enter-notify-event", entered)
+                target.emit("motion-notify-event", motion)
                 self.assertIn("別の全文注釈", self.panel.details.displayed_text)
                 self.panel.navigation.expanded = True
                 self.panel.update(updated)
-                self.panel.navigation.row_buttons[0].emit("enter-notify-event", entered)
+                self.move_pointer_over(self.panel.navigation.row_buttons[0])
                 self.assertIn("残る読み", self.panel.details.displayed_text)
                 self.panel.navigation.collapse()
                 self.assertIn("別の全文注釈", self.panel.details.displayed_text)
