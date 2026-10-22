@@ -1,6 +1,6 @@
 # Runs the packaged bridge with and without Zenzai's model and reports, for each,
-# the response time of every key, the bridge's memory and the first candidate
-# that Space shows for each reading. docs/windows.md quotes its numbers.
+# the response time of every key, the bridge's memory and what Space converts
+# each reading to. docs/windows.md quotes its numbers.
 #
 #   pwsh Windows\tools\measure-zenzai.ps1 [-Package <dir>] [-Readings <romaji>, ...]
 #
@@ -8,7 +8,10 @@
 # earlier run cannot change the candidates.
 param(
     [string]$Package = (Join-Path $PSScriptRoot '..\..\build\windows-package'),
-    [string[]]$Readings = @('kyouhaisyaniiku', 'hasinohasiwowataru', 'kisyanokisyagakisyadekisyasita', 'kaigiwokaisaisuru', 'sonokeikakuhamudaninatta')
+    [string[]]$Readings = @(
+        'kyouhaisyaniiku', 'hasinohasiwowataru', 'kisyanokisyagakisyadekisyasita', 'kaigiwokaisaisuru',
+        'sonokeikakuhamudaninatta', 'niwanihaniwaniwatorigairu', 'kokodehakimonowonuidekudasai', 'watasihaisyadesu'
+    )
 )
 $ErrorActionPreference = 'Stop'
 $bridge = Join-Path $Package 'bridge\azookey-desktop-bridge.exe'
@@ -68,7 +71,8 @@ function Measure-Mode([string]$name, [string]$resources) {
         $space = Send-Request $bridgeProcess (Get-KeyRequest ' ' $spaceKeyCode)
         $spaceTimes.Add($space.Milliseconds)
         Send-Request $bridgeProcess '{"operation":"reset","context":"measure","submit":false}' | Out-Null
-        [pscustomobject]@{ Mode = $name; Reading = $reading; First = $space.Snapshot.candidates[0].text; ZenzaiLoaded = $space.Snapshot.zenzaiLoaded }
+        # After Space the preedit holds every clause, so it is the whole conversion.
+        [pscustomobject]@{ Reading = $reading; Converted = $space.Snapshot.preedit; ZenzaiLoaded = $space.Snapshot.zenzaiLoaded }
     }
     $bridgeProcess.Process.Refresh()
     $summary = [pscustomobject]@{
@@ -91,6 +95,17 @@ function Measure-Mode([string]$name, [string]$resources) {
 
 $cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()
 Write-Output "CPU: $cpu, logical processors: $([Environment]::ProcessorCount)"
-$results = @((Measure-Mode 'dictionary' $null), (Measure-Mode 'zenzai' $models))
-$results.Summary | Format-Table -AutoSize | Out-String -Width 200
-$results.Conversions | Format-Table -AutoSize | Out-String -Width 200
+$dictionary = Measure-Mode 'dictionary' $null
+$zenzai = Measure-Mode 'zenzai' $models
+if ($dictionary.Conversions.ZenzaiLoaded -contains $true) { throw 'Zenzai loaded although no model folder was given' }
+if ($zenzai.Conversions.ZenzaiLoaded -contains $false) { throw 'Zenzai did not load the packaged model' }
+@($dictionary.Summary, $zenzai.Summary) | Format-Table -AutoSize | Out-String -Width 200
+$comparison = for ($index = 0; $index -lt $Readings.Count; $index++) {
+    [pscustomobject]@{
+        Reading = $Readings[$index]
+        Dictionary = $dictionary.Conversions[$index].Converted
+        Zenzai = $zenzai.Conversions[$index].Converted
+        Differs = $dictionary.Conversions[$index].Converted -ne $zenzai.Conversions[$index].Converted
+    }
+}
+$comparison | Format-Table -AutoSize | Out-String -Width 200
