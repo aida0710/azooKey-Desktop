@@ -1,4 +1,4 @@
-# Removes azooKey Tree for Windows. Run from an elevated PowerShell.
+﻿# Removes azooKey Tree for Windows. Run from an elevated PowerShell.
 # The user's data is kept unless -RemoveUserData is given: the learning data in
 # %LOCALAPPDATA%\azooKey Tree, the settings in %APPDATA%\azooKey Tree and the AI
 # API key in Credential Manager.

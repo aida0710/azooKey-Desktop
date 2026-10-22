@@ -1,4 +1,4 @@
-# Installs azooKey Tree for Windows from the staged package (this script's folder).
+﻿# Installs azooKey Tree for Windows from the staged package (this script's folder).
 # Run from an elevated PowerShell: registering a text service writes HKLM.
 #
 #   pwsh -File install.ps1 [-Destination "C:\Program Files\azooKey Tree"]

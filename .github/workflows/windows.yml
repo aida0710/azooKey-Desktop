@@ -68,7 +68,10 @@ jobs:
       - name: Type through TSF with the installed text service
         shell: pwsh
         run: |
-          build/windows-package/install.ps1
+          # Users run install.ps1 from Windows PowerShell 5.1, which reads a script
+          # without a BOM in the ANSI code page; install it the same way.
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File build/windows-package/install.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force -Path build/screenshots | Out-Null
           Windows/tests/tsf-cases.ps1 -Harness build/windows-frontend/tsf-harness.exe -Screenshots build/screenshots
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

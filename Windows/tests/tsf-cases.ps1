@@ -1,4 +1,4 @@
-# Types each case through the installed text service (tsf-harness) and checks
+﻿# Types each case through the installed text service (tsf-harness) and checks
 # the document text. Needs a desktop session (GitHub's Windows runners have one;
 # an SSH session does not). Exit code is the number of failed cases.
 #

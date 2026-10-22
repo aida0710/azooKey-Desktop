@@ -1,4 +1,4 @@
-# Checks the installed settings app the way a user starts it: the Start menu
+﻿# Checks the installed settings app the way a user starts it: the Start menu
 # entry, the window opening, a second start handing its page to the open window
 # instead of opening another, and closing the window ending the app.
 # Needs a desktop session and an installed package (install.ps1).
