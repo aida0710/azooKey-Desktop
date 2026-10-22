@@ -16,6 +16,7 @@
 #include "../src/shared/json.h"
 #include "../src/shared/key_translation.h"
 #include "../src/shared/text_encoding.h"
+#include "test_user_folders.h"
 
 namespace {
 
@@ -76,8 +77,7 @@ int wmain(int argc, wchar_t** argv) {
     std::wstring roaming = CreateDirectoryUnder(root, L"Roaming");
     std::wstring data = CreateDirectoryUnder(root, L"Local");
     std::wstring settingsFile = CreateDirectoryUnder(roaming, L"azooKey Tree") + L"\\settings.json";
-    // Core puts the settings file under %APPDATA%; the host and the converter inherit this.
-    SetEnvironmentVariableW(L"APPDATA", roaming.c_str());
+    azookey::tests::UseTestUserFolders(root);
 
     std::wstring pipe = L"\\\\.\\pipe\\azooKeyTree-reload-test-" + std::to_wstring(GetCurrentProcessId());
     std::wstring commandLine = L"\"" + std::wstring(argv[1]) + L"\" --pipe " + pipe + L" --bridge \"" + argv[2] +

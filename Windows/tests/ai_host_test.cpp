@@ -23,6 +23,7 @@
 #include "../src/shared/key_translation.h"
 #include "../src/shared/text_encoding.h"
 #include "chat_completions_stub.h"
+#include "test_user_folders.h"
 
 namespace {
 
@@ -186,13 +187,11 @@ int wmain(int argc, wchar_t** argv) {
     wchar_t temporary[MAX_PATH];
     GetTempPathW(MAX_PATH, temporary);
     std::wstring root = std::wstring(temporary) + L"azookey-ai-host-" + id;
-    std::filesystem::create_directories(root + L"\\Roaming");
-    std::filesystem::create_directories(root + L"\\Local");
+    azookey::tests::UseTestUserFolders(root);
     std::wstring probeOutput = root + L"\\probe.txt";
     std::wstring credential = L"azooKey Tree/ai-host-test-" + id;
     azookey::credentials::DeleteApiKey(credential);
-    // The host and its converters inherit these.
-    SetEnvironmentVariableW(L"APPDATA", (root + L"\\Roaming").c_str());
+    // The host and its converters inherit this.
     SetEnvironmentVariableW(L"AZOOKEY_PROBE_OUTPUT", probeOutput.c_str());
 
     ChatCompletionsStub stub;

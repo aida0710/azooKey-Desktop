@@ -36,6 +36,7 @@
 #include "../src/shared/message_catalog_data.h"
 #include "../src/shared/text_encoding.h"
 #include "screen_capture.h"
+#include "test_user_folders.h"
 
 namespace {
 
@@ -594,8 +595,7 @@ int wmain(int argc, wchar_t** argv) {
     environment.pipe = L"\\\\.\\pipe\\azooKeyTree-settings-ui-" + id;
     environment.credential = L"azooKey Tree/settings-ui-test-" + id;
     if (!environment.screenshots.empty()) std::filesystem::create_directories(environment.screenshots);
-    // Core keeps settings.json under %APPDATA%; the host and the converter inherit this.
-    SetEnvironmentVariableW(L"APPDATA", (environment.root + L"\\Roaming").c_str());
+    azookey::tests::UseTestUserFolders(environment.root);
     WriteBytes(environment.root + L"\\build-info.txt", "version=0.0.0\narchitecture=x64\nsource=0123456789abcdef\n");
 
     std::wstring commandLine = L"\"" + std::wstring(argv[1]) + L"\" --pipe " + environment.pipe + L" --bridge \"" + argv[2] +
