@@ -8,24 +8,22 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {CandidateDetail} from './candidateDetail.js';
 import {CandidateComposition} from './candidateComposition.js';
-import {messages} from './candidateMessages.js';
-import {candidatePlacement} from './candidatePlacement.js';
 import {ShellCursor} from './shellCursor.js';
 import {LayoutDiagnostics} from './layoutDiagnostics.js';
 import {CandidateNavigation} from './candidateNavigation.js';
 import {serializeCandidateIdentity} from './candidateIdentity.js';
 import {CandidateTheme} from './candidateTheme.js';
 import {attachCandidateAction, CandidateAnnouncements} from './candidateAccessibility.js';
-import {addScoreBadge, SCORE_LINE_HEIGHT} from './candidateScore.js';
+import {addScoreBadge} from './candidateScore.js';
 
 const NAME = 'org.azookey.Tree';
 const PATH = '/org/azookey/Tree';
-const CANDIDATE_ROW_GAP = 4; // Separate actions even when the score line is hidden.
-const MINIMUM_NODE_HEIGHT = 44; // A number badge shares the word's pointer/AT target.
-const NODE_BORDER_WIDTH = 2; // Reserve both borders outside the measured label heights.
+const NODE_BORDER_WIDTH = 2; // Core's node frame includes both borders.
+const LINE_HEIGHT_SAMPLE = 'あg'; // A kana and a descender give the tallest candidate line.
 // Bound each scrollable section so the source document remains visible around the card.
-const CARD_LAYOUT = {minimumWidth: 360, maximumWidth: 560, lineCharacters: 26,
-    compositionFraction: 0.26, detailsFraction: 0.14, treeFraction: 0.35, listFraction: 0.45};
+const CARD_FRACTIONS = {composition: 0.26, details: 0.14, tree: 0.35, list: 0.45};
+// St.DrawingArea paints into a texture; tiles stay below GPU texture limits.
+const EDGE_TILE_SIZE = 512;
 
 export default class AzooKeyTreeExtension extends Extension {
     enable() {
@@ -33,6 +31,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._hoveredAction = null;
         this._treeExpanded = false;
         this._presentationMode = null;
+        this._layoutGeneration = 0;
         this._popup = new St.BoxLayout({vertical: true, can_focus: false});
         this._announcements = new CandidateAnnouncements(announcement =>
             this._popup.get_accessible().emit('notification', announcement, Atk.Live.POLITE));
@@ -64,14 +63,15 @@ export default class AzooKeyTreeExtension extends Extension {
         });
         this._popup.add_child(this._details.actor);
         this._interfaceSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+        // A snapshot awaiting Core's layout is not visible yet; it still follows these changes.
         this._theme = new CandidateTheme(() => {
-            if (this._popup.visible && this._lastSnapshot) this._render(this._lastSnapshot);
+            if (this._lastSnapshot) this._render(this._lastSnapshot);
         });
         Main.layoutManager.addTopChrome(this._popup);
         this._popup.hide();
         this._layoutDiagnostics = new LayoutDiagnostics();
         this._cursor = new ShellCursor(() => {
-            if (this._popup.visible && this._lastSnapshot) this._render(this._lastSnapshot);
+            if (this._lastSnapshot) this._render(this._lastSnapshot);
         });
         this._subscription = Gio.DBus.session.signal_subscribe(NAME, NAME, null, PATH, null,
             Gio.DBusSignalFlags.NONE, (_connection, _sender, _path, _interface, signal, parameters) => {
@@ -103,7 +103,13 @@ export default class AzooKeyTreeExtension extends Extension {
         this._actionIdentity = null;
     }
 
+    // A Core layout requested for an older snapshot or a hidden popup is ignored.
+    _retireLayout() {
+        this._layoutGeneration++;
+    }
+
     _hideCandidates() {
+        this._retireLayout();
         this._hoveredAction = null;
         this._candidateIdentity = null;
         this._announcements.reset();
@@ -112,11 +118,12 @@ export default class AzooKeyTreeExtension extends Extension {
         this._placementSide = null;
         this._layoutDiagnostics.clear();
         this._treeExpanded = false;
+        this._treeExpandedFor = null;
         this._presentationMode = null;
         this._navigation.reset();
         this._details.reset();
         this._composition.retire();
-        this._detailState = null;
+        this._detailsShown = false;
         this._cancelReveal();
         this._clearButtons();
     }
@@ -129,9 +136,10 @@ export default class AzooKeyTreeExtension extends Extension {
 
     _suspendCandidates() {
         // Keep only presentation preferences. No old action survives the pending interval.
+        this._retireLayout();
         this._popup.hide();
         this._lastSnapshot = null;
-        this._detailState = null;
+        this._detailsShown = false;
         this._hoveredAction = null;
         this._navigation.retire({preserveViewport: true});
         this._details.retire();
@@ -147,29 +155,67 @@ export default class AzooKeyTreeExtension extends Extension {
             });
     }
 
+    // Core lays out candidates after the conversion requests queued before it.
+    _requestLayout(request, done) {
+        Gio.DBus.session.call(NAME, PATH, NAME, 'Layout', new GLib.Variant('(s)', [JSON.stringify(request)]),
+            new GLib.VariantType('(s)'), Gio.DBusCallFlags.NONE, -1, null, (connection, result) => {
+                let layout = null;
+                try {
+                    layout = JSON.parse(connection.call_finish(result).deepUnpack()[0]);
+                } catch (error) {
+                    console.error('azooKey candidate layout failed', error);
+                }
+                done(layout);
+            });
+    }
+
+    _measureText(text, size) {
+        const label = new St.Label({text, style: `font-size: ${size}px;`});
+        // A stage-backed theme node supplies the actual scaled font metrics.
+        this._canvas.add_child(label);
+        const dimensions = {width: label.get_preferred_width(-1)[1], height: label.get_preferred_height(-1)[1]};
+        label.destroy();
+        return dimensions;
+    }
+
+    _workArea([x, y]) {
+        const monitorIndex = Main.layoutManager.monitors.findIndex(m => x >= m.x && x < m.x + m.width && y >= m.y && y < m.y + m.height);
+        const index = monitorIndex >= 0 ? monitorIndex : Main.layoutManager.primaryIndex;
+        return global.workspace_manager.get_active_workspace().get_work_area_for_monitor(index);
+    }
+
     _render(data) {
         this._lastSnapshot = data;
-        const anchor = this._cursor.anchor(data.location);
+        const display = data.candidateDisplay;
         const palette = this._theme.palette;
         this._popup.set_style(`background-color: ${palette.background}; color: ${palette.text};
             border: 1px solid ${palette.border}; border-radius: 12px;`);
         this._canvas.set_style(`background-color: ${palette.background};`);
         this._details.applyPalette(palette);
-        const nodes = data.nodes ?? [];
-        const presentationMode = ['selecting', 'previewing', 'replaceSuggestion'].includes(data.inputState) ? 'menu' : 'live';
-        // Live badges identify the preview; only showCandidateIndex advertises physical number keys.
-        const showNodeNumbers = data.inputState === 'composing' || data.showCandidateIndex === true;
+        // The engine sends an empty snapshot after focus moves away.
+        if (!display || display.mode === 'hidden') {
+            this._hideCandidates();
+            this._canvas.destroy_all_children();
+            return;
+        }
+        const presentationMode = display.mode;
         const candidateIdentity = serializeCandidateIdentity([data.contextId, data.reading, data.candidates,
-            nodes.map(({relativeScore, scorePresentation, preview, previewDescription, ...node}) => node)]);
+            data.nodes.map(({relativeScore, scorePresentation, preview, previewDescription, ...node}) => node)]);
         if (candidateIdentity !== this._candidateIdentity || presentationMode !== this._presentationMode) {
             this._navigation.reset();
             this._details.reset();
             this._composition.retire();
-            this._treeExpanded = presentationMode === 'live';
+            this._treeExpanded = presentationMode === 'tree';
             this._presentationMode = presentationMode;
             this._cancelReveal();
             this._hoveredAction = null;
             this._candidateIdentity = candidateIdentity;
+        }
+        const expansion = JSON.stringify([data.contextId, data.generation]);
+        if (display.expandTree && expansion !== this._treeExpandedFor) {
+            // Core asks once per reply; redrawing the same reply keeps the user's choice.
+            this._treeExpanded = true;
+            this._treeExpandedFor = expansion;
         }
         const actionIdentity = JSON.stringify([candidateIdentity, data.generation, data.selection, data.focusedNode,
             presentationMode, this._treeExpanded]);
@@ -177,179 +223,90 @@ export default class AzooKeyTreeExtension extends Extension {
             this._clearButtons();
             this._actionIdentity = actionIdentity;
         }
-        if (!nodes.length) {
-            this._hideCandidates();
-            this._canvas.destroy_all_children();
-            return;
-        }
+        this._retireLayout();
+        const generation = this._layoutGeneration;
+        const anchor = this._cursor.anchor(data.location);
+        const bounds = this._workArea(anchor.location);
+        const request = this._layoutRequest(data, {anchor, bounds});
+        this._requestLayout(request, layout => {
+            if (generation !== this._layoutGeneration) return;
+            if (!layout) {
+                this._suspendCandidates();
+                return;
+            }
+            this._drawTree(data, layout.tree, palette);
+            const height = this._layoutCard(data, {bounds, layout, limit: bounds.height});
+            // GNOME has no document word widths, so Core never changes this
+            // width for alignment and one measurement is enough.
+            this._placeCard(data, {request, anchor, bounds, height, generation});
+        });
+    }
+
+    // Core places whole pixels. When the chosen side is shorter than the card,
+    // the card's scrollable regions shrink and Core places the result again.
+    _placeCard(data, {request, anchor, bounds, height, generation, fitted = false}) {
+        const popupHeight = Math.ceil(height);
+        this._requestLayout({...request, popupHeight, preferredSide: this._placementSide ?? null}, placed => {
+            if (generation !== this._layoutGeneration) return;
+            if (placed?.placementStatus !== 'placed') {
+                this._suspendCandidates();
+                return;
+            }
+            if (!fitted && placed.placement.height < popupHeight) {
+                this._placementSide = placed.placement.side;
+                const fittedHeight = this._layoutCard(data, {bounds, layout: placed, limit: placed.placement.height});
+                this._placeCard(data, {request, anchor, bounds, height: fittedHeight, generation, fitted: true});
+                return;
+            }
+            this._place(data, {anchor, bounds, layout: placed});
+        });
+    }
+
+    _layoutRequest(data, {anchor, bounds}) {
+        const display = data.candidateDisplay;
+        const nodes = new Map(data.nodes.map(node => [node.id, node]));
+        const baseSize = display.baseFontSize;
+        const [x, y, width, height] = anchor.location;
+        return {
+            mode: display.mode === 'list' ? 'list' : 'tree',
+            textSize: data.candidateTextSize ?? 'standard',
+            textScale: this._interfaceSettings.get_double('text-scaling-factor'),
+            measuredFontSize: baseSize,
+            lineHeight: this._measureText(LINE_HEIGHT_SAMPLE, baseSize).height + NODE_BORDER_WIDTH * 2,
+            columns: (this._treeExpanded ? display.columns : []).map(column => ({
+                nodes: column.map(id => ({id, parent: nodes.get(id).parent ?? null})),
+                textWidth: this._measureText(nodes.get(column[0]).text, baseSize).width,
+            })),
+            documentWordWidths: null,
+            columnAnchorX: null,
+            showScores: Boolean(data.showRelativeScores),
+            showNumbers: Boolean(display.showsNumbers),
+            cursor: {x, y, width, height},
+            workArea: {x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height},
+            popupHeight: null,
+            preferredSide: this._placementSide ?? null,
+        };
+    }
+
+    _drawTree(data, tree, palette) {
         // Geometry/theme updates keep AT objects with the same action target.
         const retained = new Set(this._buttons.values());
         for (const child of this._canvas.get_children()) {
             if (!retained.has(child)) child.destroy();
         }
+        const {width, height} = tree.contentSize;
+        this._canvas.set_size(width, tree.nodes.length ? height : 0);
+        const displayed = new Map(data.candidateDisplay.nodes.map(node => [node.id, node]));
+        this._drawEdges(tree, displayed);
+        const sources = new Map(data.nodes.map(node => [node.id, node]));
         const visibleButtons = new Set();
-        const byId = new Map(nodes.map(node => [node.id, node]));
-        const allColumns = data.columns ?? [];
-        if (!allColumns.length) {
-            this._hideCandidates();
-            return;
-        }
-        const focusedDepth = byId.get(data.focusedNode)?.depth ?? 0;
-        // Live input shows branches; the explicit menu expands only the word being edited.
-        const columns = !this._treeExpanded ? [] : presentationMode === 'live' ? allColumns :
-            allColumns.map((column, depth) => depth === focusedDepth ? column : [data.selectedPath?.[depth] ?? column[0]]);
-        const frames = new Map();
-        const fontSize = (data.candidateTextSize === 'large' ? 24 : 18) *
-            Math.max(1, this._interfaceSettings.get_double('text-scaling-factor'));
-        // A sentence/list card follows the caret rather than pretending its rows align to document words.
-        const aligned = false;
-        const alignmentReason = 'sentence-card';
-        const measureText = (text, size) => {
-            const label = new St.Label({text, style: `font-size: ${size}px;`});
-            // A stage-backed theme node supplies the actual scaled font metrics.
-            this._canvas.add_child(label);
-            const dimensions = {width: label.get_preferred_width(-1)[1], height: label.get_preferred_height(-1)[1]};
-            label.destroy();
-            return dimensions;
-        };
-        const numberFontSize = Math.max(12, fontSize - 8);
-        const badgeHeight = showNodeNumbers ? measureText('9', numberFontSize).height : 0;
-        const rowHeight = Math.max(MINIMUM_NODE_HEIGHT,
-            measureText('あg', fontSize).height + badgeHeight + NODE_BORDER_WIDTH * 2);
-        const scoreHeight = data.showRelativeScores ? SCORE_LINE_HEIGHT : 0;
-        const rowPitch = rowHeight + scoreHeight + CANDIDATE_ROW_GAP;
-        let nextX = 12;
-        for (const [depth, column] of columns.entries()) {
-            const columnWidth = Math.max(fontSize + 24,
-                Math.min(280, measureText(byId.get(column[0]).text, fontSize).width + 24));
-            column.forEach((id, row) => frames.set(id, {x: nextX, y: 6 + row * rowPitch, width: columnWidth, height: rowHeight}));
-            nextX += columnWidth + 12;
-        }
-        const width = Math.max(60, nextX);
-        const height = columns.length ? Math.max(32, Math.max(...columns.map(column => column.length)) * rowPitch + 6) : 0;
-        this._canvas.set_size(width, height);
-        const selected = new Set(data.selectedPath ?? []);
-        const edges = columns.flat().map(id => {
-            const node = byId.get(id);
-            const parent = frames.get(node.parent), target = frames.get(id);
-            return {x1: parent ? parent.x + parent.width : 4, y1: parent ? parent.y + rowHeight / 2 : 6 + rowHeight / 2,
-                x2: target.x, y2: target.y + rowHeight / 2, active: selected.has(id)};
-        });
-        // A long phrase can have > 300 candidates and exceed the GPU's maximum
-        // texture height. St.DrawingArea uses a texture; draw bounded tiles so
-        // scrolling remains valid on both virtual and physical GPUs.
-        for (let top = 0; top < height; top += 512) {
-            for (let left = 0; left < width; left += 512) {
-                const tileWidth = Math.min(512, width - left), tileHeight = Math.min(512, height - top);
-                const visibleEdges = edges.filter(edge => edge.x2 >= left && edge.x1 <= left + tileWidth &&
-                    Math.max(edge.y1, edge.y2) + 3 >= top && Math.min(edge.y1, edge.y2) - 3 <= top + tileHeight);
-                const lines = new St.DrawingArea({width: tileWidth, height: tileHeight});
-                lines.set_position(left, top);
-                lines.connect('repaint', area => {
-                    const cr = area.get_context();
-                    cr.setSourceRGBA(0, 0, 0, 0);
-                    cr.paint();
-                    cr.translate(-left, -top);
-                    for (const edge of visibleEdges) {
-                        const middle = (edge.x1 + edge.x2) / 2;
-                        cr.setSourceRGBA(...this._theme.rgb(edge.active ? 'text' : 'border'), 1);
-                        cr.setLineWidth(edge.active ? 3 : 1);
-                        cr.setDash(edge.active ? [] : [2, 3], 0);
-                        cr.moveTo(edge.x1, edge.y1);
-                        cr.curveTo(middle, edge.y1, middle, edge.y2, edge.x2, edge.y2);
-                        cr.stroke();
-                    }
-                    if (left === 0 && top === 0) {
-                        cr.setSourceRGBA(...this._theme.rgb('text'), 1);
-                        cr.arc(4, 18, 3, 0, Math.PI * 2);
-                        cr.fill();
-                    }
-                    cr.$dispose();
-                });
-                this._canvas.add_child(lines);
-                lines.queue_repaint();
-            }
-        }
-        const renderNodeButton = ({operation, index, label, number, frame, active, focused, accessibleName, description = ''}) => {
-            const identity = JSON.stringify([operation, index]);
-            let widget = this._buttons.get(identity);
-            if (!widget) {
-                widget = new St.Button({can_focus: false, reactive: true, track_hover: true, accessible_name: accessibleName});
-                attachCandidateAction(widget);
-                widget.connect('button-press-event', () => {
-                    widget._pressedSelection = widget._selection;
-                    return Clutter.EVENT_PROPAGATE;
-                });
-                widget.connect_after('button-release-event', () => {
-                    widget._pressedSelection = null;
-                    return Clutter.EVENT_PROPAGATE;
-                });
-                widget.connect('clicked', () => {
-                    const selection = widget._pressedSelection ?? widget._selection;
-                    widget._pressedSelection = null;
-                    if (this._buttons.get(identity) === widget && this._popup.visible)
-                        this._call('Select', selection);
-                });
-                widget.connect('notify::hover', () => {
-                    if (this._buttons.get(identity) !== widget) return;
-                    if (widget.hover) this._hoveredAction = {identity, operation, index};
-                    else if (this._hoveredAction?.identity === identity) this._hoveredAction = null;
-                    this._refreshDetails();
-                });
-                this._canvas.add_child(widget);
-                this._buttons.set(identity, widget);
-            }
-            widget.accessible_name = accessibleName;
-            widget.get_accessible().accessible_description = description;
+        for (const node of tree.nodes) {
+            const identity = this._renderNodeButton(data, {node, displayed: displayed.get(node.id),
+                source: sources.get(node.id), metrics: tree.metrics, palette});
             visibleButtons.add(identity);
-            widget._selection = new GLib.Variant('(sibis)', [operation, index, false, data.generation, data.contextId]);
-            widget.set_checked(active);
-            const textColor = active ? palette.selectionText : palette.text;
-            const borderWidth = NODE_BORDER_WIDTH;
-            widget.set_style(`color: ${textColor}; background-color: ${active ? palette.selection : palette.surface}; border: ${borderWidth}px solid ${active ? palette.text : 'transparent'}; border-radius: 4px; padding: 0;`);
-            const captions = new St.BoxLayout({vertical: true});
-            captions.set_size(Math.max(1, frame.width - borderWidth * 2), frame.height - borderWidth * 2);
-            const caption = new St.Label({text: label, x_align: Clutter.ActorAlign.CENTER,
-                y_expand: true, y_align: Clutter.ActorAlign.CENTER});
-            caption.set_style(`font-size: ${fontSize}px;`);
-            if (focused) {
-                // Text attributes keep the underline inside the glyph layout;
-                // an extra CSS border clips enlarged 200% captions.
-                const attributes = new Pango.AttrList();
-                attributes.insert(Pango.attr_underline_new(Pango.Underline.SINGLE));
-                caption.clutter_text.set_attributes(attributes);
-            }
-            caption.set_width(Math.max(1, frame.width - borderWidth * 2));
-            captions.add_child(caption);
-            widget._numberBadge = null;
-            if (number !== null) {
-                const badge = new St.Label({text: String(number), x_align: Clutter.ActorAlign.START,
-                    reactive: false, can_focus: false,
-                    style: `font-size: ${numberFontSize}px; padding-left: 4px;`});
-                captions.add_child(badge);
-                widget._numberBadge = badge;
-            }
-            widget.set_child(captions);
-            widget.set_position(frame.x, frame.y);
-            widget.set_size(frame.width, frame.height);
-            this._canvas.set_child_above_sibling(widget, null);
-        };
-        const candidateIndices = new Set((data.candidates ?? []).map(candidate => candidate.index));
-        for (const [id, frame] of frames) {
-            const node = byId.get(id);
-            const presentation = data.showRelativeScores ? node.scorePresentation : null;
-            const index = node.preview?.candidateIndex;
-            const pageNumber = index - (data.pageStart ?? 0) + 1;
-            const number = showNodeNumbers && Number.isInteger(index) && index >= 0 && candidateIndices.has(index) &&
-                pageNumber >= 1 && pageNumber <= 9 ? pageNumber : null;
-            const accessibleName = [node.text, node.reading, number === null ? null : messages.numberBadge(number)]
-                .filter(Boolean).join('\n');
-            const description = [id === data.focusedNode ? messages.focusedSelect : messages.select,
-                node.previewDescription, presentation?.detailDescription].filter(Boolean).join('\n');
-            renderNodeButton({operation: 'node', index: id, label: node.text, number, frame,
-                active: selected.has(id), focused: id === data.focusedNode,
-                accessibleName, description});
-            if (presentation) addScoreBadge(this._canvas, {node, frame, palette});
+            const presentation = data.showRelativeScores ? sources.get(node.id).scorePresentation : null;
+            if (presentation && node.scoreFrame)
+                addScoreBadge(this._canvas, {presentation, frame: node.scoreFrame, metrics: tree.metrics, palette});
         }
         for (const [identity, widget] of this._buttons) {
             if (!visibleButtons.has(identity)) {
@@ -362,93 +319,213 @@ export default class AzooKeyTreeExtension extends Extension {
         // A target absent from that page must not regain hover when it reappears.
         if (this._hoveredAction && !visibleButtons.has(this._hoveredAction.identity))
             this._hoveredAction = null;
-        const [x, y] = anchor.location;
-        const monitorIndex = Main.layoutManager.monitors.findIndex(m => x >= m.x && x < m.x + m.width && y >= m.y && y < m.y + m.height);
-        const index = monitorIndex >= 0 ? monitorIndex : Main.layoutManager.primaryIndex;
-        const bounds = global.workspace_manager.get_active_workspace().get_work_area_for_monitor(index);
-        const placement = this._layoutCard(data, {bounds, fontSize, treeContentWidth: width, treeContentHeight: height,
-            nodes: byId, actionIdentity, location: anchor.location, palette});
-        this._popup.set_position(placement.x, placement.y);
-        this._placementSide = placement.side;
-        this._layoutDiagnostics.update({source: anchor.source, aligned, reason: alignmentReason,
-            cursor: anchor.location, bounds, placement});
-        this._popup.show();
-        this._announcements.update(data);
-        const focus = frames.get(data.focusedNode);
-        const focusKey = `${data.contextId}:${data.selection}:${data.focusedNode}`;
-        if (this._treeExpanded && focus && focusKey !== this._focusKey) {
-            if (this._scrollIdle) GLib.source_remove(this._scrollIdle);
-            this._scrollIdle = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-                this._scrollIdle = 0;
-                this._focusKey = focusKey;
-                const reveal = (adjustment, start, end) => {
-                    let value = adjustment.value;
-                    if (start < value) value = start;
-                    else if (end > value + adjustment.page_size) value = end - adjustment.page_size;
-                    adjustment.value = Math.max(adjustment.lower,
-                        Math.min(value, adjustment.upper - adjustment.page_size));
-                };
-                reveal(this._treeScroll.get_hadjustment(), Math.max(0, focus.x - 8), focus.x + focus.width + 8);
-                reveal(this._treeScroll.get_vadjustment(), Math.max(0, focus.y - 8), focus.y + focus.height + 16);
-                return GLib.SOURCE_REMOVE;
-            });
+        this._treeFrames = new Map(tree.nodes.map(node => [node.id, node.frame]));
+    }
+
+    _drawEdges(tree, displayed) {
+        // A long phrase can have > 300 candidates and exceed the GPU's maximum
+        // texture height; bounded tiles keep scrolling valid on virtual and physical GPUs.
+        if (!tree.nodes.length) return;
+        const {width, height} = tree.contentSize;
+        const edges = tree.edges.map(edge => ({...edge, active: Boolean(displayed.get(edge.node)?.selected)}));
+        for (let top = 0; top < height; top += EDGE_TILE_SIZE) {
+            for (let left = 0; left < width; left += EDGE_TILE_SIZE) {
+                const tileWidth = Math.min(EDGE_TILE_SIZE, width - left), tileHeight = Math.min(EDGE_TILE_SIZE, height - top);
+                const visibleEdges = edges.filter(edge => edge.end.x >= left && edge.start.x <= left + tileWidth &&
+                    Math.max(edge.start.y, edge.end.y) + 3 >= top && Math.min(edge.start.y, edge.end.y) - 3 <= top + tileHeight);
+                const lines = new St.DrawingArea({width: tileWidth, height: tileHeight});
+                lines.set_position(left, top);
+                lines.connect('repaint', area => {
+                    const cr = area.get_context();
+                    cr.setSourceRGBA(0, 0, 0, 0);
+                    cr.paint();
+                    cr.translate(-left, -top);
+                    for (const edge of visibleEdges) {
+                        const middle = (edge.start.x + edge.end.x) / 2;
+                        cr.setSourceRGBA(...this._theme.rgb(edge.active ? 'text' : 'border'), 1);
+                        cr.setLineWidth(edge.active ? 3 : 1);
+                        cr.setDash(edge.active ? [] : [2, 3], 0);
+                        cr.moveTo(edge.start.x, edge.start.y);
+                        cr.curveTo(middle, edge.start.y, middle, edge.end.y, edge.end.x, edge.end.y);
+                        cr.stroke();
+                    }
+                    if (left === 0 && top === 0) {
+                        cr.setSourceRGBA(...this._theme.rgb('text'), 1);
+                        cr.arc(tree.rootAnchor.x, tree.rootAnchor.y, 3, 0, Math.PI * 2);
+                        cr.fill();
+                    }
+                    cr.$dispose();
+                });
+                this._canvas.add_child(lines);
+                lines.queue_repaint();
+            }
         }
     }
 
-    _layoutCard(data, {bounds, fontSize, treeContentWidth, treeContentHeight, nodes, actionIdentity, location, palette}) {
-        const isMenu = this._presentationMode === 'menu';
-        for (const actor of [this._composition.actor, this._navigation.actor, this._details.actor]) actor.visible = isMenu;
-        if (!isMenu) {
-            this._detailState = null;
-            const treeWidth = Math.min(bounds.width, treeContentWidth, CARD_LAYOUT.maximumWidth);
-            const treeHeight = Math.min(treeContentHeight, bounds.height * CARD_LAYOUT.treeFraction);
+    _renderNodeButton(data, {node, displayed, source, metrics, palette}) {
+        const identity = JSON.stringify(['node', node.id]);
+        let widget = this._buttons.get(identity);
+        if (!widget) {
+            widget = new St.Button({can_focus: false, reactive: true, track_hover: true});
+            attachCandidateAction(widget);
+            widget.connect('button-press-event', () => {
+                widget._pressedSelection = widget._selection;
+                return Clutter.EVENT_PROPAGATE;
+            });
+            widget.connect_after('button-release-event', () => {
+                widget._pressedSelection = null;
+                return Clutter.EVENT_PROPAGATE;
+            });
+            widget.connect('clicked', () => {
+                const selection = widget._pressedSelection ?? widget._selection;
+                widget._pressedSelection = null;
+                if (this._buttons.get(identity) === widget && this._popup.visible)
+                    this._call('Select', selection);
+            });
+            widget.connect('notify::hover', () => {
+                if (this._buttons.get(identity) !== widget) return;
+                if (widget.hover) this._hoveredAction = {identity, index: node.id};
+                else if (this._hoveredAction?.identity === identity) this._hoveredAction = null;
+                this._refreshDetails();
+            });
+            this._canvas.add_child(widget);
+            this._buttons.set(identity, widget);
+        }
+        widget.accessible_name = displayed.accessibleName;
+        widget.get_accessible().accessible_description = displayed.accessibleDescription;
+        widget._selection = new GLib.Variant('(sibis)', ['node', node.id, false, data.generation, data.contextId]);
+        widget.set_checked(displayed.selected);
+        widget.set_style(`color: ${displayed.selected ? palette.selectionText : palette.text};
+            background-color: ${displayed.selected ? palette.selection : palette.surface};
+            border: ${NODE_BORDER_WIDTH}px solid ${displayed.selected ? palette.text : 'transparent'};
+            border-radius: 4px; padding: 0;`);
+        const content = this._nodeContent({node, displayed, source, metrics});
+        widget.set_child(content);
+        widget._numberBadge = content._numberBadge;
+        widget.set_position(node.frame.x, node.frame.y);
+        widget.set_size(node.frame.width, node.frame.height);
+        this._canvas.set_child_above_sibling(widget, null);
+        return identity;
+    }
+
+    // The word, the score line Core reserves, and the number badge, inside both borders.
+    _nodeContent({node, displayed, source, metrics}) {
+        const {frame, textFrame, numberFrame} = node;
+        const innerWidth = Math.max(1, frame.width - NODE_BORDER_WIDTH * 2);
+        const innerHeight = frame.height - NODE_BORDER_WIDTH * 2;
+        const content = new St.BoxLayout({vertical: true});
+        content.set_size(innerWidth, innerHeight);
+        const caption = new St.Label({text: source.text, x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER});
+        caption.set_style(`font-size: ${metrics.fontSize}px;`);
+        if (displayed.focused) {
+            // Text attributes keep the underline inside the glyph layout;
+            // an extra CSS border clips enlarged 200% captions.
+            const attributes = new Pango.AttrList();
+            attributes.insert(Pango.attr_underline_new(Pango.Underline.SINGLE));
+            caption.clutter_text.set_attributes(attributes);
+        }
+        const captionHeight = textFrame.height - NODE_BORDER_WIDTH;
+        caption.set_size(innerWidth, captionHeight);
+        content.add_child(caption);
+        content._numberBadge = null;
+        if (!numberFrame || !Number.isInteger(displayed.number)) return content;
+        const badgeHeight = numberFrame.height - NODE_BORDER_WIDTH;
+        const gap = new St.Widget();
+        gap.set_size(innerWidth, Math.max(0, innerHeight - captionHeight - badgeHeight));
+        content.add_child(gap);
+        const badge = new St.Label({text: String(displayed.number), x_align: Clutter.ActorAlign.START,
+            reactive: false, can_focus: false,
+            style: `font-size: ${metrics.numberFontSize}px; padding-left: ${numberFrame.x - frame.x - NODE_BORDER_WIDTH}px;`});
+        badge.set_size(innerWidth, badgeHeight);
+        content.add_child(badge);
+        content._numberBadge = badge;
+        return content;
+    }
+
+    // Returns the popup height the card needs within `limit`.
+    _layoutCard(data, {bounds, layout, limit}) {
+        const isList = data.candidateDisplay.mode === 'list';
+        const popupWidth = layout.popupWidth;
+        const fontSize = layout.tree.metrics.fontSize;
+        const treeContentHeight = layout.tree.nodes.length ? layout.tree.contentSize.height : 0;
+        for (const actor of [this._composition.actor, this._navigation.actor, this._details.actor]) actor.visible = isList;
+        this._detailsShown = isList;
+        if (!isList) {
+            const treeHeight = Math.min(treeContentHeight, bounds.height * CARD_FRACTIONS.tree, limit);
             this._treeScroll.show();
-            const placement = candidatePlacement({cursor: location, bounds, contentWidth: treeWidth,
-                contentHeight: treeHeight, detailHeight: 0, aligned: false, preferredSide: this._placementSide});
-            this._treeScroll.set_size(placement.width, placement.treeHeight);
-            this._popup.set_size(placement.width, placement.height);
-            return placement;
+            this._treeScroll.set_size(popupWidth, treeHeight);
+            this._popup.set_size(popupWidth, treeHeight);
+            return treeHeight;
         }
         // Three independently scrollable regions keep long sentences and enlarged text reachable.
-        const popupWidth = Math.min(bounds.width, Math.max(CARD_LAYOUT.minimumWidth,
-            Math.min(CARD_LAYOUT.maximumWidth, fontSize * CARD_LAYOUT.lineCharacters)));
+        const palette = this._theme.palette;
         const compositionHeight = this._composition.update(data,
-            {fontSize, width: popupWidth, maximumHeight: bounds.height * CARD_LAYOUT.compositionFraction, palette});
-        this._detailState = {nodes, showScores: data.showRelativeScores};
+            {fontSize, width: popupWidth, maximumHeight: limit * CARD_FRACTIONS.composition, palette});
         const navigationMinimum = this._navigation.update(data,
             {fontSize, width: popupWidth, listHeight: 1, palette});
         this._refreshDetails();
-        const detailHeight = this._details.layout({identity: actionIdentity, treeExpanded: this._treeExpanded,
-            fontSize, width: popupWidth, maximumHeight: bounds.height * CARD_LAYOUT.detailsFraction});
-        const available = Math.max(1, bounds.height - compositionHeight - detailHeight - navigationMinimum - 2);
-        const treeHeight = this._treeExpanded ? Math.min(treeContentHeight, available * CARD_LAYOUT.treeFraction) : 0;
+        const detailHeight = this._details.layout({identity: this._actionIdentity, treeExpanded: this._treeExpanded,
+            fontSize, width: popupWidth, maximumHeight: limit * CARD_FRACTIONS.details});
+        const available = Math.max(1, limit - compositionHeight - detailHeight - navigationMinimum - 2);
+        const treeHeight = this._treeExpanded ? Math.min(treeContentHeight, available * CARD_FRACTIONS.tree) : 0;
         const navigationHeight = this._navigation.update(data,
-            {fontSize, width: popupWidth, listHeight: Math.min(available - treeHeight, bounds.height * CARD_LAYOUT.listFraction), palette});
+            {fontSize, width: popupWidth, listHeight: Math.min(available - treeHeight, limit * CARD_FRACTIONS.list), palette});
         this._navigation.actor.set_size(popupWidth, navigationHeight);
-        const placement = candidatePlacement({cursor: location, bounds,
-            contentWidth: popupWidth, contentHeight: treeHeight,
-            detailHeight: compositionHeight + navigationHeight + detailHeight, aligned: false,
-            preferredSide: this._placementSide});
         this._treeScroll.visible = this._treeExpanded;
         this._treeScroll.set_size(popupWidth, treeHeight);
-        this._popup.set_size(popupWidth, placement.height);
-        return placement;
+        const height = compositionHeight + navigationHeight + detailHeight + treeHeight;
+        this._popup.set_size(popupWidth, height);
+        return height;
+    }
+
+    _place(data, {anchor, bounds, layout}) {
+        const placement = layout.placement;
+        const wasVisible = this._popup.visible;
+        this._popup.set_position(placement.x, placement.y);
+        this._popup.set_size(placement.width, placement.height);
+        this._placementSide = placement.side;
+        this._layoutDiagnostics.update({source: anchor.source, aligned: layout.tree.aligned, reason: layout.tree.reason,
+            cursor: anchor.location, bounds, placement});
+        this._popup.show();
+        this._announcements.update(data);
+        this._revealFocus(data);
+        // St measures the labels of a hidden popup too short; measure once more
+        // now that it is mapped, so no sentence line is clipped.
+        if (!wasVisible) this._render(data);
+    }
+
+    _revealFocus(data) {
+        const focus = this._treeFrames?.get(data.focusedNode);
+        const focusKey = `${data.contextId}:${data.selection}:${data.focusedNode}`;
+        if (!this._treeExpanded || !focus || focusKey === this._focusKey) return;
+        if (this._scrollIdle) GLib.source_remove(this._scrollIdle);
+        this._scrollIdle = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._scrollIdle = 0;
+            this._focusKey = focusKey;
+            const reveal = (adjustment, start, end) => {
+                let value = adjustment.value;
+                if (start < value) value = start;
+                else if (end > value + adjustment.page_size) value = end - adjustment.page_size;
+                adjustment.value = Math.max(adjustment.lower,
+                    Math.min(value, adjustment.upper - adjustment.page_size));
+            };
+            reveal(this._treeScroll.get_hadjustment(), Math.max(0, focus.x - 8), focus.x + focus.width + 8);
+            reveal(this._treeScroll.get_vadjustment(), Math.max(0, focus.y - 8), focus.y + focus.height + 16);
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     _showDetails(nodeID) {
-        const state = this._detailState;
-        const node = state?.nodes.get(nodeID);
-        if (!node) return;
-        const scoreDescription = state.showScores ? node.scorePresentation?.detailDescription : null;
-        const text = [node.text, node.reading, node.previewDescription, scoreDescription, messages.detailKeys].filter(Boolean).join('\n');
-        this._details.update({text});
+        const node = this._lastSnapshot?.candidateDisplay.nodes.find(item => item.id === nodeID);
+        if (node) this._details.update({text: node.detailText});
     }
 
     _refreshDetails() {
-        if (!this._detailState) return;
+        if (!this._detailsShown) return;
         const item = this._navigation.expanded ? this._navigation.hoveredItem : null;
         if (item) {
-            this._details.update({text: item.detailDescription});
+            this._details.update({text: item.detailText});
             return;
         }
         const target = this._hoveredAction;
@@ -456,14 +533,14 @@ export default class AzooKeyTreeExtension extends Extension {
             this._showDetails(target.index);
             return;
         }
-        const snapshot = this._lastSnapshot;
-        this._showDetails(snapshot?.focusedNode ?? snapshot?.columns?.[0]?.[0]);
+        this._showDetails(this._lastSnapshot?.candidateDisplay.detailNode);
     }
 
     disable() {
         this._call('SetRenderer', new GLib.Variant('(b)', [false]));
         if (this._watch) Gio.bus_unwatch_name(this._watch);
         if (this._subscription) Gio.DBus.session.signal_unsubscribe(this._subscription);
+        this._retireLayout();
         this._cancelReveal();
         this._hoveredAction = null;
         this._cursor?.destroy();

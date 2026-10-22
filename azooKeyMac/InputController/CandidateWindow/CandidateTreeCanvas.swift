@@ -6,7 +6,6 @@ final class TreeCanvas: NSView {
     struct Edge { var nodeID: Int; var from: NSPoint; var to: NSPoint }
     var edges: [Edge] = []
     var selectedPath: Set<Int> = []
-    var scores: [Int: Int] = [:]
     var scorePresentations: [Int: CandidateScorePresentation] = [:]
     var nodeFrames: [Int: NSRect] = [:]
     override var isFlipped: Bool { true }
@@ -29,7 +28,7 @@ final class TreeCanvas: NSView {
         NSBezierPath(ovalIn: NSRect(x: 1, y: 15, width: 6, height: 6)).fill()
         for (id, frame) in nodeFrames {
             guard let presentation = scorePresentations[id] else { continue }
-            CandidateScoreBadge.draw(presentation: presentation, score: scores[id], frame: frame, palette: palette)
+            CandidateScoreBadge.draw(presentation: presentation, frame: frame, palette: palette)
         }
     }
 }

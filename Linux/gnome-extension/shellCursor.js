@@ -1,5 +1,5 @@
 import * as IBusManager from 'resource:///org/gnome/shell/misc/ibusManager.js';
-import {resolveCursorAnchor, validCursorLocation} from './candidatePlacement.js';
+import {resolveCursorAnchor, validCursorLocation} from './cursorLocation.js';
 
 // GNOME 46 forwards Wayland rectangles only to its panel service, not the engine.
 // Keep the version-specific adapter here; its absence leaves the engine fallback.

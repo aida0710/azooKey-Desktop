@@ -14,7 +14,7 @@ class CandidateSuggestionTests(unittest.TestCase):
     def test_ai_pages_hide_number_shortcuts_but_keep_original_reading_and_pointer_selection(self):
         from azookey.bridge import Bridge
         from azookey.keymap import translate
-        from azookey.tree_panel import TreePanel
+        from candidate_core import core_tree_panel
         from gi.repository import Gtk
 
         directory = tempfile.TemporaryDirectory()
@@ -38,7 +38,7 @@ class CandidateSuggestionTests(unittest.TestCase):
             commits.extend(response["commits"])
             panel.update(response)
 
-        panel = TreePanel(choose)
+        panel = core_tree_panel(choose)
         self.addCleanup(panel.destroy)
         for character in "nihongo":
             snapshot = bridge.request("key", event=translate(ord(character), 0))

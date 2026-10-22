@@ -3,7 +3,9 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+#if canImport(ZIPFoundation)
 import ZIPFoundation
+#endif
 
 public enum DebugTypoCorrectionState: Sendable, Equatable {
     case downloaded
@@ -15,6 +17,7 @@ public enum DebugTypoCorrectionWeightsError: LocalizedError, Sendable {
     case invalidHTTPStatus(url: URL, statusCode: Int)
     case hashMismatch(fileName: String, expected: String, actual: String)
     case extractedFolderNotFound(path: String)
+    case unsupportedPlatform
 
     public var errorDescription: String? {
         switch self {
@@ -24,6 +27,8 @@ public enum DebugTypoCorrectionWeightsError: LocalizedError, Sendable {
             return "Hash mismatch for \(fileName). expected=\(expected), actual=\(actual)"
         case .extractedFolderNotFound(let path):
             return "Extracted folder not found at \(path)"
+        case .unsupportedPlatform:
+            return "Typo correction weights are not available on this platform"
         }
     }
 }
@@ -85,6 +90,10 @@ public enum DebugTypoCorrectionWeights {
     }
 
     public static func downloadWeights(modelDirectoryURL: URL) async throws {
+        #if os(Windows)
+        // The weights are marisa tries; the converter has no marisa reader on Windows.
+        throw DebugTypoCorrectionWeightsError.unsupportedPlatform
+        #else
         let fileManager = FileManager.default
         let parentDirectoryURL = modelDirectoryURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: parentDirectoryURL, withIntermediateDirectories: true)
@@ -123,6 +132,7 @@ public enum DebugTypoCorrectionWeights {
             try fileManager.removeItem(at: modelDirectoryURL)
         }
         try fileManager.moveItem(at: stagingDirectoryURL, to: modelDirectoryURL)
+        #endif
     }
 
     private static func fileMD5HexString(fileURL: URL) throws -> String {

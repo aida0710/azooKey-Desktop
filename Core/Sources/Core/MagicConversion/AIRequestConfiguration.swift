@@ -26,9 +26,14 @@ public struct AIRequestConfiguration: Sendable {
     public static func safeEndpointHost(_ endpoint: String) -> String? {
         guard let url = URLComponents(string: endpoint),
               ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
-              let host = url.host, !host.isEmpty else {
+              let reportedHost = url.host, !reportedHost.isEmpty else {
             return nil
         }
+        // Foundation versions differ in bracketing IPv6 hosts; show them
+        // bracketed so the port stays distinguishable. Host names are
+        // case-insensitive and are shown in lowercase on every platform.
+        let bareHost = reportedHost.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        let host = bareHost.contains(":") ? "[\(bareHost)]" : bareHost
         // Credentials can appear in userinfo, paths and queries. None belong
         // in a destination label, even for a custom endpoint.
         return url.port.map { "\(host):\($0)" } ?? host

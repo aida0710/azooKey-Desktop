@@ -1,0 +1,137 @@
+name: Windows
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+# A newer push to the same branch makes the older Windows run moot.
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Swift
+        shell: pwsh
+        run: Windows/scripts/install-swift.ps1
+      - name: Read the pinned Zenzai model revision
+        id: model
+        shell: pwsh
+        run: '"revision=$((git ls-tree HEAD azooKeyMac/Resources/gguf).Split()[2])" >> $env:GITHUB_OUTPUT'
+      - uses: actions/cache@v4
+        with:
+          path: build/models/ggml-model-Q5_K_M.gguf
+          key: zenzai-model-${{ steps.model.outputs.revision }}
+      - name: Fetch and verify Zenzai's model
+        shell: pwsh
+        env:
+          GIT_LFS_SKIP_SMUDGE: '1'
+        run: |
+          git submodule update --init azooKeyMac/Resources/gguf
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python Tools/fetch-models.py --model gguf
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/cache@v4
+        id: llama
+        with:
+          path: build/llama-windows/install
+          key: llama-windows-${{ hashFiles('Windows/scripts/build-llama.ps1') }}
+      - name: Build llama.cpp
+        if: steps.llama.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          . Windows/scripts/enter-dev-shell.ps1
+          Windows/scripts/build-llama.ps1
+      - name: Build the package
+        id: package
+        shell: pwsh
+        run: |
+          . Windows/scripts/enter-dev-shell.ps1
+          Windows/scripts/build-package.ps1 -Output build/windows-package
+      - name: Unit tests
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-windows-tests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          build/windows-frontend/azookey-background-requests-test.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Convert through the host with the packaged bridge
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-host-integration-test.exe build/windows-package/azookey-windows-host.exe build/windows-package/bridge/azookey-desktop-bridge.exe --expect-zenzai
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Measure the bridge with and without Zenzai
+        shell: pwsh
+        run: Windows/tools/measure-zenzai.ps1 -Package build/windows-package
+      - name: Type through TSF with the installed text service
+        shell: pwsh
+        run: |
+          # Users run install.ps1 from Windows PowerShell 5.1, which reads a script
+          # without a BOM in the ANSI code page; install it the same way.
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File build/windows-package/install.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path build/screenshots | Out-Null
+          Windows/tests/tsf-cases.ps1 -Harness build/windows-frontend/tsf-harness.exe -Screenshots build/screenshots
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Type through TSF from a 32-bit application
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/screenshots/x86 | Out-Null
+          Windows/tests/tsf-cases.ps1 -Harness build/windows-frontend-x86/tsf-harness.exe -Screenshots build/screenshots/x86
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # The settings steps run after the TSF steps, and even when one of those
+      # failed, so neither hides the state of the other.
+      - name: Settings unit tests
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-settings-tests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: The host applies a changed settings.json
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-settings-reload-test.exe build/windows-package/azookey-windows-host.exe build/windows-package/bridge/azookey-desktop-bridge.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Drive the settings windows and capture every page
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-settings-ui-test.exe build/windows-package/azookey-windows-host.exe build/windows-package/bridge/azookey-desktop-bridge.exe --screenshots build/settings-screenshots
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: The host's AI path against a stub AI API
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-ai-host-test.exe build/windows-package/azookey-windows-host.exe build/windows-package/bridge/azookey-desktop-bridge.exe build/windows-frontend/azookey-ai-transform-probe.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Drive the AI instruction window
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-ai-transform-window-test.exe --screenshots build/settings-screenshots
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Start the installed settings app from the Start menu entry
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: Windows/tests/settings-app-cases.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: azookey-tree-windows-x64
+          path: build/windows-package
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tsf-screenshots
+          path: build/screenshots
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: settings-screenshots
+          path: build/settings-screenshots
+          if-no-files-found: ignore

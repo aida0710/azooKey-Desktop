@@ -1,4 +1,8 @@
-"""Caret exclusion and usable candidate controls in constrained GTK work areas."""
+"""Caret exclusion and usable candidate controls in constrained GTK work areas.
+
+Core decides the placement (Core/Tests/CoreTests/DesktopCandidatesTests);
+these tests check that the GTK popup applies it to real allocations.
+"""
 import copy
 import os
 from pathlib import Path
@@ -9,8 +13,6 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from azookey.candidate_placement import popup_placement
-
 
 def overlaps_caret(frame, cursor):
     x, y, width, height = frame
@@ -19,73 +21,10 @@ def overlaps_caret(frame, cursor):
             and y < caret_y + caret_height and y + height > caret_y)
 
 
-class CandidatePlacementTests(unittest.TestCase):
-    def assert_safe(self, placement, *, cursor, area):
-        self.assertIsNotNone(placement)
-        self.assertGreater(placement.width, 0)
-        self.assertGreater(placement.height, 0)
-        self.assertGreaterEqual(placement.x, area[0])
-        self.assertGreaterEqual(placement.y, area[1])
-        self.assertLessEqual(placement.x + placement.width, area[0] + area[2])
-        self.assertLessEqual(placement.y + placement.height, area[1] + area[3])
-        self.assertFalse(overlaps_caret(
-            (placement.x, placement.y, placement.width, placement.height), cursor))
-
-    def test_vm_menu_moves_beside_the_caret_when_neither_vertical_side_fits(self):
-        cursor, area = (936, 506, 0, 35), (0, 32, 1280, 768)
-        placement = popup_placement(cursor=cursor, work_area=area, popup_size=(420, 505),
-                                    preferred_side="above")
-        self.assert_safe(placement, cursor=cursor, area=area)
-        self.assertEqual(placement.side, "left")
-        self.assertEqual((placement.width, placement.height), (420, 505))
-
-    def test_corners_zero_width_carets_and_oversized_popups_keep_a_safe_visible_region(self):
-        for area in ((0, 32, 1280, 768), (-640, 20, 640, 320), (0, 0, 320, 320)):
-            left, top, width, height = area
-            for x in (left, left + width // 2, left + width):
-                for y in (top, top + height // 2, top + height - 35):
-                    cursor = (x, y, 0, 35)
-                    for popup_size in ((240, 100), (420, 505), (1600, 1200)):
-                        with self.subTest(area=area, cursor=cursor, popup_size=popup_size):
-                            placement = popup_placement(cursor=cursor, work_area=area, popup_size=popup_size)
-                            self.assert_safe(placement, cursor=cursor, area=area)
-
-    def test_constrained_popup_keeps_readable_width_and_uses_the_larger_vertical_region(self):
-        cursor, area = (320, 142, 0, 35), (0, 0, 640, 320)
-        placement = popup_placement(cursor=cursor, work_area=area, popup_size=(420, 505))
-        self.assert_safe(placement, cursor=cursor, area=area)
-        self.assertEqual((placement.width, placement.height, placement.side), (420, 143, "below"))
-
-    def test_selection_size_changes_keep_the_usable_side(self):
-        cursor, area = (936, 506, 0, 35), (0, 32, 1280, 768)
-        placement = popup_placement(cursor=cursor, work_area=area, popup_size=(420, 505))
-        smaller = popup_placement(cursor=cursor, work_area=area, popup_size=(420, 300),
-                                  preferred_side=placement.side)
-        self.assertEqual(smaller.side, placement.side)
-        self.assert_safe(smaller, cursor=cursor, area=area)
-
-    def test_alignment_anchor_does_not_replace_the_real_caret_exclusion(self):
-        cursor, area = (600, 350, 0, 35), (0, 32, 1280, 768)
-        placement = popup_placement(cursor=cursor, work_area=area, popup_size=(420, 505),
-                                    column_anchor_x=100)
-        self.assert_safe(placement, cursor=cursor, area=area)
-        self.assertEqual((placement.x, placement.side), (601, "right"))
-
-    def test_a_caret_covering_the_whole_work_area_has_no_safe_placement(self):
-        self.assertIsNone(popup_placement(cursor=(0, 0, 320, 320), work_area=(0, 0, 320, 320),
-                                         popup_size=(200, 100)))
-
-    def test_full_height_caret_leaves_its_horizontal_region_available(self):
-        cursor, area = (100, 0, 0, 320), (0, 0, 320, 320)
-        placement = popup_placement(cursor=cursor, work_area=area, popup_size=(420, 505))
-        self.assert_safe(placement, cursor=cursor, area=area)
-        self.assertEqual((placement.width, placement.height, placement.side), (219, 320, "right"))
-
-
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
 class CandidatePopupPlacementTests(unittest.TestCase):
     def setUp(self):
-        from azookey.tree_panel import TreePanel
+        from candidate_core import core_tree_panel
         from gi.repository import Gtk
         from Linux.tests.test_candidate_presentation import CandidatePresentationTests
 
@@ -95,7 +34,7 @@ class CandidatePopupPlacementTests(unittest.TestCase):
         self.document.add(self.entry)
         self.document.show_all()
         self.entry.grab_focus()
-        self.panel = TreePanel(lambda *action: self.actions.append(action))
+        self.panel = core_tree_panel(lambda *action: self.actions.append(action))
         self.snapshot = CandidatePresentationTests.make_snapshot()
         self.snapshot["candidatePage"]["items"] *= 3
         for index, item in enumerate(self.snapshot["candidatePage"]["items"]):

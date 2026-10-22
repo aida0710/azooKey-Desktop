@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# The synthetic converter asks the real bridge only which keys Core routes.
+export AZOOKEY_REAL_BRIDGE="${AZOOKEY_BRIDGE:-$PWD/Linux/libexec/azookey-desktop-bridge}"
 export AZOOKEY_BRIDGE="$PWD/Linux/tests/fixtures/delayed_bridge.py"
 for AZOOKEY_TEST_DELAY in 0.25 2; do
     export AZOOKEY_TEST_DELAY

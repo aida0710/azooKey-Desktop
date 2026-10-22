@@ -3,6 +3,8 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 export PYTHONPATH="$PWD/Linux:$PWD/Linux/tests${PYTHONPATH:+:$PYTHONPATH}"
 [[ "$(uname -s)" == Linux ]] || { echo 'Run this script inside Ubuntu or Docker.' >&2; exit 2; }
+python3 Tools/tests/test-generate-messages.py
+python3 Tools/generate-messages.py --check
 bash Tools/tests/test-sync-upstream.sh
 bash Tools/tests/test-docker-preflight.sh
 bash Tools/test-tree-model.sh
@@ -17,6 +19,7 @@ python3 -m unittest discover -s Linux/tests -v
 gjs -m Linux/tests/candidate_announcements_gjs.js
 gjs -m Linux/tests/candidate_navigation_actions_gjs.js
 gjs -m Linux/tests/candidate_tree_hover_gjs.js
+gjs -m Linux/tests/cursor_location_gjs.js
 python3 Linux/tests/dictionary_exchange_integration.py -v
 GDK_BACKEND=x11 GSETTINGS_BACKEND=memory xvfb-run -a python3 -m unittest Linux.tests.test_tree_panel Linux.tests.test_candidate_accessibility Linux.tests.test_candidate_announcements Linux.tests.test_candidate_details Linux.tests.test_candidate_detail_paging Linux.tests.test_candidate_navigation Linux.tests.test_candidate_presentation Linux.tests.test_candidate_placement Linux.tests.test_candidate_scaling Linux.tests.test_candidate_theme Linux.tests.test_relative_scores Linux.tests.test_candidate_suggestions -v
 GDK_BACKEND=x11 GDK_SCALE=2 GSETTINGS_BACKEND=memory xvfb-run -a -s "-screen 0 1920x1080x24" python3 -m unittest Linux.tests.test_candidate_scaling Linux.tests.test_candidate_detail_paging -v

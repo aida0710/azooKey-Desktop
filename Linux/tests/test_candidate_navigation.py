@@ -26,16 +26,18 @@ class CandidateNavigationTests(unittest.TestCase):
     def tearDown(self):
         self.window.destroy()
 
-    def snapshot(self, context="original"):
+    def snapshot(self, context="original", *, numbers=True):
+        from candidate_core import displayed
+
         start = self.selection // 9 * 9
-        return {"contextId": context, "generation": 1, "selection": self.selection,
-                "showCandidateIndex": True, "candidatePage": {
+        return displayed({"contextId": context, "generation": 1, "selection": self.selection,
+                "inputState": "selecting", "showCandidateIndex": numbers, "candidatePage": {
                     "position": self.selection + 1, "totalCount": 500, "start": start,
                     "previousIndex": max(0, start - 9) if start else None,
                     "nextIndex": start + 9 if start + 9 < 500 else None,
                     "items": [{"index": index, "text": f"候補{index}", "reading": f"コウホ{index}",
                                "detailDescription": f"確定予定: 候補{index}"}
-                              for index in range(start, min(500, start + 9))]}}
+                              for index in range(start, min(500, start + 9))]}})
 
     def refresh(self):
         self.navigation.update(self.snapshot(), font_size=18, list_height=160)
@@ -103,7 +105,7 @@ class CandidateNavigationTests(unittest.TestCase):
     def test_disabling_number_shortcuts_removes_prefixes_without_changing_pointer_actions(self):
         self.assertEqual(self.navigation.row_buttons[0].number_label.get_text(), "1")
         old = self.navigation.row_buttons[0]
-        self.navigation.update({**self.snapshot(), "showCandidateIndex": False}, font_size=18, list_height=160)
+        self.navigation.update(self.snapshot(numbers=False), font_size=18, list_height=160)
         self.assertEqual([button.text_label.get_text() for button in self.navigation.row_buttons],
                          [f"候補{index}" for index in range(9)])
         old.clicked()

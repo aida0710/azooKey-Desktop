@@ -12,7 +12,7 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gtk
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from azookey.tree_panel import TreePanel
+from candidate_core import core_tree_panel
 
 
 class OrcaFixture:
@@ -34,7 +34,7 @@ class OrcaFixture:
             field.connect("changed", lambda *_: self.record("text"))
             content.pack_start(field, False, False, 0)
         self.window.add(content)
-        self.panel = TreePanel(self.select)
+        self.panel = core_tree_panel(self.select)
         self.panel.location = (280, 370, 0, 24)
         self.window.connect("destroy", lambda *_: self.panel.destroy())
         self.window.show_all()

@@ -1,0 +1,642 @@
+{
+  "activationFailed": {
+    "ja": "変換器へ辞書を反映できませんでした。変更前の辞書へ戻しました。再試行してください。",
+    "en": "The converter could not load the dictionary. The previous dictionary was restored. Try again."
+  },
+  "add": {
+    "ja": "追加",
+    "en": "Add"
+  },
+  "cancel": {
+    "ja": "キャンセル",
+    "en": "Cancel"
+  },
+  "cancelEdit": {
+    "ja": "この編集を取り消す",
+    "en": "Cancel this edit"
+  },
+  "compileFailed": {
+    "ja": "辞書を作成できませんでした。変更前の辞書を使い続けます。内容を確認して再試行してください。",
+    "en": "The dictionary could not be built. The previous dictionary remains active. Check the entries and try again."
+  },
+  "controlReading": {
+    "ja": "読みから制御文字を取り除いてください。",
+    "en": "Remove control characters from the reading."
+  },
+  "controlWord": {
+    "ja": "単語から制御文字を取り除いてください。",
+    "en": "Remove control characters from the word."
+  },
+  "countFormat": {
+    "ja": "{count:d}件",
+    "en": "{count:d} entries"
+  },
+  "delete": {
+    "ja": "削除",
+    "en": "Delete"
+  },
+  "draftHelp": {
+    "ja": "変更は「保存」で反映します。「キャンセル」やウィンドウを閉じる操作で、未保存の変更を取り消せます。",
+    "en": "Choose Save to apply your changes. Cancel or close the window to discard unsaved changes."
+  },
+  "edit": {
+    "ja": "編集",
+    "en": "Edit"
+  },
+  "editing_hidden": {
+    "ja": "編集中の項目は検索条件に一致していません。検索を消すと一覧に戻ります。",
+    "en": "The entry being edited does not match the search. Clear the search to show it in the list again."
+  },
+  "empty": {
+    "ja": "項目がありません。「追加」で単語を登録できます。",
+    "en": "No entries. Choose Add to register a word."
+  },
+  "emptyReading": {
+    "ja": "読みを入力してください。",
+    "en": "Enter a reading."
+  },
+  "emptyWord": {
+    "ja": "単語を入力してください。",
+    "en": "Enter a word."
+  },
+  "entryIssueFormat": {
+    "ja": "「{word}」（読み: {reading}）・{field}: {reason}",
+    "en": "“{word}” (reading: {reading}), {field}: {reason}"
+  },
+  "exchange.failure.exportFailed": {
+    "ja": "JSONを書き出せませんでした。保存先を確認してください。辞書の下書きは残っています。",
+    "en": "The JSON file could not be exported. Check the destination. The dictionary draft is still available."
+  },
+  "exchange.failure.importFailed": {
+    "ja": "ファイルを取り込めませんでした。下書きは変更していません。",
+    "en": "The file could not be imported. The draft has not changed."
+  },
+  "exchange.failure.invalidDocument": {
+    "ja": "ファイルの内容を読めませんでした。辞書の形式を確認してください。",
+    "en": "The file contents could not be read. Check the dictionary format."
+  },
+  "exchange.failure.invalidEncoding": {
+    "ja": "選んだ文字コードで読めませんでした。文字コードを確認してください。",
+    "en": "The file could not be read with the selected encoding. Check the encoding."
+  },
+  "exchange.failure.missingResources": {
+    "ja": "辞書の検証に必要なファイルを読み込めませんでした。インストール状態を確認してください。",
+    "en": "Files needed to validate the dictionary could not be loaded. Check the installation."
+  },
+  "exchange.failure.stalePreview": {
+    "ja": "確認中に下書きが変わりました。もう一度ファイルを選んで内容を確認してください。",
+    "en": "The draft changed during the preview. Choose the file again and review its contents."
+  },
+  "exchange.failure.unknownEncoding": {
+    "ja": "文字コードを判定できませんでした。ファイルの文字コードを選んで、もう一度取り込んでください。",
+    "en": "The text encoding could not be detected. Select the file's encoding and import it again."
+  },
+  "exchange.failure.unsupportedBinary": {
+    "ja": "この辞書ファイルには対応していません。公開テキストまたはazooKeyのJSONを選んでください。",
+    "en": "This dictionary file is not supported. Choose a public text export or azooKey JSON."
+  },
+  "exchange.failure.unsupportedFormat": {
+    "ja": "選んだファイル形式に対応していません。形式とファイルを確認してください。",
+    "en": "The selected file format is not supported. Check the format and the file."
+  },
+  "exchange.failure.unsupportedVersion": {
+    "ja": "この版のJSON形式には対応していません。",
+    "en": "This version of the JSON format is not supported."
+  },
+  "exchange.working.export": {
+    "ja": "下書きをJSONファイルへ書き出しています。",
+    "en": "Exporting the draft to a JSON file."
+  },
+  "exchange.working.import": {
+    "ja": "ファイルの内容を確認しています。",
+    "en": "Checking the file contents."
+  },
+  "export": {
+    "ja": "JSONを書き出す…",
+    "en": "Export JSON…"
+  },
+  "export.done": {
+    "ja": "JSONファイルを書き出しました。",
+    "en": "The JSON file was exported."
+  },
+  "export.done_unsaved": {
+    "ja": "下書きをJSONファイルへ書き出しました。辞書への変更はまだ保存されていません。",
+    "en": "The draft was exported to a JSON file. Changes to the dictionary are not saved yet."
+  },
+  "export.filename": {
+    "ja": "azookey-user-dictionary.json",
+    "en": "azookey-user-dictionary.json"
+  },
+  "export.title": {
+    "ja": "JSONを書き出す",
+    "en": "Export JSON"
+  },
+  "export.write": {
+    "ja": "書き出す",
+    "en": "Export"
+  },
+  "exportFailed": {
+    "ja": "JSONを書き出せませんでした。保存先とアクセス権を確認してください。下書きは残っています。",
+    "en": "The JSON file could not be written. Check the destination and its permissions. Your draft is still available."
+  },
+  "exportHelp": {
+    "ja": "絞り込みに関係なく、下書きの全項目を書き出します。辞書への反映は「保存」で行います。",
+    "en": "All draft entries will be exported, regardless of the search filter. Choose Save to apply the dictionary."
+  },
+  "exportTitle": {
+    "ja": "辞書をJSONで書き出す",
+    "en": "Export dictionary as JSON"
+  },
+  "exported": {
+    "ja": "下書きの全項目をJSONで書き出しました。辞書への反映には「保存」を使います。",
+    "en": "All draft entries were exported as JSON. Choose Save to apply the dictionary."
+  },
+  "exporting": {
+    "ja": "JSONを書き出しています…",
+    "en": "Exporting JSON…"
+  },
+  "failure.activation": {
+    "ja": "辞書を変換に反映できませんでした。下書きを残しています。もう一度保存してください。",
+    "en": "The dictionary could not be applied to conversion. The draft is kept. Save again."
+  },
+  "failure.compile": {
+    "ja": "辞書を作成できませんでした。下書きを残しています。もう一度保存してください。",
+    "en": "The dictionary could not be built. The draft is kept. Save again."
+  },
+  "failure.persistence": {
+    "ja": "辞書を保存できませんでした。保存先を確認してから、もう一度保存してください。",
+    "en": "The dictionary could not be saved. Check the destination and save again."
+  },
+  "failure.rollback": {
+    "ja": "以前の辞書へ戻せませんでした。下書きを残し、再保存を停止しています。辞書の保存先を確認してください。",
+    "en": "The previous dictionary could not be restored. The draft is kept and saving is stopped. Check the dictionary's destination."
+  },
+  "failure.unknown": {
+    "ja": "辞書の保存を確認できませんでした。下書きを残しています。もう一度保存してください。",
+    "en": "Saving the dictionary could not be confirmed. The draft is kept. Save again."
+  },
+  "failure.validation": {
+    "ja": "入力内容を確認できませんでした。下書きを残しています。もう一度保存してください。",
+    "en": "The entries could not be validated. The draft is kept. Save again."
+  },
+  "field_unknown": {
+    "ja": "項目",
+    "en": "Field"
+  },
+  "file_type.all": {
+    "ja": "すべてのファイル（*.*）",
+    "en": "All files (*.*)"
+  },
+  "file_type.json": {
+    "ja": "azooKey JSON（*.json）",
+    "en": "azooKey JSON (*.json)"
+  },
+  "file_type.text": {
+    "ja": "テキスト（*.txt）",
+    "en": "Text files (*.txt)"
+  },
+  "filtered_count": {
+    "ja": "{total}件中{visible}件を表示",
+    "en": "Showing {visible} of {total}"
+  },
+  "hint": {
+    "ja": "ヒント",
+    "en": "Hint"
+  },
+  "import": {
+    "ja": "取り込む…",
+    "en": "Import…"
+  },
+  "import.apply": {
+    "ja": "下書きへ追加",
+    "en": "Add to draft"
+  },
+  "import.counts": {
+    "ja": "追加 {additions}件・重複 {duplicates}件・衝突 {conflicts}件・除外 {excluded}件",
+    "en": "{additions} additions · {duplicates} duplicates · {conflicts} conflicts · {excluded} excluded"
+  },
+  "import.draft_help": {
+    "ja": "追加対象だけを下書きに加えます。重複・衝突・除外の項目は変更しません。辞書への反映には、この後「保存」が必要です。",
+    "en": "Only additions are added to the draft. Duplicate, conflicting, and excluded entries are not changed. Choose Save afterwards to apply the dictionary."
+  },
+  "import.encoding": {
+    "ja": "文字コード",
+    "en": "Text encoding"
+  },
+  "import.encoding.automatic": {
+    "ja": "自動（UTF-8・BOM付きUTF-16）",
+    "en": "Automatic (UTF-8 / UTF-16 with BOM)"
+  },
+  "import.encoding.shiftJIS": {
+    "ja": "Shift_JIS",
+    "en": "Shift_JIS"
+  },
+  "import.encoding.utf16": {
+    "ja": "UTF-16（BOM付き）",
+    "en": "UTF-16 (with BOM)"
+  },
+  "import.encoding.utf8": {
+    "ja": "UTF-8",
+    "en": "UTF-8"
+  },
+  "import.format": {
+    "ja": "ファイル形式",
+    "en": "File format"
+  },
+  "import.format.atok2017": {
+    "ja": "ATOK 2017の公開テキスト",
+    "en": "ATOK 2017 text export"
+  },
+  "import.format.json": {
+    "ja": "azooKey JSON",
+    "en": "azooKey JSON"
+  },
+  "import.format.mozc": {
+    "ja": "Mozc・Google日本語入力の公開テキスト",
+    "en": "Mozc / Google Japanese Input text export"
+  },
+  "import.format_help": {
+    "ja": "ATOK独自の辞書ファイルには対応していません。公開テキストを書き出して選んでください。Shift_JISは明示的に選択します。",
+    "en": "ATOK's own dictionary files are not supported. Export the public text format and choose it. Select Shift_JIS explicitly."
+  },
+  "import.notice.properNounRegistration": {
+    "ja": "取り込む項目は固有名詞として登録します。元の品詞は保持しません。",
+    "en": "Imported entries are registered as proper nouns. Their original parts of speech are not kept."
+  },
+  "import.outcome": {
+    "ja": "処理",
+    "en": "Action"
+  },
+  "import.outcome.addition": {
+    "ja": "追加",
+    "en": "Add"
+  },
+  "import.outcome.conflict": {
+    "ja": "衝突",
+    "en": "Conflict"
+  },
+  "import.outcome.duplicate": {
+    "ja": "重複",
+    "en": "Duplicate"
+  },
+  "import.outcome.excluded": {
+    "ja": "除外",
+    "en": "Exclude"
+  },
+  "import.part_of_speech": {
+    "ja": "元の品詞",
+    "en": "Original part of speech"
+  },
+  "import.preview": {
+    "ja": "取込内容を確認",
+    "en": "Preview import"
+  },
+  "import.problem.conflict": {
+    "ja": "同じ単語・読みでヒントが異なるため、既存の項目を残します。",
+    "en": "The same word and reading exist with a different hint, so the existing entry is kept."
+  },
+  "import.problem.duplicate": {
+    "ja": "同じ単語・読み・ヒントがあるため追加しません。",
+    "en": "An entry with the same word, reading, and hint exists, so it is not added."
+  },
+  "import.problem.invalidColumns": {
+    "ja": "読み・単語・品詞の列が不足しています。",
+    "en": "The reading, word, or part-of-speech column is missing."
+  },
+  "import.problem.invalidEntry": {
+    "ja": "単語または読みを確認してください。",
+    "en": "Check the word or reading."
+  },
+  "import.problem.unsupportedFields": {
+    "ja": "対応していない追加の列があります。",
+    "en": "There are unsupported extra columns."
+  },
+  "import.problem.unsupportedPartOfSpeech": {
+    "ja": "この品詞は取り込めません。",
+    "en": "This part of speech cannot be imported."
+  },
+  "import.reason": {
+    "ja": "理由",
+    "en": "Reason"
+  },
+  "import.selected_detail": {
+    "ja": "選択した取込項目の詳細",
+    "en": "Details of the selected import entry"
+  },
+  "import.source": {
+    "ja": "取込元",
+    "en": "Source"
+  },
+  "import.source_item": {
+    "ja": "項目 {number}",
+    "en": "Item {number}"
+  },
+  "import.source_line": {
+    "ja": "{number}行目",
+    "en": "Line {number}"
+  },
+  "import.title": {
+    "ja": "ファイルから取り込む",
+    "en": "Import from file"
+  },
+  "importApply": {
+    "ja": "下書きに追加",
+    "en": "Add to draft"
+  },
+  "importBinaryUnsupported": {
+    "ja": "バイナリ辞書には対応していません。移行元でテキスト形式に書き出してください。",
+    "en": "Binary dictionaries are not supported. Export a text file from the original application."
+  },
+  "importCountsFormat": {
+    "ja": "追加{additions:d}件・重複{duplicates:d}件・衝突{conflicts:d}件・除外{excluded:d}件",
+    "en": "{additions:d} additions · {duplicates:d} duplicates · {conflicts:d} conflicts · {excluded:d} excluded"
+  },
+  "importDraftHelp": {
+    "ja": "追加する項目だけを下書きに加えます。重複と衝突では既存の項目を残します。辞書への反映は、一覧に戻って「保存」で行います。",
+    "en": "Only additions will be added to the draft. Existing entries are kept for duplicates and conflicts. Return to the list and choose Save to apply the dictionary."
+  },
+  "importEncoding": {
+    "ja": "文字コード",
+    "en": "Text encoding"
+  },
+  "importEncoding.automatic": {
+    "ja": "自動（UTF-8 / BOM付きUTF-16）",
+    "en": "Automatic (UTF-8 / UTF-16 with BOM)"
+  },
+  "importEncoding.shiftJIS": {
+    "ja": "Shift_JIS",
+    "en": "Shift_JIS"
+  },
+  "importEncoding.utf16": {
+    "ja": "UTF-16（BOM付き）",
+    "en": "UTF-16 (with BOM)"
+  },
+  "importEncoding.utf8": {
+    "ja": "UTF-8",
+    "en": "UTF-8"
+  },
+  "importFailed": {
+    "ja": "ファイルを読み込めませんでした。ファイルとアクセス権を確認してください。下書きは変更していません。",
+    "en": "The file could not be read. Check the file and its permissions. Your draft has not changed."
+  },
+  "importFormat": {
+    "ja": "ファイル形式",
+    "en": "File format"
+  },
+  "importFormat.atok2017": {
+    "ja": "ATOK 2017 書出しテキスト",
+    "en": "ATOK 2017 text export"
+  },
+  "importFormat.json": {
+    "ja": "azooKey 辞書 JSON",
+    "en": "azooKey dictionary JSON"
+  },
+  "importFormat.mozc": {
+    "ja": "Mozc / Google 日本語入力 書出しテキスト",
+    "en": "Mozc / Google Japanese Input text export"
+  },
+  "importFormatHelp": {
+    "ja": "ATOKは公開された書出しテキスト形式に対応します。ATOK独自のバイナリ辞書は取り込めません。Shift_JISのファイルは文字コードを指定してください。",
+    "en": "ATOK support is limited to the public text export format. Proprietary binary dictionaries are not supported. Select Shift_JIS explicitly for files using that encoding."
+  },
+  "importFormatUnsupported": {
+    "ja": "対応している辞書形式ではありません。ファイル形式を確認してください。",
+    "en": "This dictionary format is not supported. Check the selected format."
+  },
+  "importInvalidDocument": {
+    "ja": "辞書ファイルの構造を読み取れませんでした。選んだ形式とファイルの内容を確認してください。",
+    "en": "The dictionary file could not be parsed. Check the selected format and the file contents."
+  },
+  "importInvalidEncoding": {
+    "ja": "指定した文字コードでは読み込めませんでした。文字コードを選び直してください。",
+    "en": "The file could not be read with the selected encoding. Choose the correct encoding."
+  },
+  "importItemFormat": {
+    "ja": "項目{item:d}",
+    "en": "Item {item:d}"
+  },
+  "importLineFormat": {
+    "ja": "{line:d}行目",
+    "en": "Line {line:d}"
+  },
+  "importOutcome": {
+    "ja": "扱い",
+    "en": "Action"
+  },
+  "importOutcome.addition": {
+    "ja": "追加",
+    "en": "Add"
+  },
+  "importOutcome.conflict": {
+    "ja": "衝突",
+    "en": "Conflict"
+  },
+  "importOutcome.duplicate": {
+    "ja": "重複",
+    "en": "Duplicate"
+  },
+  "importOutcome.excluded": {
+    "ja": "除外",
+    "en": "Exclude"
+  },
+  "importPartOfSpeech": {
+    "ja": "元の品詞",
+    "en": "Original part of speech"
+  },
+  "importPreview": {
+    "ja": "取込内容を確認",
+    "en": "Preview import"
+  },
+  "importProblem.conflict": {
+    "ja": "読みと単語が同じで、ヒントが異なる項目があります。既存の内容を残します。",
+    "en": "The reading and word already exist with a different hint. The existing entry will be kept."
+  },
+  "importProblem.duplicate": {
+    "ja": "読み・単語・ヒントが同じ項目があります。追加しません。",
+    "en": "An entry with the same reading, word, and hint already exists. It will not be added."
+  },
+  "importProblem.invalidColumns": {
+    "ja": "必要な列が不足しているか、列の数が異なります。",
+    "en": "Required columns are missing or the number of columns is incorrect."
+  },
+  "importProblem.invalidEntry": {
+    "ja": "この項目は辞書に登録できません。",
+    "en": "This entry cannot be registered in the dictionary."
+  },
+  "importProblem.unsupportedFields": {
+    "ja": "対応していない項目が含まれています。",
+    "en": "The entry contains unsupported fields."
+  },
+  "importProblem.unsupportedPartOfSpeech": {
+    "ja": "この品詞には対応していません。",
+    "en": "This part of speech is not supported."
+  },
+  "importProperNounNotice": {
+    "ja": "追加する項目は固有名詞として登録します。元の辞書の品詞は保持しません。",
+    "en": "Accepted entries will be registered as proper nouns. Their original parts of speech are not preserved."
+  },
+  "importReason": {
+    "ja": "理由",
+    "en": "Reason"
+  },
+  "importSelectedDetail": {
+    "ja": "選択した取込項目の詳細",
+    "en": "Details of the selected import entry"
+  },
+  "importSource": {
+    "ja": "取込元",
+    "en": "Source"
+  },
+  "importStalePreview": {
+    "ja": "確認後に下書きが変わったため追加しませんでした。現在の下書きで取込内容を確認し直してください。",
+    "en": "The draft changed after the preview was prepared. Nothing was added. Prepare a new preview against the current draft."
+  },
+  "importTitle": {
+    "ja": "辞書を取り込む",
+    "en": "Import dictionary"
+  },
+  "importUnknownEncoding": {
+    "ja": "文字コードを判定できませんでした。ファイルの文字コードを指定して取り込み直してください。",
+    "en": "The text encoding could not be detected. Select the file's encoding and import it again."
+  },
+  "importVersionUnsupported": {
+    "ja": "このJSON辞書の版には対応していません。",
+    "en": "This version of the JSON dictionary is not supported."
+  },
+  "importing": {
+    "ja": "取込内容を準備しています…",
+    "en": "Preparing the import preview…"
+  },
+  "instructions": {
+    "ja": "一覧で項目を選んで編集します。列の見出しで並べ替えられます。変更は「保存」を押すまで反映されません。",
+    "en": "Select an entry in the list to edit it. Click a column header to sort. Changes are not applied until you choose Save."
+  },
+  "invalid": {
+    "ja": "保存できません。{count}件の入力内容を確認してください。",
+    "en": "Cannot save. Check {count} entries."
+  },
+  "issues": {
+    "ja": "確認する内容",
+    "en": "Issues to review"
+  },
+  "missingResources": {
+    "ja": "読みの検証に必要な辞書データを読み込めませんでした。再試行してください。",
+    "en": "The dictionary data needed to validate readings could not be loaded. Try again."
+  },
+  "persistenceFailed": {
+    "ja": "設定を保存できませんでした。保存先を確認して再試行してください。変更前の辞書を使い続けます。",
+    "en": "The settings could not be saved. Check the destination and try again. The previous dictionary remains active."
+  },
+  "reading": {
+    "ja": "読み",
+    "en": "Reading"
+  },
+  "remove": {
+    "ja": "選択した項目を削除",
+    "en": "Delete selected entry"
+  },
+  "rollbackFailed": {
+    "ja": "変更前の状態を完全には復元できませんでした。辞書を再保存せず、問題を報告してください。",
+    "en": "The previous state could not be fully restored. Report the problem before saving again."
+  },
+  "row_issue": {
+    "ja": "{row}行目の{field}：{reason}",
+    "en": "Row {row}, {field}: {reason}"
+  },
+  "save": {
+    "ja": "保存",
+    "en": "Save"
+  },
+  "saved": {
+    "ja": "辞書を保存しました。次の変換から使用します。",
+    "en": "The dictionary was saved. It will be used for the next conversion."
+  },
+  "saved_refresh_failed": {
+    "ja": "辞書を保存しました。表示の更新に失敗したため、設定画面を開き直してください。",
+    "en": "The dictionary was saved. Updating the display failed, so reopen the settings window."
+  },
+  "saving": {
+    "ja": "辞書を保存しています。完了までお待ちください。",
+    "en": "Saving the dictionary. Please wait until it finishes.",
+    "macos": {
+      "ja": "辞書を保存・反映しています…",
+      "en": "Saving and applying the dictionary…"
+    }
+  },
+  "search": {
+    "ja": "単語・読み・ヒントを検索",
+    "en": "Search words, readings, and hints",
+    "macos": {
+      "ja": "読み・単語・ヒントを検索",
+      "en": "Search readings, words, and hints"
+    }
+  },
+  "sort_original": {
+    "ja": "登録順に戻す",
+    "en": "Restore registration order"
+  },
+  "systemIssueFormat": {
+    "ja": "システム辞書の項目「{word}」・{field}: {reason} 設定の「システムのユーザ辞書」でリセットするか、システム側で修正して読み込み直してください。",
+    "en": "System dictionary entry “{word}”, {field}: {reason} Reset the imported system dictionary in settings, or correct it in the system dictionary and import it again."
+  },
+  "title": {
+    "ja": "ユーザー辞書",
+    "en": "User dictionary"
+  },
+  "unchanged": {
+    "ja": "変更はありません。",
+    "en": "No changes."
+  },
+  "unknownFailure": {
+    "ja": "辞書を保存できませんでした。未保存の変更は残っています。再試行してください。",
+    "en": "The dictionary could not be saved. Your unsaved changes are still available. Try again."
+  },
+  "unknown_row_issue": {
+    "ja": "{field}：{reason}",
+    "en": "{field}: {reason}"
+  },
+  "unsaved": {
+    "ja": "未保存の変更があります。",
+    "en": "There are unsaved changes."
+  },
+  "unsupportedReading": {
+    "ja": "この読みには辞書で使えない文字が含まれています。",
+    "en": "The reading contains characters this dictionary cannot use."
+  },
+  "validation.reading.controlCharacter": {
+    "ja": "読みには制御文字を使えません。",
+    "en": "Readings cannot contain control characters."
+  },
+  "validation.reading.empty": {
+    "ja": "読みを入力してください。",
+    "en": "Enter a reading."
+  },
+  "validation.reading.unsupportedCharacter": {
+    "ja": "読みに対応していない文字が含まれています。",
+    "en": "The reading contains unsupported characters."
+  },
+  "validation.unknown": {
+    "ja": "入力内容を確認してください。",
+    "en": "Check the entry."
+  },
+  "validation.word.controlCharacter": {
+    "ja": "単語には制御文字を使えません。",
+    "en": "Words cannot contain control characters."
+  },
+  "validation.word.empty": {
+    "ja": "単語を入力してください。",
+    "en": "Enter a word."
+  },
+  "validationIssues": {
+    "ja": "辞書の入力内容の確認",
+    "en": "Dictionary validation issues"
+  },
+  "visibleCountFormat": {
+    "ja": "表示{count:d}件",
+    "en": "{count:d} shown"
+  },
+  "word": {
+    "ja": "単語",
+    "en": "Word"
+  }
+}

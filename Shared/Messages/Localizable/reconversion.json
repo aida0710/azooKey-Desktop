@@ -1,0 +1,102 @@
+{
+  "reconversion.changed_context": {
+    "ja": "文字や入力位置が変わったため再変換を中止しました",
+    "en": "Reconversion stopped because the text or input position changed",
+    "macos": {
+      "ja": "文字またはカーソル位置が変わりました。もう一度選択してください",
+      "en": "The text or cursor has changed. Select the word again"
+    }
+  },
+  "reconversion.composition_active": {
+    "ja": "入力中の文字を確定してから再変換してください",
+    "en": "Finish the current composition before reconverting"
+  },
+  "reconversion.confirm_selection": {
+    "ja": "Enterで選択した文字を再変換 / Escで取消",
+    "en": "Enter to reconvert the selected text / Esc to cancel"
+  },
+  "reconversion.confirm_undo": {
+    "ja": "Enterで直前の確定を取り消す / Escで取消",
+    "en": "Enter to undo the last commit / Esc to cancel"
+  },
+  "reconversion.invalid_context": {
+    "ja": "選択範囲を確認できません",
+    "en": "Cannot verify the selection",
+    "macos": {
+      "ja": "入力先の範囲を確認できません。もう一度選択してください",
+      "en": "Cannot verify the document range. Select the word again"
+    }
+  },
+  "reconversion.no_recent_commit": {
+    "ja": "取り消せる直前の確定がありません",
+    "en": "There is no recent commit to undo"
+  },
+  "reconversion.no_selection": {
+    "ja": "再変換する文字を選択してください",
+    "en": "Select the text to reconvert",
+    "macos": {
+      "ja": "再変換する語を選択してください",
+      "en": "Select a word to reconvert"
+    }
+  },
+  "reconversion.private_input": {
+    "ja": "保護された入力では再変換できません",
+    "en": "Reconversion is unavailable in protected input",
+    "macos": {
+      "ja": "この入力欄では確定取消・再変換を利用できません",
+      "en": "Commit undo and reconversion are unavailable in this field"
+    }
+  },
+  "reconversion.reading_input": {
+    "ja": "読みを入力: {reading}　Enterで再変換 / Escで取消",
+    "en": "Enter reading: {reading}  Enter to reconvert / Esc to cancel",
+    "macos": {
+      "ja": "読みを入力: {reading}　Enter で再変換 / Escape で中止",
+      "en": "Enter reading: {reading}  — Enter to reconvert / Escape to cancel"
+    }
+  },
+  "reconversion.reading_required": {
+    "ja": "再変換する文字の読みを入力してください",
+    "en": "Enter the reading of the text to reconvert",
+    "macos": {
+      "ja": "この語の読みを入力してください",
+      "en": "Enter the reading for this word"
+    }
+  },
+  "reconversion.replacement_unavailable": {
+    "ja": "この入力先では範囲の置換を確認できません",
+    "en": "Cannot verify replacement of this range in this application"
+  },
+  "reconversion.selection_menu": {
+    "ja": "選択した文字を再変換（Ctrl+Shift+R）",
+    "en": "Reconvert the selected text (Ctrl+Shift+R)",
+    "macos": {
+      "ja": "選択した語を再変換（Control+Shift+R）",
+      "en": "Reconvert selected word (Control+Shift+R)"
+    }
+  },
+  "reconversion.stale_request": {
+    "ja": "再変換の操作が無効になりました",
+    "en": "The reconversion request is no longer valid",
+    "macos": {
+      "ja": "入力先が変わりました。もう一度やり直してください",
+      "en": "The input context changed. Try again"
+    }
+  },
+  "reconversion.undo_menu": {
+    "ja": "直前の確定を取り消す（Ctrl+Shift+Backspace）",
+    "en": "Undo the last commit (Ctrl+Shift+Backspace)",
+    "macos": {
+      "ja": "直前の確定を取り消す（Control+Shift+Backspace）",
+      "en": "Undo last commit (Control+Shift+Backspace)"
+    }
+  },
+  "reconversion.whole_selection_required": {
+    "ja": "選択範囲全体の候補を選んでください",
+    "en": "Choose a candidate for the whole selection",
+    "macos": {
+      "ja": "再変換では選択した語全体を対象にしてください",
+      "en": "Reconversion must cover the entire selected word"
+    }
+  }
+}

@@ -49,20 +49,17 @@ class CandidatePaletteTests(unittest.TestCase):
                      "requires an isolated Xvfb display and the memory GSettings backend")
 class CandidateThemeTests(unittest.TestCase):
     def test_gtk_theme_and_dark_preference_work_without_gnome_preferences(self):
-        from azookey.candidate_theme import appearance_name, score_role
+        from azookey.candidate_theme import appearance_name
         for theme, prefer_dark, expected in [
             ("Adwaita", False, "light"), ("Adwaita-dark", False, "dark"), ("Adwaita", True, "dark"),
             ("HighContrast", False, "highContrastLight"), ("HighContrastInverse", False, "highContrastDark"),
         ]:
             self.assertEqual(appearance_name(color_scheme="default", theme_name=theme, prefer_dark=prefer_dark,
                                              high_contrast=False, dark_background=False), expected)
-        self.assertEqual(score_role(None), "scoreUnknown")
-        self.assertEqual(score_role(74), "scoreLow")
-        self.assertEqual(score_role(75), "scoreHigh")
 
     def test_desktop_appearance_changes_preserve_candidate_actions_focus_and_details(self):
         import cairo
-        from azookey.tree_panel import TreePanel
+        from candidate_core import core_tree_panel
         from gi.repository import Gdk, GLib, Gtk, Pango
         submitted = []
         document = Gtk.Window()
@@ -70,7 +67,7 @@ class CandidateThemeTests(unittest.TestCase):
         document.add(entry)
         document.show_all()
         entry.grab_focus()
-        panel = TreePanel(lambda *args: submitted.append(args))
+        panel = core_tree_panel(lambda *args: submitted.append(args))
         self.addCleanup(panel.destroy)
         self.addCleanup(document.destroy)
         snapshot = {
@@ -80,16 +77,17 @@ class CandidateThemeTests(unittest.TestCase):
                 {"id": 2, "text": "画", "reading": "が", "parent": 0, "terminals": [1], "relativeScore": None},
             ],
             "columns": [[0], [1, 2]], "selectedPath": [0, 1], "focusedNode": 1, "selection": 0,
-            "contextId": "synthetic-theme", "generation": 1, "showRelativeScores": True,
+            "contextId": "synthetic-theme", "generation": 1, "showRelativeScores": True, "inputState": "selecting",
             "candidatePage": {"position": 1, "totalCount": 2, "start": 0, "items": [
                 {"index": 0, "text": "日本語", "reading": "にほんご"},
                 {"index": 1, "text": "日本画", "reading": "にほんが"},
             ]},
         }
-        for node in snapshot["nodes"]:
+        # The roles Core gives these scores.
+        for node, role in zip(snapshot["nodes"], ("scoreHigh", "scoreLow", "scoreUnknown")):
             score = node["relativeScore"]
             node["scorePresentation"] = {
-                "label": str(score) if score is not None else "—",
+                "label": str(score) if score is not None else "—", "role": role,
                 "detailDescription": f"相対スコア {score}" if score is not None else "未評価",
             }
         panel.update(snapshot)

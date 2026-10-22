@@ -7,8 +7,8 @@
   "focusedNode": 10,
   "selectedPath": [10, 12],
   "nodes": [
-    {"id": 10, "text": "日本", "reading": "ニホン", "parent": null, "terminals": [], "scorePresentation": {"label": "100", "detailDescription": "相対スコアの長い説明"}},
-    {"id": 11, "text": "日本", "reading": "ニッポン", "parent": null, "terminals": [], "scorePresentation": {"label": "40", "detailDescription": "相対スコアの長い説明"}},
+    {"id": 10, "text": "日本", "reading": "ニホン", "parent": null, "terminals": [], "relativeScore": 100, "scorePresentation": {"label": "100", "role": "scoreHigh", "detailDescription": "相対スコアの長い説明"}},
+    {"id": 11, "text": "日本", "reading": "ニッポン", "parent": null, "terminals": [], "relativeScore": 40, "scorePresentation": {"label": "40", "role": "scoreLow", "detailDescription": "相対スコアの長い説明"}},
     {"id": 12, "text": "に行く", "reading": "ニイク", "parent": 10, "terminals": [0]},
     {"id": 13, "text": "に行く", "reading": "ニイク", "parent": 11, "terminals": [1]}
   ],

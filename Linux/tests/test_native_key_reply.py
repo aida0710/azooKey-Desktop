@@ -9,10 +9,16 @@ from azookey.input_coordinator import InputCoordinator
 from azookey.input_preview import is_native_key
 from azookey.keymap import translate
 from azookey.native_key_reply import NativeKeyReply
+from ai_core_fixture import publish_core_shortcuts
 
 
 # F9 and F10 can commit either all input or only the selected segment.
 ROMAN_CONVERSION_KEYS = (0xFFC6, 0xFFC7)
+
+
+def setUpModule():
+    # Idle Control chords are routed by the bindings Core publishes.
+    publish_core_shortcuts()
 
 
 class ManualWorker:

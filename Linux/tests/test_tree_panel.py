@@ -21,8 +21,8 @@ class TreePanelTests(unittest.TestCase):
             self.assertTrue(layout.is_ellipsized(), text)
 
     def test_word_columns_stay_under_document_words(self):
-        from azookey.tree_panel import TreePanel
-        panel = TreePanel(lambda *_: None)
+        from candidate_core import core_tree_panel
+        panel = core_tree_panel(lambda *_: None)
         panel.location = (100, 100, 1, 20)
         try:
             snapshot = {
@@ -56,7 +56,7 @@ class TreePanelTests(unittest.TestCase):
         from gi.repository import GLib
         from azookey.bridge import Bridge
         from azookey.keymap import translate
-        from azookey.tree_panel import TreePanel
+        from candidate_core import core_tree_panel
 
         previous = os.environ.get("AZOOKEY_DATA_DIR")
         with tempfile.TemporaryDirectory() as directory:
@@ -79,7 +79,7 @@ class TreePanelTests(unittest.TestCase):
                     snapshot = response
                     panel.update(snapshot)
 
-                panel = TreePanel(choose)
+                panel = core_tree_panel(choose)
                 panel.update(snapshot)
                 self.assertTrue(panel.scroll.get_visible())
                 context = GLib.MainContext.default()
@@ -121,7 +121,7 @@ class TreePanelTests(unittest.TestCase):
     def test_composing_enter_commits_reading_while_candidate_button_explicitly_commits_the_preview(self):
         from azookey.bridge import Bridge
         from azookey.keymap import translate
-        from azookey.tree_panel import TreePanel
+        from candidate_core import core_tree_panel
 
         previous = os.environ.get("AZOOKEY_DATA_DIR")
         with tempfile.TemporaryDirectory() as directory:
@@ -157,7 +157,7 @@ class TreePanelTests(unittest.TestCase):
                     commits.extend(snapshot["commits"])
                     panel.update(snapshot)
 
-                panel = TreePanel(choose)
+                panel = core_tree_panel(choose)
                 panel.update(snapshot)
                 self.assertEqual(panel.composition_title.get_text(), "候補のプレビュー")
                 self.assertEqual(panel.composition.displayed_text, selected_candidate)

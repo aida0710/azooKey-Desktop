@@ -11,7 +11,7 @@ enum CandidateScoreBadge {
     private static let minimumWidth: CGFloat = 22
     private static let horizontalInset: CGFloat = 3
 
-    static func draw(presentation: CandidateScorePresentation, score: Int?, frame: NSRect, palette: CandidatePalette) {
+    static func draw(presentation: CandidateScorePresentation, frame: NSRect, palette: CandidatePalette) {
         let style = NSMutableParagraphStyle()
         style.alignment = .center
         let attributes: [NSAttributedString.Key: Any] = [
@@ -20,7 +20,7 @@ enum CandidateScoreBadge {
         let label = presentation.label as NSString
         let width = min(frame.width, max(minimumWidth, label.size(withAttributes: attributes).width + horizontalInset * 2))
         let badge = NSRect(x: frame.midX - width / 2, y: frame.maxY, width: width, height: lineHeight)
-        CandidateTheme.scoreColor(score, palette: palette).setFill()
+        CandidateTheme.scoreColor(presentation.role, palette: palette).setFill()
         NSBezierPath(rect: badge).fill()
         label.draw(in: badge, withAttributes: attributes)
     }

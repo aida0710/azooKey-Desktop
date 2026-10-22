@@ -1,7 +1,7 @@
 """A current AI response remains copyable after its input target is lost."""
 from unittest import mock
 
-from test_ai_transform_target import accessible_fixture
+from ai_core_fixture import witness_fixture
 from test_selected_text_transform import SelectedTextTransformationFixture
 
 
@@ -16,16 +16,17 @@ class SelectedTextResultTests(SelectedTextTransformationFixture):
         self.engine.request = mock.Mock()
         self.engine.update_auxiliary_text = mock.Mock()
 
-    def capture_request(self, _snapshot, _scope, **request):
-        request["bridge_generation"] = self.engine.input.generation
-        request["focus_epoch"] = self.engine.input.cancelled
-        self.requests.append(request)
+    def capture_request(self, _snapshot, request, **values):
+        values["request"] = request
+        values["bridge_generation"] = self.engine.input.generation
+        values["focus_epoch"] = self.engine.input.cancelled
+        self.requests.append(values)
         self.engine.ai_pending = True
 
     def begin_request(self):
         if self.session.dialog is None:
             self.session.show("敬語に直す")
-            self.inspections.pop()(accessible_fixture())
+            self.inspections.pop()(witness_fixture())
             self.engine.focus_revision = object()
             with mock.patch.object(self.session.dialog, "is_active", return_value=True):
                 self.session.dialog.notify("is-active")
@@ -61,8 +62,8 @@ class SelectedTextResultTests(SelectedTextTransformationFixture):
         self.deliver(request)
         self.begin_apply()
         verified = self.inspections.pop()
-        verified(accessible_fixture())
-        verified(accessible_fixture())
+        verified(witness_fixture())
+        verified(witness_fixture())
         self.assertEqual(self.commits, ["新しい本文"])
 
     def test_reset_or_private_notification_preserves_only_the_current_copyable_result(self):
@@ -97,8 +98,8 @@ class SelectedTextResultTests(SelectedTextTransformationFixture):
         self.engine.input.cancelled = object()
         self.deliver(first, ("古い本文",))
         self.assertIsNone(dialog.result)
-        self.assertIsNotNone(self.session.target)
-        self.assertTrue(dialog.preview.is_loading)
+        self.assertTrue(self.session.target_available)
+        self.assertTrue(dialog.loading)
         # The second request is also affected by the real focus change.
         self.deliver(second)
         self.assert_preview_preserved_without_apply()
@@ -112,7 +113,7 @@ class SelectedTextResultTests(SelectedTextTransformationFixture):
         self.engine.input.cancelled = object()
         self.deliver(request)
         self.assertIsNone(dialog.result)
-        self.assertIsNotNone(self.session.target)
+        self.assertTrue(self.session.target_available)
         self.assertFalse(dialog.copy_button.get_sensitive())
         self.assertEqual(self.commits, [])
 
@@ -121,11 +122,10 @@ class SelectedTextResultTests(SelectedTextTransformationFixture):
         self.session.dialog.entry.set_text("新しい指示")
         second = self.begin_request()
         self.deliver(second)
-        target = self.session.target
         self.engine.input.cancelled = object()
         self.deliver(first, ("逆順に届いた本文",))
         self.assertEqual(self.session.dialog.result, "新しい本文")
-        self.assertIs(self.session.target, target)
+        self.assertTrue(self.session.target_available)
         self.assertEqual(self.commits, [])
 
     def test_dismissed_dialog_and_new_session_ignore_a_late_result(self):
@@ -136,11 +136,10 @@ class SelectedTextResultTests(SelectedTextTransformationFixture):
         current = self.session.dialog
         self.assertIsNot(previous, current)
         self.deliver(second)
-        target = self.session.target
         self.engine.input.cancelled = object()
         self.deliver(first, ("閉じた画面の本文",))
         self.assertEqual(current.result, "新しい本文")
-        self.assertIs(self.session.target, target)
+        self.assertTrue(self.session.target_available)
         self.assertEqual(self.commits, [])
 
     def test_repeated_delivery_cannot_replace_the_accepted_result(self):
@@ -149,7 +148,7 @@ class SelectedTextResultTests(SelectedTextTransformationFixture):
         self.engine.input.cancelled = object()
         self.deliver(request, ("二回目の本文",))
         self.assertEqual(self.session.dialog.result, "新しい本文")
-        self.assertIsNotNone(self.session.target)
+        self.assertTrue(self.session.target_available)
 
     def test_bridge_restart_rejects_even_the_current_successful_response(self):
         request = self.begin_request()
@@ -191,11 +190,10 @@ class SelectedTextResultTests(SelectedTextTransformationFixture):
         self.engine.request.assert_called_once_with("suggestions", suggestions=["有効な候補"], generation=7, reading="原文")
 
     def test_private_input_cannot_start_another_request(self):
-        from azookey.engine import Engine
-        from test_ai_scope import scope_fixture
+        from azookey.i18n import text
+        self.deliver(self.begin_request())
         self.engine.sensitive = True
-        completion = mock.Mock()
-        with mock.patch("azookey.engine.read_key") as read_key:
-            Engine.start_ai(self.engine, {}, scope_fixture(), prompt="送信禁止", completion=completion)
-        read_key.assert_not_called()
-        completion.assert_called_once_with(None)
+        self.session.dialog.entry.emit("activate")
+        self.assertEqual(self.requests, [], "Core describes no request from a protected field")
+        self.assertIsNone(self.session.dialog.result)
+        self.assertEqual(self.session.dialog.message.get_text(), text("ai.preview.failed"))

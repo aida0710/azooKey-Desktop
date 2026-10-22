@@ -1,9 +1,11 @@
 #!/usr/bin/python3
-"""Read real GTK selections over a private AT-SPI bus, without external AI."""
-from dataclasses import replace
+"""Read real GTK selections over a private AT-SPI bus and let the real Core
+decide on them, without external AI."""
 import json
+import os
 import pathlib
 import sys
+import tempfile
 import threading
 import time
 
@@ -13,7 +15,6 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from azookey.ai_transform_target import InputSelection, PendingTransformation, TransformationTarget
 from azookey.focused_text import inspect_focused_text
 
 
@@ -58,49 +59,85 @@ class TextFields:
         self.window.destroy()
 
 
-def inspect(selection):
+def inspect(context_characters):
     replies = []
-    threading.Thread(target=lambda: replies.append(inspect_focused_text(selection)), daemon=True).start()
+    threading.Thread(target=lambda: replies.append(inspect_focused_text(context_characters)), daemon=True).start()
     wait_until(lambda: replies, "accessibility read did not complete")
     return replies[0]
 
 
+class CoreTarget:
+    """The real Core's transformation decisions for one IBus selection."""
+    # The IBus facts both GTK fields share: one context, the same text.
+    FIELD = {"identity": ["/fixture/context", "gnome-shell"],
+             "surrounding": {"text": "前 原文 後", "cursorUTF16": 4, "anchorUTF16": 2},
+             "hasSurroundingUpdate": True, "isSensitive": False}
+
+    def __init__(self, bridge):
+        self.bridge = bridge
+        self.transformation = None
+
+    def request(self, operation, **ai):
+        return self.bridge.request(f"ai-transform-{operation}", context="fixture",
+                                   ai={"transformation": self.transformation, **ai})
+
+    def open(self, witness):
+        opened = self.bridge.request("ai-transform-open", context="fixture", ai={"field": self.FIELD})
+        self.transformation = opened["transformation"]
+        available = self.request("target", field=self.FIELD, witness=witness)["targetAvailable"]
+        revision = self.request("preview", prompt="敬語に直す", pinned=False, shortcutText="",
+                                includeContext=False, field=self.FIELD)["revision"]
+        self.request("result", revision=revision, text="変更済み")
+        return available and self.request("confirm")["confirmed"]
+
+    def take(self, witness):
+        return self.request("take", field=self.FIELD, witness=witness).get("replacement")
+
+
 def main():
+    from ai_core_fixture import start_ai_bridge
     fields = TextFields()
-    selection = InputSelection.capture(("/fixture/context", "gnome-shell"), "前 原文 後", cursor=4, anchor=2)
+    directory = tempfile.TemporaryDirectory()
+    os.environ.update(XDG_CONFIG_HOME=f"{directory.name}/config", AZOOKEY_DATA_DIR=f"{directory.name}/data")
+    bridge = start_ai_bridge()
+    core = CoreTarget(bridge)
+    context_characters = bridge.request("ai-transform-open", context="fixture",
+                                        ai={"field": CoreTarget.FIELD})["contextCharacters"]
     try:
         fields.focus(0)
-        original = inspect(selection)
+        original = inspect(context_characters)
         assert original is not None, "active GTK field was not available through AT-SPI"
+        assert original["selected"] == "原文" and original["window"]
         fields.focus(1)
-        second = inspect(selection)
-        assert second and second.identity != original.identity
-        assert second.window_identity == original.window_identity
-        target = TransformationTarget(selection, original)
-        assert PendingTransformation(target, "変更済み").take(selection, second) is None
+        second = inspect(context_characters)
+        assert second and second["object"] != original["object"]
+        assert second["window"] == original["window"]
+        assert core.open(original), "Core did not accept the original field's read"
+        assert core.take(second) is None, "identical text in another field must not be replaced"
         fields.focus(0)
-        returned = inspect(selection)
+        returned = inspect(context_characters)
         assert returned == original
-        pending = PendingTransformation(target, "変更済み")
-        assert pending.take(selection, returned) == "変更済み"
-        assert pending.take(selection, returned) is None
+        assert core.open(original)
+        assert core.take(returned) == "変更済み"
+        assert core.take(returned) is None
         fields.fields[0].set_editable(False)
-        assert inspect(selection) is None
+        assert inspect(context_characters) is None
         fields.fields[0].set_editable(True)
         fields.fields[0].set_visibility(False)
-        assert inspect(selection) is None
+        assert inspect(context_characters) is None
         fields.fields[0].set_visibility(True)
         fields.fields[0].set_text("前 別文 後")
         fields.fields[0].select_region(2, 4)
-        assert inspect(selection) is None
-        changed_selection = replace(selection, selected="別文")
-        changed = inspect(changed_selection)
-        assert changed and PendingTransformation(target, "変更済み").take(changed_selection, changed) is None
-        print(json.dumps({"status": "PASS", "checks": 8, "same_context_different_objects": True,
+        changed = inspect(context_characters)
+        assert changed and changed["selected"] == "別文"
+        assert not core.open(changed), "Core must not accept a read of other text as the IBus selection"
+        print(json.dumps({"status": "PASS", "checks": 9, "same_context_different_objects": True,
                           "identity": "AT-SPI bus GUID + unique bus name + object path",
-                          "window_identity_verified": True, "external_ai_requests": 0}))
+                          "window_identity_verified": True, "decided_by": "Core", "external_ai_requests": 0}))
     finally:
         fields.close()
+        bridge.close()
+        directory.cleanup()
 
 
 if __name__ == "__main__":

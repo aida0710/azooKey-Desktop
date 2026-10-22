@@ -13,6 +13,12 @@ struct DesktopSnapshot: Encodable {
         let comparisonGroup: Int?
         let commitScope: CandidateCommitScope?
     }
+    /// One visually distinct part of the preedit. Frontends that draw their own
+    /// clause underline (TSF display attributes) use it to mark the clause in conversion.
+    struct PreeditSegment: Encodable {
+        let text: String
+        let focus: String
+    }
     struct Node: Encodable {
         let id: Int
         let text: String
@@ -28,6 +34,7 @@ struct DesktopSnapshot: Encodable {
     }
     var consumed = true
     var preedit = ""
+    var preeditSegments: [PreeditSegment] = []
     var cursor = 0
     var commits: [String] = []
     var candidates: [CandidateItem] = []
@@ -40,6 +47,7 @@ struct DesktopSnapshot: Encodable {
     var request: String?
     var error: String?
     var settings: DesktopSettings?
+    var settingsResult: DesktopSettingsResult?
     var suggestions: [String]?
     var dictionaryIssues: [UserDictionaryValidation.Issue]?
     var dictionarySaved: Bool?
@@ -64,6 +72,9 @@ struct DesktopSnapshot: Encodable {
     var zenzaiLoaded = false
     var personalizationConfigured = false
     var language = "japanese"
+    var candidateDisplay: CandidateDisplay?
+    var candidateLayout: CandidateLayout?
+    var ai: DesktopAIKeyResult?
 }
 
 /// Platform-neutral adapter around upstream's input state and conversion session.
@@ -76,10 +87,11 @@ final class DesktopSession: SegmentManagerDelegate {
     private var language: InputLanguage = .japanese
     private var tree = CandidateTree(entries: [])
     private var treeSelection = CandidateTreeSelection(tree: CandidateTree(entries: []), candidateIndex: nil)
-    private var generation = 0
+    private(set) var generation = 0
     private var pageStart = 0
     private var suggestions: [Candidate] = []
     private var suggestionIndex = 0
+    private var displayedSelection: CandidateDisplayInput.PreviousSelection?
     private let reconversionSession = ReconversionSession()
     private var reconversionOriginalText: String?
     private var reconversionFailure: ReconversionSession.Failure?
@@ -510,6 +522,9 @@ final class DesktopSession: SegmentManagerDelegate {
         return response
     }
 
+    /// The reading being composed, read without recomputing candidates.
+    var currentReading: String { segments.convertTarget }
+
     func snapshot(commits: [String] = []) -> DesktopSnapshot {
         var result = DesktopSnapshot()
         result.commits = commits.filter { !$0.isEmpty }
@@ -533,6 +548,14 @@ final class DesktopSession: SegmentManagerDelegate {
         } else {
             let marked = segments.getCurrentMarkedText(inputState: state)
             result.preedit = marked.map(\.content).joined()
+            result.preeditSegments = marked.map { element in
+                let focus = switch element.focus {
+                case .focused: "focused"
+                case .unfocused: "unfocused"
+                case .none: "none"
+                }
+                return .init(text: element.content, focus: focus)
+            }
             result.cursor = unicodeScalarOffset(in: result.preedit, utf16Offset: marked.selectionRange.location)
         }
         let candidates = currentCandidates
@@ -578,20 +601,8 @@ final class DesktopSession: SegmentManagerDelegate {
         // AI suggestions keep number keys as reading input, so only ordinary
         // candidate selection can advertise numeric shortcuts.
         result.showCandidateIndex = state == .selecting
+        result.candidateDisplay = CandidateDisplay(result.candidateDisplayInput(previous: displayedSelection))
+        displayedSelection = .init(selection: result.selection, focusedNode: result.focusedNode)
         return result
-    }
-}
-
-private extension InputState {
-    var bridgeName: String {
-        switch self {
-        case .none: "none"
-        case .composing: "composing"
-        case .previewing: "previewing"
-        case .selecting: "selecting"
-        case .replaceSuggestion: "replaceSuggestion"
-        case .unicodeInput: "unicodeInput"
-        case .attachDiacritic: "attachDiacritic"
-        }
     }
 }

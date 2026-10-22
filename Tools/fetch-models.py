@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Hydrate pinned model files into build/models without installing git-lfs."""
+import argparse
 import hashlib
 import pathlib
 import re
 import subprocess
-import sys
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -29,9 +29,15 @@ def valid(path, size, digest):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--verify-only", action="store_true", help="fail on a missing or invalid file instead of downloading it")
+    # Windows uses only gguf: its converter cannot read the marisa language models.
+    parser.add_argument("--model", action="append", choices=sorted(MODELS), help="hydrate only this model (repeatable; default: all)")
+    arguments = parser.parse_args()
     destination = ROOT / "build/models"
     destination.mkdir(parents=True, exist_ok=True)
-    for name, (repository, files) in MODELS.items():
+    for name in arguments.model or MODELS:
+        repository, files = MODELS[name]
         submodule = ROOT / "azooKeyMac/Resources" / name
         relative = submodule.relative_to(ROOT).as_posix()
         revision = git("ls-tree", "HEAD", relative).split()[2]
@@ -44,7 +50,7 @@ def main():
             digest, size = digest_match[1], int(size_match[1])
             target = destination / filename
             if not valid(target, size, digest):
-                if "--verify-only" in sys.argv:
+                if arguments.verify_only:
                     raise RuntimeError(f"Missing or invalid model: {filename}")
                 temporary = target.with_suffix(target.suffix + ".part")
                 url = f"https://huggingface.co/{repository}/resolve/{revision}/{filename}"

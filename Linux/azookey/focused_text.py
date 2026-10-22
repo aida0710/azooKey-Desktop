@@ -1,9 +1,11 @@
-"""Read the identity and selection of an active, editable AT-SPI text object."""
+"""Read the identity and selection of an active, editable AT-SPI text object.
+
+The result is the witness Core compares with the IBus selection; whether it
+describes the original target is decided by Core, not here.
+"""
 import time
 import threading
 from collections import deque
-
-from .ai_transform_target import AccessibleSelection, CONTEXT_CHARACTERS
 
 
 ACCESSIBLE = "org.a11y.atspi.Accessible"
@@ -72,8 +74,10 @@ class AccessibilityConnection:
 
 
 class FocusedTextReader:
-    def __init__(self, connection):
+    def __init__(self, connection, context_characters):
         self.connection = connection
+        # Core's context limit; no text beyond it is read on either side.
+        self.context_characters = context_characters
 
     def states(self, identity):
         words = self.connection.call(identity, ACCESSIBLE, "GetState")[0]
@@ -91,7 +95,7 @@ class FocusedTextReader:
             raise AccessibilityUnavailable()
         return windows[0]
 
-    def capture(self, selection):
+    def capture(self):
         window = self.active_window()
         queue = deque([window])
         visited, focused = set(), []
@@ -109,10 +113,7 @@ class FocusedTextReader:
                 queue.extend(self.children(identity))
         if len(focused) != 1:
             raise AccessibilityUnavailable()
-        captured = self.read_selection(focused[0], window)
-        if not captured.describes(selection):
-            raise AccessibilityUnavailable()
-        return captured
+        return self.read_selection(focused[0], window)
 
     def read_selection(self, identity, window):
         if not self.connection.bus_id or not identity[0].startswith(":"):
@@ -133,9 +134,9 @@ class FocusedTextReader:
         )[0]
         if end > count:
             raise AccessibilityUnavailable()
-        first = max(0, start - CONTEXT_CHARACTERS)
+        first = max(0, start - self.context_characters)
         content = self.connection.call(
-            identity, TEXT, "GetText", signature="(ii)", arguments=(first, min(count, end + CONTEXT_CHARACTERS)),
+            identity, TEXT, "GetText", signature="(ii)", arguments=(first, min(count, end + self.context_characters)),
         )[0]
         selection_end = end - first
         if len(content) < selection_end:
@@ -147,11 +148,12 @@ class FocusedTextReader:
         current_states = self.states(identity)
         if not {EDITABLE, FOCUSED, SENSITIVE, SHOWING}.issubset(current_states) or {DEFUNCT, READ_ONLY} & current_states:
             raise AccessibilityUnavailable()
-        return AccessibleSelection(
-            bus_id=self.connection.bus_id, identity=identity, window_identity=window,
-            start=start, end=end, before=content[:start - first],
-            selected=content[start - first:selection_end], after=content[selection_end:],
-        )
+        # The bus GUID makes an object of a restarted accessibility bus a different object.
+        return {
+            "object": [self.connection.bus_id, *identity], "window": list(window),
+            "start": start, "end": end, "before": content[:start - first],
+            "selected": content[start - first:selection_end], "after": content[selection_end:],
+        }
 
     def selection_range(self, identity):
         if self.connection.call(identity, TEXT, "GetNSelections")[0] != 1:
@@ -159,13 +161,13 @@ class FocusedTextReader:
         return self.connection.call(identity, TEXT, "GetSelection", signature="(i)", arguments=(0,))
 
 
-def inspect_focused_text(selection):
+def inspect_focused_text(context_characters):
     connection = None
     try:
         connection = AccessibilityConnection()
         # Re-enumerate the active window on every explicit check. A stale
         # FOCUSED flag on the old object is not proof of a unique current target.
-        return FocusedTextReader(connection).capture(selection)
+        return FocusedTextReader(connection, context_characters).capture()
     except (AccessibilityUnavailable, ImportError, ValueError, TypeError, IndexError):
         return None
     finally:

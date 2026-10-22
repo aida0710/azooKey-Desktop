@@ -127,8 +127,13 @@ public final class SegmentsManager {
         }
 
         let base = self.resourcesDirectoryURL.appendingPathComponent("lm", isDirectory: false).path
-        #if os(Linux)
-        let personal = containerURL.appendingPathComponent("personalization/current").resolvingSymlinksInPath().path + "/lm"
+        #if !os(macOS)
+        let importRoot = containerURL.appendingPathComponent(PersonalizationModelImport.directoryName, isDirectory: true)
+        guard let imported = PersonalizationModelImport.currentModelDirectory(in: importRoot) else {
+            self.appendDebugMessage("❌ No personalization model has been imported.")
+            return nil
+        }
+        let personal = imported.appendingPathComponent("lm").path
         #else
         let personal = containerURL.appendingPathComponent("Library/Application Support/p13n_v1").path + "/lm"
         #endif
