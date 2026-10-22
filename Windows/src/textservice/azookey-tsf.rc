@@ -5,6 +5,7 @@
 #include "resource.h"
 
 IDI_TEXT_SERVICE ICON "azookey-tree.ico"
+IDI_INPUT_OFF ICON "azookey-tree-alphanumeric.ico"
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION 0,2,0,0

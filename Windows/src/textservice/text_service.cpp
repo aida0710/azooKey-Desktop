@@ -115,6 +115,7 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadManager, TfClientId cli
     };
     candidatePanel_ = std::make_unique<CandidatePanel>(std::move(actions));
     CreateCandidateElement();
+    AddInputModeButton();
     // Choosing azooKey Tree means the user wants Japanese input now.
     SetInputOpen(true);
     return S_OK;
@@ -127,6 +128,7 @@ STDMETHODIMP TextService::Deactivate() {
         candidateElement_->Release();
         candidateElement_ = nullptr;
     }
+    RemoveInputModeButton();
     candidatePanel_.reset();
     converter_.reset();
     UnadviseCompartment(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, openCloseSinkCookie_);
@@ -388,6 +390,54 @@ bool TextService::TreeCandidatesEnabled() {
     return !presentationSettings_ || presentationSettings_->treeCandidates;
 }
 
+void TextService::AddInputModeButton() {
+    InputModeButton::Actions actions;
+    actions.toggleInput = [this]() {
+        bool open = IsInputOpen();
+        // A click is not a key event, so the document may take the commit later.
+        if (open && IsComposing()) FinishComposition(true, kAnytimeWrite);
+        SetInputOpen(!open);
+    };
+    actions.openSettings = [this]() { OpenSettings(L""); };
+    actions.openDictionary = [this]() { OpenSettings(L"--page dictionary"); };
+    inputModeButton_ = new (std::nothrow) InputModeButton(std::move(actions));
+    if (!inputModeButton_) return;
+    inputModeButton_->SetJapanese(IsInputOpen());
+    ITfLangBarItemMgr* items = nullptr;
+    if (SUCCEEDED(threadManager_->QueryInterface(IID_ITfLangBarItemMgr, reinterpret_cast<void**>(&items)))) {
+        items->AddItem(inputModeButton_);
+        items->Release();
+    }
+}
+
+void TextService::RemoveInputModeButton() {
+    if (!inputModeButton_) return;
+    ITfLangBarItemMgr* items = nullptr;
+    if (threadManager_ && SUCCEEDED(threadManager_->QueryInterface(IID_ITfLangBarItemMgr, reinterpret_cast<void**>(&items)))) {
+        items->RemoveItem(inputModeButton_);
+        items->Release();
+    }
+    inputModeButton_->Release();
+    inputModeButton_ = nullptr;
+}
+
+void TextService::OpenSettings(const std::wstring& arguments) {
+    // The x86 build lives in x86\ under the installation folder.
+#if defined(_M_IX86)
+    std::wstring executable = ModuleDirectory() + L"\\..\\azookey-settings.exe";
+#else
+    std::wstring executable = ModuleDirectory() + L"\\azookey-settings.exe";
+#endif
+    std::wstring commandLine = L"\"" + executable + L"\"" + (arguments.empty() ? L"" : L" " + arguments);
+    STARTUPINFOW startup{sizeof(startup)};
+    PROCESS_INFORMATION process{};
+    // Store applications cannot start processes; the menu then does nothing.
+    if (CreateProcessW(executable.c_str(), commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process)) {
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+    }
+}
+
 void TextService::ShowCandidates(const protocol::Snapshot& snapshot, const std::optional<CompositionGeometry>& geometry) {
     const display::CandidateDisplay& shown = snapshot.display;
     bool listMode = shown.mode == display::DisplayMode::List;
@@ -572,6 +622,7 @@ void TextService::SetInputOpen(bool open) {
         }
     };
     set(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, open ? 1 : 0);
+    if (inputModeButton_) inputModeButton_->SetJapanese(open);
     // Drives the taskbar indicator: あ for Japanese input, A otherwise.
     set(GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION,
         open ? (TF_CONVERSIONMODE_NATIVE | TF_CONVERSIONMODE_FULLSHAPE | TF_CONVERSIONMODE_ROMAN)

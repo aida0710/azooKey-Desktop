@@ -10,6 +10,7 @@
 
 #include "candidate_list_element.h"
 #include "candidate_panel.h"
+#include "input_mode_button.h"
 #include "composition_writer.h"
 #include "converter_client.h"
 #include "shared/bridge_protocol.h"
@@ -88,6 +89,10 @@ private:
     bool TreeCandidatesEnabled();
     void HideCandidates();
     void CreateCandidateElement();
+    void AddInputModeButton();
+    void RemoveInputModeButton();
+    // Starts azookey-settings.exe beside this DLL; `arguments` like L"--page dictionary".
+    void OpenSettings(const std::wstring& arguments);
     ITfContext* CompositionContext() const;  // AddRef'd, or nullptr
 
     bool IsInputOpen();
@@ -110,6 +115,7 @@ private:
     std::unique_ptr<ConverterClient> converter_;
     std::unique_ptr<CandidatePanel> candidatePanel_;
     CandidateListElement* candidateElement_ = nullptr;  // COM object; the application may hold it too
+    InputModeButton* inputModeButton_ = nullptr;        // COM object owned with the language bar
     std::string lastPlacementSide_;  // Core keeps the popup on this side while it still fits
     std::optional<protocol::PresentationSettings> presentationSettings_;  // read again after a focus change
     protocol::Snapshot snapshot_;  // last state written to the document
