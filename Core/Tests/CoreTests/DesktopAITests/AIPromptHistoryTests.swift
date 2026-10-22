@@ -23,7 +23,7 @@ struct AIPromptHistoryTests {
             let shortcut = KeyboardShortcut(key: "e", modifiers: [.control, .option])
             try history.save("敬語", pinned: true, shortcut: shortcut)
             for index in 0..<15 {
-                try history.save("指示\(index)", pinned: false, shortcut: nil, now: Date(timeIntervalSince1970: Double(index + 1)))
+                try history.save("指示\(index)", pinned: false, shortcut: nil, usedAt: Date(timeIntervalSince1970: Double(index + 1)))
             }
             let items = history.load()
             #expect(items.filter { !$0.pinned }.count == AIPromptHistory.recentLimit)
@@ -53,9 +53,9 @@ struct AIPromptHistoryTests {
     @Test func anUnpinnedInstructionKeepsNoShortcutAndResavingMovesItToTheFront() throws {
         try Self.withHistory { history in
             try history.save("敬語", pinned: false, shortcut: KeyboardShortcut(key: "k", modifiers: [.control]),
-                             now: Date(timeIntervalSince1970: 10))
-            try history.save("英訳", pinned: false, shortcut: nil, now: Date(timeIntervalSince1970: 20))
-            try history.save("敬語", pinned: false, shortcut: nil, now: Date(timeIntervalSince1970: 30))
+                             usedAt: Date(timeIntervalSince1970: 10))
+            try history.save("英訳", pinned: false, shortcut: nil, usedAt: Date(timeIntervalSince1970: 20))
+            try history.save("敬語", pinned: false, shortcut: nil, usedAt: Date(timeIntervalSince1970: 30))
             let unpinned = history.load().filter { !$0.pinned }
             #expect(unpinned.map(\.prompt) == ["敬語", "英訳"])
             #expect(unpinned.allSatisfy { $0.shortcut == nil })

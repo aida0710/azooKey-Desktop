@@ -3,13 +3,10 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, GLib, Gio
 from .bridge import Bridge
-from .ai_error_messages import ai_error_message
-from .personalization import import_model
 from .i18n import text as message
-from .labeled_controls import label_control, StatusMessage
+from .labeled_controls import StatusMessage
+from . import settings_client
 from .settings_pages import populate_settings_pages
-from .settings_store import SettingsStore, config_path
-from .settings_schema import input_defaults, validate_settings
 from .settings_recovery import SettingsRecoveryBar, confirm_restore
 from .user_dictionary_editor import UserDictionaryEditor
 from .user_dictionary_service import UserDictionaryService
@@ -36,26 +33,26 @@ class SettingsWindow(Gtk.Window):
         super().__init__(title="azooKey Tree 設定")
         self.set_default_size(620, 620)
         self.bridge = Bridge()
-        self.values = self.bridge.request("settings")["settings"]
-        first_setup = not config_path().exists()
-        self.settings_store = SettingsStore()
-        loaded = self.settings_store.load(self.values)
-        self.values = loaded.values
-        self.settings_stamp = loaded.stamp
-        self.backend_recovery_pending = False
+        self.schema = settings_client.schema(self.bridge)
+        opened = settings_client.load(self.bridge)
+        self.values = opened.values
+        self.settings_stamp = opened.stamp
         self.recovery_bar = None
         self.widgets = {}
+        self.controls = {}
         self.closed = False
         self.dictionary_editor = None
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=18)
         self.add(box)
-        if loaded.problem:
-            self.recovery_bar = SettingsRecoveryBar(loaded.problem, path=self.settings_store.path, restore=self.restore_settings)
+        if opened.problem:
+            self.recovery_bar = SettingsRecoveryBar(
+                settings_client.problem_text(opened.problem), path=opened.path, restore=self.restore_settings,
+            )
             box.pack_start(self.recovery_bar, False, False, 0)
         book = Gtk.Notebook()
         box.pack_start(book, True, True, 0)
         populate_settings_pages(self, book)
-        if first_setup:
+        if not opened.exists:
             support_index = book.get_n_pages() - 1
             book.get_nth_page(support_index).show_all()
             book.set_current_page(support_index)
@@ -91,21 +88,23 @@ class SettingsWindow(Gtk.Window):
         if self.dictionary_editor is not None and not self.dictionary_editor.closed:
             self.dictionary_editor.present()
             return
-        store = SettingsStore()
-        opened = store.load(self.values)
+        try:
+            opened = settings_client.load(self.bridge)
+        except (ValueError, OSError, RuntimeError) as error:
+            self.message.set_text(str(error))
+            return
         if opened.problem:
             self.message.set_text(message("settings.recovery_required"))
             return
         if opened.stamp != self.settings_stamp:
             self.message.set_text(message("settings.changed"))
             return
-        service = UserDictionaryService(store, opened)
+        service = UserDictionaryService(opened)
 
         def saved(_entries):
             if self.closed:
                 return
-            self.values = service.last_saved.values
-            self.settings_stamp = service.last_saved.stamp
+            self.accept_saved(service.last_saved)
             self.refresh_dictionary_button()
             key = "settings.backup_warning" if service.last_saved.backup_warning else "settings.dictionary_saved"
             self.message.set_text(message(key))
@@ -120,68 +119,32 @@ class SettingsWindow(Gtk.Window):
     def restore_settings(self, use_defaults):
         if not confirm_restore(self):
             return
-        values = self.settings_store.recovery_values(self.values)
-        if use_defaults:
-            values = input_defaults(values)
         try:
-            saved = self.apply_settings(values, recover=True)
-            self.refresh_widgets(saved.values)
-            self.recovery_bar.hide()
-            self.message.set_text(message("settings.restored", backup=saved.backup_path))
-            if saved.backup_warning:
-                self.message.set_text(message("settings.backup_warning"))
+            saved = settings_client.recover(self.bridge, expected_stamp=self.settings_stamp, use_defaults=use_defaults)
         except (ValueError, OSError, RuntimeError) as error:
             self.message.set_text(str(error))
+            return
+        self.accept_saved(saved)
+        self.refresh_widgets(saved.values)
+        self.recovery_bar.hide()
+        self.message.set_text(message("settings.restored", backup=saved.recovered_path))
+        if saved.backup_warning:
+            self.message.set_text(message("settings.backup_warning"))
 
     def refresh_widgets(self, values):
-        for key, widget in self.widgets.items():
-            if isinstance(widget, Gtk.CheckButton):
-                widget.set_active(values[key])
-            elif isinstance(widget, Gtk.ComboBoxText):
-                widget.set_active_id(str(values[key]))
-            else:
-                widget.set_text(str(values[key]))
+        for key, control in self.controls.items():
+            control.show(values[key])
         self.refresh_dictionary_button()
-        self.custom_table.get_buffer().set_text(values["customTable"])
-        self.transform_shortcut.set_text(self.shortcut_text(values["transformShortcut"]))
 
-    def apply_settings(self, values, *, recover=False):
-        values = validate_settings(values)
-
-        def apply_staged(staged):
-            if self.backend_recovery_pending:
-                self.restore_backend_settings()
-            reply = self.bridge.request("configure", settings=values)
-            if reply.get("error"):
-                raise ValueError(message("settings.engine_rejected"))
-            try:
-                staged.replace(self.settings_store.path)
-            except OSError as publication_error:
-                try:
-                    self.restore_backend_settings()
-                except RuntimeError as recovery_error:
-                    raise recovery_error from publication_error
-                raise
-
-        # Check conflicts and hold the writer lock before mutating Core.
-        saved = self.settings_store.save_with_backend(
-            values, apply_staged=apply_staged, expected_stamp=self.settings_stamp, recover=recover,
-        )
-        self.values = saved.values
-        self.settings_stamp = saved.stamp
+    def apply_settings(self, values):
+        """Core validates, applies and saves; a refusal arrives as ValueError."""
+        saved = settings_client.save(self.bridge, values, expected_stamp=self.settings_stamp)
+        self.accept_saved(saved)
         return saved
 
-    def restore_backend_settings(self):
-        # Until Core confirms the old values, another save must not compound
-        # an interrupted publication with a second unverified configuration.
-        self.backend_recovery_pending = True
-        try:
-            reply = self.bridge.request("configure", settings=self.values)
-            if reply.get("error"):
-                raise ValueError(message("settings.engine_rejected"))
-        except (ValueError, OSError, RuntimeError) as error:
-            raise RuntimeError(message("settings.backend_recovery_failed")) from error
-        self.backend_recovery_pending = False
+    def accept_saved(self, saved):
+        self.values = saved.values
+        self.settings_stamp = saved.stamp
 
     def reset_learning(self, _button):
         dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION,
@@ -205,18 +168,25 @@ class SettingsWindow(Gtk.Window):
             self.message.set_text(message("learning.reset.completed" if success else "learning.reset.failed"))
 
     def import_personalization(self, _button):
-        dialog = Gtk.FileChooserDialog(title="lm_*.marisa の4ファイルがあるフォルダーを選択", transient_for=self,
+        dialog = Gtk.FileChooserDialog(title=message("personalization.choose"), transient_for=self,
                                        action=Gtk.FileChooserAction.SELECT_FOLDER)
-        dialog.add_buttons("キャンセル", Gtk.ResponseType.CANCEL, "読み込む", Gtk.ResponseType.OK)
+        dialog.add_buttons(message("personalization.cancel"), Gtk.ResponseType.CANCEL,
+                           message("personalization.import"), Gtk.ResponseType.OK)
         response = dialog.run()
         source = dialog.get_filename()
         dialog.destroy()
-        if response == Gtk.ResponseType.OK:
-            try:
-                import_model(source)
-                self.message.set_text("個人化モデルを読み込みました。強度を選び「保存」で反映してください。")
-            except (OSError, ValueError) as error:
-                self.message.set_text(str(error))
+        if response != Gtk.ResponseType.OK or source is None:
+            return
+        try:
+            reply = self.bridge.request("import-personalization", importPath=source)
+        except (OSError, RuntimeError, ValueError):
+            reply = {}
+        if reply.get("personalizationImported"):
+            self.message.set_text(message("personalization.imported"))
+            return
+        # Core replaces "current" only after all four files are copied and checked.
+        failure = reply.get("personalizationFailure") or {"reason": "placement"}
+        self.message.set_text(message(f"personalization.failure.{failure['reason']}", file=failure.get("file")))
 
     def download_weights(self, button):
         button.set_sensitive(False)
@@ -247,63 +217,11 @@ class SettingsWindow(Gtk.Window):
         book.append_page(scroller, Gtk.Label(label=title))
         return box
 
-    def combo(self, parent, key, *, label, choices):
-        combo = Gtk.ComboBoxText()
-        label_control(parent, combo, label)
-        for value, title in choices:
-            combo.append(str(value), title)
-        combo.set_active_id(str(self.values[key]))
-        parent.pack_start(combo, False, False, 0)
-        self.widgets[key] = combo
-
-    def shortcut_text(self, shortcut):
-        """Core's notation for a stored shortcut, such as Ctrl+Alt+e."""
-        return self.bridge.request("ai-shortcut", ai={"shortcut": shortcut}).get("shortcutText", "")
-
-    def parse_shortcut(self, text):
-        """Core reads the notation; a rejected one raises ValueError with its message."""
-        reply = self.bridge.request("ai-shortcut", ai={"shortcutText": text})
-        if reply.get("shortcutError"):
-            raise ValueError(ai_error_message(reply["shortcutError"]))
-        return reply.get("shortcut")
-
-    def entry(self, parent, key, label):
-        entry = Gtk.Entry(text=str(self.values[key]))
-        label_control(parent, entry, label)
-        parent.pack_start(entry, False, False, 0)
-        self.widgets[key] = entry
-
-    @staticmethod
-    def text_area(parent, text, title):
-        view = Gtk.TextView(monospace=True)
-        label_control(parent, view, title)
-        view.get_buffer().set_text(text)
-        scroller = Gtk.ScrolledWindow(min_content_height=140)
-        scroller.add(view)
-        parent.pack_start(scroller, True, True, 0)
-        return view
-
-    @staticmethod
-    def text(view):
-        buffer = view.get_buffer()
-        return buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
-
     def save(self, _button):
         try:
             values = dict(self.values)
-            for key, widget in self.widgets.items():
-                if isinstance(widget, Gtk.CheckButton):
-                    values[key] = widget.get_active()
-                elif isinstance(widget, Gtk.ComboBoxText):
-                    values[key] = widget.get_active_id()
-                else:
-                    values[key] = widget.get_text()
-            for key in ("punctuation", "inferenceLimit"):
-                values[key] = int(values[key])
-            values["customTable"] = self.text(self.custom_table)
-            values["transformShortcut"] = self.parse_shortcut(self.transform_shortcut.get_text())
-            if values["transformShortcut"] is None:
-                raise ValueError(message("ai.shortcut.required"))
+            for key, control in self.controls.items():
+                values[key] = control.read()
             saved = self.apply_settings(values)
             self.message.set_text(message("settings.backup_warning" if saved.backup_warning else "settings.saved"))
             if self.api_key.get_text():

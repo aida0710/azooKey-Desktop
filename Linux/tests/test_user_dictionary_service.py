@@ -1,11 +1,9 @@
-"""Check the service boundary with a staged store and a private bridge double."""
+"""Check the service boundary with a private bridge double that answers like Core."""
 
 import copy
 import json
-import os
 import pathlib
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
 
@@ -14,44 +12,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from azookey.user_dictionary_model import DictionarySaveError, UserDictionaryModel, save_dictionary
 from azookey.user_dictionary_service import UserDictionaryService
 from test_user_dictionary_model import ENTRY_ID, original_entries
-
-
-class StagedStore:
-    """Only the public store contract; the real store has separate lock tests."""
-
-    def __init__(self, path, values):
-        self.path = path
-        self.values = copy.deepcopy(values)
-        self.stamp = ("opened",)
-        self.failure = None
-        self.calls = []
-        self.path.write_text(json.dumps(values))
-
-    def save(self, *_arguments, **_keywords):
-        raise AssertionError("the service must not save again after the backend commit")
-
-    def save_with_backend(self, values, *, apply_staged, expected_stamp):
-        self.calls.append((copy.deepcopy(values), expected_stamp))
-        if self.failure:
-            raise self.failure
-        if expected_stamp != self.stamp:
-            raise ValueError("SYNTHETIC_PRIVATE_CONFLICT")
-        descriptor, filename = tempfile.mkstemp(prefix=".settings-", dir=self.path.parent)
-        staged = pathlib.Path(filename)
-        try:
-            with os.fdopen(descriptor, "w") as stream:
-                json.dump(values, stream)
-                stream.flush()
-                os.fsync(stream.fileno())
-            apply_staged(staged)
-            observed = json.loads(self.path.read_text())
-            if observed != values:
-                raise ValueError("backend did not install the staged values")
-        finally:
-            staged.unlink(missing_ok=True)
-        self.values = observed
-        self.stamp = ("saved", len(self.calls))
-        return SimpleNamespace(values=copy.deepcopy(observed), stamp=self.stamp, backup_warning=False)
 
 
 class PrivateBridge:
@@ -71,11 +31,23 @@ class PrivateBridge:
             raise self.close_failure
 
 
+def saved_reply(values, stamp):
+    return {
+        "dictionarySaved": True, "settings": values,
+        "settingsResult": {"file": {"path": "/synthetic/settings.json", "stamp": stamp, "exists": True},
+                           "saved": {"lastGoodSaved": True}},
+    }
+
+
+def refused_reply(code):
+    return {
+        "dictionarySaved": False, "dictionarySaveError": "persistence",
+        "settingsResult": {"error": {"code": code, "message": "settings." + code, "arguments": {}}},
+    }
+
+
 class UserDictionaryServiceTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.directory = pathlib.Path(self.temporary.name)
         self.values = {
             "tree": False,
             "profile": "SYNTHETIC_PRIVATE_PROFILE",
@@ -83,25 +55,30 @@ class UserDictionaryServiceTests(unittest.TestCase):
             "aiEndpoint": "https://example.invalid/v1?key=SYNTHETIC_PRIVATE_TOKEN",
             "userDictionary": {"items": original_entries()},
         }
-        self.store = StagedStore(self.directory / "settings.json", self.values)
-        self.opened = SimpleNamespace(values=copy.deepcopy(self.values), stamp=self.store.stamp)
+        # Core owns the file; this double keeps only the stamp it would check.
+        self.core_stamp = "opened"
+        self.opened = SimpleNamespace(values=copy.deepcopy(self.values), stamp=self.core_stamp)
         self.connections = []
         self.handler = self.successful_backend
-        self.service = UserDictionaryService(self.store, self.opened, bridge_factory=self.create_bridge)
+        self.service = UserDictionaryService(self.opened, bridge_factory=self.create_bridge)
 
     def create_bridge(self):
         connection = PrivateBridge(self.handler)
         self.connections.append(connection)
         return connection
 
+    def saves(self):
+        return [payload for connection in self.connections
+                for operation, payload in connection.requests if operation == "dictionary-save"]
+
     def successful_backend(self, operation, payload):
         if operation == "dictionary-validate":
             return {"dictionaryIssues": []}
         self.assertEqual(operation, "dictionary-save")
-        staged = pathlib.Path(payload["stagedSettingsPath"])
-        self.assertEqual(json.loads(staged.read_text())["userDictionary"]["items"], payload["items"])
-        os.replace(staged, self.store.path)
-        return {"dictionarySaved": True}
+        if payload["settingsFile"]["expectedStamp"] != self.core_stamp:
+            return refused_reply("changed")
+        self.core_stamp = f"saved-{len(self.saves())}"
+        return saved_reply({**self.values, "userDictionary": {"items": payload["items"]}}, self.core_stamp)
 
     def test_validation_maps_core_reasons_and_uses_a_closed_private_connection(self):
         issue = {
@@ -114,10 +91,10 @@ class UserDictionaryServiceTests(unittest.TestCase):
         self.assertEqual(observed[0].code, "unsupportedCharacter")
         self.assertEqual(observed[0].characters, "A")
         self.assertTrue(self.connections[0].closed)
-        self.assertEqual(self.store.calls, [])
+        self.assertEqual(self.saves(), [])
         self.assertEqual(self.connections[0].requests, [("dictionary-validate", {"items": original_entries()})])
 
-    def test_success_sends_only_items_and_staged_path_and_never_saves_twice(self):
+    def test_success_sends_only_items_and_the_opened_stamp_and_follows_the_new_stamp(self):
         items = original_entries()
         items[0]["word"] = "保存した語"
         items[0]["hint"] = "1行目\n2行目\t補足"
@@ -128,52 +105,43 @@ class UserDictionaryServiceTests(unittest.TestCase):
         self.assertTrue(all(connection.closed for connection in self.connections))
         operation, payload = self.connections[1].requests[0]
         self.assertEqual(operation, "dictionary-save")
-        self.assertEqual(set(payload), {"items", "stagedSettingsPath"})
-        self.assertEqual(payload["items"], items)
+        self.assertEqual(payload, {"items": items, "settingsFile": {"expectedStamp": "opened"}})
         self.assertNotIn("SYNTHETIC_PRIVATE", json.dumps(payload))
-        self.assertEqual(len(self.store.calls), 1)
-        self.assertEqual(self.store.calls[0][1], self.opened.stamp)
-        self.assertEqual(self.store.values["profile"], self.values["profile"])
-        self.assertEqual(self.store.values["aiEndpoint"], self.values["aiEndpoint"])
         self.assertEqual(self.service.last_saved.values["userDictionary"]["items"], items)
+        self.assertEqual(self.service.last_saved.stamp, "saved-1")
+        self.assertFalse(self.service.last_saved.backup_warning)
         self.assertEqual(self.opened.values, self.values)
-        self.assertEqual(list(self.directory.glob(".settings-*")), [])
+        self.service.save(original_entries())
+        self.assertEqual(self.saves()[-1]["settingsFile"], {"expectedStamp": "saved-1"})
 
-    def test_store_failure_never_calls_the_backend_or_exposes_private_details(self):
-        before = self.store.path.read_bytes()
-        for failure in (OSError("SYNTHETIC_PRIVATE_DISK"), ValueError("SYNTHETIC_PRIVATE_SCHEMA")):
-            with self.subTest(failure=type(failure)):
-                self.store.failure = failure
+    def test_core_refusing_the_settings_file_is_a_persistence_failure_without_private_details(self):
+        for code in ("busy", "recoveryRequired", "writeFailed"):
+            with self.subTest(code=code):
+                self.handler = lambda _operation, _payload: refused_reply(code)
                 with self.assertRaises(DictionarySaveError) as raised:
                     self.service.save(original_entries())
                 self.assertEqual(raised.exception.stage, "persistence")
                 self.assertNotIn("SYNTHETIC_PRIVATE", str(raised.exception))
-                self.assertEqual(self.connections, [])
-                self.assertEqual(self.store.path.read_bytes(), before)
                 self.assertIsNone(self.service.last_saved)
 
     def test_a_stale_dialog_does_not_overwrite_other_settings(self):
-        changed = {**self.values, "tree": True}
-        self.store.path.write_text(json.dumps(changed))
-        self.store.stamp = ("changed-by-another-writer",)
-        with self.assertRaises(DictionarySaveError):
+        self.core_stamp = "changed-by-another-writer"
+        with self.assertRaises(DictionarySaveError) as raised:
             self.service.save(original_entries())
-        self.assertEqual(json.loads(self.store.path.read_text()), changed)
-        self.assertEqual(self.connections, [])
-        self.assertEqual(self.store.calls[0][1], self.opened.stamp)
+        self.assertEqual(raised.exception.stage, "persistence")
+        self.assertEqual(self.saves()[0]["settingsFile"], {"expectedStamp": "opened"})
+        self.assertIsNone(self.service.last_saved)
 
     def test_core_failure_preserves_old_values_and_allows_the_same_draft_to_retry(self):
-        before = self.store.path.read_bytes()
         for stage in ("compile", "persistence", "activation"):
             with self.subTest(stage=stage):
                 self.handler = lambda _operation, _payload: {"dictionarySaveError": stage}
                 with self.assertRaises(DictionarySaveError) as raised:
                     self.service.save(original_entries())
                 self.assertEqual(raised.exception.stage, stage)
-                self.assertEqual(self.store.path.read_bytes(), before)
-                self.assertEqual(self.store.calls[-1][1], self.opened.stamp)
+                self.assertEqual(self.saves()[-1]["settingsFile"], {"expectedStamp": "opened"})
                 self.assertTrue(self.connections[-1].closed)
-                self.assertEqual(list(self.directory.glob(".settings-*")), [])
+                self.assertIsNone(self.service.last_saved)
         self.handler = self.successful_backend
         items = original_entries()
         items[0]["word"] = "再試行の語"
@@ -189,7 +157,7 @@ class UserDictionaryServiceTests(unittest.TestCase):
         with self.assertRaises(DictionarySaveError) as raised:
             self.service.save(original_entries())
         self.assertEqual(raised.exception.stage, "rollback")
-        self.assertEqual(len(self.store.calls), 1)
+        self.assertEqual(len(self.saves()), 1)
         self.assertEqual(len(self.connections), 1)
 
     def test_save_time_validation_rejection_returns_row_reasons_to_the_draft(self):
@@ -210,7 +178,8 @@ class UserDictionaryServiceTests(unittest.TestCase):
 
     def test_missing_or_malformed_success_cannot_complete_a_save(self):
         replies = [
-            {}, {"dictionarySaved": False}, {"dictionarySaved": 1},
+            {}, {"dictionarySaved": False}, {"dictionarySaved": 1}, {"dictionarySaved": True},
+            {"dictionarySaved": True, "settings": {}, "settingsResult": {"file": {}}},
             {"dictionarySaved": True, "dictionaryIssues": None},
             {"dictionarySaved": True, "error": "SYNTHETIC_PRIVATE_ERROR"},
             {"dictionarySaved": True, "error": []},
@@ -254,9 +223,9 @@ class UserDictionaryServiceTests(unittest.TestCase):
             connection.close_failure = OSError("SYNTHETIC_PRIVATE_CLOSE")
             return connection
 
-        service = UserDictionaryService(self.store, self.opened, bridge_factory=create_bridge)
+        service = UserDictionaryService(self.opened, bridge_factory=create_bridge)
         service.save(original_entries())
-        self.assertEqual(len(self.store.calls), 1)
+        self.assertEqual(len(self.saves()), 1)
         self.assertIsNotNone(service.last_saved)
 
     def test_a_second_explicit_save_uses_the_successful_stamp(self):
@@ -265,8 +234,8 @@ class UserDictionaryServiceTests(unittest.TestCase):
         items = original_entries()
         items[0]["word"] = "次の保存"
         self.service.save(items)
-        self.assertEqual(self.store.calls[-1][1], saved_stamp)
-        self.assertEqual(self.store.values["userDictionary"]["items"], items)
+        self.assertEqual(self.saves()[-1]["settingsFile"], {"expectedStamp": saved_stamp})
+        self.assertEqual(self.service.last_saved.values["userDictionary"]["items"], items)
 
 
 if __name__ == "__main__":

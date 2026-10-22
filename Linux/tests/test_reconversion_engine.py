@@ -39,7 +39,7 @@ class ReconversionEngineTests(ReconversionFixture, unittest.TestCase):
             reconversion=self.coordinator, input=self.inputs,
             focused=True, private=False, destroyed=False,
             lookup_announcements=Mock(), ai_review=Mock(),
-            pending_settings_stamp=None, snapshot={}, anchor=Mock(),
+            snapshot={}, anchor=Mock(),
             update_preedit_text_with_mode=Mock(), panel=Mock(),
             hide_preedit_text=Mock(), hide_lookup_table=Mock(),
             show_reconversion_status=Mock(), reconversion_context=self.document,

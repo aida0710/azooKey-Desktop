@@ -42,7 +42,7 @@ class ReconversionTests(ReconversionFixture, unittest.TestCase):
         self.assertFalse(any(effect[0] == "delete" for effect in self.effects))
 
     def test_first_shortcut_waits_for_initial_settings_without_being_rejected(self):
-        self.inputs.submit("settings", completion=lambda _snapshot: None)
+        self.inputs.submit("settings-reload", completion=lambda _snapshot: None)
         self.coordinator.start(undo=False)
         self.worker.respond(0, {"settings": {}})
         self.worker.respond(1, {"reconversion": self.plan})
@@ -182,22 +182,15 @@ class ReconversionTests(ReconversionFixture, unittest.TestCase):
         self.assertEqual(self.worker.requests, [])
         self.assertFalse(any(effect[0] == "delete" for effect in self.effects))
 
-    def test_plan_must_describe_exact_selected_scalar_range(self):
+    def test_malformed_plans_are_rejected_and_core_supplies_the_expected_document(self):
         for invalid in (
             None, {}, "invalid",
-            {**self.plan, "text": "日本"},
-            {**self.plan, "offset": 0},
-            {**self.plan, "count": 4},
+            {**self.plan, "text": ""},
             {**self.plan, "count": 3.0},
+            {key: value for key, value in self.plan.items() if key != "removedContext"},
         ):
-            self.assertIsNone(removed_context(self.document, invalid))
-        selected = "👩‍💻e\u0301"
-        document = surrounding_context("前" + selected + "後", 1, 1 + len(selected), can_replace=True, sensitive=False)
-        self.assertEqual(document["cursorUTF16"], 1)
-        self.assertEqual(document["anchorUTF16"], 8)
-        expected = removed_context(document, {"token": "unicode", "text": selected, "offset": 0, "count": 5})
-        self.assertEqual(expected["cursorUTF16"], 1)
-        self.assertEqual(expected["selected"], "")
+            self.assertIsNone(removed_context(invalid))
+        self.assertEqual(removed_context(self.plan), self.plan["removedContext"])
 
     def test_sensitive_context_never_retains_document_text(self):
         self.assertIsNone(surrounding_context("secret", 3, 3, can_replace=True, sensitive=True))

@@ -1,0 +1,234 @@
+{
+  "ai.api-key": {
+    "ja": "APIキー",
+    "en": "API key"
+  },
+  "ai.api-key-placeholder": {
+    "ja": "空欄ならAPIキーを変更しません",
+    "en": "Leave blank to keep the API key"
+  },
+  "ai.backend.external": {
+    "ja": "OpenAI互換API",
+    "en": "OpenAI-compatible API"
+  },
+  "ai.destination.invalid": {
+    "ja": "送信先を確認できません",
+    "en": "Unable to identify the destination"
+  },
+  "ai.destination.on-device": {
+    "ja": "端末内 AI（Foundation Models）",
+    "en": "On-device AI (Foundation Models)"
+  },
+  "ai.disabled": {
+    "ja": "AI変換（設定で無効）",
+    "en": "AI conversion (disabled in settings)"
+  },
+  "ai.endpoint": {
+    "ja": "APIの接続先URL",
+    "en": "API endpoint URL"
+  },
+  "ai.error.missing-key": {
+    "ja": "API キーが未設定です。設定画面で入力してください。",
+    "en": "No API key is configured. Enter it in settings."
+  },
+  "ai.error.target-changed": {
+    "ja": "対象の本文が変わったため送信しませんでした。本文を選び直してください。",
+    "en": "The target text changed, so nothing was sent. Select the text again."
+  },
+  "ai.example.elaborate": {
+    "ja": "内容を詳しくする",
+    "en": "Elaborate on this text"
+  },
+  "ai.example.english": {
+    "ja": "英語へ翻訳する",
+    "en": "Translate into English"
+  },
+  "ai.example.formal": {
+    "ja": "敬語に直す",
+    "en": "Use formal language"
+  },
+  "ai.example.rewrite": {
+    "ja": "わかりやすく書き直す",
+    "en": "Rewrite this clearly"
+  },
+  "ai.history": {
+    "ja": "指示の履歴",
+    "en": "Instruction history"
+  },
+  "ai.history.choose": {
+    "ja": "履歴から指示を選択",
+    "en": "Select an instruction from history"
+  },
+  "ai.history.error.save": {
+    "ja": "指示の履歴を保存できませんでした。",
+    "en": "The instruction history could not be saved."
+  },
+  "ai.instruction": {
+    "ja": "AIへの指示",
+    "en": "AI instruction"
+  },
+  "ai.instruction-placeholder": {
+    "ja": "例：敬語に直す、英語へ翻訳する",
+    "en": "For example: formalize or translate into English"
+  },
+  "ai.model": {
+    "ja": "モデル名",
+    "en": "Model name"
+  },
+  "ai.pin": {
+    "ja": "ピン留め",
+    "en": "Pin"
+  },
+  "ai.preview": {
+    "ja": "プレビュー",
+    "en": "Preview"
+  },
+  "ai.preview.apply": {
+    "ja": "本文へ適用",
+    "en": "Apply to document"
+  },
+  "ai.preview.copy": {
+    "ja": "結果をコピー",
+    "en": "Copy result"
+  },
+  "ai.preview.edit": {
+    "ja": "指示を編集",
+    "en": "Edit instruction"
+  },
+  "ai.preview.failed": {
+    "ja": "生成できませんでした。AI設定を確認してください。",
+    "en": "Generation failed. Check the AI settings."
+  },
+  "ai.preview.ready": {
+    "ja": "内容を確認して本文へ適用してください。",
+    "en": "Review the preview before applying it to the document."
+  },
+  "ai.preview.reload": {
+    "ja": "再生成（Command+R）",
+    "en": "Regenerate (Command+R)"
+  },
+  "ai.preview.target-changed": {
+    "ja": "元の入力欄や選択範囲を確認できないため、適用しませんでした。結果をコピーして貼り付けてください。",
+    "en": "The original field or selection could not be verified, so the result was not applied. Copy the result and paste it where needed."
+  },
+  "ai.scope.api-key": {
+    "ja": "API キーはこの端末に保存され、要求の認証情報として設定した送信先へ送られます。外部 API の利用料金がかかる場合があります。",
+    "en": "The API key is stored on this device and sent to the configured destination to authenticate requests. External API usage may incur charges."
+  },
+  "ai.scope.cancel": {
+    "ja": "取消",
+    "en": "Cancel"
+  },
+  "ai.scope.changed": {
+    "ja": "本文・指示・周辺設定が変更されました。確認して再生成してください。",
+    "en": "The text, instructions, or surrounding-text setting changed. Review them and generate again."
+  },
+  "ai.scope.confirm": {
+    "ja": "AI に渡す内容を確認",
+    "en": "Review text for AI"
+  },
+  "ai.scope.destination": {
+    "ja": "送信先",
+    "en": "Destination"
+  },
+  "ai.scope.generating": {
+    "ja": "生成中…",
+    "en": "Generating…"
+  },
+  "ai.scope.history": {
+    "ja": "履歴に保存するのは指示文だけです（本文・周辺テキストは含みません）。",
+    "en": "History saves instructions only. It does not save document or surrounding text."
+  },
+  "ai.scope.include-context": {
+    "ja": "周辺テキストを含める（前後最大100文字）",
+    "en": "Include surrounding text (up to 100 characters on each side)"
+  },
+  "ai.scope.include-error": {
+    "ja": "周辺テキストの設定を保存できませんでした。今回の選択は表示のとおりです。",
+    "en": "The surrounding-text setting could not be saved. This request uses the selection shown."
+  },
+  "ai.scope.keyboard": {
+    "ja": "Control+S: 送信 / Control+Shift+S: 周辺設定 / Escape: 取消",
+    "en": "Control+S: send / Control+Shift+S: context / Escape: cancel"
+  },
+  "ai.scope.preview": {
+    "ja": "AI へ送信してプレビュー",
+    "en": "Send to AI and preview"
+  },
+  "ai.scope.processing": {
+    "ja": "通常のかな漢字変換は端末内で処理します。外部 API を選ぶと、AI 操作で指定した本文と指示文を送信先へ送ります。端末内 AI は対応する Mac で利用できます。",
+    "en": "Ordinary kana-kanji conversion runs on this device. External API conversion sends the text and instructions selected in an AI action to the destination. On-device AI is available on supported Macs."
+  },
+  "ai.scope.processing-linux": {
+    "ja": "通常のかな漢字変換は端末内で処理します。AI 操作では指定した本文と指示文を外部 API へ送信します。Linux では端末内 AI は利用できません。",
+    "en": "Ordinary kana-kanji conversion runs on this device. AI actions send the specified text and instructions to the external API. On-device AI is not available on Linux."
+  },
+  "ai.scope.processing-windows": {
+    "ja": "通常のかな漢字変換は端末内で処理します。AI 操作では指定した本文と指示文を外部 API へ送信します。Windows では端末内 AI は利用できません。",
+    "en": "Ordinary kana-kanji conversion runs on this device. AI actions send the specified text and instructions to the external API. On-device AI is not available on Windows."
+  },
+  "ai.scope.send": {
+    "ja": "AI へ送信",
+    "en": "Send to AI"
+  },
+  "ai.scope.target": {
+    "ja": "対象の本文",
+    "en": "Text to send"
+  },
+  "ai.shortcut": {
+    "ja": "AI変換のショートカット",
+    "en": "AI conversion shortcut"
+  },
+  "ai.shortcut.edit": {
+    "ja": "ショートカットを編集",
+    "en": "Edit shortcut"
+  },
+  "ai.shortcut.error.duplicate": {
+    "ja": "このショートカットは別のプロンプトに割り当てられています。",
+    "en": "This shortcut is already assigned to another instruction."
+  },
+  "ai.shortcut.error.format": {
+    "ja": "ショートカットは Ctrl+Alt+e の形式で入力してください。",
+    "en": "Enter the shortcut in the form Ctrl+Alt+e."
+  },
+  "ai.shortcut.error.modifier-required": {
+    "ja": "Ctrl・Alt・Shift・Superのいずれかを指定してください。",
+    "en": "Include Ctrl, Alt, Shift or Super."
+  },
+  "ai.shortcut.placeholder": {
+    "ja": "例：Ctrl+Alt+e",
+    "en": "For example: Ctrl+Alt+e"
+  },
+  "ai.shortcut.prompt": {
+    "ja": "この指示のショートカット",
+    "en": "Shortcut for this instruction"
+  },
+  "ai.shortcut.required": {
+    "ja": "AI変換のショートカットを指定してください。",
+    "en": "Specify a shortcut for AI conversion."
+  },
+  "ai.shortcut.set": {
+    "ja": "ショートカットを設定",
+    "en": "Set shortcut"
+  },
+  "ai.suggestion.empty": {
+    "ja": "AI 候補がありません。入力はそのまま続けられます",
+    "en": "No AI suggestions. You can keep typing"
+  },
+  "ai.suggestion.failed": {
+    "ja": "AI 変換に失敗しました。入力はそのまま続けられます",
+    "en": "AI conversion failed. You can keep typing"
+  },
+  "ai.suggestion.loading": {
+    "ja": "AI 候補を取得中… 入力は続けられます",
+    "en": "Getting AI suggestions… You can keep typing"
+  },
+  "ai.title": {
+    "ja": "AI変換",
+    "en": "AI conversion"
+  },
+  "ai.unpin": {
+    "ja": "ピン留めを解除",
+    "en": "Unpin"
+  }
+}

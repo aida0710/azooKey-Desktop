@@ -1,12 +1,12 @@
 """Settings recovery through real GTK controls and the real Swift converter."""
 import copy
+import fcntl
 import json
 import os
 import pathlib
 import sys
 import tempfile
 import time
-import types
 import unittest
 from unittest.mock import patch
 
@@ -21,7 +21,7 @@ FRAME_POLL_INTERVAL_SECONDS = 0.005
 class SettingsWindowTests(unittest.TestCase):
     def setUp(self):
         from azookey.bridge import Bridge
-        from azookey.settings_store import SettingsStore
+        from azookey import settings_client
         self.directory = tempfile.TemporaryDirectory(prefix="azookey-settings-window-")
         self.addCleanup(self.directory.cleanup)
         root = pathlib.Path(self.directory.name)
@@ -31,21 +31,18 @@ class SettingsWindowTests(unittest.TestCase):
         self.addCleanup(self.environment.stop)
         bridge = Bridge()
         try:
-            self.values = bridge.request("settings")["settings"]
-            self.values.update({"live": False, "tree": False, "learning": "nothing", "includeContext": False})
-            self.values["userDictionary"] = {"items": [{
-                "id": "6c5fce13-fb0f-4b59-9281-f7347ae8f91c", "reading": "てすと", "word": "試験", "hint": "回復用",
+            values = bridge.request("settings")["settings"]
+            values.update({"live": False, "tree": False, "learning": "nothing", "includeContext": False})
+            values["userDictionary"] = {"items": [{
+                "id": "6C5FCE13-FB0F-4B59-9281-F7347AE8F91C", "reading": "てすと", "word": "試験", "hint": "回復用",
             }]}
-            # Initial migration reads the already persisted dictionary. Later
-            # edits use the explicit dictionary transaction instead of configure.
-            SettingsStore().save(self.values)
-            self.assertFalse(bridge.request("configure", settings=self.values).get("error"))
-            self.values = bridge.request("settings")["settings"]
+            # Saving through Core applies the settings, compiles the dictionary
+            # and leaves the last good copy, as the settings window does.
+            self.values = settings_client.save(bridge, values, expected_stamp=None).values
+            self.path = pathlib.Path(settings_client.load(bridge).path)
         finally:
             bridge.close()
-        self.store = SettingsStore()
-        self.store.save(self.values)
-        self.path = self.store.path
+        self.last_good = self.path.with_name("settings.last-good.json")
 
     def window(self):
         from azookey.settings import SettingsWindow
@@ -103,14 +100,12 @@ class SettingsWindowTests(unittest.TestCase):
                 self.assertEqual(self.path.read_text(), document)
 
     def test_explicit_default_recovery_preserves_dictionary_and_never_calls_keyring_save(self):
-        from azookey.settings_store import SettingsRecoveryRequired
+        from azookey.i18n import text
         original = b"{ synthetic invalid JSON"
         self.path.write_bytes(original)
         window = self.window()
-        with patch.object(window.bridge, "request", wraps=window.bridge.request) as bridge:
-            with self.assertRaises(SettingsRecoveryRequired):
-                window.apply_settings(window.values)
-            bridge.assert_not_called()
+        with self.assertRaisesRegex(ValueError, text("settings.recovery_required")):
+            window.apply_settings(window.values)
         self.assertEqual(self.path.read_bytes(), original)
         with patch("azookey.settings.confirm_restore", return_value=True), patch("azookey.settings.save_key") as keyring:
             window.restore_settings(True)
@@ -130,17 +125,20 @@ class SettingsWindowTests(unittest.TestCase):
         self.assertFalse(json.loads(self.path.read_text())["live"])
 
     def test_recovery_cancel_and_save_failure_keep_original(self):
+        from azookey.i18n import text
         self.path.write_bytes(b"{ original")
         window = self.window()
         with patch("azookey.settings.confirm_restore", return_value=False):
             window.restore_settings(False)
         self.assertEqual(self.path.read_bytes(), b"{ original")
-        with patch("azookey.settings.confirm_restore", return_value=True), \
-                patch.object(window.settings_store, "save_with_backend", side_effect=OSError("synthetic disk full")):
+        # Another writer holding the lock is a real failure Core reports without waiting.
+        with self.path.with_name(".settings.lock").open("w") as writer, \
+                patch("azookey.settings.confirm_restore", return_value=True):
+            fcntl.flock(writer, fcntl.LOCK_EX | fcntl.LOCK_NB)
             window.restore_settings(True)
         self.assertEqual(self.path.read_bytes(), b"{ original")
         self.assertTrue(window.recovery_bar.get_visible())
-        self.assertIn("synthetic disk full", window.message.get_text())
+        self.assertEqual(window.message.get_text(), text("settings.busy"))
         self.assertFalse(window.bridge.request("settings")["settings"]["live"])
 
     def test_concurrent_save_leaves_latest_file_and_shows_conflict(self):
@@ -149,11 +147,9 @@ class SettingsWindowTests(unittest.TestCase):
         latest["profile"] = "別の画面"
         self.path.write_text(json.dumps(latest, ensure_ascii=False))
         window.widgets["live"].set_active(True)
-        with patch.object(window.bridge, "request", wraps=window.bridge.request) as bridge:
-            window.save(None)
-            # Only Core's reading of the shortcut notation; nothing is configured.
-            self.assertEqual({call.args[0] for call in bridge.call_args_list}, {"ai-shortcut"})
+        window.save(None)
         self.assertIn("変わりました", window.message.get_text())
+        self.assertFalse(window.bridge.request("settings")["settings"]["live"])
         self.assertEqual(json.loads(self.path.read_text()), latest)
 
     def test_dictionary_cancel_and_general_save_preserve_saved_entries_and_ids(self):
@@ -205,24 +201,17 @@ class SettingsWindowTests(unittest.TestCase):
         editor.cancel_button.clicked()
 
     def test_dictionary_save_reports_backup_failure_after_persisting_the_new_dictionary(self):
-        from azookey import settings_store
         window = self.window()
         window.dictionary_button.clicked()
         editor = window.dictionary_editor
         editor.fields["word"].set_text("控え失敗確認語")
-        write_atomic = settings_store._write_atomic
-
-        def backup_unavailable(path, values):
-            if path.name == "settings.last-good.json":
-                raise PermissionError("SYNTHETIC_PRIVATE_FAILURE")
-            return write_atomic(path, values)
-
-        with patch("azookey.settings_store._write_atomic", side_effect=backup_unavailable):
-            self.finish_dictionary_save(editor)
+        # A directory in the last good copy's place makes that write fail for real.
+        self.last_good.unlink()
+        self.last_good.mkdir()
+        self.finish_dictionary_save(editor)
         self.assertTrue(editor.closed)
         self.assertEqual(json.loads(self.path.read_text())["userDictionary"]["items"][0]["word"], "控え失敗確認語")
         self.assertIn("控え", window.message.get_text())
-        self.assertNotIn("SYNTHETIC_PRIVATE_FAILURE", window.message.get_text())
 
     @staticmethod
     def finish_dictionary_save(editor):
@@ -258,59 +247,22 @@ class SettingsWindowTests(unittest.TestCase):
             if editor.handler_is_connected(destroy_handler):
                 editor.disconnect(destroy_handler)
 
-    def test_failed_publication_and_failed_core_restore_require_restore_before_another_save(self):
+    def test_core_names_the_field_of_a_value_typed_into_the_window(self):
+        from azookey.i18n import text
         window = self.window()
         original = self.path.read_bytes()
-        original_backup = self.store.backup.read_bytes()
-        real_request = window.bridge.request
-        configured = []
-
-        def reject_restore(operation, **payload):
-            if operation == "configure":
-                configured.append(payload["settings"]["live"])
-                if payload["settings"]["live"] is False:
-                    return {"error": "synthetic rollback failure"}
-            return real_request(operation, **payload)
-
-        window.widgets["live"].set_active(True)
-        with patch.object(window.bridge, "request", side_effect=reject_restore), \
-                patch.object(pathlib.Path, "replace", side_effect=PermissionError("synthetic publication failure")):
-            window.save(None)
-            self.assertEqual(configured, [True, False])
-            self.assertTrue(window.backend_recovery_pending)
-            self.assertIn("復元に失敗", window.message.get_text())
-            self.assertTrue(real_request("settings")["settings"]["live"])
-            window.save(None)
-            self.assertEqual(configured, [True, False, False], "Only the pending restore may run on retry")
+        window.widgets["inferenceLimit"].set_text("多すぎる")
+        window.save(None)
+        self.assertEqual(window.message.get_text(), text("settings.invalid_value", field="inferenceLimit"))
+        window.widgets["inferenceLimit"].set_text("101")
+        window.save(None)
+        self.assertEqual(window.message.get_text(), text("settings.invalid_value", field="inferenceLimit"))
         self.assertEqual(self.path.read_bytes(), original)
-        self.assertEqual(self.store.backup.read_bytes(), original_backup)
-        with patch.object(window.bridge, "request", wraps=real_request) as requests:
-            window.save(None)
-        self.assertEqual([call.kwargs["settings"]["live"] for call in requests.call_args_list
-                          if call.args[0] == "configure"], [False, True])
-        self.assertFalse(window.backend_recovery_pending)
-        self.assertTrue(json.loads(self.path.read_text())["live"])
-
-    def test_repair_during_queued_core_rejection_applies_new_settings_without_a_stale_warning(self):
-        from azookey.engine import Engine
-        pending = []
-        warnings = []
-        input_queue = types.SimpleNamespace(submit=lambda operation, **options: pending.append((operation, options)))
-        engine = types.SimpleNamespace(
-            settings=self.values, settings_store=self.store, settings_stamp=None, pending_settings_stamp=None,
-            settings_problem_stamp=None, input=input_queue, update_auxiliary_text=lambda *args: warnings.append(args),
-        )
-        engine.notify_settings_problem = types.MethodType(Engine.notify_settings_problem, engine)
-        self.path.write_text(json.dumps({**self.values, "customTable": "synthetic invalid table"}))
-        Engine.reload_settings(engine)
-        self.path.write_text(json.dumps({**self.values, "live": True}))
-        pending[0][1]["completion"]({"error": "invalid_request"})
-        self.assertEqual(warnings, [])
-        Engine.reload_settings(engine)
-        self.assertEqual(len(pending), 2)
-        pending[1][1]["completion"]({})
-        self.assertTrue(engine.settings["live"])
-        self.assertEqual(warnings, [])
+        window.widgets["inferenceLimit"].set_text("7")
+        window.widgets["punctuation"].set_active_id("3")
+        window.save(None)
+        saved = json.loads(self.path.read_text())
+        self.assertEqual((saved["inferenceLimit"], saved["punctuation"]), (7, 3))
 
 
 if __name__ == "__main__":

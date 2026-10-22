@@ -64,12 +64,20 @@ public struct AIPromptHistory: Sendable {
 
     /// Moves `prompt` to the front. A shortcut is kept only for a pinned
     /// instruction, but it must not duplicate another instruction's shortcut.
-    public func save(_ prompt: String, pinned: Bool, shortcut: KeyboardShortcut?, now: Date = Date()) throws(Failure) {
+    public func save(_ prompt: String, pinned: Bool, shortcut: KeyboardShortcut?) throws(Failure) {
+        try save(prompt, pinned: pinned, shortcut: shortcut, usedAt: Date())
+    }
+
+    /// `usedAt` orders the unpinned history. This is an overload, not a
+    /// `Date()` default argument: on Linux, type-checking that default while
+    /// the module interface is emitted loads Foundation's C headers before
+    /// Glibc's, and `stat` in Desktop/Settings can then no longer be found.
+    public func save(_ prompt: String, pinned: Bool, shortcut: KeyboardShortcut?, usedAt: Date) throws(Failure) {
         var items = load().filter { !$0.prompt.hasSameScalars(as: prompt) }
         if let shortcut, items.contains(where: { $0.shortcut == shortcut }) {
             throw .duplicateShortcut
         }
-        items.insert(Item(prompt: prompt, pinned: pinned, lastUsed: now.timeIntervalSince1970, shortcut: pinned ? shortcut : nil), at: 0)
+        items.insert(Item(prompt: prompt, pinned: pinned, lastUsed: usedAt.timeIntervalSince1970, shortcut: pinned ? shortcut : nil), at: 0)
         let kept = items.filter(\.pinned) + items.filter { !$0.pinned }.prefix(Self.recentLimit)
         do {
             try write(kept)

@@ -117,12 +117,6 @@ final class DesktopDictionarySettingsFile: @unchecked Sendable {
         }
     }
 
-    static func settingsURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        let base = environment["XDG_CONFIG_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config", isDirectory: true)
-        return base.appendingPathComponent("azookey-tree/settings.json")
-    }
-
     static func dictionary(in content: Data) throws -> Config.UserDictionary.Value? {
         let document = try JSONSerialization.jsonObject(with: content) as? [String: Any]
         guard let dictionary = document?["userDictionary"] else {

@@ -2,6 +2,10 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+// Kept beside OpenAIClient, after Desktop/Settings in file order: when a file
+// importing FoundationNetworking is compiled earlier in the same batch, Glibc's
+// `struct stat` becomes owned by that module and invisible to later files that
+// import only Glibc (Swift 6.2 on Linux).
 
 /// Sends reviewed arguments to the OpenAI-compatible API. The bridge runs
 /// this in a separate process so a slow reply never holds up conversion.

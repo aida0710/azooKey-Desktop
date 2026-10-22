@@ -16,9 +16,9 @@ final class DesktopAIController {
         self.promptHistory = promptHistory
     }
 
-    /// The prompt history lives beside the desktop settings file.
+    /// The prompt history lives beside the desktop settings file on every platform.
     static func promptHistoryURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        DesktopDictionarySettingsFile.settingsURL(environment: environment)
+        DesktopSettingsFileLocation.settingsFileURL(environment: environment)
             .deletingLastPathComponent().appendingPathComponent("prompts.json")
     }
 

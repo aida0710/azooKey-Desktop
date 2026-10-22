@@ -10,7 +10,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from azookey.bridge import Bridge
 from azookey.keymap import translate
-from azookey.personalization import import_model
 from unittest.mock import patch
 
 
@@ -234,7 +233,8 @@ class BridgeIntegrationTests(unittest.TestCase):
             self.assertFalse(self.bridge.request("snapshot")["personalizationConfigured"])
             # The verified base model is a structurally valid personal-model
             # fixture; this exercises loading, not a claimed quality improvement.
-            import_model(os.environ["AZOOKEY_RESOURCES"])
+            imported = self.bridge.request("import-personalization", importPath=os.environ["AZOOKEY_RESOURCES"])
+            self.assertTrue(imported["personalizationImported"])
             enabled = self.bridge.request("configure", settings={**original, "personalization": "normal"})
             self.assertTrue(enabled["personalizationConfigured"])
             for char in "nihongo":
@@ -250,11 +250,10 @@ class BridgeIntegrationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "linux", "settings integration runs in the isolated Ubuntu container")
     def test_settings_user_dictionary_and_custom_table_validation(self):
-        from azookey.settings_store import SettingsStore
+        from azookey import settings_client
         from azookey.user_dictionary_service import UserDictionaryService
         original = self.bridge.request("settings")["settings"]
-        store = SettingsStore()
-        dictionary = UserDictionaryService(store, store.load(original))
+        dictionary = UserDictionaryService(settings_client.load(self.bridge))
         try:
             settings = {**original, "live": False, "learning": "nothing",
                         "userDictionary": {"items": [{"id": "18afee1d-8174-45c6-80e2-78d315b73f81", "reading": "こでっくす", "word": "Codex検証辞書", "hint": "test"}]}}

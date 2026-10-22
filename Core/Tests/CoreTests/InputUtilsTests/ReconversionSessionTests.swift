@@ -125,3 +125,15 @@ func selectionReplacementUsesTheSameRangeInEitherDirection(reversed: Bool) throw
     #expect(ReconversionReading.resolve("日本語", dictionary: []) == nil)
     #expect(ReconversionReading.resolve("相田", dictionary: entries + [.init(word: "相田", reading: "そうだ")]) == nil)
 }
+
+@Test func replacementDescribesTheDocumentAfterTheHostDeletion() throws {
+    let session = ReconversionSession()
+    session.recordCommit("橋", checkpoint: .reading("はし"), context: document())
+    #expect(try session.prepareUndo(in: document(before: "前橋")).removedContext == document())
+    // Positions are UTF-16 while the deletion count is in Unicode scalars.
+    let selected = "👩‍💻e\u{301}"
+    let replacement = try ReconversionSession().prepareSelection(in: document(selected: selected, reversed: true), reading: "えんじにあ")
+    #expect(replacement.count == 5)
+    #expect(replacement.removedContext == document())
+    #expect(replacement.removedContext.cursorUTF16 == 1)
+}

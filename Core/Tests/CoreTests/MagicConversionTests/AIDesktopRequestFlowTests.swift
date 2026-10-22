@@ -3,6 +3,10 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+// Kept beside OpenAIClient, after Desktop/Settings in file order: when a file
+// importing FoundationNetworking is compiled earlier in the same batch, Glibc's
+// `struct stat` becomes owned by that module and invisible to later files that
+// import only Glibc (Swift 6.2 on Linux).
 import Testing
 
 /// Replies of a local mock API, chosen by the instruction in each request.

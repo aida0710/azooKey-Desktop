@@ -226,7 +226,7 @@ Windows の TSF は入力 context が文書ごとに分かれますが、適用�
 
 ### `ai-shortcut`
 
-設定画面などで、ショートカットの表記（`Ctrl+Alt+e`）を Core に読ませる・表示させる操作です。
+設定画面などで、ショートカットの表記（`Ctrl+Alt+e`）を Core に読ませる・表示させる操作です。設定の定義（`settings-schema`）で `control` が `shortcut` の項目は、この操作で表示し、読み取った値を `settings-save` に渡します（Ubuntu は `Linux/azookey/shortcut_notation.py`）。
 
 ```json
 {"operation": "ai-shortcut", "ai": {"shortcutText": "ctrl+alt+E"}}
@@ -242,7 +242,7 @@ Windows の TSF は入力 context が文書ごとに分かれますが、適用�
 
 ## エラーコードと表示
 
-Core は画面の文言ではなくコードを返します。Ubuntu は次の文言を `Linux/azookey/locales/ja.json` から表示します（`Linux/azookey/ai_error_messages.py`）。共通の文言カタログができたら、そちらへ移します。
+Core は画面の文言ではなくコードを返します。各 OS は次のキーで自分の文言の表から引きます（Ubuntu は `Linux/azookey/ai_error_messages.py`）。文言の正本は `Shared/Messages/Localizable/ai.json` です（[画面の文言の共通カタログ](messages.md)）。
 
 | コード | 文言のキー |
 |---|---|
