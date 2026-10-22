@@ -1,6 +1,6 @@
 # Runs the packaged bridge with and without Zenzai's model and reports, for each,
-# the response time of every key, the bridge's memory and what Space converts
-# each reading to. docs/windows.md quotes its numbers.
+# the response time of every key, the bridge's memory and what each reading
+# converts to. docs/windows.md quotes its numbers.
 #
 #   pwsh Windows\tools\measure-zenzai.ps1 [-Package <dir>] [-Readings <romaji>, ...]
 #
@@ -71,8 +71,9 @@ function Measure-Mode([string]$name, [string]$resources) {
         $space = Send-Request $bridgeProcess (Get-KeyRequest ' ' $spaceKeyCode)
         $spaceTimes.Add($space.Milliseconds)
         Send-Request $bridgeProcess '{"operation":"reset","context":"measure","submit":false}' | Out-Null
-        # After Space the preedit holds every clause, so it is the whole conversion.
-        [pscustomobject]@{ Reading = $reading; Converted = $space.Snapshot.preedit; ZenzaiLoaded = $space.Snapshot.zenzaiLoaded }
+        # Live conversion (on by default) shows the whole sentence converted
+        # after the last key; Space then converts only the first clause.
+        [pscustomobject]@{ Reading = $reading; Converted = $reply.Snapshot.preedit; ZenzaiLoaded = $space.Snapshot.zenzaiLoaded }
     }
     $bridgeProcess.Process.Refresh()
     $summary = [pscustomobject]@{
