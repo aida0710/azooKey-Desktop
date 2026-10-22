@@ -9,7 +9,6 @@ from gi.repository import Gtk
 
 from .i18n import text as message
 from .labeled_controls import label_control
-from .prompts import parse_shortcut, shortcut_text
 
 # Room for several rows of a custom input table without growing the window.
 MULTILINE_MINIMUM_HEIGHT = 140
@@ -86,19 +85,22 @@ class MultilineControl:
 
 
 class ShortcutControl:
-    def __init__(self, parent, item):
+    """The notation is Core's; `notation` asks Core to read and write it."""
+
+    def __init__(self, parent, item, notation):
+        self.notation = notation
         self.widget = Gtk.Entry()
         label_control(parent, self.widget, message(item["labelKey"]), mnemonic=item.get("accessKey"))
         parent.pack_start(self.widget, False, False, 0)
 
     def read(self):
-        shortcut = parse_shortcut(self.widget.get_text())
+        shortcut = self.notation.parse(self.widget.get_text())
         if shortcut is None:
             raise ValueError(message("ai.shortcut.required"))
         return shortcut
 
     def show(self, value):
-        self.widget.set_text(shortcut_text(value))
+        self.widget.set_text(self.notation.text(value))
 
 
 CONTROLS = {
@@ -107,5 +109,4 @@ CONTROLS = {
     "integer": IntegerControl,
     "text": TextControl,
     "multilineText": MultilineControl,
-    "shortcut": ShortcutControl,
 }

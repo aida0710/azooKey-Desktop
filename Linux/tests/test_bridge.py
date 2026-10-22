@@ -321,6 +321,97 @@ class BridgeIntegrationTests(unittest.TestCase):
             server.server_close()
             worker.join(timeout=2)
 
+    @unittest.skipUnless(sys.platform == "linux", "local API fixture runs in isolated Ubuntu")
+    def test_selected_text_previews_through_a_local_api_keep_only_the_current_reply(self):
+        """Real bridges and a loopback API: held, reversed, empty and failing replies."""
+        released = {"held-first": threading.Event(), "held-second": threading.Event()}
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+                instruction = next((name for name in (*released, "empty", "server-error") if name in body), "")
+                if instruction in released:
+                    released[instruction].wait(timeout=30)
+                if instruction == "server-error":
+                    self.send_response(500)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                text = "" if instruction == "empty" else f"{instruction}の本文"
+                content = json.dumps({"result": text}, ensure_ascii=False)
+                response = json.dumps({"choices": [{"message": {"content": content}}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(response)))
+                self.end_headers()
+                self.wfile.write(response)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        serving = threading.Thread(target=server.serve_forever, daemon=True)
+        serving.start()
+        original = self.bridge.request("settings")["settings"]
+        field = {"identity": ["/input/1", "fixture"], "surrounding": {"text": "前 原文 後", "cursorUTF16": 4, "anchorUTF16": 2},
+                 "hasSurroundingUpdate": True, "isSensitive": False}
+        witness = {"object": ["bus", ":1.4", "/field/1"], "window": [":1.4", "/window/1"], "start": 2, "end": 4,
+                   "before": "前 ", "selected": "原文", "after": " 後"}
+        try:
+            self.apply_settings({**original, "aiEnabled": True, "aiEndpoint": f"http://127.0.0.1:{server.server_port}/v1"})
+            opened = self.bridge.request("ai-transform-open", context="field", ai={"field": field})
+            transformation = opened["transformation"]
+
+            def core(operation, **values):
+                return self.bridge.request(f"ai-transform-{operation}", context="field",
+                                           ai={"transformation": transformation, **values})
+
+            def preview(instruction):
+                started = core("preview", prompt=instruction, pinned=False, shortcutText="", includeContext=False, field=field)
+                replies = []
+
+                def send():
+                    # The platform's separate bridge process, as the engine uses for AI requests.
+                    connection = Bridge(timeout=60)
+                    try:
+                        reply = connection.request("transform", apiKey="local-test-placeholder", **started["request"])
+                        replies.append(None if reply.get("error") else reply["suggestions"][0])
+                    finally:
+                        connection.close()
+                thread = threading.Thread(target=send, daemon=True)
+                thread.start()
+                return started["revision"], thread, replies
+
+            self.assertTrue(core("target", field=field, witness=witness)["targetAvailable"])
+            first_revision, first, first_reply = preview("held-first")
+            core("invalidate")
+            second_revision, second, second_reply = preview("held-second")
+            released["held-second"].set()
+            second.join(timeout=60)
+            current = core("result", revision=second_revision, text=second_reply[0])
+            self.assertTrue(current["accepted"])
+            released["held-first"].set()
+            first.join(timeout=60)
+            late = core("result", revision=first_revision, text=first_reply[0], inputContextChanged=True)
+            self.assertFalse(late["accepted"])
+            self.assertEqual(late["text"], "held-secondの本文")
+            self.assertTrue(late["targetAvailable"])
+            for instruction in ("empty", "server-error"):
+                with self.subTest(instruction=instruction):
+                    revision, thread, reply = preview(instruction)
+                    thread.join(timeout=60)
+                    result = core("result", revision=revision, text=reply[0])
+                    self.assertTrue(result["accepted"])
+                    self.assertNotIn("text", result, "an empty or failed reply leaves nothing to apply or copy")
+                    self.assertFalse(core("confirm")["confirmed"])
+        finally:
+            for event in released.values():
+                event.set()
+            self.bridge.request("configure", settings=original)
+            server.shutdown()
+            server.server_close()
+            serving.join(timeout=2)
+
 
 if __name__ == "__main__":
     unittest.main()

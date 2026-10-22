@@ -1,15 +1,14 @@
 """Reset during the prompt's own focus transfer must not discard its target."""
-from dataclasses import replace
 from unittest import mock
 
-from test_ai_transform_target import accessible_fixture
+from ai_core_fixture import witness_fixture
 from test_selected_text_transform import SelectedTextTransformationFixture
 
 
 class SelectedTextDialogFocusTests(SelectedTextTransformationFixture):
     def capture_dialog(self):
         self.session.show("敬語に直す")
-        self.inspections.pop()(accessible_fixture())
+        self.inspections.pop()(witness_fixture())
         self.dialog_active = False
         patch = mock.patch.object(self.session.dialog, "is_active", side_effect=lambda: self.dialog_active)
         patch.start()
@@ -31,8 +30,8 @@ class SelectedTextDialogFocusTests(SelectedTextTransformationFixture):
         self.engine.focus_revision = object()
         self.session.context_changed()
         verified = self.inspections.pop()
-        verified(accessible_fixture())
-        verified(accessible_fixture())
+        verified(witness_fixture())
+        verified(witness_fixture())
         self.assertEqual(self.commits, ["新しい本文"])
 
     def assert_apply_enabled(self, enabled):
@@ -47,7 +46,7 @@ class SelectedTextDialogFocusTests(SelectedTextTransformationFixture):
         self.generate_result()
         self.assert_apply_enabled(True)
         self.begin_apply()
-        self.inspections.pop()(accessible_fixture())
+        self.inspections.pop()(witness_fixture())
         self.assertEqual(self.commits, ["新しい本文"])
 
     def test_prompt_activation_before_outgoing_reset_also_preserves_the_target(self):
@@ -58,7 +57,7 @@ class SelectedTextDialogFocusTests(SelectedTextTransformationFixture):
         self.generate_result()
         self.assert_apply_enabled(True)
         self.begin_apply()
-        self.inspections.pop()(accessible_fixture())
+        self.inspections.pop()(witness_fixture())
         self.assertEqual(self.commits, ["新しい本文"])
 
     def test_reset_without_prompt_activation_never_grants_apply(self):
@@ -113,16 +112,15 @@ class SelectedTextDialogFocusTests(SelectedTextTransformationFixture):
                 self.session.close()
 
     def test_all_original_target_checks_still_apply_after_an_opening_reset(self):
-        original = accessible_fixture()
         changed = (
             None,
-            replace(original, bus_id="restarted-bus"),
-            replace(original, identity=(":1.4", "/other-field")),
-            replace(original, window_identity=(":1.4", "/other-window")),
-            replace(original, start=8, end=10),
-            replace(original, selected="別文"),
-            replace(original, before="別 "),
-            replace(original, after=" 別"),
+            witness_fixture(object=["restarted-bus", ":1.4", "/field/1"]),
+            witness_fixture(object=["fixture-bus", ":1.4", "/other-field"]),
+            witness_fixture(window=[":1.4", "/other-window"]),
+            witness_fixture(start=8, end=10),
+            witness_fixture(selected="別文"),
+            witness_fixture(before="別 "),
+            witness_fixture(after=" 別"),
         )
         for inspected in changed:
             with self.subTest(inspected=inspected):
@@ -166,7 +164,7 @@ class SelectedTextDialogFocusTests(SelectedTextTransformationFixture):
         self.begin_apply()
         verified = self.inspections.pop()
         self.reset_input()
-        verified(accessible_fixture())
+        verified(witness_fixture())
         self.assert_preview_preserved_without_apply()
 
     def test_focus_change_during_read_after_a_prompt_reset_never_applies(self):
@@ -180,5 +178,5 @@ class SelectedTextDialogFocusTests(SelectedTextTransformationFixture):
         self.session.context_changed()
         verified = self.inspections.pop()
         self.engine.focus_revision = object()
-        verified(accessible_fixture())
+        verified(witness_fixture())
         self.assert_preview_preserved_without_apply()

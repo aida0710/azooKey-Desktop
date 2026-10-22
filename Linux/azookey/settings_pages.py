@@ -4,7 +4,8 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
 from .i18n import text as message
 from .labeled_controls import label_control
-from .settings_controls import CONTROLS
+from .settings_controls import CONTROLS, ShortcutControl
+from .shortcut_notation import ShortcutNotation
 from .support_page import SupportPage
 
 
@@ -32,13 +33,20 @@ def add_setting(window, parent, item):
         parent.pack_start(window.dictionary_button, False, False, 0)
         widget = window.dictionary_button
     else:
-        control = CONTROLS[item["control"]](parent, item)
+        control = make_control(window, parent, item)
         control.show(window.values[item["key"]])
         window.controls[item["key"]] = control
         window.widgets[item["key"]] = widget = control.widget
     if item.get("descriptionKey"):
         add_note(parent, item["descriptionKey"])
     show_availability(parent, widget, item)
+
+
+def make_control(window, parent, item):
+    if item["control"] == "shortcut":
+        # Only the shortcut needs Core while it is shown and read back.
+        return ShortcutControl(parent, item, ShortcutNotation(window.bridge))
+    return CONTROLS[item["control"]](parent, item)
 
 
 def add_note(parent, text_key):

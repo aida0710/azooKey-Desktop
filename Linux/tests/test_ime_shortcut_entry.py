@@ -7,6 +7,12 @@ from azookey.input_coordinator import InputCoordinator
 from azookey.keymap import translate
 from azookey.native_key_reply import NativeKeyReply
 from test_input_coordinator import ManualWorker
+from ai_core_fixture import publish_core_shortcuts
+
+
+def setUpModule():
+    # Idle Control chords are routed by the bindings Core publishes.
+    publish_core_shortcuts()
 
 
 class IMEShortcutEntryTests(unittest.TestCase):

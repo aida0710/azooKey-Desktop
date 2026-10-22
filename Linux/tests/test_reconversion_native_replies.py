@@ -6,6 +6,7 @@ from reconversion_fixture import ReconversionFixture
 from azookey.keymap import translate
 from azookey.native_key_reply import NativeKeyReply
 from azookey.reconversion import surrounding_context
+from ai_core_fixture import publish_core_shortcuts
 
 
 CONTROL = 4
@@ -17,6 +18,11 @@ HOME_UP = (0xFF50, 102, CONTROL | RELEASE)
 CONTROL_UP = (0xFFE3, 37, CONTROL | RELEASE)
 LETTER = (ord("a"), 38, 0)
 ORDERED_KEYS = (ENTER, CONTROL_DOWN, HOME, HOME_UP, CONTROL_UP, LETTER)
+
+
+def setUpModule():
+    # Idle Control chords are routed by the bindings Core publishes.
+    publish_core_shortcuts()
 
 
 class ReconversionNativeReplyTests(ReconversionFixture, unittest.TestCase):

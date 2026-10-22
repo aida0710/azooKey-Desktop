@@ -13,7 +13,7 @@ class AISuggestionConfirmationWindow(Gtk.Window):
     # Leave room for the complete destination and a scrollable target.
     DEFAULT_WIDTH = 480
 
-    def __init__(self, scope, *, on_send, on_cancel, on_context_changed):
+    def __init__(self, review, *, on_send, on_cancel, on_context_changed):
         # A toplevel does not require a parent surface from another application
         # on Wayland. show_all() avoids requesting keyboard activation.
         super().__init__(type=Gtk.WindowType.TOPLEVEL, title=message("ai.scope.confirm"))
@@ -26,7 +26,10 @@ class AISuggestionConfirmationWindow(Gtk.Window):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=12)
         self.add(box)
         box.pack_start(Gtk.Label(label=message("ai.scope.confirm"), xalign=0), False, False, 0)
-        self.scope_view = AIRequestScopeView(scope, on_context_changed)
+        self.scope_view = AIRequestScopeView(
+            target=review["target"], destination=review.get("destination"),
+            include_context=review["includeContext"], on_context_changed=on_context_changed,
+        )
         box.pack_start(self.scope_view, True, True, 0)
         self.message = Gtk.Label(xalign=0, wrap=True)
         box.pack_start(self.message, False, False, 0)

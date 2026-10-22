@@ -24,13 +24,12 @@ from . import settings_client
 from .settings_reload import SettingsReload
 from .i18n import text
 from .shell_surface import surface
-from .prompts import PromptHistory, matches
-from .ai_transform_target import FocusedInputContext, InputSelection
+from .ai_bridge import AIBridge
+from .ime_shortcuts import opens_prompt, publish as publish_shortcuts
 from .selected_text_transform import SelectedTextTransformation
-from .ai_scope import AIRequestConfiguration, AIRequestScope, MODIFIER_KEYS
-from .ai_review import AISuggestionReview
+from .ai_review import AISuggestionReview, MODIFIER_KEYS
 from .i18n import text as message
-from .reconversion import ReconversionCoordinator, reconversion_message, surrounding_context
+from .reconversion import ReconversionCoordinator, reconversion_message, surrounding_context, utf16_count
 
 
 class Engine(IBus.Engine):
@@ -41,6 +40,7 @@ class Engine(IBus.Engine):
         super().__init__(*args, **kwargs)
         self.context_id = str(uuid.uuid4())
         self.bridge = AsyncBridge.acquire(GLib.idle_add)
+        self.ai = AIBridge(self.bridge, self.context_id)
         self.panel = TreePanel(self.choose, self.request_layout)
         self.lookup_announcements = CandidateAnnouncements(
             lambda announcement: self.panel.get_accessible().emit("notification", announcement, Atk.Live.POLITE),
@@ -52,7 +52,8 @@ class Engine(IBus.Engine):
         self.focused = False
         self.focus_revision = object()
         self.focus_identity = None
-        self.transform_selection = None
+        # The latest surrounding text, as AI field facts (UTF-16 positions).
+        self.surrounding = None
         self.has_transform_surrounding_update = False
         self.ai_pending = False
         self.last_language_key = (None, 0)
@@ -73,7 +74,7 @@ class Engine(IBus.Engine):
         self.native_key_reply = None
         self.native_key_passthrough = False
         self.ai_review = AISuggestionReview(
-            current_state=self.ai_review_state, send=self.start_ai, save_context=self.save_ai_context,
+            current_state=self.ai_review_state, send=self.send_ai_review, save_context=self.save_ai_context,
         )
         self.transformation = SelectedTextTransformation(self)
         self.reconversion = ReconversionCoordinator(
@@ -86,19 +87,21 @@ class Engine(IBus.Engine):
             self.input, applied=self.apply_settings, problem=self.show_settings_problem,
         )
         self.reload_settings()
+        self.refresh_shortcuts()
 
     def ai_review_state(self):
         return {
-            "snapshot": self.snapshot, "input_epoch": self.input.cancelled,
-            "bridge_generation": self.input.generation, "focused": self.focused,
+            "focused": self.focused,
             "pending_input": any(pending.key is not None for pending in self.input.pending),
         }
 
-    def make_ai_scope(self, target):
-        return AIRequestScope(
-            AIRequestConfiguration.from_settings(self.settings), target,
-            before=self.left, after=self.right, include_context=self.settings.get("includeContext", False),
-        )
+    def refresh_shortcuts(self):
+        """Ask Core which chords it needs. Settings and pinned instructions are
+        changed in other windows, so this is asked again whenever a field gains focus."""
+        def received(reply):
+            if reply is not None:
+                publish_shortcuts(reply["shortcuts"])
+        self.ai.submit("ime-shortcuts", completion=received)
 
     def save_ai_context(self, value):
         try:
@@ -185,16 +188,18 @@ class Engine(IBus.Engine):
             return None
         return self.reconversion_context
 
-    def current_transform_selection(self):
-        context = self.current_transform_context()
-        return context.selection if context else None
+    def ai_field(self):
+        """Facts about the focused field; Core decides what they allow."""
+        named = (self.focused and self.focus_identity
+                 and self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT)
+        return {
+            "identity": list(self.focus_identity) if named else None, "surrounding": self.surrounding,
+            "hasSurroundingUpdate": self.has_transform_surrounding_update, "isSensitive": self.sensitive,
+        }
 
-    def current_transform_context(self):
-        if (not self.focused or self.sensitive
-                or not self.focus_identity or not self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT):
-            return None
-        return FocusedInputContext(context_id=self.focus_identity, selection=self.transform_selection,
-                                   has_surrounding_update=self.has_transform_surrounding_update)
+    def has_fresh_selection(self):
+        field = self.ai_field()
+        return bool(field["identity"] and field["hasSurroundingUpdate"] and self.selected_text and not self.sensitive)
 
     def show_reconversion_status(self, text):
         self.update_auxiliary_text(IBus.Text.new_from_string(text), bool(text))
@@ -278,7 +283,7 @@ class Engine(IBus.Engine):
         event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
         if self.private or not self.focused or self.input.recovering:
             return False
-        if event is not None and keyval not in MODIFIER_KEYS:
+        if event is not None:
             self.transformation.input_changed()
         if self.ai_review.confirmation and keyval in MODIFIER_KEYS:
             return False
@@ -311,20 +316,14 @@ class Engine(IBus.Engine):
                 self.last_language_key = (None, 0) if double_tap else (event["keyCode"], now)
             else:
                 self.last_language_key = (None, 0)
-            if self.selected_text and self.settings.get("aiEnabled") and not self.sensitive:
-                for item in PromptHistory().load():
-                    if item["pinned"] and matches(item.get("shortcut"), event):
-                        self.prompt(item["prompt"])
-                        return True
-                if matches(self.settings.get("transformShortcut"), event):
-                    self.prompt()
-                    return True
-                if double_tap:
-                    self.prompt("english" if event["keyCode"] == 102 else "japanese")
-                    return True
-            if not input_was_pending and is_native_key(event, self.input.snapshot):
+            has_selection = bool(self.selected_text)
+            # Core decides whether a chord opens the selected-text prompt; it
+            # must reach Core even where the application would get it.
+            if (not input_was_pending and is_native_key(event, self.input.snapshot)
+                    and not (has_selection and opens_prompt(event))):
                 return False
-            return self.request("key", event=event, doubleTap=double_tap, original_key=original_key)
+            return self.request("key", event=event, doubleTap=double_tap, original_key=original_key,
+                                ai={"hasSelection": has_selection})
         except (OSError, RuntimeError, ValueError):
             self.input.recover_pending(key=original_key, key_reply=self.defer_native_key(original_key))
             return True
@@ -346,7 +345,8 @@ class Engine(IBus.Engine):
         self.left = value[:min(cursor, anchor)][-100:]
         self.right = value[max(cursor, anchor):][:100]
         self.selected_text = value[min(cursor, anchor):max(cursor, anchor)]
-        self.transform_selection = InputSelection.capture(self.focus_identity, value, cursor=cursor, anchor=anchor)
+        self.surrounding = {"text": value, "cursorUTF16": utf16_count(value[:cursor]),
+                            "anchorUTF16": utf16_count(value[:anchor])}
         self.has_transform_surrounding_update = True
         self.reconversion_context = surrounding_context(
             value, cursor, anchor,
@@ -385,10 +385,11 @@ class Engine(IBus.Engine):
     def activate_input_context(self):
         self.focused = True
         self.focus_revision = object()
-        self.transform_selection = None
         self.has_transform_surrounding_update = False
         self.anchor.update("", 0)
         self.reload_settings()
+        # Queued after any settings reload, so Core answers with the new settings.
+        self.refresh_shortcuts()
         self.get_surrounding_text()
         properties = IBus.PropList()
         properties.append(IBus.Property.new("InputMode", IBus.PropType.NORMAL, IBus.Text.new_from_string(message("input.mode.japanese")), "",
@@ -415,7 +416,7 @@ class Engine(IBus.Engine):
         self.ai_review.cancel()
         self.focused = False
         self.focus_revision = object()
-        self.focus_identity = self.transform_selection = None
+        self.focus_identity = self.surrounding = None
         self.has_transform_surrounding_update = False
         self.clear_reconversion()
         surface().hide(self)
@@ -445,6 +446,7 @@ class Engine(IBus.Engine):
         self.destroyed = True
         self.transformation.close()
         self.ai_review.cancel()
+        self.ai.close()
         self.clear_reconversion()
         surface().hide(self)
         self.panel.destroy()
@@ -491,13 +493,11 @@ class Engine(IBus.Engine):
         self.update_preedit_text_with_mode(IBus.Text.new_from_string(preedit), snapshot.get("cursor", 0),
                                           bool(preedit), focus_mode)
         snapshot = self.render_candidates(snapshot)
-        if snapshot.get("request") in ("replace", "predict", "prompt"):
-            if snapshot["request"] == "prompt" and self.selected_text:
-                self.prompt()
-            else:
-                if self.settings.get("aiEnabled") and not self.sensitive:
-                    scope = self.make_ai_scope(snapshot.get("reading") or "つづき")
-                    self.ai_review.show(scope, snapshot, self.panel.location)
+        ai = snapshot.get("ai") or {}
+        if ai.get("prompt") is not None:
+            self.prompt(ai["prompt"]["initialPrompt"])
+        elif ai.get("review") is not None:
+            self.ai_review.show(ai["review"], self.panel.location)
 
     def render_candidates(self, snapshot):
         """Redraw candidates without resending input effects outside a key reply."""
@@ -533,8 +533,19 @@ class Engine(IBus.Engine):
             self.panel.update(snapshot)
         return snapshot
 
-    def start_ai(self, snapshot, scope, *, prompt=None, completion=None):
-        if self.ai_pending or self.sensitive or not self.settings.get("aiEnabled"):
+    def send_ai_review(self, review, include_context):
+        def sent(reply):
+            # Core sends only the reviewed content of an unchanged composition.
+            if reply is not None and reply.get("request") is not None and not self.destroyed:
+                self.start_ai({"generation": reply["generation"], "reading": reply["reading"]}, reply["request"])
+
+        self.ai.submit("ai-review-send", completion=sent, privateInput=self.sensitive,
+                       ai={"review": review, "includeContext": include_context})
+
+    def start_ai(self, snapshot, request, *, prompt=None, completion=None):
+        """Send Core's request arguments to the AI in a separate bridge
+        process, so a slow reply never holds up conversion."""
+        if self.ai_pending:
             if completion:
                 completion(None)
             return
@@ -552,16 +563,13 @@ class Engine(IBus.Engine):
         generation = snapshot.get("generation", -1)
         bridge_generation = self.input.generation
         focus_epoch = self.input.cancelled
-        arguments = scope.bridge_arguments()
+        arguments = {**request, "prompt": prompt}
 
         def work():
             connection = None
             try:
                 connection = Bridge(timeout=90)
-                if prompt is not None:
-                    result = connection.request("transform", apiKey=api_key, prompt=prompt, **arguments)
-                else:
-                    result = connection.request("ai", apiKey=api_key, **arguments)
+                result = connection.request("transform" if prompt is not None else "ai", apiKey=api_key, **arguments)
                 texts = result.get("suggestions", [])
                 GLib.idle_add(self.finish_ai, texts, generation, reading, completion, bridge_generation, focus_epoch)
             except (OSError, RuntimeError, ValueError):
