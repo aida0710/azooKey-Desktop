@@ -47,6 +47,9 @@ bool AITransformHandoff::StartWindow(const std::string& token) {
                         &startup, &process)) {
         return false;
     }
+    // The text service gave the host its foreground right just before asking;
+    // the window needs it to come to the front.
+    AllowSetForegroundWindow(process.dwProcessId);
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
     return true;
