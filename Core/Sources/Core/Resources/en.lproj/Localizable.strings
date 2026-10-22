@@ -33,6 +33,7 @@
 "candidate.wordPosition" = "Word %@ / %@";
 "candidate.announceCommit" = "Will commit %@";
 "candidate.announceRemaining" = "Reading left %@";
+"candidate.announceSeparator" = ". ";
 "candidate.preview.scope" = "Reading to commit: %@";
 "candidate.preview.remaining" = "Reading left to edit: %@";
 "candidate.preview.following" = "Following text: %@";

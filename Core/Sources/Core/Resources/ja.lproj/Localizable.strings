@@ -33,6 +33,7 @@
 "candidate.wordPosition" = "語 %@ / %@";
 "candidate.announceCommit" = "確定予定 %@";
 "candidate.announceRemaining" = "残る読み %@";
+"candidate.announceSeparator" = "。";
 "candidate.preview.scope" = "確定する読み: %@";
 "candidate.preview.remaining" = "残る読み: %@";
 "candidate.preview.following" = "この語の後続: %@";

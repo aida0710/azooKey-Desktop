@@ -3,8 +3,6 @@ import Foundation
 /// A concise selection announcement. Screen readers speak it while input and
 /// accessibility focus stay in the document.
 enum CandidateAnnouncement {
-    private static let separator = "。"
-
     /// - Returns: nil while typing, or when the selection or focused word is
     ///   unknown, so live candidates are never announced on every key.
     static func text(_ input: CandidateDisplayInput) -> String? {
@@ -32,6 +30,6 @@ enum CandidateAnnouncement {
         if let remaining = scope?.remainingReading, !remaining.isEmpty {
             parts.append(String(format: Localization.text("candidate.announceRemaining"), remaining))
         }
-        return parts.joined(separator: separator)
+        return parts.joined(separator: Localization.text("candidate.announceSeparator"))
     }
 }

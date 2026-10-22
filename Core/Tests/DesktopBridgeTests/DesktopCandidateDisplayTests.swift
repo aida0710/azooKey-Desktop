@@ -22,7 +22,9 @@ extension DesktopSegmentEditingTests {
             #expect(list.mode == .list)
             #expect(list.list?.keyboardConfirmsCandidate == true)
             #expect(list.list?.confirmIndex == selecting.selection)
-            #expect(list.announcement?.hasPrefix("変換候補 ") == true)
+            let position = String(format: Localization.text("candidate.position"),
+                                  String((selecting.selection ?? -1) + 1), String(selecting.candidates.count))
+            #expect(list.announcement?.hasPrefix(position) == true)
         }
     }
 
