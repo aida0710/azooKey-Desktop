@@ -116,6 +116,10 @@ std::optional<protocol::AITransformReply> ConverterClient::AITransformation(cons
 
 bool ConverterClient::OpenAITransformationWindow(const protocol::AITransformOpened& opened, const std::wstring& initialPrompt,
                                                  const protocol::AITextField& field) {
+    // The application has the foreground; only the host may take it, and it
+    // hands that on to the window it starts. Any process (ASFW_ANY) would be
+    // more than the window needs.
+    if (auto host = connection_.HostProcessId()) AllowSetForegroundWindow(*host);
     auto reply = connection_.Request(protocol::HostOpenAITransformRequest(context_, opened, initialPrompt, field));
     return reply && protocol::ParseHostOpened(*reply);
 }

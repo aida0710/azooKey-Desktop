@@ -111,6 +111,12 @@ HostConnection::HostConnection(Options options) : options_(std::move(options)) {
 
 HostConnection::~HostConnection() { Disconnect(); }
 
+std::optional<DWORD> HostConnection::HostProcessId() const {
+    ULONG processId = 0;
+    if (pipe_ == INVALID_HANDLE_VALUE || !GetNamedPipeServerProcessId(pipe_, &processId)) return std::nullopt;
+    return static_cast<DWORD>(processId);
+}
+
 void HostConnection::Disconnect() {
     if (pipe_ != INVALID_HANDLE_VALUE) {
         CloseHandle(pipe_);

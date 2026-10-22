@@ -49,6 +49,8 @@ public:
     std::optional<std::string> Request(const std::string& line);
     void Disconnect();
     bool connected() const { return pipe_ != INVALID_HANDLE_VALUE; }
+    // The host process at the other end; nullopt while not connected.
+    std::optional<DWORD> HostProcessId() const;
 
 private:
     bool Connect();
