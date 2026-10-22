@@ -3,7 +3,7 @@ import Foundation
 /// Coordinates the one destructive step with an acknowledgement from the host.
 /// Each platform keeps one instance per focused input context.
 public final class ReconversionSession {
-    public enum Failure: String, Error {
+    public enum Failure: String, Error, CaseIterable {
         case privateInput = "private_input"
         case replacementUnavailable = "replacement_unavailable"
         case invalidContext = "invalid_context"
@@ -22,6 +22,9 @@ public final class ReconversionSession {
         public let count: Int
         public let text: String
         public let reading: String
+        /// The document the host must report once it has deleted `text`.
+        /// Adapters that wait for a deletion acknowledgement compare against it.
+        public let removedContext: ReconversionContext
     }
 
     public struct RestoredComposition {
@@ -38,7 +41,6 @@ public final class ReconversionSession {
         let replacement: Replacement
         let checkpoint: CompositionCheckpoint
         let sourceContext: ReconversionContext
-        let removedContext: ReconversionContext
     }
     private var recentCommit: Commit?
     private var pending: Pending?
@@ -93,7 +95,7 @@ public final class ReconversionSession {
     public func confirm(_ token: String, in context: ReconversionContext) throws -> RestoredComposition {
         try validate(context)
         guard let pending, pending.replacement.token == token else { throw Failure.staleRequest }
-        guard pending.removedContext.matchesDocument(context) else { throw Failure.changedContext }
+        guard pending.replacement.removedContext.matchesDocument(context) else { throw Failure.changedContext }
         self.pending = nil
         recentCommit = nil
         return .init(checkpoint: pending.checkpoint, originalText: pending.replacement.text)
@@ -101,10 +103,9 @@ public final class ReconversionSession {
 
     private func prepare(text: String, offset: Int, checkpoint: CompositionCheckpoint,
                          sourceContext: ReconversionContext, removedContext: ReconversionContext) -> Replacement {
-        let replacement = Replacement(token: UUID().uuidString, offset: offset,
-                                      count: text.unicodeScalars.count, text: text, reading: checkpoint.reading)
-        pending = .init(replacement: replacement, checkpoint: checkpoint,
-                        sourceContext: sourceContext, removedContext: removedContext)
+        let replacement = Replacement(token: UUID().uuidString, offset: offset, count: text.unicodeScalars.count,
+                                      text: text, reading: checkpoint.reading, removedContext: removedContext)
+        pending = .init(replacement: replacement, checkpoint: checkpoint, sourceContext: sourceContext)
         return replacement
     }
 

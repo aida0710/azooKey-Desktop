@@ -1,0 +1,30 @@
+{
+  "personalization.cancel": {
+    "ja": "キャンセル",
+    "en": "Cancel"
+  },
+  "personalization.choose": {
+    "ja": "lm_*.marisa の4ファイルがあるフォルダーを選択",
+    "en": "Choose the folder that contains the four lm_*.marisa files"
+  },
+  "personalization.failure.invalidFile": {
+    "ja": "個人化モデルの {file} がありません、またはサイズが不正です。",
+    "en": "The personalization model file {file} is missing or has an invalid size."
+  },
+  "personalization.failure.notMarisa": {
+    "ja": "{file} はMARISA形式ではありません。",
+    "en": "{file} is not in MARISA format."
+  },
+  "personalization.failure.placement": {
+    "ja": "個人化モデルを保存できませんでした。データの保存先を確認してください。",
+    "en": "The personalization model could not be saved. Check the data folder."
+  },
+  "personalization.import": {
+    "ja": "読み込む",
+    "en": "Import"
+  },
+  "personalization.imported": {
+    "ja": "個人化モデルを読み込みました。強度を選び「保存」で反映してください。",
+    "en": "The personalization model was imported. Choose its strength and select Save to apply it."
+  }
+}

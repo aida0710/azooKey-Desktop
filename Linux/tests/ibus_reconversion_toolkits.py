@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import time
 
-from azookey.reconversion_strings import message
+from azookey.reconversion import reconversion_message
 from native_ibus_observer import assert_reply_between_delete_and_ack, has_native_focus, observe_ibus
 from native_ibus_property import activate_focused_property
 from native_toolkit_support import (
@@ -107,7 +107,7 @@ def type_reading(keyboard, state, process, *, directory):
     def reading_visible(value, reading):
         return value["text"] == ORIGINAL_READING_SELECTION and not value["preedit"] \
             and value["cursor"] == 4 and value["anchor"] == 1 \
-            and message("reading_input", reading=reading) in bus_log.read_text()
+            and reconversion_message("reading_input", reading=reading) in bus_log.read_text()
 
     keyboard.key(ord("r"), modifiers=(CONTROL, SHIFT))
     wait_for(state, process, lambda value: reading_visible(value, ""))
@@ -236,7 +236,7 @@ if __name__ == "__main__":
     bus_events = (destination / "ibus-events.log").read_text()
     assert "member=ForwardKeyEvent" not in bus_events
     if arguments.activation != "key":
-        assert message("confirm_selection" if arguments.scenario == "selection" else "confirm_undo") in bus_events
+        assert reconversion_message("confirm_selection" if arguments.scenario == "selection" else "confirm_undo") in bus_events
     if arguments.activation == "property-enter":
         confirmation = json.loads((destination / "menu-confirmation.json").read_text())
         operation = "reconvert" if arguments.scenario == "selection" else "undo-commit"

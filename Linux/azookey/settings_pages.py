@@ -16,7 +16,7 @@ def populate_settings_pages(window, book):
     populate_conversion_page(window, pages["conversion"])
     populate_dictionary_page(window, pages["dictionary"])
     populate_ai_page(window, pages["ai"])
-    pages["support"].pack_start(SupportPage(lambda: window.values), True, True, 0)
+    pages["support"].pack_start(SupportPage(lambda: window.values, window.bridge), True, True, 0)
 
 
 def add_checkboxes(window, parent, choices):

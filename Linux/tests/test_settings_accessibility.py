@@ -33,8 +33,8 @@ class SettingsAccessibilityTests(unittest.TestCase):
         bridge = mock.patch("azookey.settings.Bridge")
         factory = bridge.start()
         self.addCleanup(bridge.stop)
-        factory.return_value.request.return_value = {"settings": values}
-        support = mock.patch("azookey.support_page.engine_status", return_value=None)
+        factory.return_value.request.return_value = {"settings": values, "supportDiagnostics": "azooKey Tree"}
+        support = mock.patch("azookey.support_page.renderer_registered", return_value=None)
         support.start()
         self.addCleanup(support.stop)
         self.window = SettingsWindow()
