@@ -1,5 +1,7 @@
 #include "text_service.h"
 
+#include <shellscalingapi.h>
+
 #include <algorithm>
 #include <new>
 
@@ -172,6 +174,9 @@ STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) {
     // Moving to another field must not carry the composition along with it.
     if (IsComposing()) FinishComposition(true, kAnytimeWrite);
     privacyCheckedContext_ = nullptr;
+    // Settings may have changed while another window had focus.
+    presentationSettings_.reset();
+    lastPlacementSide_.clear();
     return S_OK;
 }
 
@@ -364,18 +369,109 @@ void TextService::CreateCandidateElement() {
     candidateElement_ = new (std::nothrow) CandidateListElement(threadManager_, std::move(actions));
 }
 
+namespace {
+
+// Windows' "Text size" accessibility setting (100-225 %), which Core applies
+// to candidate text like GTK's text scaling factor.
+float SystemTextScale() {
+    DWORD percent = 100;
+    DWORD size = sizeof(percent);
+    RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Accessibility", L"TextScaleFactor", RRF_RT_REG_DWORD, nullptr,
+                 &percent, &size);
+    return percent / 100.0f;
+}
+
+}  // namespace
+
+bool TextService::TreeCandidatesEnabled() {
+    if (!presentationSettings_ && converter_) presentationSettings_ = converter_->PresentationSettings();
+    return !presentationSettings_ || presentationSettings_->treeCandidates;
+}
+
 void TextService::ShowCandidates(const protocol::Snapshot& snapshot, const std::optional<CompositionGeometry>& geometry) {
-    bool choosing = geometry && snapshot.showCandidateIndex && !snapshot.candidatePage.items.empty();
-    if (!choosing) {
+    const display::CandidateDisplay& shown = snapshot.display;
+    bool listMode = shown.mode == display::DisplayMode::List;
+    bool treeMode = shown.mode == display::DisplayMode::Tree && TreeCandidatesEnabled();
+    if (!geometry || !converter_ || !candidatePanel_ || (!listMode && !treeMode)) {
         HideCandidates();
         return;
     }
-    // Typing shows only the composition; the list opens once the user converts.
-    // Applications that draw candidates themselves get them through the UI element.
-    bool drawOwnPanel = candidateElement_ ? candidateElement_->Update(snapshot) : true;
-    if (!candidatePanel_) return;
-    if (drawOwnPanel) candidatePanel_->ShowList(snapshot, geometry->composition);
-    else candidatePanel_->Hide();
+    // Applications that draw candidates themselves get the list through the UI element.
+    if (listMode) {
+        bool drawOwnPanel = candidateElement_ ? candidateElement_->Update(snapshot) : true;
+        if (!drawOwnPanel) {
+            candidatePanel_->Hide();
+            return;
+        }
+    } else if (candidateElement_) {
+        candidateElement_->End();
+    }
+
+    // Core works in DIPs; convert with the DPI of the monitor showing the composition.
+    POINT anchor{geometry->composition.left, geometry->composition.bottom};
+    HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
+    UINT dpiX = 96, dpiY = 96;
+    GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
+    float toDips = 96.0f / dpiX;
+    auto frameInDips = [&](const RECT& rect) {
+        return display::Frame{rect.left * toDips, rect.top * toDips, (rect.right - rect.left) * toDips, (rect.bottom - rect.top) * toDips};
+    };
+    MONITORINFO monitorInfo{sizeof(monitorInfo)};
+    GetMonitorInfoW(monitor, &monitorInfo);
+
+    display::LayoutRequest request;
+    request.mode = listMode ? display::DisplayMode::List : display::DisplayMode::Tree;
+    request.largeText = snapshot.largeText;
+    request.textScale = SystemTextScale();
+    request.measuredFontSize = shown.baseFontSize;
+    for (const auto& column : shown.columns) {
+        display::LayoutColumn layoutColumn;
+        for (int id : column) {
+            const protocol::TreeNode* node = snapshot.FindNode(id);
+            layoutColumn.nodes.push_back({id, node ? node->parent : std::nullopt});
+        }
+        const protocol::TreeNode* first = column.empty() ? nullptr : snapshot.FindNode(column.front());
+        layoutColumn.textWidth = first ? candidatePanel_->MeasureText(first->text, shown.baseFontSize) : 0;
+        request.columns.push_back(std::move(layoutColumn));
+    }
+    if (!geometry->words.empty() && geometry->words.size() == shown.columns.size()) {
+        std::vector<float> widths;
+        for (const RECT& word : geometry->words) widths.push_back((word.right - word.left) * toDips);
+        request.documentWordWidths = std::move(widths);
+        request.columnAnchorX = geometry->words.front().left * toDips;
+    }
+    request.showScores = snapshot.showRelativeScores;
+    request.showNumbers = shown.showsNumbers;
+    request.cursor = frameInDips(geometry->composition);
+    request.workArea = frameInDips(monitorInfo.rcWork);
+    request.preferredSide = lastPlacementSide_;
+
+    // First the widths, then the placement for the height measured at that width
+    // (docs/candidate-display.md).
+    auto sized = converter_->Layout(request);
+    if (!sized) {
+        HideCandidates();
+        return;
+    }
+    PanelContent content;
+    content.display = shown;
+    content.nodes = snapshot.nodes;
+    content.showList = listMode;
+    content.showScores = snapshot.showRelativeScores;
+    if (treeMode || (listMode && shown.expandTree)) content.tree = sized->tree;
+    content.fontSize = sized->tree ? sized->tree->metrics.fontSize : shown.baseFontSize;
+    request.popupHeight = candidatePanel_->ContentHeight(content, sized->popupWidth);
+    auto placed = converter_->Layout(request);
+    if (!placed || placed->placementStatus != "placed" || !placed->placement) {
+        candidatePanel_->Hide();
+        return;
+    }
+    lastPlacementSide_ = placed->side;
+    const display::Frame& frame = *placed->placement;
+    float toPixels = dpiX / 96.0f;
+    RECT pixels{static_cast<LONG>(frame.x * toPixels), static_cast<LONG>(frame.y * toPixels),
+                static_cast<LONG>((frame.x + frame.width) * toPixels), static_cast<LONG>((frame.y + frame.height) * toPixels)};
+    candidatePanel_->Show(content, pixels, dpiX);
 }
 
 void TextService::HideCandidates() {

@@ -14,6 +14,7 @@ add_library(azookey_shared STATIC
     src/shared/text_encoding.cpp
     src/shared/key_translation.cpp
     src/shared/bridge_protocol.cpp
+    src/shared/candidate_display.cpp
     src/shared/host_channel.cpp
 )
 target_include_directories(azookey_shared PUBLIC src)

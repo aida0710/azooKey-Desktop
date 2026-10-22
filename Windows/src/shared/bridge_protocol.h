@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "candidate_display.h"
 #include "key_translation.h"
 
 namespace azookey::protocol {
@@ -86,6 +87,7 @@ struct Snapshot {
     CandidatePage candidatePage;
     bool largeText = false;  // candidateTextSize == "large"
     bool showRelativeScores = false;
+    display::CandidateDisplay display;  // what Core decided to show
 
     const TreeNode* FindNode(int id) const;
 };

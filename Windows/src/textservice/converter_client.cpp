@@ -65,4 +65,14 @@ std::optional<protocol::Snapshot> ConverterClient::Reset(bool submit) {
     return Send(protocol::ResetRequest(context_, submit));
 }
 
+std::optional<display::LayoutResult> ConverterClient::Layout(const display::LayoutRequest& request) {
+    auto reply = connection_.Request(display::LayoutRequestLine(request));
+    return reply ? display::ParseLayoutResult(*reply) : std::nullopt;
+}
+
+std::optional<protocol::PresentationSettings> ConverterClient::PresentationSettings() {
+    auto reply = connection_.Request(protocol::SettingsRequest(context_.context));
+    return reply ? protocol::ParsePresentationSettings(*reply) : std::nullopt;
+}
+
 }  // namespace azookey::tsf

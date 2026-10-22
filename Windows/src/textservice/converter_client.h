@@ -21,6 +21,9 @@ public:
     std::optional<protocol::Snapshot> Select(int candidateIndex, int generation, bool submit);
     std::optional<protocol::Snapshot> SelectNode(int nodeId, int generation, bool submit);
     std::optional<protocol::Snapshot> Reset(bool submit);
+    // Core's placement of the candidate panel (candidate-layout; no input state).
+    std::optional<display::LayoutResult> Layout(const display::LayoutRequest& request);
+    std::optional<protocol::PresentationSettings> PresentationSettings();
 
 private:
     std::optional<protocol::Snapshot> Send(const std::string& request);

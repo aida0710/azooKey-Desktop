@@ -85,6 +85,7 @@ private:
     // their edits may reach the document later.
     void ApplyPointerChoice(std::optional<protocol::Snapshot> snapshot);
     void ShowCandidates(const protocol::Snapshot& snapshot, const std::optional<CompositionGeometry>& geometry);
+    bool TreeCandidatesEnabled();
     void HideCandidates();
     void CreateCandidateElement();
     ITfContext* CompositionContext() const;  // AddRef'd, or nullptr
@@ -109,6 +110,8 @@ private:
     std::unique_ptr<ConverterClient> converter_;
     std::unique_ptr<CandidatePanel> candidatePanel_;
     CandidateListElement* candidateElement_ = nullptr;  // COM object; the application may hold it too
+    std::string lastPlacementSide_;  // Core keeps the popup on this side while it still fits
+    std::optional<protocol::PresentationSettings> presentationSettings_;  // read again after a focus change
     protocol::Snapshot snapshot_;  // last state written to the document
 
     // Password fields are detected once per focused context.

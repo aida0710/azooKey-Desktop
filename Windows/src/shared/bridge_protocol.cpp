@@ -137,6 +137,7 @@ std::optional<Snapshot> ParseSnapshot(const std::string& line) {
     snapshot.candidatePage.nextIndex = OptionalInteger(page["nextIndex"]);
     snapshot.largeText = value["candidateTextSize"].AsString() == "large";
     snapshot.showRelativeScores = value["showRelativeScores"].AsBoolean(false);
+    snapshot.display = display::ParseCandidateDisplay(value["candidateDisplay"]);
     return snapshot;
 }
 

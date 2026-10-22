@@ -4,6 +4,7 @@
 #include <string>
 
 #include "../src/shared/bridge_protocol.h"
+#include "../src/shared/candidate_display.h"
 #include "../src/shared/json.h"
 #include "../src/shared/key_translation.h"
 #include "../src/shared/text_encoding.h"
@@ -170,6 +171,71 @@ void TestTreeAndPageParsing() {
     Check(settings && !settings->treeCandidates, "the tree setting is read from the settings reply");
 }
 
+void TestCandidateDisplayParsing() {
+    // The example from docs/candidate-display.md.
+    auto snapshot = azookey::protocol::ParseSnapshot(
+        R"({"preedit":"にほんご","candidateDisplay":{"mode":"list","columns":[[1,0,3],[2]],"showsNumbers":true,"baseFontSize":18,)"
+        R"("detailNode":1,"expandTree":false,"announcement":"変換候補 2 / 56。にほん",)"
+        R"("nodes":[{"id":1,"number":2,"selected":true,"focused":true,"accessibleName":"にほん（ニホン）","accessibleDescription":"操作対象","detailText":"にほん"}],)"
+        R"("list":{"title":"確定する文章","commitText":"にほんご","readingText":"読み にほんご","positionText":"変換候補 2 / 56",)"
+        R"("keyboardConfirmsCandidate":true,"confirmLabel":"確定 ↵","confirmAccessibleName":"確定 にほんご","confirmAccessibleDescription":"押すと候補を確定",)"
+        R"("confirmIndex":1,"previousIndex":null,"nextIndex":9,"items":[{"index":0,"number":1,"text":"日本語","selected":false,)"
+        R"("accessibleName":"日本語（にほんご）","accessibleDescription":"押すと候補を選択","detailText":"確定予定: 日本語"}]}}})");
+    Check(snapshot.has_value(), "a snapshot with candidateDisplay parses");
+    const auto& shown = snapshot->display;
+    Check(shown.mode == azookey::display::DisplayMode::List, "the display mode is read");
+    Check(shown.columns.size() == 2 && shown.columns[0].size() == 3 && shown.columns[1][0] == 2, "display columns are read");
+    Check(shown.showsNumbers && shown.baseFontSize == 18 && shown.detailNode == 1 && !shown.expandTree, "display flags are read");
+    Check(shown.announcement == L"変換候補 2 / 56。にほん", "the announcement is read");
+    const auto* node = shown.FindNode(1);
+    Check(node && node->number == 2 && node->selected && node->focused && node->accessibleName == L"にほん（ニホン）", "display nodes are read");
+    Check(shown.list && shown.list->confirmIndex == 1 && !shown.list->previousIndex && shown.list->nextIndex == 9, "list buttons are read");
+    Check(shown.list && shown.list->items.size() == 1 && shown.list->items[0].number == 1 && shown.list->items[0].text == L"日本語",
+          "list items are read");
+    Check(shown.list && shown.list->confirmLabel == L"確定 ↵" && shown.list->positionText == L"変換候補 2 / 56", "list wording is Core's");
+    auto hidden = azookey::protocol::ParseSnapshot(R"({"preedit":""})");
+    Check(hidden && hidden->display.mode == azookey::display::DisplayMode::Hidden, "a reply without candidateDisplay shows nothing");
+}
+
+void TestLayoutRequestAndResult() {
+    azookey::display::LayoutRequest request;
+    request.mode = azookey::display::DisplayMode::Tree;
+    request.measuredFontSize = 18;
+    request.columns = {{{{0, std::nullopt}, {1, 0}}, 54.5f}};
+    request.documentWordWidths = std::vector<float>{60.0f};
+    request.columnAnchorX = 100.0f;
+    request.showNumbers = true;
+    request.cursor = {300.0f, 200.0f, 0.0f, 24.0f};
+    request.workArea = {0.0f, 32.0f, 1280.0f, 768.0f};
+    auto line = azookey::json::Parse(azookey::display::LayoutRequestLine(request));
+    Check(line.has_value(), "the layout request is valid JSON");
+    const auto& layout = (*line)["layout"];
+    Check((*line)["operation"].AsString() == "candidate-layout" && !(*line).Has("context"), "candidate-layout needs no context");
+    Check(layout["mode"].AsString() == "tree" && layout["textSize"].AsString() == "standard", "mode and text size are sent");
+    Check(layout["columns"].AsArray()[0]["nodes"].AsArray()[1]["parent"].AsInteger() == 0, "node parents are sent");
+    Check(layout["columns"].AsArray()[0]["nodes"].AsArray()[0]["parent"].IsNull(), "a root node has a null parent");
+    Check(layout["documentWordWidths"].AsArray().size() == 1 && layout["columnAnchorX"].AsNumber() == 100, "document words are sent");
+    Check(!layout.Has("popupHeight") && !layout.Has("preferredSide"), "optional members are left out");
+
+    auto result = azookey::display::ParseLayoutResult(
+        R"({"candidateLayout":{"popupWidth":240,"placementStatus":"placed","placement":{"x":300,"y":224,"width":240,"height":180,"side":"below"},)"
+        R"("tree":{"aligned":false,"reason":"unavailable-or-narrow","textAlignment":"center","rowHeight":66,)"
+        R"("metrics":{"fontSize":18,"numberFontSize":12,"scoreFontSize":12,"wordHeight":32,"numberHeight":18,"scoreHeight":16},)"
+        R"("nodes":[{"id":0,"column":0,"row":0,"frame":{"x":12,"y":6,"width":66,"height":66},"textFrame":{"x":16,"y":6,"width":58,"height":32},)"
+        R"("scoreFrame":{"x":12,"y":38,"width":66,"height":16},"numberFrame":{"x":18,"y":54,"width":54,"height":18}}],)"
+        R"("edges":[{"node":0,"start":{"x":4,"y":39},"end":{"x":12,"y":39}}],"rootAnchor":{"x":4,"y":39},"contentSize":{"width":90,"height":216}}}})");
+    Check(result.has_value(), "the layout result parses");
+    Check(result->popupWidth == 240 && result->placementStatus == "placed" && result->side == "below", "placement is read");
+    Check(result->placement && result->placement->y == 224 && result->placement->height == 180, "the placement frame is read");
+    Check(result->tree && !result->tree->aligned && !result->tree->leadingText, "tree alignment is read");
+    Check(result->tree && result->tree->metrics.numberHeight == 18 && result->tree->metrics.wordHeight == 32, "tree metrics are read");
+    Check(result->tree && result->tree->nodes.size() == 1 && result->tree->nodes[0].numberFrame &&
+              result->tree->nodes[0].numberFrame->y == 54, "node frames are read");
+    Check(result->tree && result->tree->edges.size() == 1 && result->tree->edges[0].start.x == 4, "edges are read");
+    Check(result->tree && result->tree->contentHeight == 216, "the content size is read");
+    Check(!azookey::display::ParseLayoutResult(R"({"error":"invalid_request"})").has_value(), "an error reply is not a layout");
+}
+
 }  // namespace
 
 int main() {
@@ -184,6 +250,8 @@ int main() {
     TestKeyRequestMatchesBridgeContract();
     TestSnapshotParsing();
     TestTreeAndPageParsing();
+    TestCandidateDisplayParsing();
+    TestLayoutRequestAndResult();
     std::printf("%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

@@ -1,6 +1,6 @@
-// The candidate popup, drawn with Direct2D. While typing it shows the word
-// tree; while converting it shows the numbered page of full candidates. It
-// never takes focus from the application.
+// The candidate popup, drawn with Direct2D. Core decides what it shows
+// (candidateDisplay) and where everything goes (candidate-layout); the panel
+// measures text, draws, hit-tests and reports actions. It never takes focus.
 #pragma once
 
 #include <windows.h>
@@ -8,7 +8,6 @@
 #include <dwrite.h>
 
 #include <functional>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -17,29 +16,18 @@
 #include "candidate_accessibility.h"
 #include "candidate_theme.h"
 #include "shared/bridge_protocol.h"
+#include "shared/candidate_display.h"
 
 namespace azookey::tsf {
 
-// A node's box in device-independent pixels (96 dpi), relative to the panel.
-struct TreeNodeFrame {
-    int nodeId = 0;
-    float x = 0;
-    float y = 0;
-    float width = 0;
-    float height = 0;
-};
-
-// Where each word of the tree goes. Core computes it from measured text
-// widths (candidate-layout), so every renderer places nodes the same way.
-struct TreePresentation {
-    std::vector<TreeNodeFrame> frames;
-    float width = 0;
-    float height = 0;
-    bool aligned = false;  // columns follow the words in the document
-    float wordHeight = 0;
-    float numberHeight = 0;
-    float scoreHeight = 0;
-    std::map<int, int> numbers;  // node id -> number key 1-9
+// One panel update.
+struct PanelContent {
+    display::CandidateDisplay display;
+    std::vector<protocol::TreeNode> nodes;    // word text and score labels by id
+    std::optional<display::TreeLayout> tree;  // set when the word tree is drawn
+    bool showList = false;                    // the numbered page of full candidates
+    bool showScores = false;
+    float fontSize = 18;                      // candidate text, after the text-size setting
 };
 
 class CandidatePanel {
@@ -55,10 +43,12 @@ public:
     CandidatePanel(const CandidatePanel&) = delete;
     CandidatePanel& operator=(const CandidatePanel&) = delete;
 
-    // `anchor` is the composition rectangle in physical screen pixels.
-    void ShowList(const protocol::Snapshot& snapshot, const RECT& anchor);
-    // `origin` is the panel's top-left in physical screen pixels.
-    void ShowTree(const protocol::Snapshot& snapshot, const TreePresentation& tree, POINT origin);
+    // Width of `text` in DIPs at `fontSize`, for the candidate-layout request.
+    float MeasureText(const std::wstring& text, float fontSize);
+    // Height in DIPs of `content` laid out at `width`, for placing the popup.
+    float ContentHeight(const PanelContent& content, float width);
+    // `frame` is where Core placed the popup, in physical screen pixels.
+    void Show(const PanelContent& content, const RECT& frame, UINT dpi);
     void Hide();
     bool visible() const { return window_ && IsWindowVisible(window_); }
 
@@ -66,8 +56,6 @@ public:
     static void UnregisterWindowClass();
 
 private:
-    enum class Mode { Hidden, List, Tree };
-
     struct ListRow {
         int candidateIndex = 0;
         std::wstring number;
@@ -85,12 +73,10 @@ private:
     bool EnsureWindow();
     bool EnsureDeviceResources();
     void ReleaseDeviceResources();
-    bool EnsureTextFormats(float textSize);
-    float MeasureText(const std::wstring& text, IDWriteTextFormat* format) const;
-    void PlaceWindow(int x, int y, float widthDips, float heightDips);
-    UINT DpiAt(POINT point) const;
+    IDWriteTextFormat* TextFormat(float size);
+    void LayoutSections(const PanelContent& content, float width);
+    void UpdateAccessibility();
 
-    void LayoutList(const protocol::Snapshot& snapshot);
     void Paint();
     void PaintList();
     void PaintTree();
@@ -98,39 +84,32 @@ private:
                   DWRITE_TEXT_ALIGNMENT alignment);
     void FillRounded(const D2D1_RECT_F& frame, float radius, uint32_t color);
     void StrokeRounded(const D2D1_RECT_F& frame, float radius, uint32_t color, float width);
+    D2D1_RECT_F TreeRect(const display::Frame& frame) const;
     Hit HitTest(POINT clientPixels) const;
     void Activate(const Hit& hit, bool doubleClick);
-
-    void UpdateAccessibility();
 
     Actions actions_;
     HWND window_ = nullptr;
     std::unique_ptr<CandidateAccessibility> accessibility_;
-    Mode mode_ = Mode::Hidden;
     UINT dpi_ = 96;
     CandidateAppearance appearance_ = CandidateAppearance::Light;
 
     ID2D1HwndRenderTarget* target_ = nullptr;
     ID2D1SolidColorBrush* brush_ = nullptr;
     ID2D1StrokeStyle* dashed_ = nullptr;
-    IDWriteTextFormat* textFormat_ = nullptr;
-    IDWriteTextFormat* smallFormat_ = nullptr;
-    float textSize_ = 0;
+    // Formats by point size; candidate text and the small labels.
+    std::vector<std::pair<float, IDWriteTextFormat*>> formats_;
 
-    // List mode
-    std::vector<ListRow> rows_;
-    std::wstring status_;
-    std::wstring annotation_;
-    std::optional<int> selection_;
-    std::optional<int> previousIndex_;
-    std::optional<int> nextIndex_;
-    D2D1_RECT_F previousFrame_{}, nextFrame_{}, confirmFrame_{}, footerFrame_{};
+    PanelContent content_;
     float panelWidth_ = 0;
     float panelHeight_ = 0;
-
-    // Tree mode
-    TreePresentation tree_;
-    protocol::Snapshot treeSnapshot_;
+    // List section
+    std::vector<ListRow> rows_;
+    D2D1_RECT_F previousFrame_{}, nextFrame_{}, confirmFrame_{}, footerFrame_{};
+    float listBottom_ = 0;
+    // Tree section starts here (DIPs from the panel's top).
+    float treeTop_ = 0;
+    std::wstring lastAnnouncement_;
 };
 
 }  // namespace azookey::tsf

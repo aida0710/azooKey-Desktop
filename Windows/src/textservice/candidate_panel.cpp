@@ -1,32 +1,26 @@
 #include "candidate_panel.h"
 
 #include <dwmapi.h>
-#include <shellscalingapi.h>
 #include <windowsx.h>
 
 #include <algorithm>
+#include <map>
 
-#include "candidate_messages.h"
 #include "module.h"
 
 namespace azookey::tsf {
 namespace {
 
 constexpr wchar_t kWindowClassName[] = L"azooKeyTreeCandidatePanel";
-// Sizes in device-independent pixels, matching the Linux renderers: words
-// 18 (24 when the large text setting is on), secondary text 12.
-constexpr float kStandardTextSize = 18;
-constexpr float kLargeTextSize = 24;
+// Secondary labels (numbers, page position, buttons); Core's numberFontSize.
 constexpr float kSmallTextSize = 12;
 constexpr float kPadding = 6;
-constexpr float kRowExtraHeight = 14;  // a compact row: text plus 7 above and below
+constexpr float kRowExtraHeight = 14;  // a row is its text plus 7 above and below, like the tree's words
 constexpr float kRowGap = 2;
-constexpr float kMinimumListWidth = 220;
 constexpr float kCornerRadius = 8;
 constexpr float kNodeRadius = 4;
-constexpr float kAnchorGap = 2;
-// The tree's root marker, where the first branch starts (as in the GTK tree).
-constexpr D2D1_POINT_2F kTreeRoot = {4, 18};
+constexpr float kMinimumScoreBadgeWidth = 22;
+constexpr float kScoreBadgeTextInset = 6;
 
 bool windowClassRegistered = false;
 ID2D1Factory* direct2D = nullptr;
@@ -57,6 +51,13 @@ bool EnsureFactories() {
     return true;
 }
 
+const protocol::TreeNode* FindWord(const std::vector<protocol::TreeNode>& nodes, int id) {
+    for (const auto& node : nodes) {
+        if (node.id == id) return &node;
+    }
+    return nullptr;
+}
+
 }  // namespace
 
 CandidatePanel::CandidatePanel(Actions actions) : actions_(std::move(actions)) {}
@@ -65,8 +66,7 @@ CandidatePanel::~CandidatePanel() {
     // UIA providers refer to the window, so they go first.
     accessibility_.reset();
     ReleaseDeviceResources();
-    SafeRelease(&textFormat_);
-    SafeRelease(&smallFormat_);
+    for (auto& [size, format] : formats_) format->Release();
     if (window_) DestroyWindow(window_);
 }
 
@@ -121,7 +121,7 @@ bool CandidatePanel::EnsureDeviceResources() {
     }
     target_->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &brush_);
     if (!dashed_) {
-        float dashes[] = {2, 3};  // the GTK tree's dotted branches
+        float dashes[] = {2, 3};  // the other paths of the tree are thin dotted lines
         direct2D->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT,
                                                                 D2D1_LINE_JOIN_MITER, 10.0f, D2D1_DASH_STYLE_CUSTOM, 0.0f),
                                     dashes, ARRAYSIZE(dashes), &dashed_);
@@ -135,29 +135,32 @@ void CandidatePanel::ReleaseDeviceResources() {
     SafeRelease(&dashed_);
 }
 
-bool CandidatePanel::EnsureTextFormats(float textSize) {
-    if (textFormat_ && textSize_ == textSize) return true;
-    SafeRelease(&textFormat_);
-    SafeRelease(&smallFormat_);
-    textSize_ = textSize;
-    for (auto [format, size] : {std::pair{&textFormat_, textSize}, std::pair{&smallFormat_, kSmallTextSize}}) {
-        if (FAILED(directWrite->CreateTextFormat(L"Yu Gothic UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                                                 DWRITE_FONT_STRETCH_NORMAL, size, L"ja-jp", format))) {
-            return false;
-        }
-        (*format)->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        (*format)->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        IDWriteInlineObject* ellipsis = nullptr;
-        if (SUCCEEDED(directWrite->CreateEllipsisTrimmingSign(*format, &ellipsis))) {
-            DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
-            (*format)->SetTrimming(&trimming, ellipsis);
-            ellipsis->Release();
-        }
+IDWriteTextFormat* CandidatePanel::TextFormat(float size) {
+    for (auto& [existing, format] : formats_) {
+        if (existing == size) return format;
     }
-    return true;
+    if (!EnsureFactories()) return nullptr;
+    IDWriteTextFormat* format = nullptr;
+    if (FAILED(directWrite->CreateTextFormat(L"Yu Gothic UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                             DWRITE_FONT_STRETCH_NORMAL, size, L"ja-jp", &format))) {
+        return nullptr;
+    }
+    format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    IDWriteInlineObject* ellipsis = nullptr;
+    if (SUCCEEDED(directWrite->CreateEllipsisTrimmingSign(format, &ellipsis))) {
+        // Words that do not fit end with an ellipsis, as Core's textFrame expects.
+        DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
+        format->SetTrimming(&trimming, ellipsis);
+        ellipsis->Release();
+    }
+    formats_.push_back({size, format});
+    return format;
 }
 
-float CandidatePanel::MeasureText(const std::wstring& text, IDWriteTextFormat* format) const {
+float CandidatePanel::MeasureText(const std::wstring& text, float fontSize) {
+    IDWriteTextFormat* format = TextFormat(fontSize);
+    if (!format || text.empty()) return 0;
     IDWriteTextLayout* layout = nullptr;
     if (FAILED(directWrite->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format, 10000, 1000, &layout))) {
         return 0;
@@ -168,88 +171,65 @@ float CandidatePanel::MeasureText(const std::wstring& text, IDWriteTextFormat* f
     return metrics.widthIncludingTrailingWhitespace;
 }
 
-UINT CandidatePanel::DpiAt(POINT point) const {
-    UINT dpiX = 96, dpiY = 96;
-    GetDpiForMonitor(MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
-    return dpiX;
+void CandidatePanel::LayoutSections(const PanelContent& content, float width) {
+    rows_.clear();
+    float y = 0;
+    listBottom_ = 0;
+    if (content.showList && content.display.list) {
+        const display::CandidateList& list = *content.display.list;
+        float rowHeight = content.fontSize + kRowExtraHeight;
+        y = kPadding;
+        for (const auto& item : list.items) {
+            ListRow row;
+            row.candidateIndex = item.index;
+            row.number = item.number ? std::to_wstring(*item.number) : L"";
+            row.text = item.text;
+            row.selected = item.selected;
+            row.frame = D2D1::RectF(kPadding, y, width - kPadding, y + rowHeight);
+            rows_.push_back(std::move(row));
+            y += rowHeight + kRowGap;
+        }
+        float footerHeight = kSmallTextSize + kRowExtraHeight;
+        footerFrame_ = D2D1::RectF(kPadding, y, width - kPadding, y + footerHeight);
+        float confirmWidth = MeasureText(list.confirmLabel, kSmallTextSize) + 2 * kPadding;
+        confirmFrame_ = D2D1::RectF(footerFrame_.right - confirmWidth, footerFrame_.top + 2, footerFrame_.right, footerFrame_.bottom - 2);
+        float arrowWidth = MeasureText(L"›", kSmallTextSize) + 2 * kPadding;
+        nextFrame_ = D2D1::RectF(confirmFrame_.left - kPadding - arrowWidth, footerFrame_.top, confirmFrame_.left - kPadding,
+                                 footerFrame_.bottom);
+        previousFrame_ = D2D1::RectF(nextFrame_.left - arrowWidth, footerFrame_.top, nextFrame_.left, footerFrame_.bottom);
+        y = footerFrame_.bottom + kPadding;
+        listBottom_ = y;
+    }
+    treeTop_ = y;
 }
 
-void CandidatePanel::PlaceWindow(int x, int y, float widthDips, float heightDips) {
-    int width = static_cast<int>(widthDips * dpi_ / 96.0f + 0.5f);
-    int height = static_cast<int>(heightDips * dpi_ / 96.0f + 0.5f);
-    SetWindowPos(window_, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+float CandidatePanel::ContentHeight(const PanelContent& content, float width) {
+    LayoutSections(content, width);
+    return treeTop_ + (content.tree ? content.tree->contentHeight : 0);
+}
+
+void CandidatePanel::Show(const PanelContent& content, const RECT& frame, UINT dpi) {
+    if (!EnsureWindow()) return;
+    content_ = content;
+    dpi_ = dpi;
+    appearance_ = CurrentCandidateAppearance();
+    panelWidth_ = (frame.right - frame.left) * 96.0f / dpi_;
+    panelHeight_ = (frame.bottom - frame.top) * 96.0f / dpi_;
+    LayoutSections(content_, panelWidth_);
+    SetWindowPos(window_, HWND_TOPMOST, frame.left, frame.top, frame.right - frame.left, frame.bottom - frame.top,
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
     if (target_) {
         target_->SetDpi(static_cast<float>(dpi_), static_cast<float>(dpi_));
-        target_->Resize(D2D1::SizeU(width, height));
+        target_->Resize(D2D1::SizeU(frame.right - frame.left, frame.bottom - frame.top));
     }
     InvalidateRect(window_, nullptr, FALSE);
-}
-
-void CandidatePanel::LayoutList(const protocol::Snapshot& snapshot) {
-    const protocol::CandidatePage& page = snapshot.candidatePage;
-    selection_ = snapshot.selection;
-    previousIndex_ = page.previousIndex;
-    nextIndex_ = page.nextIndex;
-    rows_.clear();
-    annotation_.clear();
-    float textWidth = 0;
-    float numberWidth = MeasureText(L"9", textFormat_) + kPadding;
-    float rowHeight = textSize_ + kRowExtraHeight;
-    float y = kPadding;
-    for (const auto& item : page.items) {
-        ListRow row;
-        row.candidateIndex = item.index;
-        row.number = snapshot.showCandidateIndex ? std::to_wstring(item.index - page.start + 1) : L"";
-        row.text = item.text;
-        row.selected = snapshot.selection && *snapshot.selection == item.index;
-        if (row.selected) annotation_ = item.annotation;
-        textWidth = std::max(textWidth, MeasureText(item.text, textFormat_));
-        row.frame = D2D1::RectF(kPadding, y, 0, y + rowHeight);
-        rows_.push_back(std::move(row));
-        y += rowHeight + kRowGap;
-    }
-    status_ = CandidateMessage("candidate.position",
-                               {{L"position", page.position ? std::to_wstring(*page.position) : L"—"},
-                                {L"total", std::to_wstring(page.totalCount)}});
-    float footerHeight = kSmallTextSize + kRowExtraHeight;
-    std::wstring confirmLabel = CandidateMessage("candidate.submit") + L" ↵";
-    float footerWidth = MeasureText(status_, smallFormat_) + MeasureText(confirmLabel, smallFormat_) +
-                        MeasureText(L"‹ ›", smallFormat_) + 4 * kPadding;
-    panelWidth_ = std::max({kMinimumListWidth, numberWidth + textWidth + 3 * kPadding, footerWidth});
-    for (auto& row : rows_) row.frame.right = panelWidth_ - kPadding;
-    footerFrame_ = D2D1::RectF(kPadding, y, panelWidth_ - kPadding, y + footerHeight);
-    float confirmWidth = MeasureText(confirmLabel, smallFormat_) + 2 * kPadding;
-    confirmFrame_ = D2D1::RectF(footerFrame_.right - confirmWidth, footerFrame_.top + 2, footerFrame_.right, footerFrame_.bottom - 2);
-    float arrowWidth = MeasureText(L"›", smallFormat_) + 2 * kPadding;
-    nextFrame_ = D2D1::RectF(confirmFrame_.left - kPadding - arrowWidth, footerFrame_.top, confirmFrame_.left - kPadding, footerFrame_.bottom);
-    previousFrame_ = D2D1::RectF(nextFrame_.left - arrowWidth, footerFrame_.top, nextFrame_.left, footerFrame_.bottom);
-    panelHeight_ = footerFrame_.bottom + kPadding;
-}
-
-void CandidatePanel::ShowList(const protocol::Snapshot& snapshot, const RECT& anchor) {
-    if (snapshot.candidatePage.items.empty() || !EnsureWindow()) {
-        Hide();
-        return;
-    }
-    POINT anchorPoint{anchor.left, anchor.bottom};
-    dpi_ = DpiAt(anchorPoint);
-    appearance_ = CurrentCandidateAppearance();
-    if (!EnsureTextFormats(snapshot.largeText ? kLargeTextSize : kStandardTextSize)) return;
-    mode_ = Mode::List;
-    LayoutList(snapshot);
-
-    MONITORINFO monitor{sizeof(monitor)};
-    GetMonitorInfoW(MonitorFromPoint(anchorPoint, MONITOR_DEFAULTTONEAREST), &monitor);
-    const RECT& work = monitor.rcWork;
-    int width = static_cast<int>(panelWidth_ * dpi_ / 96.0f + 0.5f);
-    int height = static_cast<int>(panelHeight_ * dpi_ / 96.0f + 0.5f);
-    int gap = static_cast<int>(kAnchorGap * dpi_ / 96.0f + 0.5f);
-    int x = std::clamp<int>(anchor.left, work.left, std::max<int>(work.left, work.right - width));
-    int y = anchor.bottom + gap;
-    // Above the line when there is no room below, never covering the caret.
-    if (y + height > work.bottom) y = std::max<int>(work.top, anchor.top - gap - height);
-    PlaceWindow(x, y, panelWidth_, panelHeight_);
     UpdateAccessibility();
+}
+
+void CandidatePanel::Hide() {
+    if (accessibility_) accessibility_->Clear();
+    lastAnnouncement_.clear();
+    if (window_) ShowWindow(window_, SW_HIDE);
 }
 
 void CandidatePanel::UpdateAccessibility() {
@@ -257,41 +237,23 @@ void CandidatePanel::UpdateAccessibility() {
     RECT window{};
     GetWindowRect(window_, &window);
     float scale = dpi_ / 96.0f;
+    auto toScreen = [&](const D2D1_RECT_F& frame) {
+        return RECT{window.left + static_cast<LONG>(frame.left * scale), window.top + static_cast<LONG>(frame.top * scale),
+                    window.left + static_cast<LONG>(frame.right * scale), window.top + static_cast<LONG>(frame.bottom * scale)};
+    };
     std::vector<AccessibleCandidate> items;
+    if (content_.display.list && !rows_.empty()) {
+        for (size_t i = 0; i < rows_.size() && i < content_.display.list->items.size(); ++i) {
+            const auto& item = content_.display.list->items[i];
+            items.push_back({item.index, item.accessibleName.empty() ? item.text : item.accessibleName, toScreen(rows_[i].frame),
+                             item.selected});
+        }
+    }
+    // Core announces only changes in the selection or the word being edited.
     std::wstring announcement;
-    for (const auto& row : rows_) {
-        AccessibleCandidate item;
-        item.candidateIndex = row.candidateIndex;
-        item.name = row.text;
-        item.bounds = {window.left + static_cast<LONG>(row.frame.left * scale), window.top + static_cast<LONG>(row.frame.top * scale),
-                       window.left + static_cast<LONG>(row.frame.right * scale), window.top + static_cast<LONG>(row.frame.bottom * scale)};
-        item.selected = row.selected;
-        if (row.selected) announcement = row.text;
-        items.push_back(std::move(item));
-    }
+    if (content_.display.announcement != lastAnnouncement_) announcement = content_.display.announcement;
+    lastAnnouncement_ = content_.display.announcement;
     accessibility_->Update(std::move(items), announcement);
-}
-
-void CandidatePanel::ShowTree(const protocol::Snapshot& snapshot, const TreePresentation& tree, POINT origin) {
-    if (tree.frames.empty() || !EnsureWindow()) {
-        Hide();
-        return;
-    }
-    dpi_ = DpiAt(origin);
-    appearance_ = CurrentCandidateAppearance();
-    if (!EnsureTextFormats(snapshot.largeText ? kLargeTextSize : kStandardTextSize)) return;
-    mode_ = Mode::Tree;
-    tree_ = tree;
-    treeSnapshot_ = snapshot;
-    panelWidth_ = tree.width;
-    panelHeight_ = tree.height;
-    PlaceWindow(origin.x, origin.y, panelWidth_, panelHeight_);
-}
-
-void CandidatePanel::Hide() {
-    mode_ = Mode::Hidden;
-    if (accessibility_) accessibility_->Clear();
-    if (window_) ShowWindow(window_, SW_HIDE);
 }
 
 void CandidatePanel::FillRounded(const D2D1_RECT_F& frame, float radius, uint32_t color) {
@@ -306,62 +268,56 @@ void CandidatePanel::StrokeRounded(const D2D1_RECT_F& frame, float radius, uint3
 
 void CandidatePanel::DrawText(const std::wstring& text, IDWriteTextFormat* format, const D2D1_RECT_F& frame, uint32_t color,
                               DWRITE_TEXT_ALIGNMENT alignment) {
-    if (text.empty() || frame.right <= frame.left) return;
+    if (!format || text.empty() || frame.right <= frame.left) return;
     format->SetTextAlignment(alignment);
     brush_->SetColor(Color(color));
     target_->DrawText(text.c_str(), static_cast<UINT32>(text.size()), format, frame, brush_, D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }
 
+D2D1_RECT_F CandidatePanel::TreeRect(const display::Frame& frame) const {
+    return D2D1::RectF(frame.x, treeTop_ + frame.y, frame.x + frame.width, treeTop_ + frame.y + frame.height);
+}
+
 void CandidatePanel::PaintList() {
+    const display::CandidateList& list = *content_.display.list;
     const CandidatePalette& palette = PaletteFor(appearance_);
     float strokeWidth = IsHighContrast(appearance_) ? 3.0f : 2.0f;
+    IDWriteTextFormat* candidateFormat = TextFormat(content_.fontSize);
+    IDWriteTextFormat* labelFormat = TextFormat(kSmallTextSize);
     for (const auto& row : rows_) {
-        // Selection is shown by background, border and text color together,
-        // never by color alone.
+        // Selection is background, border and text color together, never color alone.
         if (row.selected) {
             FillRounded(row.frame, kNodeRadius, palette.selection);
             StrokeRounded(row.frame, kNodeRadius, palette.selectionText, strokeWidth);
         }
-        uint32_t textColor = row.selected ? palette.selectionText : palette.text;
-        float numberWidth = textSize_;
-        DrawText(row.number, smallFormat_, D2D1::RectF(row.frame.left, row.frame.top, row.frame.left + numberWidth, row.frame.bottom),
+        float numberWidth = content_.fontSize;
+        DrawText(row.number, labelFormat, D2D1::RectF(row.frame.left, row.frame.top, row.frame.left + numberWidth, row.frame.bottom),
                  row.selected ? palette.selectionText : palette.secondaryText, DWRITE_TEXT_ALIGNMENT_CENTER);
-        DrawText(row.text, textFormat_,
+        DrawText(row.text, candidateFormat,
                  D2D1::RectF(row.frame.left + numberWidth + kPadding / 2, row.frame.top, row.frame.right - kPadding, row.frame.bottom),
-                 textColor, DWRITE_TEXT_ALIGNMENT_LEADING);
+                 row.selected ? palette.selectionText : palette.text, DWRITE_TEXT_ALIGNMENT_LEADING);
     }
-    std::wstring footerText = annotation_.empty() ? status_ : annotation_ + L"  " + status_;
-    DrawText(footerText, smallFormat_, D2D1::RectF(footerFrame_.left, footerFrame_.top, previousFrame_.left - kPadding, footerFrame_.bottom),
+    DrawText(list.positionText, labelFormat, D2D1::RectF(footerFrame_.left, footerFrame_.top, previousFrame_.left - kPadding, footerFrame_.bottom),
              palette.secondaryText, DWRITE_TEXT_ALIGNMENT_LEADING);
-    DrawText(L"‹", smallFormat_, previousFrame_, previousIndex_ ? palette.text : palette.border, DWRITE_TEXT_ALIGNMENT_CENTER);
-    DrawText(L"›", smallFormat_, nextFrame_, nextIndex_ ? palette.text : palette.border, DWRITE_TEXT_ALIGNMENT_CENTER);
-    FillRounded(confirmFrame_, kNodeRadius, palette.selection);
-    StrokeRounded(confirmFrame_, kNodeRadius, palette.selectionText, 1.0f);
-    DrawText(CandidateMessage("candidate.submit") + L" ↵", smallFormat_, confirmFrame_, palette.selectionText, DWRITE_TEXT_ALIGNMENT_CENTER);
+    DrawText(L"‹", labelFormat, previousFrame_, list.previousIndex ? palette.text : palette.border, DWRITE_TEXT_ALIGNMENT_CENTER);
+    DrawText(L"›", labelFormat, nextFrame_, list.nextIndex ? palette.text : palette.border, DWRITE_TEXT_ALIGNMENT_CENTER);
+    uint32_t confirmFill = list.confirmIndex ? palette.selection : palette.surface;
+    uint32_t confirmText = list.confirmIndex ? palette.selectionText : palette.border;
+    FillRounded(confirmFrame_, kNodeRadius, confirmFill);
+    StrokeRounded(confirmFrame_, kNodeRadius, confirmText, 1.0f);
+    DrawText(list.confirmLabel, labelFormat, confirmFrame_, confirmText, DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
 void CandidatePanel::PaintTree() {
+    const display::TreeLayout& tree = *content_.tree;
     const CandidatePalette& palette = PaletteFor(appearance_);
-    std::map<int, D2D1_RECT_F> frames;
-    for (const auto& frame : tree_.frames) {
-        frames[frame.nodeId] = D2D1::RectF(frame.x, frame.y, frame.x + frame.width, frame.y + frame.height);
-    }
-    auto isSelected = [&](int id) {
-        return std::find(treeSnapshot_.selectedPath.begin(), treeSnapshot_.selectedPath.end(), id) != treeSnapshot_.selectedPath.end();
-    };
-    // Branches first so the boxes cover their ends: the chosen path is a thick
-    // solid line, the other paths thin dotted lines.
-    for (const auto& node : treeSnapshot_.nodes) {
-        auto found = frames.find(node.id);
-        if (found == frames.end()) continue;
-        D2D1_POINT_2F start = kTreeRoot;
-        if (node.parent) {
-            auto parent = frames.find(*node.parent);
-            if (parent != frames.end()) {
-                start = D2D1::Point2F(parent->second.right, (parent->second.top + parent->second.bottom) / 2);
-            }
-        }
-        D2D1_POINT_2F end = D2D1::Point2F(found->second.left, (found->second.top + found->second.bottom) / 2);
+    // Branches first so the boxes cover their ends: the chosen sentence is a
+    // thick solid line, the other paths thin dotted lines.
+    for (const auto& edge : tree.edges) {
+        const display::DisplayNode* node = content_.display.FindNode(edge.node);
+        bool selected = node && node->selected;
+        D2D1_POINT_2F start = D2D1::Point2F(edge.start.x, treeTop_ + edge.start.y);
+        D2D1_POINT_2F end = D2D1::Point2F(edge.end.x, treeTop_ + edge.end.y);
         float middle = (start.x + end.x) / 2;
         ID2D1PathGeometry* path = nullptr;
         ID2D1GeometrySink* sink = nullptr;
@@ -373,48 +329,51 @@ void CandidatePanel::PaintTree() {
         sink->AddBezier(D2D1::BezierSegment(D2D1::Point2F(middle, start.y), D2D1::Point2F(middle, end.y), end));
         sink->EndFigure(D2D1_FIGURE_END_OPEN);
         sink->Close();
-        bool selected = isSelected(node.id);
         brush_->SetColor(Color(selected ? palette.text : palette.border));
         target_->DrawGeometry(path, brush_, selected ? 3.0f : 1.0f, selected ? nullptr : dashed_);
         sink->Release();
         path->Release();
     }
     brush_->SetColor(Color(palette.text));
-    target_->FillEllipse(D2D1::Ellipse(kTreeRoot, 3, 3), brush_);
+    target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(tree.rootAnchor.x, treeTop_ + tree.rootAnchor.y), 3, 3), brush_);
 
     float strokeWidth = IsHighContrast(appearance_) ? 3.0f : 2.0f;
-    for (const auto& node : treeSnapshot_.nodes) {
-        auto found = frames.find(node.id);
-        if (found == frames.end()) continue;
-        const D2D1_RECT_F& box = found->second;
-        bool selected = isSelected(node.id);
-        FillRounded(box, kNodeRadius, selected ? palette.selection : palette.surface);
-        if (selected) StrokeRounded(box, kNodeRadius, palette.text, strokeWidth);
-        uint32_t textColor = selected ? palette.selectionText : palette.text;
-        if (treeSnapshot_.focusedNode && *treeSnapshot_.focusedNode == node.id) {
-            // The node that the arrow keys act on is underlined.
+    IDWriteTextFormat* wordFormat = TextFormat(tree.metrics.fontSize);
+    IDWriteTextFormat* numberFormat = TextFormat(tree.metrics.numberFontSize);
+    IDWriteTextFormat* scoreFormat = TextFormat(tree.metrics.scoreFontSize);
+    for (const auto& layoutNode : tree.nodes) {
+        const display::DisplayNode* node = content_.display.FindNode(layoutNode.id);
+        const protocol::TreeNode* word = FindWord(content_.nodes, layoutNode.id);
+        if (!node || !word) continue;
+        D2D1_RECT_F box = TreeRect(layoutNode.frame);
+        FillRounded(box, kNodeRadius, node->selected ? palette.selection : palette.surface);
+        if (node->selected) StrokeRounded(box, kNodeRadius, palette.text, strokeWidth);
+        uint32_t textColor = node->selected ? palette.selectionText : palette.text;
+        D2D1_RECT_F textBox = TreeRect(layoutNode.textFrame);
+        if (node->focused) {
+            // The word the arrow keys act on is underlined.
             brush_->SetColor(Color(textColor));
-            float underline = box.top + tree_.wordHeight - 4;
+            float underline = textBox.bottom - 4;
             target_->DrawLine(D2D1::Point2F(box.left + 6, underline), D2D1::Point2F(box.right - 6, underline), brush_, 2.0f);
         }
-        float inset = tree_.aligned ? 2.0f : 4.0f;
-        DrawText(node.text, textFormat_, D2D1::RectF(box.left + inset, box.top, box.right - inset, box.top + tree_.wordHeight),
-                 textColor, tree_.aligned ? DWRITE_TEXT_ALIGNMENT_LEADING : DWRITE_TEXT_ALIGNMENT_CENTER);
-        if (treeSnapshot_.showRelativeScores && node.score && tree_.scoreHeight > 0) {
-            float badgeWidth = std::min(box.right - box.left, std::max(22.0f, MeasureText(node.score->label, smallFormat_) + 6));
-            float left = box.left + (box.right - box.left - badgeWidth) / 2;
-            D2D1_RECT_F badge = D2D1::RectF(left, box.top + tree_.wordHeight, left + badgeWidth, box.top + tree_.wordHeight + tree_.scoreHeight);
-            uint32_t badgeColor = node.score->role == "scoreLow"    ? palette.scoreLow
-                                  : node.score->role == "scoreHigh" ? palette.scoreHigh
+        DrawText(word->text, wordFormat, textBox, textColor,
+                 tree.leadingText ? DWRITE_TEXT_ALIGNMENT_LEADING : DWRITE_TEXT_ALIGNMENT_CENTER);
+        if (content_.showScores && layoutNode.scoreFrame && word->score) {
+            D2D1_RECT_F row = TreeRect(*layoutNode.scoreFrame);
+            float badgeWidth = std::min(row.right - row.left,
+                                        std::max(kMinimumScoreBadgeWidth,
+                                                 MeasureText(word->score->label, tree.metrics.scoreFontSize) + kScoreBadgeTextInset));
+            float left = row.left + (row.right - row.left - badgeWidth) / 2;
+            D2D1_RECT_F badge = D2D1::RectF(left, row.top, left + badgeWidth, row.bottom);
+            uint32_t badgeColor = word->score->role == "scoreLow"    ? palette.scoreLow
+                                  : word->score->role == "scoreHigh" ? palette.scoreHigh
                                                                      : palette.scoreUnknown;
             brush_->SetColor(Color(badgeColor));
             target_->FillRectangle(badge, brush_);
-            DrawText(node.score->label, smallFormat_, badge, palette.scoreText, DWRITE_TEXT_ALIGNMENT_CENTER);
+            DrawText(word->score->label, scoreFormat, badge, palette.scoreText, DWRITE_TEXT_ALIGNMENT_CENTER);
         }
-        auto number = tree_.numbers.find(node.id);
-        if (number != tree_.numbers.end()) {
-            DrawText(std::to_wstring(number->second), smallFormat_,
-                     D2D1::RectF(box.left + 6, box.bottom - tree_.numberHeight, box.right - 6, box.bottom), textColor,
+        if (layoutNode.numberFrame && node->number) {
+            DrawText(std::to_wstring(*node->number), numberFormat, TreeRect(*layoutNode.numberFrame), textColor,
                      DWRITE_TEXT_ALIGNMENT_LEADING);
         }
     }
@@ -426,25 +385,26 @@ void CandidatePanel::Paint() {
     const CandidatePalette& palette = PaletteFor(appearance_);
     target_->Clear(Color(palette.background));
     StrokeRounded(D2D1::RectF(0.5f, 0.5f, panelWidth_ - 0.5f, panelHeight_ - 0.5f), kCornerRadius, palette.border, 1.0f);
-    if (mode_ == Mode::List) PaintList();
-    else if (mode_ == Mode::Tree) PaintTree();
+    if (!rows_.empty() && content_.display.list) PaintList();
+    if (content_.tree) PaintTree();
     if (target_->EndDraw() == D2DERR_RECREATE_TARGET) ReleaseDeviceResources();
 }
 
 CandidatePanel::Hit CandidatePanel::HitTest(POINT clientPixels) const {
     D2D1_POINT_2F point = D2D1::Point2F(clientPixels.x * 96.0f / dpi_, clientPixels.y * 96.0f / dpi_);
-    if (mode_ == Mode::List) {
+    if (content_.display.list && !rows_.empty()) {
         for (const auto& row : rows_) {
             if (Contains(row.frame, point)) return {Hit::Kind::Row, row.candidateIndex};
         }
-        if (Contains(confirmFrame_, point)) return {Hit::Kind::Confirm, 0};
-        if (previousIndex_ && Contains(previousFrame_, point)) return {Hit::Kind::PreviousPage, *previousIndex_};
-        if (nextIndex_ && Contains(nextFrame_, point)) return {Hit::Kind::NextPage, *nextIndex_};
-    } else if (mode_ == Mode::Tree) {
-        for (auto frame = tree_.frames.rbegin(); frame != tree_.frames.rend(); ++frame) {
-            if (Contains(D2D1::RectF(frame->x, frame->y, frame->x + frame->width, frame->y + frame->height), point)) {
-                return {Hit::Kind::Node, frame->nodeId};
-            }
+        const display::CandidateList& list = *content_.display.list;
+        if (list.confirmIndex && Contains(confirmFrame_, point)) return {Hit::Kind::Confirm, *list.confirmIndex};
+        if (list.previousIndex && Contains(previousFrame_, point)) return {Hit::Kind::PreviousPage, *list.previousIndex};
+        if (list.nextIndex && Contains(nextFrame_, point)) return {Hit::Kind::NextPage, *list.nextIndex};
+    }
+    if (content_.tree) {
+        display::Point treePoint{point.x, point.y - treeTop_};
+        for (auto node = content_.tree->nodes.rbegin(); node != content_.tree->nodes.rend(); ++node) {
+            if (node->frame.Contains(treePoint)) return {Hit::Kind::Node, node->id};
         }
     }
     return {};
@@ -461,7 +421,7 @@ void CandidatePanel::Activate(const Hit& hit, bool doubleClick) {
         }
         break;
     case Hit::Kind::Confirm:
-        if (selection_ && actions_.confirmCandidate) actions_.confirmCandidate(*selection_);
+        if (actions_.confirmCandidate) actions_.confirmCandidate(hit.value);
         break;
     case Hit::Kind::PreviousPage:
     case Hit::Kind::NextPage:
