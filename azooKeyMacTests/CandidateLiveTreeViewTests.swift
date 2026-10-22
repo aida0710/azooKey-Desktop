@@ -123,7 +123,7 @@ final class CandidateLiveTreeViewTests: XCTestCase {
             XCTAssertLessThan(badge.midX, alternative.bounds.midX)
             XCTAssertLessThan(badge.midY, alternative.bounds.midY)
             XCTAssertLessThan(badge.maxY, alternative.candidateTextFrame.minY)
-            XCTAssertEqual(alternative.font?.pointSize, CGFloat(size.pointSize))
+            XCTAssertEqual(alternative.font?.pointSize, CGFloat(CandidateTextMetrics.baseFontSize(size)))
             XCTAssertGreaterThanOrEqual(alternative.frame.height, 44)
             XCTAssertLessThan(alternative.frame.height, 88)
             XCTAssertTrue(alternative.accessibilityHelp()?.contains(String(format: Localization.text("candidate.numberBadge"), "8")) == true)
