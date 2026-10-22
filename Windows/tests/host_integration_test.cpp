@@ -85,11 +85,11 @@ int wmain(int argc, wchar_t** argv) {
     }
     Check(last && last->preedit == L"日本語", "typing nihongo composes 日本語");
     // The first key also starts the bridge and loads the dictionary (and the
-    // first conversion Zenzai's model), so it is reported on its own.
-    std::vector<double> laterKeys(keyMilliseconds.begin() + std::min<size_t>(1, keyMilliseconds.size()), keyMilliseconds.end());
-    std::printf("first key: %.1f ms; later keys: median %.1f ms, slowest %.1f ms\n",
-                keyMilliseconds.empty() ? 0 : keyMilliseconds.front(), Median(laterKeys),
-                laterKeys.empty() ? 0 : *std::max_element(laterKeys.begin(), laterKeys.end()));
+    // first conversion Zenzai's model), so it is reported on its own. The loop
+    // always times at least that key.
+    std::vector<double> laterKeys(keyMilliseconds.begin() + 1, keyMilliseconds.end());
+    std::printf("first key: %.1f ms; later keys: median %.1f ms, slowest %.1f ms\n", keyMilliseconds.front(),
+                Median(laterKeys), laterKeys.empty() ? 0 : *std::max_element(laterKeys.begin(), laterKeys.end()));
 
     auto space = connection.Request(azookey::protocol::KeyRequest(context, azookey::keys::Translate(0x20, {}, L" ")));
     auto converting = space ? azookey::protocol::ParseSnapshot(*space) : std::nullopt;
