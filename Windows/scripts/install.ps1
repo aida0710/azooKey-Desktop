@@ -39,16 +39,22 @@ if ($registration.ExitCode -ne 0) { throw "regsvr32 failed ($($registration.Exit
 $hostPath = Join-Path $Destination 'azookey-windows-host.exe'
 Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name $hostRunValue -Value "`"$hostPath`""
 
-# Show azooKey Tree in this user's Japanese keyboards.
-$languages = Get-WinUserLanguageList
-$japanese = $languages | Where-Object { $_.LanguageTag -eq 'ja' } | Select-Object -First 1
-if (-not $japanese) {
-    $languages.Add('ja')
-    $japanese = $languages | Where-Object { $_.LanguageTag -eq 'ja' } | Select-Object -First 1
+# Show azooKey Tree in this user's Japanese keyboards. The International
+# module fails to marshal its arguments under PowerShell 7 on some systems
+# (seen on GitHub's Windows images), so Windows PowerShell 5.1 runs it.
+$addToLanguageList = @"
+`$languages = Get-WinUserLanguageList
+`$japanese = `$languages | Where-Object { `$_.LanguageTag -eq 'ja' } | Select-Object -First 1
+if (-not `$japanese) {
+    `$languages.Add('ja')
+    `$japanese = `$languages | Where-Object { `$_.LanguageTag -eq 'ja' } | Select-Object -First 1
 }
-if (-not ($japanese.InputMethodTips -contains $textServiceTip)) {
-    $japanese.InputMethodTips.Add($textServiceTip)
-    Set-WinUserLanguageList $languages -Force
+if (-not (`$japanese.InputMethodTips -contains '$textServiceTip')) {
+    `$japanese.InputMethodTips.Add('$textServiceTip')
+    Set-WinUserLanguageList `$languages -Force
 }
+"@
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command $addToLanguageList
+if ($LASTEXITCODE -ne 0) { throw "could not add azooKey Tree to the language list ($LASTEXITCODE)" }
 Write-Output "installed: $Destination"
 Write-Output '入力方式の一覧に azooKey Tree を追加しました。Win+Space で切り替えられます。'

@@ -42,7 +42,7 @@ add_executable(azookey-host-integration-test tests/host_integration_test.cpp)
 target_link_libraries(azookey-host-integration-test PRIVATE azookey_shared)
 
 add_executable(tsf-harness tests/tsf_harness.cpp)
-target_link_libraries(tsf-harness PRIVATE ole32 oleaut32 user32 uuid)
+target_link_libraries(tsf-harness PRIVATE ole32 oleaut32 user32 gdi32 uuid windowscodecs)
 
 enable_testing()
 add_test(NAME shared COMMAND azookey-windows-tests)

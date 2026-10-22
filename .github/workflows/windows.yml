@@ -33,9 +33,16 @@ jobs:
         shell: pwsh
         run: |
           build/windows-package/install.ps1
-          build/windows-frontend/tsf-harness.exe --clsid '{DC2488F5-F672-4910-9FEA-6D97306B86DA}' --profile '{30051583-6CBB-49E0-AEAA-91AE64DCA550}' --keys 'nihongo{SPACE}{ENTER}' --expect '日本語'
+          New-Item -ItemType Directory -Force -Path build/screenshots | Out-Null
+          build/windows-frontend/tsf-harness.exe --clsid '{DC2488F5-F672-4910-9FEA-6D97306B86DA}' --profile '{30051583-6CBB-49E0-AEAA-91AE64DCA550}' --keys 'nihongo{SHOT:typing}{SPACE}{SHOT:converting}{ENTER}{SHOT:committed}' --expect '日本語' --screenshots build/screenshots
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: azookey-tree-windows-x64
           path: build/windows-package
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tsf-screenshots
+          path: build/screenshots
+          if-no-files-found: ignore

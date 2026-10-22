@@ -4,12 +4,16 @@
 // prints the document text as UTF-8. Keys the processor does not eat are
 // delivered to the edit control as ordinary messages.
 //
-//   tsf-harness --clsid {..} --profile {..} --keys "nihongo{SPACE}{ENTER}" [--expect 日本語]
+//   tsf-harness --clsid {..} --profile {..} --keys "nihongo{SPACE}{SHOT:menu}{ENTER}"
+//               [--expect 日本語] [--screenshots <directory>]
 //
 // With --expect the exit code is 0 only when the document equals that text.
+// {SHOT:name} saves the screen as <directory>\name.png at that point, so the
+// candidate windows can be reviewed from machines without a desktop session.
 #include <windows.h>
 #include <msctf.h>
 #include <richedit.h>
+#include <wincodec.h>
 #include <cstdio>
 #include <optional>
 #include <string>
@@ -22,6 +26,7 @@ struct Options {
     GUID profile{};
     std::wstring keys;
     std::optional<std::wstring> expected;
+    std::wstring screenshotDirectory = L".";
     LANGID language = 0x0411;
     DWORD settleMilliseconds = 30;
 };
@@ -30,6 +35,7 @@ struct KeyStroke {
     UINT virtualKey;
     bool shift;
     bool control;
+    std::wstring screenshot;  // non-empty: capture the screen instead of a key
 };
 
 void Fail(const char* step, HRESULT result) {
@@ -58,7 +64,12 @@ bool ParseKeys(const std::wstring& text, std::vector<KeyStroke>* out) {
             size_t end = text.find(L'}', i);
             if (end == std::wstring::npos) return false;
             std::wstring name = text.substr(i + 1, end - i - 1);
-            KeyStroke stroke{0, false, false};
+            if (name.rfind(L"SHOT:", 0) == 0) {
+                out->push_back({0, false, false, name.substr(5)});
+                i = end + 1;
+                continue;
+            }
+            KeyStroke stroke{0, false, false, {}};
             for (;;) {
                 if (name.rfind(L"SHIFT+", 0) == 0) { stroke.shift = true; name = name.substr(6); continue; }
                 if (name.rfind(L"CTRL+", 0) == 0) { stroke.control = true; name = name.substr(5); continue; }
@@ -74,13 +85,13 @@ bool ParseKeys(const std::wstring& text, std::vector<KeyStroke>* out) {
             continue;
         }
         wchar_t c = text[i++];
-        if (c >= L'a' && c <= L'z') out->push_back({static_cast<UINT>(towupper(c)), false, false});
-        else if (c >= L'A' && c <= L'Z') out->push_back({static_cast<UINT>(c), true, false});
-        else if (c >= L'0' && c <= L'9') out->push_back({static_cast<UINT>(c), false, false});
-        else if (c == L'-') out->push_back({VK_OEM_MINUS, false, false});
-        else if (c == L',') out->push_back({VK_OEM_COMMA, false, false});
-        else if (c == L'.') out->push_back({VK_OEM_PERIOD, false, false});
-        else if (c == L' ') out->push_back({VK_SPACE, false, false});
+        if (c >= L'a' && c <= L'z') out->push_back({static_cast<UINT>(towupper(c)), false, false, {}});
+        else if (c >= L'A' && c <= L'Z') out->push_back({static_cast<UINT>(c), true, false, {}});
+        else if (c >= L'0' && c <= L'9') out->push_back({static_cast<UINT>(c), false, false, {}});
+        else if (c == L'-') out->push_back({VK_OEM_MINUS, false, false, {}});
+        else if (c == L',') out->push_back({VK_OEM_COMMA, false, false, {}});
+        else if (c == L'.') out->push_back({VK_OEM_PERIOD, false, false, {}});
+        else if (c == L' ') out->push_back({VK_SPACE, false, false, {}});
         else return false;
     }
     return true;
@@ -106,6 +117,50 @@ void SetModifierState(bool shift, bool control) {
     SetKeyboardState(state);
 }
 
+// Saves the whole virtual screen as a PNG through WIC.
+bool SaveScreenshot(const std::wstring& path) {
+    int left = GetSystemMetrics(SM_XVIRTUALSCREEN), top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    int width = GetSystemMetrics(SM_CXVIRTUALSCREEN), height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    HDC screen = GetDC(nullptr);
+    HDC memory = CreateCompatibleDC(screen);
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(info.bmiHeader);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;  // top-down rows
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void* pixels = nullptr;
+    HBITMAP bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+    HGDIOBJ previous = SelectObject(memory, bitmap);
+    BitBlt(memory, 0, 0, width, height, screen, left, top, SRCCOPY | CAPTUREBLT);
+    SelectObject(memory, previous);
+    bool saved = false;
+    IWICImagingFactory* factory = nullptr;
+    IWICStream* stream = nullptr;
+    IWICBitmapEncoder* encoder = nullptr;
+    IWICBitmapFrameEncode* frame = nullptr;
+    if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) &&
+        SUCCEEDED(factory->CreateStream(&stream)) && SUCCEEDED(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE)) &&
+        SUCCEEDED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) &&
+        SUCCEEDED(encoder->Initialize(stream, WICBitmapEncoderNoCache)) &&
+        SUCCEEDED(encoder->CreateNewFrame(&frame, nullptr)) && SUCCEEDED(frame->Initialize(nullptr)) &&
+        SUCCEEDED(frame->SetSize(width, height))) {
+        WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGR;
+        saved = SUCCEEDED(frame->SetPixelFormat(&format)) &&
+                SUCCEEDED(frame->WritePixels(height, width * 4, width * height * 4, static_cast<BYTE*>(pixels))) &&
+                SUCCEEDED(frame->Commit()) && SUCCEEDED(encoder->Commit());
+    }
+    if (frame) frame->Release();
+    if (encoder) encoder->Release();
+    if (stream) stream->Release();
+    if (factory) factory->Release();
+    DeleteObject(bitmap);
+    DeleteDC(memory);
+    ReleaseDC(nullptr, screen);
+    return saved;
+}
+
 std::string ToUtf8(const std::wstring& text) {
     if (text.empty()) return {};
     int size = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
@@ -129,6 +184,7 @@ bool ParseOptions(int argc, wchar_t** argv, Options* options) {
         if (name == L"--profile" && ParseGuid(argv[i + 1], &options->profile)) continue;
         if (name == L"--keys") { options->keys = argv[i + 1]; continue; }
         if (name == L"--expect") { options->expected = argv[i + 1]; continue; }
+        if (name == L"--screenshots") { options->screenshotDirectory = argv[i + 1]; continue; }
         if (name == L"--settle") { options->settleMilliseconds = static_cast<DWORD>(_wtoi(argv[i + 1])); continue; }
         return false;
     }
@@ -156,8 +212,8 @@ int wmain(int argc, wchar_t** argv) {
     std::printf("thread manager active client=%lu\n", static_cast<unsigned long>(clientId));
 
     LoadLibraryW(L"Msftedit.dll");
-    HWND frame = CreateWindowExW(0, L"STATIC", L"tsf-harness", WS_OVERLAPPEDWINDOW, 0, 0, 640, 200, nullptr, nullptr, nullptr, nullptr);
-    HWND edit = CreateWindowExW(0, MSFTEDIT_CLASS, L"", WS_CHILD | WS_VISIBLE | ES_MULTILINE, 0, 0, 620, 160, frame, nullptr, nullptr, nullptr);
+    HWND frame = CreateWindowExW(0, L"STATIC", L"tsf-harness", WS_OVERLAPPEDWINDOW, 80, 80, 900, 240, nullptr, nullptr, nullptr, nullptr);
+    HWND edit = CreateWindowExW(0, MSFTEDIT_CLASS, L"", WS_CHILD | WS_VISIBLE | ES_MULTILINE, 0, 0, 880, 200, frame, nullptr, nullptr, nullptr);
     if (!frame || !edit) Fail("CreateWindow", HRESULT_FROM_WIN32(GetLastError()));
     // RichEdit talks to TSF only when asked to; without this it uses IMM32.
     SendMessageW(edit, EM_SETEDITSTYLE, SES_USECTF | SES_CTFALLOWEMBED | SES_CTFALLOWSMARTTAG | SES_CTFALLOWPROOFING,
@@ -196,6 +252,12 @@ int wmain(int argc, wchar_t** argv) {
     if (FAILED(hr)) Fail("QueryInterface(KeystrokeMgr)", hr);
     int eatenCount = 0;
     for (const auto& stroke : strokes) {
+        if (!stroke.screenshot.empty()) {
+            PumpMessages(300);
+            std::wstring path = options.screenshotDirectory + L"\\" + stroke.screenshot + L".png";
+            std::printf("screenshot %s: %s\n", ToUtf8(stroke.screenshot).c_str(), SaveScreenshot(path) ? "saved" : "failed");
+            continue;
+        }
         SetModifierState(stroke.shift, stroke.control);
         UINT scan = MapVirtualKeyW(stroke.virtualKey, MAPVK_VK_TO_VSC);
         LPARAM down = 1 | (static_cast<LPARAM>(scan) << 16);

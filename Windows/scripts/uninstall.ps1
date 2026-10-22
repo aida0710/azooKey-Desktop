@@ -7,11 +7,15 @@ param(
 $ErrorActionPreference = 'Stop'
 $textServiceTip = '0411:{DC2488F5-F672-4910-9FEA-6D97306B86DA}{30051583-6CBB-49E0-AEAA-91AE64DCA550}'
 
-$languages = Get-WinUserLanguageList
-foreach ($language in $languages) {
-    if ($language.InputMethodTips -contains $textServiceTip) { [void]$language.InputMethodTips.Remove($textServiceTip) }
+# Windows PowerShell 5.1 for the International module, as in install.ps1.
+$removeFromLanguageList = @"
+`$languages = Get-WinUserLanguageList
+foreach (`$language in `$languages) {
+    if (`$language.InputMethodTips -contains '$textServiceTip') { [void]`$language.InputMethodTips.Remove('$textServiceTip') }
 }
-Set-WinUserLanguageList $languages -Force
+Set-WinUserLanguageList `$languages -Force
+"@
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command $removeFromLanguageList
 
 Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'azooKeyTreeHost' -ErrorAction SilentlyContinue
 Get-Process azookey-windows-host, azookey-desktop-bridge -ErrorAction SilentlyContinue | Stop-Process -Force
