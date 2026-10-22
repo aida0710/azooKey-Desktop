@@ -2,7 +2,7 @@
 // application connect over a named pipe; the host forwards their requests to a
 // single converter so the dictionary and learning data load once.
 //
-// Options (for tests): --pipe <name> --bridge <exe> --data <directory>
+// Options (for tests): --pipe <name> --bridge <exe> --data <directory> --resources <directory>
 #include <windows.h>
 #include <sddl.h>
 #include <shellapi.h>
@@ -37,6 +37,7 @@ struct Options {
     std::wstring pipeName = azookey::channel::HostPipeName();
     std::wstring bridge;
     std::wstring dataDirectory;
+    std::wstring resourcesDirectory;
 };
 
 std::wstring ModuleDirectory() {
@@ -60,6 +61,7 @@ Options ParseOptions() {
     Options options;
     options.bridge = ModuleDirectory() + L"\\bridge\\azookey-desktop-bridge.exe";
     options.dataDirectory = DefaultDataDirectory();
+    options.resourcesDirectory = ModuleDirectory() + L"\\models";
     int count = 0;
     wchar_t** arguments = CommandLineToArgvW(GetCommandLineW(), &count);
     for (int i = 1; arguments && i + 1 < count; i += 2) {
@@ -67,6 +69,7 @@ Options ParseOptions() {
         if (name == L"--pipe") options.pipeName = arguments[i + 1];
         else if (name == L"--bridge") options.bridge = arguments[i + 1];
         else if (name == L"--data") options.dataDirectory = arguments[i + 1];
+        else if (name == L"--resources") options.resourcesDirectory = arguments[i + 1];
     }
     LocalFree(arguments);
     return options;
@@ -99,7 +102,7 @@ bool CreatePipeSecurity(SECURITY_ATTRIBUTES* attributes, PSECURITY_DESCRIPTOR* d
 class Host {
 public:
     explicit Host(const Options& options)
-        : options_(options), bridge_({options.bridge, options.dataDirectory}) {}
+        : options_(options), bridge_({options.bridge, options.dataDirectory, options.resourcesDirectory}) {}
 
     int Run() {
         SECURITY_ATTRIBUTES security{};
