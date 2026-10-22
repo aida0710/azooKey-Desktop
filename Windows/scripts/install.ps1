@@ -15,10 +15,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 
 # A running host or loaded DLL would keep the old files locked.
-Get-Process azookey-windows-host, azookey-desktop-bridge -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process azookey-windows-host, azookey-desktop-bridge, azookey-settings -ErrorAction SilentlyContinue | Stop-Process -Force
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 $source = $PSScriptRoot
-foreach ($item in 'azookey-tsf.dll', 'x86', 'azookey-windows-host.exe', 'bridge', 'LICENSE', 'uninstall.ps1') {
+foreach ($item in 'azookey-tsf.dll', 'x86', 'azookey-windows-host.exe', 'azookey-settings.exe', 'build-info.txt', 'bridge', 'LICENSE', 'uninstall.ps1') {
     $target = Join-Path $Destination $item
     if (Test-Path $target) {
         try { Remove-Item -Recurse -Force $target }
@@ -45,6 +45,13 @@ foreach ($entry in $registrations) {
 # Start the converter host at sign-in so the first key press does not wait for it.
 $hostPath = Join-Path $Destination 'azookey-windows-host.exe'
 Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name $hostRunValue -Value "`"$hostPath`""
+
+# Every user finds the settings window in the Start menu.
+$settingsShortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\azooKey Tree の設定.lnk'))
+$settingsShortcut.TargetPath = Join-Path $Destination 'azookey-settings.exe'
+$settingsShortcut.WorkingDirectory = $Destination
+$settingsShortcut.Description = 'azooKey Tree の設定'
+$settingsShortcut.Save()
 
 # Show azooKey Tree in this user's Japanese keyboards. The International
 # module fails to marshal its arguments under PowerShell 7 on some systems
