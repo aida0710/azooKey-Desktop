@@ -17,4 +17,14 @@ extension AIRequestConfiguration {
             apiEndpoint: endpoint.isEmpty ? Config.OpenAiApiEndpoint.default : endpoint
         )
     }
+
+    /// Core's desktop view of the same settings. Unlike the desktop bridge,
+    /// macOS also counts the on-device model as enabled.
+    func desktopConfiguration() -> AIDesktopConfiguration {
+        AIDesktopConfiguration(
+            isEnabled: true, modelName: modelName, endpoint: apiEndpoint,
+            includesContext: Config.IncludeContextInAITransform().value,
+            transformShortcut: Config.TransformShortcut().value
+        )
+    }
 }
