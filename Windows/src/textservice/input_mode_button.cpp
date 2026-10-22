@@ -20,6 +20,24 @@ constexpr GUID kInputModeItemGuid = {0x2c77a81e, 0x41cc, 0x4178, {0xa3, 0xa7, 0x
 
 std::wstring Message(const char* key) { return messages::Text(key, messages::CurrentUiLanguage()); }
 
+enum MenuItem : UINT { kSeparator = 0, kToggle, kUndoCommit, kReconvertSelection, kSettings, kDictionary };
+
+struct MenuEntry {
+    MenuItem item;
+    const char* messageKey;  // nullptr for the separator
+};
+
+// Both the taskbar menu and the classic language bar menu.
+constexpr MenuEntry kMenuEntries[] = {
+    {kToggle, "input.menu.toggleMode"},
+    {kSeparator, nullptr},
+    {kUndoCommit, "reconversion.undo_menu"},
+    {kReconvertSelection, "reconversion.selection_menu"},
+    {kSeparator, nullptr},
+    {kSettings, "input.menu.settings"},
+    {kDictionary, "input.menu.dictionary"},
+};
+
 }  // namespace
 
 InputModeButton::InputModeButton(Actions actions) : actions_(std::move(actions)) { AddModuleReference(); }
@@ -87,10 +105,10 @@ STDMETHODIMP InputModeButton::OnClick(TfLBIClick click, POINT point, const RECT*
     // The taskbar indicator does not ask for InitMenu, so the right-click menu is ours.
     HMENU menu = CreatePopupMenu();
     if (!menu) return E_OUTOFMEMORY;
-    AppendMenuW(menu, MF_STRING, kToggle, Message("input.menu.toggleMode").c_str());
-    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, kSettings, Message("input.menu.settings").c_str());
-    AppendMenuW(menu, MF_STRING, kDictionary, Message("input.menu.dictionary").c_str());
+    for (const MenuEntry& entry : kMenuEntries) {
+        if (entry.item == kSeparator) AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        else AppendMenuW(menu, MF_STRING, entry.item, Message(entry.messageKey).c_str());
+    }
     UINT chosen = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, point.x, point.y, GetFocus(), nullptr);
     DestroyMenu(menu);
     if (chosen != 0) Run(chosen);
@@ -100,13 +118,14 @@ STDMETHODIMP InputModeButton::OnClick(TfLBIClick click, POINT point, const RECT*
 STDMETHODIMP InputModeButton::InitMenu(ITfMenu* menu) {
     if (!menu) return E_INVALIDARG;
     // The classic language bar builds the same menu through ITfMenu.
-    auto add = [&](UINT id, const std::wstring& text) {
-        menu->AddMenuItem(id, 0, nullptr, nullptr, text.c_str(), static_cast<ULONG>(text.size()), nullptr);
-    };
-    add(kToggle, Message("input.menu.toggleMode"));
-    menu->AddMenuItem(0, TF_LBMENUF_SEPARATOR, nullptr, nullptr, nullptr, 0, nullptr);
-    add(kSettings, Message("input.menu.settings"));
-    add(kDictionary, Message("input.menu.dictionary"));
+    for (const MenuEntry& entry : kMenuEntries) {
+        if (entry.item == kSeparator) {
+            menu->AddMenuItem(0, TF_LBMENUF_SEPARATOR, nullptr, nullptr, nullptr, 0, nullptr);
+            continue;
+        }
+        std::wstring text = Message(entry.messageKey);
+        menu->AddMenuItem(entry.item, 0, nullptr, nullptr, text.c_str(), static_cast<ULONG>(text.size()), nullptr);
+    }
     return S_OK;
 }
 
@@ -119,6 +138,12 @@ void InputModeButton::Run(UINT id) {
     switch (id) {
     case kToggle:
         if (actions_.toggleInput) actions_.toggleInput();
+        break;
+    case kUndoCommit:
+        if (actions_.undoCommit) actions_.undoCommit();
+        break;
+    case kReconvertSelection:
+        if (actions_.reconvertSelection) actions_.reconvertSelection();
         break;
     case kSettings:
         if (actions_.openSettings) actions_.openSettings();

@@ -95,4 +95,22 @@ size_t ScalarOffsetToUtf16(const std::wstring& text, size_t scalarCount) {
     return units;
 }
 
+size_t ScalarCount(const std::wstring& text) {
+    size_t count = 0;
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (!(IsLowSurrogate(text[i]) && i > 0 && IsHighSurrogate(text[i - 1]))) ++count;
+    }
+    return count;
+}
+
+std::wstring LastScalars(const std::wstring& text, size_t scalarCount) {
+    size_t total = ScalarCount(text);
+    if (total <= scalarCount) return text;
+    return text.substr(ScalarOffsetToUtf16(text, total - scalarCount));
+}
+
+std::wstring FirstScalars(const std::wstring& text, size_t scalarCount) {
+    return text.substr(0, ScalarOffsetToUtf16(text, scalarCount));
+}
+
 }  // namespace azookey::text

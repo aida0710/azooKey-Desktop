@@ -17,7 +17,7 @@ struct Modifiers {
 
 struct KeyState {
     bool inputOpen = false;   // GUID_COMPARTMENT_KEYBOARD_OPENCLOSE
-    bool composing = false;   // the converter holds a preedit or candidates
+    bool composing = false;   // the converter holds a preedit, candidates or a reading being typed
     bool privateInput = false;  // password and other protected fields
 };
 

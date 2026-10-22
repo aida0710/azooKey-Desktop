@@ -55,6 +55,10 @@ KeyAction Classify(uint32_t virtualKey, Modifiers modifiers, const std::wstring&
     if (!state.inputOpen) return KeyAction::PassThrough;
     if (virtualKey == kNonConvert) return KeyAction::TurnInputOff;
     if (!state.composing) {
+        // Core's ReconversionShortcut: Ctrl+Shift+Backspace undoes the last commit and
+        // Ctrl+Shift+R reconverts the selection. TSF needs the answer before Core sees the key.
+        bool reconversionShortcut = modifiers.control && modifiers.shift && (virtualKey == kBack || virtualKey == 'R');
+        if (reconversionShortcut) return KeyAction::SendToConverter;
         return !modifiers.control && IsPrintable(typedText) ? KeyAction::SendToConverter : KeyAction::PassThrough;
     }
     if (virtualKey == kPrior) return KeyAction::PreviousPage;

@@ -9,6 +9,23 @@
 
 namespace azookey::tsf {
 
+// Key handling may write synchronously; pointer and menu actions take the
+// document whenever the application grants it.
+inline constexpr DWORD kSyncWrite = TF_ES_SYNC | TF_ES_READWRITE;
+inline constexpr DWORD kAnytimeWrite = TF_ES_ASYNCDONTCARE | TF_ES_READWRITE;
+
+// Keeps COM objects alive while an edit session that may run later uses them.
+class Retained {
+public:
+    explicit Retained(IUnknown* object) : object_(object) { if (object_) object_->AddRef(); }
+    Retained(const Retained& other) : Retained(other.object_) {}
+    Retained& operator=(const Retained&) = delete;
+    ~Retained() { if (object_) object_->Release(); }
+
+private:
+    IUnknown* object_;
+};
+
 class EditSession final : public ITfEditSession {
 public:
     explicit EditSession(std::function<void(TfEditCookie)> body) : body_(std::move(body)) {}

@@ -43,14 +43,26 @@ std::optional<protocol::Snapshot> ConverterClient::Send(const std::string& reque
     if (!reply) return std::nullopt;
     auto snapshot = protocol::ParseSnapshot(*reply);
     if (!snapshot || snapshot->error == "converter_unavailable") return std::nullopt;
+    std::wstring committed;
+    for (const auto& text : snapshot->commits) committed += text;
+    if (!committed.empty()) context_.document = protocol::AdvancedPastCommit(context_.document, committed);
     return snapshot;
 }
 
-std::optional<protocol::Snapshot> ConverterClient::Key(const keys::CoreKeyEvent& event, const std::wstring& leftContext,
-                                                       bool privateInput) {
-    context_.leftContext = leftContext;
-    context_.privateInput = privateInput;
+std::optional<protocol::Snapshot> ConverterClient::Key(const keys::CoreKeyEvent& event) {
     return Send(protocol::KeyRequest(context_, event));
+}
+
+std::optional<protocol::Snapshot> ConverterClient::ReconversionReading(const keys::CoreKeyEvent& event) {
+    return Send(protocol::ReconversionReadingRequest(context_, event));
+}
+
+std::optional<protocol::Snapshot> ConverterClient::UndoCommit() { return Send(protocol::UndoCommitRequest(context_)); }
+
+std::optional<protocol::Snapshot> ConverterClient::Reconvert() { return Send(protocol::ReconvertRequest(context_)); }
+
+std::optional<protocol::Snapshot> ConverterClient::ConfirmReconversion(const std::string& token) {
+    return Send(protocol::ConfirmReconversionRequest(context_, token));
 }
 
 std::optional<protocol::Snapshot> ConverterClient::Select(int candidateIndex, int generation, bool submit) {

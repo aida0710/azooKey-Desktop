@@ -6,6 +6,7 @@
 
 #include <msctf.h>
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -28,9 +29,33 @@ struct CompositionGeometry {
     std::vector<RECT> words;
 };
 
+// The field around the selection. `document.reconversion` is missing when the
+// selection is longer than Core reconverts or the document has no character
+// positions (ITfRangeACP).
 struct InputField {
-    bool privateInput = false;  // password and PIN fields
-    std::wstring leftContext;   // text before the caret
+    protocol::DocumentContext document;
+    std::optional<RECT> caret;  // physical screen pixels
+};
+
+// One undo of a commit or reconversion of a selection, as Core asked for it.
+struct ReconversionEdit {
+    protocol::ReconversionReplacement replacement;
+    protocol::ReconversionContext source;  // the field Core chose `replacement` from
+    // Asks Core to restore the composition once the text is out of the document;
+    // `removed` is the field read after the removal.
+    std::function<std::optional<protocol::Snapshot>(const protocol::DocumentContext& removed)> confirm;
+};
+
+enum class ReconversionResult {
+    DocumentChanged,  // the text was not where Core said; nothing was touched
+    Declined,         // Core (or the converter being gone) said no; the text is back
+    Restored,         // the text is now the composition
+};
+
+struct ReconversionOutcome {
+    ReconversionResult result = ReconversionResult::DocumentChanged;
+    std::optional<protocol::Snapshot> reply;  // Core's answer to `confirm`, when it gave one
+    std::optional<CompositionGeometry> geometry;  // where the restored composition is
 };
 
 class CompositionWriter {
@@ -52,6 +77,10 @@ public:
 
     static InputField ReadInputField(TfEditCookie cookie, ITfContext* context);
 
+    // Takes the replaced text out of the document, asks Core, and writes the
+    // restored composition in its place. When Core declines, the text goes back.
+    ReconversionOutcome Reconvert(TfEditCookie cookie, ITfContext* context, const ReconversionEdit& edit, ITfComposition** composition);
+
 private:
     void ReplaceComposition(TfEditCookie cookie, ITfContext* context, const std::wstring& text, ITfComposition** composition);
     void ApplyClauseAttributes(TfEditCookie cookie, ITfContext* context, ITfRange* range, const protocol::Snapshot& snapshot);
@@ -60,6 +89,8 @@ private:
     static std::optional<RECT> ScreenRectangle(TfEditCookie cookie, ITfContext* context, ITfRange* range);
     static std::vector<RECT> WordRectangles(TfEditCookie cookie, ITfContext* context, ITfRange* range,
                                             const protocol::Snapshot& snapshot);
+    // The range holding `edit.replacement` now, or nullptr when the document changed.
+    static ITfRange* FindReplacedText(TfEditCookie cookie, ITfContext* context, const ReconversionEdit& edit);
 
     ITfCompositionSink* sink_;
     ClauseAttributeAtoms atoms_;
