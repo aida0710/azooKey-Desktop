@@ -162,12 +162,15 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"reconversion.stale_request", L"\u518D\u5909\u63DB\u306E\u64CD\u4F5C\u304C\u7121\u52B9\u306B\u306A\u308A\u307E\u3057\u305F", L"The reconversion request is no longer valid"},
     {"reconversion.undo_menu", L"\u76F4\u524D\u306E\u78BA\u5B9A\u3092\u53D6\u308A\u6D88\u3059\uFF08Ctrl+Shift+Backspace\uFF09", L"Undo the last commit (Ctrl+Shift+Backspace)"},
     {"reconversion.whole_selection_required", L"\u9078\u629E\u7BC4\u56F2\u5168\u4F53\u306E\u5019\u88DC\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044", L"Choose a candidate for the whole selection"},
+    {"settings.api_key_failed", L"\u8A2D\u5B9A\u306F\u4FDD\u5B58\u3057\u307E\u3057\u305F\u304C\u3001API \u30AD\u30FC\u3092 Windows \u306E\u8CC7\u683C\u60C5\u5831\u30DE\u30CD\u30FC\u30B8\u30E3\u30FC\u306B\u4FDD\u5B58\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002", L"The settings were saved, but the API key could not be saved to Windows Credential Manager."},
     {"settings.backend_recovery_failed", L"\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB\u306E\u4FDD\u5B58\u3068\u3001\u5909\u63DB\u5668\u306E\u5143\u306E\u8A2D\u5B9A\u3078\u306E\u5FA9\u5143\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002\u3082\u3046\u4E00\u5EA6\u4FDD\u5B58\u3059\u308B\u3068\u3001\u5143\u306E\u8A2D\u5B9A\u306E\u5FA9\u5143\u304B\u3089\u518D\u8A66\u884C\u3057\u307E\u3059\u3002", L"Saving the settings file and restoring the converter's previous settings both failed. Saving again first retries restoring the previous settings."},
     {"settings.backslash", L"\u5186\u8A18\u53F7\u306E\u4EE3\u308F\u308A\u306B\u30D0\u30C3\u30AF\u30B9\u30E9\u30C3\u30B7\u30E5", L"Backslash instead of the yen sign"},
     {"settings.backup_warning", L"\u8A2D\u5B9A\u306F\u4FDD\u5B58\u3057\u307E\u3057\u305F\u304C\u3001\u6B63\u5E38\u7248\u306E\u63A7\u3048\u3092\u4FDD\u5B58\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u8A2D\u5B9A\u30D5\u30A9\u30EB\u30C0\u30FC\u306E\u6A29\u9650\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The settings were saved, but a backup of the valid version could not be saved. Check the permissions of the settings folder."},
     {"settings.busy", L"\u5225\u306E\u753B\u9762\u304C\u8A2D\u5B9A\u3092\u4FDD\u5B58\u3057\u3066\u3044\u307E\u3059\u3002\u5C11\u3057\u5F85\u3063\u3066\u3082\u3046\u4E00\u5EA6\u4FDD\u5B58\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"Another window is saving the settings. Wait a moment and save again."},
-    {"settings.cancel", L"\u53D6\u6D88", L"Cancel"},
+    {"settings.cancel", L"\u30AD\u30E3\u30F3\u30BB\u30EB", L"Cancel"},
     {"settings.changed", L"\u5225\u306E\u64CD\u4F5C\u3067\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB\u304C\u5909\u308F\u308A\u307E\u3057\u305F\u3002\u8A2D\u5B9A\u753B\u9762\u3092\u958B\u304D\u76F4\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"Another operation changed the settings file. Reopen the settings window."},
+    {"settings.changed_explanation", L"\u8AAD\u307F\u76F4\u3059\u3068\u3001\u3053\u306E\u753B\u9762\u3067\u307E\u3060\u4FDD\u5B58\u3057\u3066\u3044\u306A\u3044\u5909\u66F4\u306F\u53D6\u308A\u6D88\u3055\u308C\u307E\u3059\u3002", L"Reloading discards the changes you have not saved in this window."},
+    {"settings.changed_question", L"\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB\u304C\u307B\u304B\u306E\u64CD\u4F5C\u3067\u5909\u308F\u308A\u307E\u3057\u305F\u3002\u8AAD\u307F\u76F4\u3057\u307E\u3059\u304B\uFF1F", L"The settings file was changed elsewhere. Reload it?"},
     {"settings.custom-table", L"\u30AB\u30B9\u30BF\u30E0\u5165\u529B\u8868\uFF08TSV\uFF09", L"Custom input table (TSV)"},
     {"settings.debug", L"\u30C7\u30D0\u30C3\u30B0\u5019\u88DC", L"Debug candidates"},
     {"settings.dictionary_edit", L"\u30E6\u30FC\u30B6\u30FC\u8F9E\u66F8\u3092\u7DE8\u96C6\u2026\uFF08{count}\u4EF6\uFF09", L"Edit user dictionary\u2026 ({count} entries)"},
@@ -176,6 +179,7 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"settings.downloadTypoWeights", L"\u5165\u529B\u8A02\u6B63\u30E2\u30C7\u30EB\u3092\u30C0\u30A6\u30F3\u30ED\u30FC\u30C9", L"Download the typo correction model"},
     {"settings.engine_rejected", L"\u5909\u63DB\u5668\u304C\u8A2D\u5B9A\u3092\u9069\u7528\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u30AB\u30B9\u30BF\u30E0\u5165\u529B\u8868\u306A\u3069\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The converter could not apply the settings. Check the custom input table and other settings."},
     {"settings.halfSpace", L"\u30B9\u30DA\u30FC\u30B9\u3092\u534A\u89D2\u306B\u3059\u308B", L"Type half-width spaces"},
+    {"settings.host_unavailable", L"\u5909\u63DB\u30A8\u30F3\u30B8\u30F3\u306B\u63A5\u7D9A\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002azooKey Tree \u304C\u6B63\u3057\u304F\u5C0E\u5165\u3055\u308C\u3066\u3044\u308B\u304B\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"Could not connect to the converter. Check that azooKey Tree is installed correctly."},
     {"settings.importPersonalization", L"Tuner\u306E\u500B\u4EBA\u5316\u30E2\u30C7\u30EB\u3092\u8AAD\u307F\u8FBC\u3080\u2026", L"Import a Tuner personalization model\u2026"},
     {"settings.inferenceLimit", L"\u63A8\u8AD6\u56DE\u6570 (1\u2013100)", L"Inference limit (1\u2013100)"},
     {"settings.inputStyle", L"\u5165\u529B\u914D\u5217", L"Input layout"},
@@ -189,12 +193,14 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"settings.invalid_structure", L"JSON\u306E\u5165\u308C\u5B50\u304C\u6DF1\u3059\u304E\u307E\u3059\u3002\u8A2D\u5B9A\u306E\u69CB\u9020\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The JSON is nested too deeply. Check the structure of the settings."},
     {"settings.invalid_value", L"\u8A2D\u5B9A\u9805\u76EE\u300C{field}\u300D\u306E\u578B\u307E\u305F\u306F\u5024\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"Check the type or value of the setting \u201C{field}\u201D."},
     {"settings.live", L"\u30E9\u30A4\u30D6\u5909\u63DB", L"Live conversion"},
+    {"settings.loading", L"\u8A2D\u5B9A\u3092\u8AAD\u307F\u8FBC\u3093\u3067\u3044\u307E\u3059\u2026", L"Loading settings\u2026"},
     {"settings.optionDirect", L"Alt\u30AD\u30FC\u3067\u5168\u89D2\u82F1\u6570\u3092\u76F4\u63A5\u5165\u529B", L"Type full-width alphanumerics directly with Alt"},
     {"settings.page.ai", L"AI", L"AI"},
     {"settings.page.conversion", L"\u5909\u63DB\u8868\u793A", L"Conversion and display"},
     {"settings.page.dictionary", L"\u8F9E\u66F8\u3068\u5B66\u7FD2", L"Dictionaries and learning"},
     {"settings.page.input", L"\u5165\u529B", L"Input"},
     {"settings.page.support", L"\u30B5\u30DD\u30FC\u30C8", L"Support"},
+    {"settings.pages", L"\u8A2D\u5B9A\u306E\u30DA\u30FC\u30B8", L"Settings pages"},
     {"settings.personalization", L"\u500B\u4EBA\u5316\u30E2\u30C7\u30EB", L"Personalization model"},
     {"settings.personalization.explanation", L"\u5909\u63DB\u30D7\u30ED\u30D5\u30A3\u30FC\u30EB\u306F\u5909\u63DB\u6642\u306E\u88DC\u8DB3\u60C5\u5831\u3067\u3059\u3002\u500B\u4EBA\u5316\u30E2\u30C7\u30EB\u306F\u5225\u9014\u4F5C\u6210\u3057\u305F\u30E2\u30C7\u30EB\u3092\u4F7F\u3044\u307E\u3059\u3002\u3069\u3061\u3089\u3082\u5C65\u6B74\u5B66\u7FD2\u3068\u306F\u5225\u306E\u8A2D\u5B9A\u3067\u3059\u3002", L"The conversion profile provides context for conversion. Personalization uses a separately created model. Both are independent of learning history."},
     {"settings.personalization.hard", L"\u5F37", L"Strong"},
@@ -212,6 +218,9 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"settings.recovery_detail", L"{reason}\n\u5BFE\u8C61: {path}\n\u73FE\u5728\u306F\u6B63\u5E38\u306A\u8A2D\u5B9A\u3092\u4F7F\u3063\u3066\u3044\u307E\u3059\u3002\u5FA9\u65E7\u6642\u306F\u5143\u30D5\u30A1\u30A4\u30EB\u3092\u5225\u540D\u3067\u6B8B\u3057\u307E\u3059\u3002", L"{reason}\nFile: {path}\nThe last valid settings are in use. Recovery keeps the original file under another name."},
     {"settings.recovery_required", L"\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB\u306E\u5FA9\u65E7\u304C\u5FC5\u8981\u3067\u3059\u3002\u8A2D\u5B9A\u753B\u9762\u3067\u5143\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5168\u3057\u3066\u304B\u3089\u5FA9\u65E7\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The settings file needs recovery. Preserve the original file in the settings window, then recover it."},
     {"settings.recovery_title", L"\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB\u3092\u5FA9\u65E7\u3067\u304D\u307E\u3059", L"The settings file can be recovered"},
+    {"settings.reload", L"\u8AAD\u307F\u76F4\u3059", L"Reload"},
+    {"settings.reloaded", L"\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB\u3092\u8AAD\u307F\u76F4\u3057\u307E\u3057\u305F\u3002", L"The settings file was reloaded."},
+    {"settings.request_failed", L"\u5909\u63DB\u30A8\u30F3\u30B8\u30F3\u304C\u8981\u6C42\u3092\u51E6\u7406\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u3082\u3046\u4E00\u5EA6\u8A66\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The converter could not process the request. Try again."},
     {"settings.restore_current", L"\u6B63\u5E38\u306A\u8A2D\u5B9A\u3067\u5FA9\u65E7", L"Recover with the valid settings"},
     {"settings.restore_defaults", L"\u5165\u529B\u30FB\u8868\u793A\u3092\u65E2\u5B9A\u306B\u623B\u3057\u3066\u5FA9\u65E7", L"Recover with default input and display settings"},
     {"settings.restore_explanation", L"\u8F9E\u66F8\u3001\u5B66\u7FD2\u30C7\u30FC\u30BF\u3001\u500B\u4EBA\u5316\u30E2\u30C7\u30EB\u3001API\u30AD\u30FC\u306F\u524A\u9664\u3057\u307E\u305B\u3093\u3002AI\u8A2D\u5B9A\u3068\u5B66\u7FD2\u65B9\u6CD5\u3082\u4FDD\u6301\u3057\u307E\u3059\u3002", L"Dictionaries, learning data, personalization models, and API keys are not deleted. AI settings and the learning mode are also kept."},
@@ -219,10 +228,12 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"settings.restored", L"\u8A2D\u5B9A\u3092\u5FA9\u65E7\u3057\u307E\u3057\u305F\u3002\u5143\u30D5\u30A1\u30A4\u30EB: {backup}", L"The settings were recovered. Original file: {backup}"},
     {"settings.save", L"\u4FDD\u5B58", L"Save"},
     {"settings.saved", L"\u4FDD\u5B58\u3057\u307E\u3057\u305F\u3002\u6B21\u306E\u5165\u529B\u304B\u3089\u53CD\u6620\u3057\u307E\u3059\u3002", L"Saved. Changes apply from the next input."},
+    {"settings.shortcut_instructions", L"\u3053\u306E\u6B04\u3092\u9078\u3093\u3067\u3001Ctrl\u30FBAlt\u30FBShift\u30FBWindows \u30AD\u30FC\u306E\u3044\u305A\u308C\u304B\u3068\u6587\u5B57\u306E\u30AD\u30FC\u3092\u540C\u6642\u306B\u62BC\u3057\u307E\u3059\u3002", L"Select this field and press a character key together with Ctrl, Alt, Shift or the Windows key."},
     {"settings.tree", L"\u6728\u69CB\u9020\u306E\u5019\u88DC\u30A6\u30A3\u30F3\u30C9\u30A6", L"Tree candidate window"},
     {"settings.typoCorrection", L"\u5165\u529B\u8A02\u6B63\uFF08\u958B\u767A\u4E2D\uFF09", L"Typo correction (in development)"},
     {"settings.unavailable.marisa_windows", L"Windows\u7248\u306E\u5909\u63DB\u5668\u306F\u3053\u306E\u30E2\u30C7\u30EB\u306E\u5F62\u5F0F\uFF08MARISA\uFF09\u3092\u8AAD\u307F\u8FBC\u3081\u306A\u3044\u305F\u3081\u3001\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002", L"Unavailable on Windows because its converter cannot read this model format (MARISA)."},
     {"settings.unknown_key", L"\u672A\u5BFE\u5FDC\u306E\u8A2D\u5B9A\u9805\u76EE\u300C{field}\u300D\u304C\u3042\u308A\u307E\u3059\u3002", L"The setting \u201C{field}\u201D is not supported."},
+    {"settings.window_title", L"azooKey Tree \u306E\u8A2D\u5B9A", L"azooKey Tree Settings"},
     {"settings.write_failed", L"\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u30D5\u30A1\u30A4\u30EB\u3068\u30D5\u30A9\u30EB\u30C0\u30FC\u306E\u6A29\u9650\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The settings file could not be saved. Check the permissions of the file and its folder."},
     {"shortcut.conflict", L"\u6B21\u306E\u6307\u793A\u306E\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8\u3092\u7F6E\u304D\u63DB\u3048\u307E\u3059\uFF1A", L"This replaces the shortcut for:"},
     {"shortcut.enabled", L"\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8\u3092\u4F7F\u3046", L"Use shortcut"},
@@ -234,6 +245,7 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"support.copied", L"\u8A3A\u65AD\u60C5\u5831\u3092\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F\u3002", L"Diagnostics copied."},
     {"support.copy", L"\u8A3A\u65AD\u60C5\u5831\u3092\u30B3\u30D4\u30FC", L"Copy diagnostics"},
     {"support.cpu", L"\u5B9F\u884C\u74B0\u5883\u306E CPU", L"Runtime CPU architecture"},
+    {"support.data_directory", L"\u5B66\u7FD2\u30C7\u30FC\u30BF\u3068\u8F9E\u66F8\u306E\u4FDD\u5B58\u5148", L"Learning and dictionary data"},
     {"support.fallback", L"\u901A\u5E38\u30EA\u30B9\u30C8\u306B\u623B\u308B\u7406\u7531", L"List fallback reason"},
     {"support.fallback.extension", L"GNOME \u62E1\u5F35\u304C\u5165\u529B\u30A8\u30F3\u30B8\u30F3\u3078\u63A5\u7D9A\u3057\u3066\u3044\u307E\u305B\u3093\u3002", L"The GNOME extension is not connected to the input engine."},
     {"support.fallback.setting", L"\u8A2D\u5B9A\u3067\u30C4\u30EA\u30FC\u3092\u30AA\u30D5\u306B\u3057\u3066\u3044\u307E\u3059\u3002", L"Tree display is disabled in settings."},
@@ -253,9 +265,13 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"support.renderer.mac-list", L"macOS \u306E\u901A\u5E38\u30EA\u30B9\u30C8", L"macOS list"},
     {"support.renderer.mac-tree", L"macOS \u306E\u30C4\u30EA\u30FC", L"macOS tree"},
     {"support.renderer.shell-tree", L"GNOME \u62E1\u5F35\u306E\u30C4\u30EA\u30FC", L"GNOME extension tree"},
+    {"support.renderer.windows-list", L"Windows \u306E\u5019\u88DC\u30D1\u30CD\u30EB\uFF08\u4E00\u89A7\uFF09", L"Windows candidate panel (list)"},
+    {"support.renderer.windows-tree", L"Windows \u306E\u5019\u88DC\u30D1\u30CD\u30EB\uFF08\u30C4\u30EA\u30FC\uFF09", L"Windows candidate panel (tree)"},
     {"support.session", L"\u753B\u9762\u306E\u65B9\u5F0F", L"Display session"},
+    {"support.settings_file", L"\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB", L"Settings file"},
     {"support.setup.linux", L"GNOME \u306E\u8A2D\u5B9A \u2192 \u30AD\u30FC\u30DC\u30FC\u30C9 \u2192 \u5165\u529B\u30BD\u30FC\u30B9\u306B\u300C\u65E5\u672C\u8A9E \u2192 azooKey Tree\u300D\u3092\u8FFD\u52A0\u3057\u307E\u3059\u3002\u5165\u529B\u65B9\u5F0F\u306F IBus \u3092\u9078\u3073\u307E\u3059\u3002\u521D\u56DE\u306F\u4F5C\u696D\u3092\u4FDD\u5B58\u3057\u3066\u30ED\u30B0\u30A2\u30A6\u30C8\u3057\u3001\u518D\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044\u3002GNOME 46 / Wayland \u306E\u30C4\u30EA\u30FC\u306B\u306F azooKey Tree \u62E1\u5F35\u3092\u6709\u52B9\u306B\u3057\u307E\u3059\u3002", L"Add Japanese \u2192 azooKey Tree in GNOME Settings \u2192 Keyboard \u2192 Input Sources and use IBus. Save your work and log out and back in after initial setup. Enable the azooKey Tree extension for the tree on GNOME 46 / Wayland."},
     {"support.setup.mac", L"\u30B7\u30B9\u30C6\u30E0\u8A2D\u5B9A \u2192 \u30AD\u30FC\u30DC\u30FC\u30C9 \u2192 \u5165\u529B\u30BD\u30FC\u30B9\u306B azooKey \u3092\u8FFD\u52A0\u3057\u307E\u3059\u3002\u8868\u793A\u3055\u308C\u306A\u3044\u5834\u5408\u306F\u3001\u4F5C\u696D\u3092\u4FDD\u5B58\u3057\u3066\u30ED\u30B0\u30A2\u30A6\u30C8\u3057\u3001\u518D\u30ED\u30B0\u30A4\u30F3\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u8A2D\u5B9A\u306F\u30E1\u30CB\u30E5\u30FC\u30D0\u30FC\u306E\u5165\u529B\u30E1\u30CB\u30E5\u30FC \u2192 \u8A2D\u5B9A\u2026\u304B\u3089\u958B\u3051\u307E\u3059\u3002", L"Add azooKey in System Settings \u2192 Keyboard \u2192 Input Sources. If it is missing, save your work, log out and log back in. Open settings from the input menu in the menu bar."},
+    {"support.setup.windows", L"\u5C0E\u5165\u3059\u308B\u3068\u3001\u65E5\u672C\u8A9E\u306E\u30AD\u30FC\u30DC\u30FC\u30C9\u306E\u4E00\u89A7\u306B azooKey Tree \u304C\u52A0\u308F\u308A\u307E\u3059\u3002Win+Space \u3067\u5207\u308A\u66FF\u3048\u307E\u3059\u3002\u4E00\u89A7\u306B\u306A\u3044\u5834\u5408\u306F\u3001\u8A2D\u5B9A \u2192 \u6642\u523B\u3068\u8A00\u8A9E \u2192 \u8A00\u8A9E\u3068\u5730\u57DF \u2192 \u65E5\u672C\u8A9E\u306E\u8A00\u8A9E\u306E\u30AA\u30D7\u30B7\u30E7\u30F3 \u2192 \u30AD\u30FC\u30DC\u30FC\u30C9\u306E\u8FFD\u52A0\u304B\u3089 azooKey Tree \u3092\u9078\u3073\u307E\u3059\u3002\u3053\u306E\u753B\u9762\u306F\u3001\u30BF\u30B9\u30AF\u30D0\u30FC\u306E\u5165\u529B\u30E2\u30FC\u30C9\u306E\u8868\u793A\u306E\u30E1\u30CB\u30E5\u30FC \u2192 \u8A2D\u5B9A\u2026\u304B\u3089\u958B\u3051\u307E\u3059\u3002", L"Installing adds azooKey Tree to your Japanese keyboards. Press Win+Space to switch. If it is missing, open Settings \u2192 Time & language \u2192 Language & region \u2192 Japanese language options \u2192 Add a keyboard and choose azooKey Tree. Open this window from the menu of the input mode indicator on the taskbar \u2192 Settings\u2026"},
     {"support.source", L"\u30BD\u30FC\u30B9\u306E\u30B3\u30DF\u30C3\u30C8", L"Source commit"},
     {"support.title", L"\u4F7F\u3044\u65B9\u30FB\u30B5\u30DD\u30FC\u30C8", L"Help and support"},
     {"support.unknown", L"\u672A\u78BA\u8A8D", L"Not verified"},
@@ -310,6 +326,9 @@ inline constexpr MessageEntry kUserDictionaryMessages[] = {
     {"failure.unknown", L"\u8F9E\u66F8\u306E\u4FDD\u5B58\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u4E0B\u66F8\u304D\u3092\u6B8B\u3057\u3066\u3044\u307E\u3059\u3002\u3082\u3046\u4E00\u5EA6\u4FDD\u5B58\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"Saving the dictionary could not be confirmed. The draft is kept. Save again."},
     {"failure.validation", L"\u5165\u529B\u5185\u5BB9\u3092\u78BA\u8A8D\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u4E0B\u66F8\u304D\u3092\u6B8B\u3057\u3066\u3044\u307E\u3059\u3002\u3082\u3046\u4E00\u5EA6\u4FDD\u5B58\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The entries could not be validated. The draft is kept. Save again."},
     {"field_unknown", L"\u9805\u76EE", L"Field"},
+    {"file_type.all", L"\u3059\u3079\u3066\u306E\u30D5\u30A1\u30A4\u30EB\uFF08*.*\uFF09", L"All files (*.*)"},
+    {"file_type.json", L"azooKey JSON\uFF08*.json\uFF09", L"azooKey JSON (*.json)"},
+    {"file_type.text", L"\u30C6\u30AD\u30B9\u30C8\uFF08*.txt\uFF09", L"Text files (*.txt)"},
     {"filtered_count", L"{total}\u4EF6\u4E2D{visible}\u4EF6\u3092\u8868\u793A", L"Showing {visible} of {total}"},
     {"hint", L"\u30D2\u30F3\u30C8", L"Hint"},
     {"import", L"\u53D6\u308A\u8FBC\u3080\u2026", L"Import\u2026"},
@@ -444,24 +463,37 @@ inline const MessageEntry* FindMessage(std::string_view key, Table table = Table
     return found != end && std::string_view(found->key) == key ? found : nullptr;
 }
 
-// The text with every "{name}" replaced by its value. An unknown key returns
+// The text with its "{name}" placeholders left in place. An unknown key returns
 // the key itself, as Apple's NSLocalizedString does, so a gap stays visible.
-inline std::wstring Text(std::string_view key, Language language,
-                         std::initializer_list<std::pair<std::wstring_view, std::wstring_view>> values = {},
-                         Table table = Table::Localizable) {
+inline std::wstring Template(std::string_view key, Language language, Table table = Table::Localizable) {
     const MessageEntry* entry = FindMessage(key, table);
     if (entry == nullptr) {
         return std::wstring(key.begin(), key.end());
     }
-    std::wstring text = language == Language::Japanese ? entry->japanese : entry->english;
+    return language == Language::Japanese ? entry->japanese : entry->english;
+}
+
+// Replaces every "{name}" in `text` with its value. `values` is any range of
+// (name, value) pairs of wide strings, so values known only at run time (the
+// arguments of an error Core reported) fill a template the same way.
+template <typename Values>
+std::wstring FillPlaceholders(std::wstring text, const Values& values) {
     for (const auto& [name, value] : values) {
         const std::wstring placeholder = L"{" + std::wstring(name) + L"}";
+        const std::wstring_view replacement(value);
         for (size_t found = text.find(placeholder); found != std::wstring::npos;
-             found = text.find(placeholder, found + value.size())) {
-            text.replace(found, placeholder.size(), value);
+             found = text.find(placeholder, found + replacement.size())) {
+            text.replace(found, placeholder.size(), replacement);
         }
     }
     return text;
+}
+
+// The text with every "{name}" replaced by its value.
+inline std::wstring Text(std::string_view key, Language language,
+                         std::initializer_list<std::pair<std::wstring_view, std::wstring_view>> values = {},
+                         Table table = Table::Localizable) {
+    return FillPlaceholders(Template(key, language, table), values);
 }
 
 }  // namespace azookey::messages
