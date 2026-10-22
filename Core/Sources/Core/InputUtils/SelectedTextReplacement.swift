@@ -68,7 +68,7 @@ public final class SelectedTextReplacement {
         client.replaceText(in: range, with: replacement)
     }
 
-    private static func isValid(_ range: NSRange, documentLength: Int) -> Bool {
+    static func isValid(_ range: NSRange, documentLength: Int) -> Bool {
         range.location != NSNotFound && range.location >= 0 && range.length > 0 &&
             range.location <= documentLength && range.length <= documentLength - range.location
     }

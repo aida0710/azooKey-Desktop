@@ -11,6 +11,7 @@ final class SelectedTextTransformTests: XCTestCase {
     private var client: DocumentTextInput!
     private var session: MacSelectedTextTransformSession!
     private var target: SelectedTextReplacement!
+    private var transformation: AISelectedTextTransformation!
     private var applicationIsActive = true
     private var activationSucceeds = true
     private var restorationRequests = 0
@@ -20,15 +21,32 @@ final class SelectedTextTransformTests: XCTestCase {
         client = DocumentTextInput()
         session = MacSelectedTextTransformSession()
         session.activate(client: client)
-        target = try SelectedTextReplacement(client: MacSelectedTextClient(
-            client: client, focus: session, applicationIsActive: { true }
+        let source = MacSelectedTextClient(client: client, focus: session, applicationIsActive: { true })
+        target = try SelectedTextReplacement(client: source)
+        transformation = try Self.confirmedTransformation(of: source, result: "翻訳")
+    }
+
+    /// Core's transformation of the source selection, with `result` chosen to apply.
+    private static func confirmedTransformation(of source: MacSelectedTextClient, result: String) throws -> AISelectedTextTransformation {
+        let configuration = AIRequestConfiguration(
+            backend: .openAI, modelName: "test", apiKey: "", apiEndpoint: "https://example.invalid"
+        )
+        var transformation = try XCTUnwrap(AISelectedTextTransformation(
+            id: 0, field: source.aiTextField(), configuration: configuration.desktopConfiguration()
         ))
+        let targetAvailable = transformation.attachWitness(source.aiSelectionWitness(), current: source.aiTextField())
+        let started = try transformation.beginPreview(prompt: "翻訳して", includeContext: false, field: source.aiTextField())
+        let accepted = transformation.completePreview(revision: started.revision, text: result, inputContextChanged: false)
+        let confirmed = transformation.confirm()
+        XCTAssertTrue(targetAvailable && accepted && confirmed)
+        return transformation
     }
 
     override func tearDown() {
         if let target { session?.cancel(target: target) }
         session = nil
         target = nil
+        transformation = nil
         client = nil
         super.tearDown()
     }
@@ -36,7 +54,7 @@ final class SelectedTextTransformTests: XCTestCase {
     private func beginApplication(expecting applied: Bool) -> XCTestExpectation {
         let finished = expectation(description: "checked selection replacement completes")
         session.apply(
-            target: target, text: "翻訳",
+            target: target, transformation: transformation,
             application: .init(
                 restoreFocus: { [weak self] in
                     self?.restorationRequests += 1

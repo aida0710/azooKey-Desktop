@@ -41,10 +41,13 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     // ダブルタップ検出用
     private var lastKey: (time: TimeInterval, code: UInt16) = (0, 0)
     private static let doubleTapInterval: TimeInterval = 0.5
+    private static let eisuKeyCode: UInt16 = 102
+    private static let kanaKeyCode: UInt16 = 104
     private static let candidateWindowInitialSize = CGSize(width: 400, height: 1000)
 
-    // ピン留めプロンプトのキャッシュ（パフォーマンス向上のため）
-    private var pinnedPromptsCache: [PromptHistoryItem] = []
+    // 固定した指示のショートカットは履歴のファイルにあるため、打鍵ごとに読まず
+    // 有効化時と指示画面を閉じたときに読み直す
+    private var promptShortcuts = AIPromptShortcuts(pinned: [], transformShortcut: Config.TransformShortcut.default)
 
     private static func makeCandidateWindow(contentViewController: NSViewController) -> NSWindow {
         let window: NSWindow
@@ -83,42 +86,12 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         return isDouble
     }
 
-    /// ピン留めプロンプトのキャッシュを更新
-    func reloadPinnedPromptsCache() {
-        guard let data = Config.data(forKey: Config.PromptHistory.key),
-              let history = try? JSONDecoder().decode([PromptHistoryItem].self, from: data) else {
-            self.pinnedPromptsCache = []
-            return
-        }
-        self.pinnedPromptsCache = history.filter { $0.isPinned }
-    }
-
-    // MARK: - カスタムプロンプトショートカット検出
-    private func checkCustomPromptShortcut(event: NSEvent) -> String? {
-        guard let characters = event.charactersIgnoringModifiers,
-              !characters.isEmpty else {
-            return nil
-        }
-
-        let key = characters.lowercased()
-        let eventModifiers = KeyEventCore.ModifierFlag(from: event.modifierFlags)
-
-        // 修飾キーがない場合は早期リターン（通常の入力）
-        if eventModifiers.isEmpty {
-            return nil
-        }
-
-        // キャッシュからショートカット付きのピン留めプロンプトを検索
-        if let matched = self.pinnedPromptsCache.first(where: { item in
-            guard let itemShortcut = item.shortcut else {
-                return false
-            }
-            return itemShortcut.key == key && itemShortcut.modifiers == eventModifiers
-        }) {
-            return matched.prompt
-        }
-
-        return nil
+    /// 固定した指示と AI 変換のショートカットを読み直す（指示画面と設定画面で変わる）
+    func reloadPromptShortcuts() {
+        self.promptShortcuts = AIPromptShortcuts(
+            pinned: MacPromptHistory.open().pinnedShortcuts(),
+            transformShortcut: Config.TransformShortcut().value
+        )
     }
 
     override convenience init!(server: IMKServer!, delegate: Any!, client inputClient: Any!) {
@@ -174,8 +147,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         CustomInputTableStore.registerIfExists()
         self.updateLiveConversionToggleMenuItem(newValue: self.liveConversionEnabled)
         self.updateTransformSelectedTextMenuItemEnabledState()
-        // ピン留めプロンプトのキャッシュを更新
-        self.reloadPinnedPromptsCache()
+        self.reloadPromptShortcuts()
         self.segmentsManager.activate()
 
         if let client = sender as? IMKTextInput {
@@ -316,18 +288,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         }
         self.reconversionStatusPanel.orderOut(nil)
 
-        // カスタムプロンプトショートカットのチェック
-        if let matchedPrompt = checkCustomPromptShortcut(event: event) {
-            let aiBackendEnabled = Config.AIBackendPreference().value != .off
-            if aiBackendEnabled && !self.isPromptWindowVisible {
-                let selectedRange = client.selectedRange()
-                if selectedRange.length > 0 {
-                    if self.triggerAiTranslation(initialPrompt: matchedPrompt) {
-                        return true
-                    }
-                }
-            }
-            // ショートカットがマッチした場合はイベントを消費して他のハンドラに渡さない
+        // 選択文があれば、固定した指示・AI 変換のショートカットと英数・かなの二度押しで指示画面を開く
+        let isDoubleTap = [Self.eisuKeyCode, Self.kanaKeyCode].contains(event.keyCode)
+            && self.checkAndUpdateDoubleTap(keyCode: event.keyCode)
+        if let initialPrompt = self.promptShortcuts.initialPrompt(for: event.keyEventCore, doubleTap: isDoubleTap),
+           client.selectedRange().length > 0, self.triggerAiTranslation(initialPrompt: initialPrompt) {
             return true
         }
 
@@ -347,36 +312,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
         let userAction = UserAction.getUserAction(eventCore: event.keyEventCore, inputLanguage: inputLanguage)
 
-        // 英数キー（keyCode 102）の処理
-        if event.keyCode == 102 {
-            let isDoubleTap = checkAndUpdateDoubleTap(keyCode: 102)
-
-            if isDoubleTap {
-                let selectedRange = client.selectedRange()
-                if selectedRange.length > 0 {
-                    if self.triggerAiTranslation(initialPrompt: "english") {
-                        return true
-                    }
-                }
-                if !self.segmentsManager.isEmpty {
-                    _ = self.handleClientAction(.submitHalfWidthRomanCandidate, clientActionCallback: .transition(.none), client: client)
-                    self.switchInputLanguage(.english, client: client)
-                    return true
-                }
-            }
-        }
-
-        // かなキー（keyCode 104）の処理（ダブルタップで日本語への翻訳）
-        if event.keyCode == 104 {
-            let isDoubleTap = checkAndUpdateDoubleTap(keyCode: 104)
-            if isDoubleTap {
-                let selectedRange = client.selectedRange()
-                if selectedRange.length > 0 {
-                    if self.triggerAiTranslation(initialPrompt: "japanese") {
-                        return true
-                    }
-                }
-            }
+        // 英数キーの二度押しは、入力中の文字を半角英字で確定して英語入力へ移る
+        if event.keyCode == Self.eisuKeyCode, isDoubleTap, !self.segmentsManager.isEmpty {
+            _ = self.handleClientAction(.submitHalfWidthRomanCandidate, clientActionCallback: .transition(.none), client: client)
+            self.switchInputLanguage(.english, client: client)
+            return true
         }
 
         // Check if AI backend is enabled

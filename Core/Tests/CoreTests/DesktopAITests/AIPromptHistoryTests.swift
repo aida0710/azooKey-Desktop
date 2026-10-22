@@ -62,6 +62,49 @@ struct AIPromptHistoryTests {
         }
     }
 
+    @Test func recordingAUseKeepsThePinAndShortcutAndANewInstructionStartsUnpinned() throws {
+        try Self.withHistory { history in
+            let shortcut = KeyboardShortcut(key: "e", modifiers: [.control, .option])
+            try history.save("敬語", pinned: true, shortcut: shortcut, usedAt: Date(timeIntervalSince1970: 10))
+            try history.recordUse("英訳")
+            try history.recordUse("敬語")
+            let items = history.load()
+            #expect(items.first { $0.prompt == "敬語" }?.pinned == true)
+            #expect(items.first { $0.prompt == "敬語" }?.shortcut == shortcut)
+            #expect(items.first { $0.prompt == "英訳" }?.pinned == false)
+            #expect(items.first { $0.pinned }?.prompt == "敬語", "the used pinned instruction moves to the front")
+        }
+    }
+
+    @Test func importedItemsAreRankedAndKeepOnlyTheFirstShortcutOfAPinnedInstruction() throws {
+        try Self.withHistory { history in
+            let shortcut = KeyboardShortcut(key: "e", modifiers: [.control, .option])
+            let other = KeyboardShortcut(key: "k", modifiers: [.control])
+            var items = [
+                AIPromptHistory.Item(prompt: "古い固定", pinned: true, lastUsed: 1, shortcut: shortcut),
+                AIPromptHistory.Item(prompt: "新しい固定", pinned: true, lastUsed: 2, shortcut: shortcut),
+                AIPromptHistory.Item(prompt: "固定しない", pinned: false, lastUsed: 3, shortcut: other),
+                AIPromptHistory.Item(prompt: "固定しない", pinned: false, lastUsed: 0, shortcut: nil)
+            ]
+            items += (0..<15).map { AIPromptHistory.Item(prompt: "指示\($0)", pinned: false, lastUsed: 0, shortcut: nil) }
+            try history.importItems(items)
+            let imported = history.load()
+            #expect(imported.prefix(3).map(\.prompt) == ["新しい固定", "古い固定", "固定しない"])
+            #expect(imported.map(\.shortcut).prefix(3) == [shortcut, nil, nil])
+            #expect(imported.filter { $0.prompt == "固定しない" }.count == 1)
+            #expect(imported.filter { !$0.pinned }.count == AIPromptHistory.recentLimit)
+            #expect(imported.last?.prompt == "指示8", "equal times keep the imported order")
+        }
+    }
+
+    @Test func importingDoesNothingOnceTheHistoryFileExists() throws {
+        try Self.withHistory { history in
+            try history.save("敬語", pinned: false, shortcut: nil)
+            try history.importItems([AIPromptHistory.Item(prompt: "古い", pinned: true, lastUsed: 1, shortcut: nil)])
+            #expect(!history.load().contains { $0.prompt == "古い" })
+        }
+    }
+
     @Test func anUnreadableFileIsAnEmptyHistory() throws {
         try Self.withHistory { history in
             try FileManager.default.createDirectory(at: history.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)

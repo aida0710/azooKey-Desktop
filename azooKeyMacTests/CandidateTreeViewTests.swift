@@ -387,7 +387,7 @@ final class CandidateTreeViewTests: XCTestCase {
         for size in [Config.CandidateTextSize.Value.standard, .large] {
             preference.value = size
             let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 600, height: 320))
-            let width = CGFloat(size.pointSize) + 8
+            let width = CGFloat(CandidateTextMetrics.baseFontSize(size)) + 8
             updateMenu(view, entries: [
                 .init(text: "日", tokens: [.init(text: "日")], candidateIndex: 0),
                 .init(text: "日本", tokens: [.init(text: "日"), .init(text: "本")], candidateIndex: 1)

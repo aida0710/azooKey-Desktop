@@ -43,6 +43,7 @@ final class CandidateTreeView: NSView {
     private var announcedCandidate: Int?
     private var announcedNode: Int?
     private var textSize = Config.CandidateTextSize.Value.standard
+    private var fontSize: Double { CandidateTextMetrics.baseFontSize(textSize) }
     private var treeExpanded = false
     private var detailsExpanded = false
     private var generation: UInt = 0
@@ -172,7 +173,7 @@ final class CandidateTreeView: NSView {
         let updatedTree = CandidateTree(entries: entries)
         let size = Config.CandidateTextSize().value
         let scoresVisible = Config.ShowRelativeScores().value
-        let minimumColumnWidth = CGFloat(size.pointSize) + (numbers.isEmpty ? 8 : 14)
+        let minimumColumnWidth = CGFloat(CandidateTextMetrics.baseFontSize(size)) + (numbers.isEmpty ? 8 : 14)
         let readableWidths = documentWidths?.allSatisfy { $0 >= minimumColumnWidth } == true ? documentWidths : nil
         let changed = updatedTree != tree || self.documentWidths != readableWidths || textSize != size || showsScores != scoresVisible
         let phaseChanged = self.enterConfirmsCandidate != enterConfirmsCandidate
@@ -291,7 +292,7 @@ final class CandidateTreeView: NSView {
         var widths: [Int: CGFloat] = [:]
         let aligned = documentWidths?.count == displayedColumns.count
         // A number shares the word's action and fits below its text, including the 24-point setting.
-        let rowHeight = TreeButton.preferredHeight(fontSize: textSize.pointSize, hasNumber: layoutShowsNumbers)
+        let rowHeight = TreeButton.preferredHeight(fontSize: fontSize, hasNumber: layoutShowsNumbers)
         let scoreHeight = showsScores ? CandidateScoreBadge.lineHeight : 0
         let rowGap: CGFloat = 4 // Separate candidate actions even when the score line is hidden.
         let rowPitch: CGFloat = rowHeight + scoreHeight + rowGap
@@ -300,8 +301,8 @@ final class CandidateTreeView: NSView {
                 rows[id] = CGFloat(row)
             }
             guard let chosen = column.first else { continue }
-            let textWidth = (tree.nodes[chosen].token.text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: textSize.pointSize)]).width
-            widths[depth] = aligned ? documentWidths?[depth] : max(CGFloat(textSize.pointSize) + 12, min(240, textWidth + 12))
+            let textWidth = (tree.nodes[chosen].token.text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: fontSize)]).width
+            widths[depth] = aligned ? documentWidths?[depth] : max(CGFloat(fontSize) + 12, min(240, textWidth + 12))
         }
         var xPositions: [Int: CGFloat] = [:]
         var x: CGFloat = 12
@@ -375,7 +376,7 @@ final class CandidateTreeView: NSView {
             let node = tree.nodes[id]
             let button = TreeButton(frame: frame)
             button.title = node.token.text
-            button.font = .systemFont(ofSize: textSize.pointSize)
+            button.font = .systemFont(ofSize: fontSize)
             button.reading = node.token.reading
             button.toolTip = node.token.reading.isEmpty ? node.token.text : "\(node.token.text)（\(node.token.reading)）"
             button.setAccessibilityLabel(button.toolTip)
@@ -399,7 +400,7 @@ final class CandidateTreeView: NSView {
             if let frame = nodeFrames[id] { button.frame = frame }
             let token = tree.nodes[id].token
             button.title = token.text
-            button.font = .systemFont(ofSize: textSize.pointSize)
+            button.font = .systemFont(ofSize: fontSize)
             button.toolTip = token.reading.isEmpty ? token.text : "\(token.text)（\(token.reading)）"
             button.setAccessibilityLabel(button.toolTip)
             button.candidateNumber = candidateNumber(nodeID: id)
@@ -426,10 +427,10 @@ final class CandidateTreeView: NSView {
     private func refreshSelection() {
         candidatePage = CandidatePage(entries: entries, selectionIndex: selection.selectedCandidateIndex,
                                       pageStart: numberLabels.keys.min())
-        navigation.update(page: candidatePage, numbers: numberLabels, fontSize: textSize.pointSize, generation: generation)
+        navigation.update(page: candidatePage, numbers: numberLabels, fontSize: fontSize, generation: generation)
         navigation.isHidden = !enterConfirmsCandidate || entries.isEmpty
         let currentEntry = selection.selectedCandidateIndex.flatMap { tree.entry(candidateIndex: $0) }
-        composition.update(entry: currentEntry, fontSize: textSize.pointSize, enterConfirmsCandidate: enterConfirmsCandidate)
+        composition.update(entry: currentEntry, fontSize: fontSize, enterConfirmsCandidate: enterConfirmsCandidate)
         composition.isHidden = !enterConfirmsCandidate
         actions.update(candidateIndex: selection.selectedCandidateIndex, generation: generation,
                        treeExpanded: treeExpanded, detailsExpanded: detailsExpanded, enterConfirmsCandidate: enterConfirmsCandidate)
@@ -516,7 +517,7 @@ final class CandidateTreeView: NSView {
 
     private func showDetails(nodeID: Int?) {
         guard let nodeID, tree.nodes.indices.contains(nodeID) else {
-            details.update(text: "", fontSize: CGFloat(textSize.pointSize))
+            details.update(text: "", fontSize: CGFloat(fontSize))
             return
         }
         let token = tree.nodes[nodeID].token
@@ -524,12 +525,12 @@ final class CandidateTreeView: NSView {
         let preview = tree.preview(at: nodeID, preserving: selection.selectedCandidateIndex)?.detailDescription
         let description = [word, preview, scorePresentations[nodeID]?.detailDescription, Localization.text("candidate.detailKeys")]
             .compactMap { $0 }.joined(separator: "\n")
-        details.update(text: description, fontSize: CGFloat(textSize.pointSize))
+        details.update(text: description, fontSize: CGFloat(fontSize))
     }
 
     private func showCandidateDetails(candidateIndex: Int) {
         // A shared word and its adjacent number may commit different entries.
         let preview = candidatePage.items.first { $0.index == candidateIndex }?.detailDescription ?? ""
-        details.update(text: preview, fontSize: CGFloat(textSize.pointSize))
+        details.update(text: preview, fontSize: CGFloat(fontSize))
     }
 }

@@ -225,7 +225,6 @@
 "settings.unknown_key" = "The setting “%@” is not supported.";
 "settings.window_title" = "azooKey Tree Settings";
 "settings.write_failed" = "The settings file could not be saved. Check the permissions of the file and its folder.";
-"shortcut.conflict" = "This replaces the shortcut for:";
 "shortcut.enabled" = "Use shortcut";
 "shortcut.help" = "Press modifiers and a character to record. Tab and Shift+Tab move between controls. Escape cancels recording; Delete restores the default.";
 "shortcut.recording" = "Press a shortcut…";

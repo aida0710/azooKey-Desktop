@@ -1,8 +1,4 @@
 {
-  "shortcut.conflict": {
-    "ja": "次の指示のショートカットを置き換えます：",
-    "en": "This replaces the shortcut for:"
-  },
   "shortcut.enabled": {
     "ja": "ショートカットを使う",
     "en": "Use shortcut"

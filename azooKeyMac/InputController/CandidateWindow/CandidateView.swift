@@ -197,7 +197,7 @@ class CandidatesViewController: BaseCandidateViewController {
 
         if numberRange.location != NSNotFound {
             attributedString.addAttributes([
-                .font: NSFont.monospacedSystemFont(ofSize: max(14, Config.CandidateTextSize().value.pointSize - 4), weight: .regular),
+                .font: NSFont.monospacedSystemFont(ofSize: max(14, CandidateTextMetrics.baseFontSize(Config.CandidateTextSize().value) - 4), weight: .regular),
                 .foregroundColor: currentSelectedRow == row ? NSColor.white : NSColor.gray,
                 .baselineOffset: 2
             ], range: numberRange)
@@ -279,7 +279,7 @@ class PredictionCandidatesViewController: BaseCandidateViewController {
         let candidateAttributed = NSAttributedString(
             string: candidateText,
             attributes: [
-                .font: NSFont.systemFont(ofSize: Config.CandidateTextSize().value.pointSize),
+                .font: NSFont.systemFont(ofSize: CandidateTextMetrics.baseFontSize(Config.CandidateTextSize().value)),
                 .foregroundColor: candidateColor
             ]
         )

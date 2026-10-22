@@ -5,11 +5,6 @@ extension Config {
         public enum Value: String, Codable, CaseIterable, Hashable, Sendable {
             case standard
             case large
-
-            /// AppKit points; Linux renderers choose their own logical pixel sizes.
-            public var pointSize: Double {
-                self == .large ? 24 : 18
-            }
         }
 
         // A string keeps the preference readable by desktop adapters.

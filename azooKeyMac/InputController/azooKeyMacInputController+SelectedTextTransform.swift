@@ -5,41 +5,9 @@ import InputMethodKit
 
 // MARK: - Selected Text Transform Methods
 extension azooKeyMacInputController {
-
-    struct TextContext {
-        let before: String
-        let selected: String
-        let after: String
-    }
-
-    @MainActor
-    func getContextAroundSelection(client: IMKTextInput, selectedRange: NSRange, contextLength: Int = AIRequestScope.contextCharacterLimit) -> TextContext {
-        // Get the selected text
-        var actualRange = NSRange()
-        let selectedText = client.string(from: selectedRange, actualRange: &actualRange) ?? ""
-
-        // Calculate context ranges
-        let documentLength = client.length()
-
-        // Get text before selection (up to contextLength characters)
-        let beforeStart = max(0, selectedRange.location - contextLength)
-        let beforeLength = selectedRange.location - beforeStart
-        let beforeRange = NSRange(location: beforeStart, length: beforeLength)
-
-        // Get text after selection (up to contextLength characters)
-        let afterStart = selectedRange.location + selectedRange.length
-        let afterLength = max(0, min(contextLength, documentLength - afterStart))
-        let afterRange = NSRange(location: afterStart, length: afterLength)
-
-        // Extract context strings
-        var beforeActualRange = NSRange()
-        let beforeText = (beforeLength > 0) ? (client.string(from: beforeRange, actualRange: &beforeActualRange) ?? "") : ""
-
-        var afterActualRange = NSRange()
-        let afterText = (afterLength > 0) ? (client.string(from: afterRange, actualRange: &afterActualRange) ?? "") : ""
-
-        return TextContext(before: beforeText, selected: selectedText, after: afterText)
-    }
+    // The window shows one transformation at a time and the session keeps the
+    // captured target with it, so Core's identifier never has to tell two apart.
+    private static let transformationIdentifier = 0
 
     @MainActor
     func showPromptInputWindow(initialPrompt: String? = nil) {
@@ -66,14 +34,17 @@ extension azooKeyMacInputController {
         if let previous = self.selectedTextTransformTarget { session.cancel(target: previous) }
         self.selectedTextTransformTarget = nil
         let source = MacSelectedTextClient(client: client, focus: session, applicationIsActive: application.isActive)
-        guard let target = try? SelectedTextReplacement(client: source) else {
+        let field = source.aiTextField()
+        guard let target = try? SelectedTextReplacement(client: source),
+              var transformation = AISelectedTextTransformation(
+                id: Self.transformationIdentifier, field: field, configuration: requestConfiguration.desktopConfiguration()
+              ) else {
             self.appendDebugMessage("showPromptInputWindow: Selection could not be verified")
             self.isPromptWindowVisible = false
             return
         }
+        transformation.attachWitness(source.aiSelectionWitness(), current: source.aiTextField())
         self.selectedTextTransformTarget = target
-        let storedSelectedRange = target.range
-        let selectedText = target.text
 
         // Get cursor position for window placement
         var cursorLocation = NSPoint.zero
@@ -87,33 +58,17 @@ extension azooKeyMacInputController {
         self.promptInputWindow.showPromptInput(
             at: cursorLocation,
             request: PromptInputRequest(
-                initialPrompt: initialPrompt, configuration: requestConfiguration, targetText: selectedText
+                initialPrompt: initialPrompt, configuration: requestConfiguration,
+                transformation: transformation, openedField: field
             ),
-            onPreview: { [weak self] prompt, includeContext, callback in
-                guard let self = self else {
-                    return
-                }
-                self.appendDebugMessage("showPromptInputWindow: Preview requested")
-
+            onPreview: { [weak self] arguments, callback in
+                self?.appendDebugMessage("showPromptInputWindow: Preview requested")
                 Task {
                     do {
-                        guard target.matchesDocument(in: source) else {
-                            callback(.failure(.targetChanged))
-                            return
-                        }
-                        let context = includeContext
-                            ? self.getContextAroundSelection(client: client, selectedRange: storedSelectedRange)
-                            : TextContext(before: "", selected: selectedText, after: "")
-                        let scope = AIRequestScope(
-                            target: selectedText, before: context.before, after: context.after, includeContext: includeContext
-                        )
-                        let result = try await self.requestTransformationPreview(
-                            scope: scope, prompt: prompt, configuration: requestConfiguration
-                        )
-                        callback(.success(result))
+                        callback(.success(try await Self.requestTransformationPreview(arguments, configuration: requestConfiguration)))
                     } catch {
                         await MainActor.run {
-                            self.appendDebugMessage("showPromptInputWindow: Preview failed")
+                            self?.appendDebugMessage("showPromptInputWindow: Preview failed")
                         }
                         // Endpoint errors can include URL credentials. Keep
                         // the preview message free of backend-provided text.
@@ -121,8 +76,8 @@ extension azooKeyMacInputController {
                     }
                 }
             },
-            onApply: { [weak self] transformedText in
-                self?.applySelectedTextTransform(transformedText, target: target, application: application)
+            onApply: { [weak self] confirmed in
+                self?.applySelectedTextTransform(confirmed, target: target, application: application)
             },
             completion: { [weak self] prompt in
                 self?.appendDebugMessage("showPromptInputWindow: Window closed")
@@ -134,20 +89,24 @@ extension azooKeyMacInputController {
                         self?.selectedTextTransformTarget = nil
                     }
                 }
-                // 設定変更に備えてキャッシュを更新
-                self?.reloadPinnedPromptsCache()
+                // 指示画面で固定やショートカットが変わることがある
+                self?.reloadPromptShortcuts()
             }
         )
     }
 
     @MainActor
     private func applySelectedTextTransform(
-        _ text: String, target: SelectedTextReplacement, application: MacSelectedTextTransformSession.Application
+        _ confirmed: AISelectedTextTransformation, target: SelectedTextReplacement,
+        application: MacSelectedTextTransformSession.Application
     ) {
         guard self.selectedTextTransformTarget === target else {
             return
         }
-        MacSelectedTextTransformSession.shared.apply(target: target, text: text, application: application) { [weak self] applied in
+        let text = confirmed.applicableText ?? ""
+        MacSelectedTextTransformSession.shared.apply(
+            target: target, transformation: confirmed, application: application
+        ) { [weak self] applied in
             guard let self, self.selectedTextTransformTarget === target else {
                 return
             }
@@ -200,18 +159,14 @@ extension azooKeyMacInputController {
         }
     }
 
-    func requestTransformationPreview(
-        scope: AIRequestScope, prompt: String, configuration: AIRequestConfiguration
+    /// Sends exactly the arguments Core prepared; the platform adds only the
+    /// backend and the API key.
+    static func requestTransformationPreview(
+        _ arguments: AIRequestArguments, configuration: AIRequestConfiguration
     ) async throws -> String {
         if configuration.backend == .openAI, configuration.apiKey.isEmpty {
             throw TransformationPreviewError.missingAPIKey
         }
-        return try await AIClient.sendTextTransformRequest(
-            scope.transformationPrompt(instructions: prompt),
-            backend: configuration.backend,
-            modelName: configuration.modelName,
-            apiKey: configuration.apiKey,
-            apiEndpoint: configuration.apiEndpoint
-        )
+        return try await arguments.requestTransformation(backend: configuration.backend, apiKey: configuration.apiKey)
     }
 }

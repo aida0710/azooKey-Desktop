@@ -287,13 +287,13 @@ struct ConfigWindow: View {
                                 String(self.$inferenceLimit.wrappedValue)
                             },
                             set: {
-                                if let value = Int($0), (1 ... 50).contains(value) {
+                                if let value = Int($0), DesktopSettings.inferenceLimitRange.contains(value) {
                                     self.$inferenceLimit.wrappedValue = value
                                 }
                             }
                         )
                     )
-                    Stepper("", value: $inferenceLimit, in: 1 ... 50)
+                    Stepper("", value: $inferenceLimit, in: DesktopSettings.inferenceLimitRange)
                         .labelsHidden()
                     helpButton(helpContent: "推論上限を小さくすると、入力中のもたつきが改善されることがあります。", isPresented: $zenzaiInferenceLimitHelpPopover)
                 }
@@ -444,7 +444,15 @@ struct ConfigWindow: View {
 
             Section {
                 HStack {
-                    TextField(Localization.text("settings.profile"), text: $zenzaiProfile, prompt: Text("例：田中太郎/高校生"))
+                    TextField(
+                        Localization.text("settings.profile"),
+                        text: Binding(
+                            get: { self.$zenzaiProfile.wrappedValue },
+                            // Core keeps the profile within this many characters on every desktop.
+                            set: { self.$zenzaiProfile.wrappedValue = String($0.prefix(DesktopSettings.maximumProfileLength)) }
+                        ),
+                        prompt: Text("例：田中太郎/高校生")
+                    )
                     helpButton(
                         helpContent: """
                     Zenzaiはあなたのプロフィールを考慮した変換を行うことができます。
