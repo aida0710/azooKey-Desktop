@@ -1,10 +1,5 @@
 import Foundation
 import Testing
-#if canImport(Glibc)
-import Glibc
-#elseif canImport(Darwin)
-import Darwin
-#endif
 
 @testable import Core
 
@@ -308,10 +303,11 @@ struct DesktopSettingsFileStoreTests {
         try #require(FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int)
     }
 
+    // Foundation's attribute, not Glibc's `struct stat`: on Linux, a test file
+    // importing FoundationNetworking can hide that struct from this one.
     private func inode(of url: URL) throws -> UInt64 {
-        var status = stat()
-        try #require(stat(url.path, &status) == 0)
-        return UInt64(status.st_ino)
+        let number = try #require(FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? NSNumber)
+        return number.uint64Value
     }
     #endif
 }
