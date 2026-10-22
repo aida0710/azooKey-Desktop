@@ -81,6 +81,10 @@
   - `{"kind":"support"}`
 - action の id は `downloadTypoWeights`・`resetLearning`・`importPersonalization` の 3 つ。secret の API キーは OS の資格情報に保存し、設定ファイルには入れない。
 
+### 既定の指示の言語（aiPromptLanguage）
+
+`aiPromptLanguage` は、選択した文章の AI 変換で最初から並ぶ既定の指示の言語で、`"en"`（英語、既定）か `"ja"`（日本語）を選ぶ。AI のページの `transformShortcut` の次に置く。変換器へ適用すると `Config.AIPromptLanguage` に入り、指示の履歴（`AIPromptHistory`）が読むたびに使う。まだ使っていない既定の指示だけが入れ替わり、使った指示や編集した指示は変わらない（詳しくは [AI 機能のブリッジ操作](ai-bridge-protocol.md) の「保存先」）。AI の設定なので、復旧では今の値を保つ。macOS は自前の設定画面の AI の節で同じ `Config.AIPromptLanguage` を選ぶ。
+
 ## 試験
 
 - Core: `swift test --package-path Core --filter DesktopSettings`

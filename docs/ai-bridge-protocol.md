@@ -259,7 +259,9 @@ Core は画面の文言ではなくコードを返します。各 OS は次の�
 [{"prompt": "敬語に直す", "pinned": true, "lastUsed": 1792500000.0, "shortcut": {"key": "e", "modifiers": 6}}]
 ```
 
-ファイルがない場合は、固定した 4 件（`elaborate`・`rewrite`・`formal`・`english`）を返します。読めないファイルは空の履歴として扱います。固定していない指示は新しい 10 件まで残します。
+ファイルがない場合は、既定の指示 4 件を固定して返します。文言は `Shared/Messages/Localizable/ai.json` の `ai.example.elaborate`・`ai.example.rewrite`・`ai.example.formal`・`ai.example.english` で、言語は設定 `aiPromptLanguage`（`en` か `ja`、既定は `en`）に従います。たとえば英語なら「Elaborate on this text」、日本語なら「内容を詳しくする」です。読めないファイルは空の履歴として扱います。固定していない指示は新しい 10 件まで残します。
+
+ファイルがあっても、まだ使っていない既定の指示（固定したまま・`lastUsed` が 0・ショートカットなし・文字列がどちらかの言語の既定か、以前の版の既定 `elaborate`・`rewrite`・`formal`・`english`）は、読むたびに今の言語の同じ位置の既定に置き換えて返します。使った指示、固定を外した指示、ショートカットを付けた指示、利用者が書いた指示は変えません。置き換えた既定と同じ文字列の指示がほかにあるときは、既定のほうを出しません。設定は読むたびに見るので、設定を保存すると、次に指示の画面を開いたときから新しい言語になります。
 
 ## 試験
 
@@ -268,7 +270,7 @@ Core は画面の文言ではなくコードを返します。各 OS は次の�
 - `Core/Tests/CoreTests/DesktopAITests/AITransformationTargetTests.swift`: 別の欄・別のウィンドウ・再起動したバス・移動した選択・変わった本文・正規化で同じになる文字・段落と文書の違い。
 - `AISelectedTextTransformationTests.swift`: プレビューの重複送信・再生成・古い応答・逆順の応答・空・失敗・フォーカス変更後の応答・保護された欄、適用の一回限り。
 - `AIDesktopRequestFlowTests.swift`: 外部に送らない模擬 API（URLProtocol）で、遅延・空・サーバーエラー・壊れた応答・逆順の応答を実際の通信処理に通す。
-- `AIPromptHistoryTests.swift` / `DesktopKeyBindingTests.swift`: 履歴・固定・ショートカットの表記と照合。`IMEShortcuts` が `UserAction` の意味と一致すること。
+- `AIPromptHistoryTests.swift` / `DesktopKeyBindingTests.swift`: 履歴・固定・ショートカットの表記と照合、既定の指示の言語と、まだ使っていない既定だけの入れ替え。`IMEShortcuts` が `UserAction` の意味と一致すること。
 - `Core/Tests/DesktopBridgeTests/DesktopAIControllerTests.swift`: JSON の操作として、確認後の送信・設定変更後の送信先・合成の変化・保護された欄・ショートカットからの指示画面・変換の各操作。
 
 Ubuntu には、IBus と GTK の通知の順序を扱うつなぎの試験（`Linux/tests/test_selected_text_*.py`、`test_ai_scope.py`）と、実 IBus・実 AT-SPI を使う統合の試験（`Tools/tests/linux-ai-target.sh`、`Tools/tests/linux-ime-shortcuts.sh`）が残ります。どれも実際の Swift ブリッジに判断させ、AI への通信は試験の中の模擬に置き換えます。
