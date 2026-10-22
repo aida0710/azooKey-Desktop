@@ -71,6 +71,7 @@ class TreePanel(Gtk.Window):
         self.drawn_display = {}
         self.layout = None
         self.placement = None
+        self.awaiting_layout = False
         self.layout_generation = 0
         self.announcements = CandidateAnnouncements(
             lambda announcement: self.get_accessible().emit("notification", announcement, Atk.Live.POLITE),
@@ -187,6 +188,12 @@ class TreePanel(Gtk.Window):
         # A Core reply for an older snapshot or a hidden popup is ignored.
         self.layout_generation += 1
         self.placement = None
+        self.awaiting_layout = False
+
+    @property
+    def is_presenting(self):
+        """Shown, or waiting for Core to lay out a snapshot it will show."""
+        return self.get_visible() or self.awaiting_layout
 
     def reset_presentation(self):
         self.retire_layout()
@@ -268,6 +275,7 @@ class TreePanel(Gtk.Window):
         self.candidate_numbers = {node["id"]: node["number"] for node in display.get("nodes", [])
                                   if node.get("number") is not None}
         self.retire_layout()
+        self.awaiting_layout = True
         # Shown controls belong to the previous snapshot until Core replies.
         self.navigation.hold()
         self.request_core_layout()
@@ -370,6 +378,7 @@ class TreePanel(Gtk.Window):
             return
         self.layout = layout
         self.placement = placement
+        self.awaiting_layout = False
         self.placement_side = placement["side"]
         width, height = int(placement["width"]), int(placement["height"])
         if height < requested_height:

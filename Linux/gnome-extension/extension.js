@@ -63,14 +63,15 @@ export default class AzooKeyTreeExtension extends Extension {
         });
         this._popup.add_child(this._details.actor);
         this._interfaceSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+        // A snapshot awaiting Core's layout is not visible yet; it still follows these changes.
         this._theme = new CandidateTheme(() => {
-            if (this._popup.visible && this._lastSnapshot) this._render(this._lastSnapshot);
+            if (this._lastSnapshot) this._render(this._lastSnapshot);
         });
         Main.layoutManager.addTopChrome(this._popup);
         this._popup.hide();
         this._layoutDiagnostics = new LayoutDiagnostics();
         this._cursor = new ShellCursor(() => {
-            if (this._popup.visible && this._lastSnapshot) this._render(this._lastSnapshot);
+            if (this._lastSnapshot) this._render(this._lastSnapshot);
         });
         this._subscription = Gio.DBus.session.signal_subscribe(NAME, NAME, null, PATH, null,
             Gio.DBusSignalFlags.NONE, (_connection, _sender, _path, _interface, signal, parameters) => {
@@ -191,7 +192,8 @@ export default class AzooKeyTreeExtension extends Extension {
             border: 1px solid ${palette.border}; border-radius: 12px;`);
         this._canvas.set_style(`background-color: ${palette.background};`);
         this._details.applyPalette(palette);
-        if (display.mode === 'hidden') {
+        // The engine sends an empty snapshot after focus moves away.
+        if (!display || display.mode === 'hidden') {
             this._hideCandidates();
             this._canvas.destroy_all_children();
             return;
@@ -236,14 +238,27 @@ export default class AzooKeyTreeExtension extends Extension {
             const height = this._layoutCard(data, {bounds, layout, limit: bounds.height});
             // GNOME has no document word widths, so Core never changes this
             // width for alignment and one measurement is enough.
-            this._requestLayout({...request, popupHeight: height}, placed => {
-                if (generation !== this._layoutGeneration) return;
-                if (placed?.placementStatus !== 'placed') {
-                    this._suspendCandidates();
-                    return;
-                }
-                this._place(data, {anchor, bounds, layout: placed, height});
-            });
+            this._placeCard(data, {request, anchor, bounds, height, generation});
+        });
+    }
+
+    // Core places whole pixels. When the chosen side is shorter than the card,
+    // the card's scrollable regions shrink and Core places the result again.
+    _placeCard(data, {request, anchor, bounds, height, generation, fitted = false}) {
+        const popupHeight = Math.ceil(height);
+        this._requestLayout({...request, popupHeight, preferredSide: this._placementSide ?? null}, placed => {
+            if (generation !== this._layoutGeneration) return;
+            if (placed?.placementStatus !== 'placed') {
+                this._suspendCandidates();
+                return;
+            }
+            if (!fitted && placed.placement.height < popupHeight) {
+                this._placementSide = placed.placement.side;
+                const fittedHeight = this._layoutCard(data, {bounds, layout: placed, limit: placed.placement.height});
+                this._placeCard(data, {request, anchor, bounds, height: fittedHeight, generation, fitted: true});
+                return;
+            }
+            this._place(data, {anchor, bounds, layout: placed});
         });
     }
 
@@ -464,10 +479,9 @@ export default class AzooKeyTreeExtension extends Extension {
         return height;
     }
 
-    _place(data, {anchor, bounds, layout, height}) {
+    _place(data, {anchor, bounds, layout}) {
         const placement = layout.placement;
-        // A side with less room than the card bounds its scrollable regions.
-        if (placement.height < height) this._layoutCard(data, {bounds, layout, limit: placement.height});
+        const wasVisible = this._popup.visible;
         this._popup.set_position(placement.x, placement.y);
         this._popup.set_size(placement.width, placement.height);
         this._placementSide = placement.side;
@@ -476,6 +490,9 @@ export default class AzooKeyTreeExtension extends Extension {
         this._popup.show();
         this._announcements.update(data);
         this._revealFocus(data);
+        // St measures the labels of a hidden popup too short; measure once more
+        // now that it is mapped, so no sentence line is clipped.
+        if (!wasVisible) this._render(data);
     }
 
     _revealFocus(data) {

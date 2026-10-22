@@ -393,7 +393,7 @@ class Engine(IBus.Engine):
         snapshot = self.positioned_snapshot(self.snapshot)
         if self.focused and self.settings.get("tree", True):
             surface().show(self, snapshot, self.panel.location)
-        if self.panel.get_visible():
+        if self.panel.is_presenting:
             self.panel.update(snapshot)
 
     def positioned_snapshot(self, snapshot):

@@ -510,4 +510,10 @@ equal(composition._remainingScroll.get_vadjustment().value, 0);
 equal(composition._remaining.text.includes('つづき'), true);
 equal(submitted, []);
 print('GNOME long partial proposal: remaining reading has a separate bounded viewport and sentence scrolling never hides its region PASS');
+// After focus moves away the engine sends an empty snapshot; it only hides.
+render(snapshot());
+extension._render({contextId: 'synthetic-field', location: [0, 0, 0, 0]});
+equal(extension._popup.visible, false);
+equal(extension._buttons.size, 0);
+print('GNOME empty snapshot: hides the popup without disabling the renderer PASS');
 closeCoreBridge();
