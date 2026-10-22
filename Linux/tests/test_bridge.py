@@ -5,11 +5,13 @@ import unittest
 import tempfile
 import json
 import threading
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from azookey.bridge import Bridge
 from azookey.keymap import translate
 from azookey.personalization import import_model
+from unittest.mock import patch
 
 
 @unittest.skipUnless(os.environ.get("AZOOKEY_BRIDGE"), "build the real Swift bridge first")
@@ -18,15 +20,52 @@ class BridgeIntegrationTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.old = os.environ.get("AZOOKEY_DATA_DIR")
         os.environ["AZOOKEY_DATA_DIR"] = self.directory.name
+        self.config_environment = patch.dict(os.environ, {"XDG_CONFIG_HOME": str(pathlib.Path(self.directory.name) / "config")})
+        self.config_environment.start()
         self.bridge = Bridge()
 
     def tearDown(self):
         self.bridge.close()
+        self.config_environment.stop()
         if self.old is None:
             os.environ.pop("AZOOKEY_DATA_DIR", None)
         else:
             os.environ["AZOOKEY_DATA_DIR"] = self.old
         self.directory.cleanup()
+
+    def apply_settings(self, settings):
+        snapshot = self.bridge.request("configure", settings=settings)
+        self.assertNotIn("error", snapshot, "the requested preferences must reach the converter")
+        return snapshot
+
+    @unittest.skipUnless(sys.platform == "linux", "isolated settings")
+    def test_initial_settings_can_be_reapplied_after_conversion_process_restarts(self):
+        settings = self.bridge.request("settings")["settings"]
+        self.bridge.close()
+        self.bridge = Bridge()
+        self.apply_settings({**settings, "learning": "onlyOutput"})
+        reapplied = self.bridge.request("settings")["settings"]
+        self.assertEqual(reapplied["learning"], "onlyOutput")
+        self.assertEqual(reapplied["userDictionary"], settings["userDictionary"])
+
+    @unittest.skipUnless(sys.platform == "linux", "isolated settings")
+    def test_restarting_with_saved_default_entries_preserves_their_existing_ids(self):
+        settings = self.bridge.request("settings")["settings"]
+        for entry in settings["userDictionary"]["items"]:
+            entry["id"] = str(uuid.uuid4()).upper()
+        settings_path = pathlib.Path(os.environ["XDG_CONFIG_HOME"]) / "azookey-tree" / "settings.json"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        saved_content = json.dumps(settings, ensure_ascii=False).encode()
+        settings_path.write_bytes(saved_content)
+
+        for _ in range(2):
+            self.bridge.close()
+            self.bridge = Bridge()
+            self.apply_settings({**settings, "learning": "onlyOutput"})
+            reapplied = self.bridge.request("settings")["settings"]
+            self.assertEqual(reapplied["learning"], "onlyOutput")
+            self.assertEqual(reapplied["userDictionary"], settings["userDictionary"])
+            self.assertEqual(settings_path.read_bytes(), saved_content)
 
     def test_protocol_real_conversion_and_stale_generation(self):
         for character in "nihongo":
@@ -129,6 +168,64 @@ class BridgeIntegrationTests(unittest.TestCase):
         finally:
             self.bridge.request("configure", settings=original)
 
+    @unittest.skipUnless(sys.platform == "linux", "isolated learning data")
+    def test_stopping_learning_updates_keeps_existing_results_and_disabling_use_keeps_saved_data(self):
+        original = self.bridge.request("settings")["settings"]
+        # Compare only the learning policy, independently of neural model ranking.
+        environment = dict(os.environ)
+        environment.pop("AZOOKEY_RESOURCES", None)
+        self.bridge.close()
+        self.bridge = Bridge(environment=environment)
+
+        def candidates_for(reading):
+            self.bridge.request("reset")
+            for character in reading:
+                self.bridge.request("key", event=translate(ord(character), 0))
+            self.bridge.request("key", event=translate(32, 0))
+            return self.bridge.request("key", event=translate(32, 0))
+
+        def commit_candidate(snapshot, word):
+            candidate = next(item for item in snapshot["candidates"] if item["text"] == word)
+            self.bridge.request("select", index=candidate["index"], generation=snapshot["generation"], submit=True)
+
+        def stored_memory():
+            directory = pathlib.Path(self.directory.name) / "memory"
+            return {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()}
+
+        try:
+            settings = {**original, "live": False, "learning": "inputAndOutput"}
+            self.apply_settings(settings)
+            baseline = candidates_for("kyou")
+            baseline_rank = [item["text"] for item in baseline["candidates"]].index("京")
+            commit_candidate(baseline, "京")
+            self.bridge.close()
+            learned_memory = stored_memory()
+            self.assertTrue(learned_memory, "the fixture must save actual converter learning")
+
+            def check_stopped_learning(mode):
+                self.bridge = Bridge(environment=environment)
+                try:
+                    self.apply_settings({**settings, "learning": mode})
+                    snapshot = candidates_for("kyou")
+                    rank = [item["text"] for item in snapshot["candidates"]].index("京")
+                    if mode == "onlyOutput":
+                        self.assertLess(rank, baseline_rank, "existing learning must still affect conversion")
+                    else:
+                        self.assertEqual(rank, baseline_rank, "disabled learning must not affect conversion")
+                    # Both modes stop updates, including commits of a different word.
+                    commit_candidate(candidates_for("nihongo"), "日本語")
+                finally:
+                    self.bridge.close()
+                self.assertEqual(stored_memory(), learned_memory, "stopping learning must not update or delete saved data")
+
+            for mode in ("onlyOutput", "nothing", "onlyOutput"):
+                with self.subTest(mode=mode):
+                    check_stopped_learning(mode)
+        finally:
+            self.bridge.close()
+            self.bridge = Bridge()
+            self.apply_settings(original)
+
     @unittest.skipUnless(sys.platform == "linux" and os.environ.get("AZOOKEY_RESOURCES"), "verified MARISA model fixture")
     def test_personalization_import_and_off_apply_to_the_existing_session(self):
         original = self.bridge.request("settings")["settings"]
@@ -153,10 +250,15 @@ class BridgeIntegrationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "linux", "settings integration runs in the isolated Ubuntu container")
     def test_settings_user_dictionary_and_custom_table_validation(self):
+        from azookey.settings_store import SettingsStore
+        from azookey.user_dictionary_service import UserDictionaryService
         original = self.bridge.request("settings")["settings"]
+        store = SettingsStore()
+        dictionary = UserDictionaryService(store, store.load(original))
         try:
             settings = {**original, "live": False, "learning": "nothing",
                         "userDictionary": {"items": [{"id": "18afee1d-8174-45c6-80e2-78d315b73f81", "reading": "こでっくす", "word": "Codex検証辞書", "hint": "test"}]}}
+            dictionary.save(settings["userDictionary"]["items"])
             self.assertNotIn("error", self.bridge.request("configure", settings=settings))
             for character in "kodekkusu":
                 self.bridge.request("key", event=translate(ord(character), 0))
@@ -170,6 +272,7 @@ class BridgeIntegrationTests(unittest.TestCase):
             self.assertEqual(self.bridge.request("settings")["settings"]["inferenceLimit"], settings["inferenceLimit"])
         finally:
             self.bridge.request("reset")
+            dictionary.save(original["userDictionary"]["items"])
             self.bridge.request("configure", settings=original)
 
     @unittest.skipUnless(sys.platform == "linux", "local API fixture runs in isolated Ubuntu")
@@ -181,7 +284,8 @@ class BridgeIntegrationTests(unittest.TestCase):
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 received.append(body)
-                content = json.dumps({"predictions": ["候補A", "候補B"]}, ensure_ascii=False)
+                texts = {"result": "変換した本文"} if self.path.endswith("/transform") else {"predictions": ["候補A", "候補B"]}
+                content = json.dumps(texts, ensure_ascii=False)
                 response = json.dumps({"choices": [{"message": {"content": content}}]}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -193,11 +297,25 @@ class BridgeIntegrationTests(unittest.TestCase):
         worker.start()
         original = self.bridge.request("settings")["settings"]
         try:
-            endpoint = f"http://127.0.0.1:{server.server_port}/v1/chat/completions"
-            self.bridge.request("configure", settings={**original, "aiEndpoint": endpoint, "aiModel": "fixture-model"})
-            response = self.bridge.request("ai", apiKey="local-test-placeholder", target="えもじ", prompt="fixture context")
-            self.assertEqual(response["suggestions"], ["候補A", "候補B"])
-            self.assertEqual(received[0]["model"], "fixture-model")
+            endpoint = f"http://127.0.0.1:{server.server_port}"
+            # A changed stored destination must not override the reviewed one.
+            self.bridge.request("configure", settings={**original, "aiEndpoint": "http://127.0.0.1:1/unused", "aiModel": "changed-model"})
+            for operation in ("ai", "transform"):
+                for include_context in (False, True):
+                    with self.subTest(operation=operation, include_context=include_context):
+                        response = self.bridge.request(
+                            operation, apiKey="local-test-placeholder", target="TARGET_TEXT", prompt="敬語に直す",
+                            leftContext="PRIVATE_BEFORE", rightContext="PRIVATE_AFTER", includeContext=include_context,
+                            aiModel="fixture-model", aiEndpoint=f"{endpoint}/{operation}",
+                        )
+                        expected = ["変換した本文"] if operation == "transform" else ["候補A", "候補B"]
+                        self.assertEqual(response["suggestions"], expected)
+                        body = received[-1]
+                        self.assertEqual(body["model"], "fixture-model")
+                        serialized = json.dumps(body)
+                        self.assertIn("TARGET_TEXT", serialized)
+                        self.assertEqual("PRIVATE_BEFORE" in serialized, include_context)
+                        self.assertEqual("PRIVATE_AFTER" in serialized, include_context)
         finally:
             self.bridge.request("configure", settings=original)
             server.shutdown()

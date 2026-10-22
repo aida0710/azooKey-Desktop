@@ -4,9 +4,9 @@ import SwiftUI
 
 struct PromptInputView: View {
     @State private var promptText: String = ""
-    @State private var previewText: String = ""
-    @State private var isLoading: Bool = false
+    @State private var preview = AITransformationPreview()
     @State private var showPreview: Bool = false
+    @State private var previewError: String?
     @State private var promptHistory: [PromptHistoryItem] = []
     @State private var hoveredHistoryIndex: Int?
     @State private var isNavigatingHistory: Bool = false
@@ -15,22 +15,21 @@ struct PromptInputView: View {
     @FocusState private var isTextFieldFocused: Bool
 
     let initialPrompt: String?
+    let requestConfiguration: AIRequestConfiguration
+    let targetText: String
+    private var previewText: String { preview.applicableText ?? "" }
+    private var isLoading: Bool { preview.isLoading }
     private var modelDisplayName: String {
-        let backend = Config.AIBackendPreference().value
-        switch backend {
-        case .off:
-            return "Off"
+        switch requestConfiguration.backend {
         case .foundationModels:
             return "Foundation Models"
         case .openAI:
-            let modelName = Config.OpenAiModelName().value
-            return modelName.isEmpty ? "OpenAI API" : modelName
+            return requestConfiguration.modelName
         }
     }
 
-    let onSubmit: (String?) -> Void
-    let onPreview: (String, Bool, @escaping (String) -> Void) -> Void  // Added includeContext parameter
-    let onApply: (String) -> Void
+    let onPreview: (String, Bool, @escaping (Result<String, TransformationPreviewError>) -> Void) -> Void
+    let onApply: (_ text: String, _ prompt: String) -> Void
     let onCancel: () -> Void
     let onPreviewModeChanged: (Bool) -> Void
 
@@ -58,7 +57,7 @@ struct PromptInputView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Magic Conversion")
+                    Text(Localization.text("ai.title"))
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(
                             LinearGradient(
@@ -81,30 +80,36 @@ struct PromptInputView: View {
                         .font(.system(size: 10, weight: .medium))
                 }
                 .buttonStyle(PlainButtonStyle())
+                .accessibilityLabel(Localization.text("settings.cancel"))
                 .keyboardShortcut(.escape)
             }
             .padding(.horizontal, 12)
             .padding(.top, 8)
 
+            AIRequestScopeView(configuration: requestConfiguration, targetText: targetText)
+                .padding(.horizontal, 12)
+            if let previewError {
+                AccessibleStatusMessage(text: previewError)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 12)
+            }
+
             // Input field with custom key handling
             CustomTextField(
                 text: $promptText,
-                placeholder: "example: formalize",
+                placeholder: Localization.text("ai.instruction-placeholder"),
+                accessibilityName: Localization.text("ai.instruction"),
                 isFocused: $isTextFieldFocused,
                 onSubmit: {
-                    if hoveredHistoryIndex != nil {
-                        // If history item is selected, use it and generate preview automatically
-                        promptText = getVisibleHistory()[hoveredHistoryIndex!].prompt
-                        hoveredHistoryIndex = nil
-                        isTextFieldFocused = true
-                        // Automatically request preview after setting the text
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            requestPreview()
-                        }
+                    guard !isLoading else {
+                        return
+                    }
+                    if let index = hoveredHistoryIndex {
+                        selectHistory(getVisibleHistory()[index])
                     } else if showPreview {
                         // Apply when Enter is pressed in preview mode
-                        onApply(previewText)
-                        onSubmit(promptText)
+                        applyPreview()
                     } else {
                         // Preview when Enter is pressed in input mode
                         requestPreview()
@@ -127,15 +132,10 @@ struct PromptInputView: View {
                 NotificationCenter.default.post(name: .textFieldFocusChanged, object: isFocused)
             }
             .onChange(of: promptText) { _ in
+                invalidatePreview()
                 // Only clear history selection if not navigating through history
                 if !isNavigatingHistory {
                     hoveredHistoryIndex = nil
-                    if showPreview {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showPreview = false
-                            onPreviewModeChanged(false)
-                        }
-                    }
                 }
                 // Reset navigation flag after text change
                 isNavigatingHistory = false
@@ -151,7 +151,7 @@ struct PromptInputView: View {
             if !promptHistory.isEmpty && !showPreview {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack {
-                        Text("Recent")
+                        Text(Localization.text("ai.history"))
                             .font(.system(size: 9, weight: .medium))
                             .foregroundColor(.secondary.opacity(0.6))
                         Spacer()
@@ -170,7 +170,9 @@ struct PromptInputView: View {
                                             .foregroundColor(item.isPinned ? .accentColor : .secondary.opacity(0.4))
                                     }
                                     .buttonStyle(PlainButtonStyle())
-                                    .help(item.isPinned ? "Unpin" : "Pin")
+                                    .help(Localization.text(item.isPinned ? "ai.unpin" : "ai.pin"))
+                                    .accessibilityLabel(Localization.text(item.isPinned ? "ai.unpin" : "ai.pin"))
+                                    .accessibilityValue(item.prompt)
 
                                     // Shortcut button (only for pinned items)
                                     if item.isPinned {
@@ -188,15 +190,21 @@ struct PromptInputView: View {
                                             }
                                         }
                                         .buttonStyle(PlainButtonStyle())
-                                        .help(item.shortcut == nil ? "Set shortcut" : "Edit shortcut")
+                                        .help(Localization.text(item.shortcut == nil ? "ai.shortcut.set" : "ai.shortcut.edit"))
+                                        .accessibilityLabel(Localization.text("ai.shortcut.prompt"))
+                                        .accessibilityValue(item.shortcut?.displayString ?? Localization.text("support.none"))
                                     }
 
-                                    // Prompt text
-                                    Text(item.prompt)
-                                        .font(.system(size: 11))
-                                        .foregroundColor(hoveredHistoryIndex == index ? .primary : .secondary)
-                                        .lineLimit(1)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Button {
+                                        selectHistory(item)
+                                    } label: {
+                                        Text(item.prompt)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .lineLimit(1)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(item.prompt)
+                                    .accessibilityHint(Localization.text("ai.history.choose"))
                                 }
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
@@ -206,15 +214,6 @@ struct PromptInputView: View {
                                 }
                                 .onHover { isHovered in
                                     hoveredHistoryIndex = isHovered ? index : nil
-                                }
-                                .onTapGesture {
-                                    promptText = item.prompt
-                                    hoveredHistoryIndex = nil
-                                    isTextFieldFocused = true
-                                    // Automatically request preview after setting the text
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                        requestPreview()
-                                    }
                                 }
                             }
                         }
@@ -229,7 +228,7 @@ struct PromptInputView: View {
             if showPreview {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("Preview")
+                        Text(Localization.text("ai.preview"))
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(.secondary)
                         Spacer()
@@ -244,7 +243,8 @@ struct PromptInputView: View {
                         }
                         .buttonStyle(PlainButtonStyle())
                         .disabled(isLoading)
-                        .help("Reload preview (⌘R)")
+                        .help(Localization.text("ai.preview.reload"))
+                        .accessibilityLabel(Localization.text("ai.preview.reload"))
                         .keyboardShortcut("r", modifiers: .command)
                     }
 
@@ -253,7 +253,7 @@ struct PromptInputView: View {
                             HStack {
                                 ProgressView()
                                     .scaleEffect(0.8)
-                                Text("Generating...")
+                                Text(Localization.text("ai.scope.generating"))
                                     .font(.system(size: 12))
                                     .foregroundColor(.secondary)
                                 Spacer()
@@ -291,10 +291,8 @@ struct PromptInputView: View {
             // Action buttons with modern styling
             HStack(spacing: 10) {
                 if showPreview {
-                    Button("Edit") {
-                        showPreview = false
-                        // Notify parent window about preview mode change
-                        onPreviewModeChanged(false)
+                    Button(Localization.text("ai.preview.edit")) {
+                        invalidatePreview()
                         DispatchQueue.main.async {
                             isTextFieldFocused = true
                         }
@@ -303,29 +301,28 @@ struct PromptInputView: View {
 
                     Spacer()
 
-                    Button("Apply") {
-                        // Execute apply first
-                        onApply(previewText)
-
-                        // Close window and submit
-                        onSubmit(promptText)
+                    Button(Localization.text("ai.preview.apply")) {
+                        applyPreview()
                     }
                     .buttonStyle(ModernPrimaryButtonStyle())
+                    .disabled(preview.applicableText == nil)
                 } else {
                     // Include context checkbox
                     Toggle(isOn: $includeContext) {
-                        Text("Include context")
+                        Text(Localization.text("ai.scope.include-context"))
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
                     .toggleStyle(CheckboxToggleStyle())
+                    .disabled(isLoading)
                     .onChange(of: includeContext) { newValue in
                         Config.IncludeContextInAITransform().value = newValue
+                        invalidatePreview()
                     }
 
                     Spacer()
 
-                    Button(isLoading ? "Generating..." : "Preview") {
+                    Button(Localization.text(isLoading ? "ai.scope.generating" : "ai.scope.preview")) {
                         requestPreview()
                     }
                     .buttonStyle(ModernPrimaryButtonStyle())
@@ -344,8 +341,8 @@ struct PromptInputView: View {
             // Reset all state variables when the view appears
             let trimmedInitialPrompt = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
             promptText = trimmedInitialPrompt ?? ""
-            previewText = ""
-            isLoading = false
+            preview.invalidate()
+            previewError = nil
             showPreview = false
             hoveredHistoryIndex = nil
             isNavigatingHistory = false
@@ -356,19 +353,9 @@ struct PromptInputView: View {
             // Notify initial preview mode state
             onPreviewModeChanged(false)
 
-            // Ensure text field focus with slight delay to override any other focus changes
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                hoveredHistoryIndex = nil
-                isTextFieldFocused = true
-            }
-
-            if let trimmedInitialPrompt, !trimmedInitialPrompt.isEmpty {
-                // Trigger preview as if Enter was pressed once.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    requestPreview()
-                }
-            }
+            isTextFieldFocused = true
         }
+        .onDisappear { preview.invalidate() }
         .onReceive(NotificationCenter.default.publisher(for: .navigateHistoryUp)) { _ in
             navigateHistory(direction: .up)
         }
@@ -397,7 +384,7 @@ struct PromptInputView: View {
 
     private func requestPreview() {
         let trimmedPrompt = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPrompt.isEmpty else {
+        guard !trimmedPrompt.isEmpty, !isLoading else {
             return
         }
 
@@ -407,39 +394,58 @@ struct PromptInputView: View {
         // Reset hover when requesting preview
         hoveredHistoryIndex = nil
 
-        isLoading = true
-        onPreview(trimmedPrompt, includeContext) { result in
-            DispatchQueue.main.async {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    self.previewText = result
-                    self.isLoading = false
-                    self.showPreview = true
-                    // Notify parent window about preview mode change
-                    self.onPreviewModeChanged(true)
-                }
-            }
-        }
+        performPreview(trimmedPrompt)
     }
 
     private func reloadPreview() {
         let trimmedPrompt = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPrompt.isEmpty else {
+        guard !trimmedPrompt.isEmpty, !isLoading else {
             return
         }
 
         // Don't save to history again since this is a reload
         hoveredHistoryIndex = nil
 
-        isLoading = true
-        onPreview(trimmedPrompt, includeContext) { result in
+        performPreview(trimmedPrompt)
+    }
+
+    private func performPreview(_ prompt: String) {
+        previewError = nil
+        let request = preview.begin()
+        onPreview(prompt, includeContext) { outcome in
             DispatchQueue.main.async {
                 withAnimation(.easeInOut(duration: 0.3)) {
-                    self.previewText = result
-                    self.isLoading = false
-                    // Keep showPreview = true and don't notify parent about mode change
+                    switch outcome {
+                    case .success(let text):
+                        guard self.preview.complete(text, for: request) else {
+                            return
+                        }
+                        self.showPreview = self.preview.applicableText != nil
+                    case .failure(let error):
+                        guard self.preview.complete(nil, for: request) else {
+                            return
+                        }
+                        self.previewError = error.message
+                        self.showPreview = false
+                    }
+                    self.onPreviewModeChanged(self.showPreview)
                 }
             }
         }
+    }
+
+    private func applyPreview() {
+        guard let text = preview.applicableText else {
+            return
+        }
+        onApply(text, promptText)
+    }
+
+    private func invalidatePreview() {
+        preview.invalidate()
+        previewError = nil
+        showPreview = false
+        onPreviewModeChanged(false)
     }
 
     private func loadPromptHistory() {
@@ -473,19 +479,26 @@ struct PromptInputView: View {
         // Add default pinned prompts if history is empty
         if promptHistory.isEmpty {
             promptHistory = [
-                PromptHistoryItem(prompt: "elaborate", isPinned: true),
-                PromptHistoryItem(prompt: "rewrite", isPinned: true),
-                PromptHistoryItem(prompt: "formal", isPinned: true),
-                PromptHistoryItem(prompt: "english", isPinned: true)
+                PromptHistoryItem(prompt: Localization.text("ai.example.elaborate"), isPinned: true),
+                PromptHistoryItem(prompt: Localization.text("ai.example.rewrite"), isPinned: true),
+                PromptHistoryItem(prompt: Localization.text("ai.example.formal"), isPinned: true),
+                PromptHistoryItem(prompt: Localization.text("ai.example.english"), isPinned: true)
             ]
             savePinnedHistory()
         }
     }
 
+    private func selectHistory(_ item: PromptHistoryItem) {
+        invalidatePreview()
+        promptText = item.prompt
+        hoveredHistoryIndex = nil
+        isTextFieldFocused = true
+    }
+
     private func getVisibleHistory() -> [PromptHistoryItem] {
         // Sort pinned items by lastUsed date (most recent first)
         let pinnedItems = promptHistory.filter { $0.isPinned }.sorted { $0.lastUsed > $1.lastUsed }
-        let recentItems = promptHistory.filter { !$0.isPinned }.prefix(10 - pinnedItems.count)
+        let recentItems = promptHistory.filter { !$0.isPinned }.prefix(max(0, 10 - pinnedItems.count))
         return Array(pinnedItems + recentItems)
     }
 
@@ -581,7 +594,7 @@ struct PromptInputView: View {
             if hoveredHistoryIndex == nil {
                 // When down is pressed from text field, start history navigation
                 hoveredHistoryIndex = 0
-                isTextFieldFocused = false // Remove focus from text field
+                isTextFieldFocused = true
             } else if hoveredHistoryIndex! < maxIndex {
                 hoveredHistoryIndex! += 1
             } else {
@@ -604,14 +617,16 @@ struct PromptInputView: View {
 #Preview {
     PromptInputView(
         initialPrompt: nil,
-        onSubmit: { _ in
-        },
+        requestConfiguration: AIRequestConfiguration(
+            backend: .openAI, modelName: "preview", apiKey: "", apiEndpoint: "https://example.invalid"
+        ),
+        targetText: "確認する本文",
         onPreview: { prompt, _, callback in
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                callback("Transformed: \(prompt)")
+                callback(.success("Transformed: \(prompt)"))
             }
         },
-        onApply: { _ in
+        onApply: { _, _ in
         },
         onCancel: {
         },
@@ -619,108 +634,4 @@ struct PromptInputView: View {
         }
     )
     .frame(width: 380)
-}
-
-// MARK: - Shortcut Editor Sheet
-struct ShortcutEditorSheet: View {
-    @State private var item: PromptHistoryItem
-    @State private var shortcut: Core.KeyboardShortcut
-    @State private var hasShortcut: Bool
-    let allItems: [PromptHistoryItem]
-    let onSave: (PromptHistoryItem) -> Void
-    let onCancel: () -> Void
-
-    // Reserved system shortcuts
-    private var reservedShortcuts: [Core.KeyboardShortcut] {
-        [
-            Config.TransformShortcut().value  // いい感じ変換のショートカット
-        ]
-    }
-
-    private var conflictingPrompt: String? {
-        guard hasShortcut else {
-            return nil
-        }
-        return allItems.first(where: { otherItem in
-            otherItem.id != item.id &&
-                otherItem.shortcut == shortcut
-        })?.prompt
-    }
-
-    private var isSystemShortcut: Bool {
-        guard hasShortcut else {
-            return false
-        }
-        return reservedShortcuts.contains(shortcut)
-    }
-
-    init(item: PromptHistoryItem, allItems: [PromptHistoryItem], onSave: @escaping (PromptHistoryItem) -> Void, onCancel: @escaping () -> Void) {
-        self._item = State(initialValue: item)
-        self._shortcut = State(initialValue: item.shortcut ?? Core.KeyboardShortcut(key: "a", modifiers: .control))
-        self._hasShortcut = State(initialValue: item.shortcut != nil)
-        self.allItems = allItems
-        self.onSave = onSave
-        self.onCancel = onCancel
-    }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Set Shortcut for \"\(item.prompt)\"")
-                .font(.headline)
-
-            VStack(spacing: 12) {
-                // Keyboard shortcut
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Toggle("Keyboard Shortcut", isOn: $hasShortcut)
-                            .toggleStyle(.checkbox)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    if hasShortcut {
-                        KeyboardShortcutRecorder(shortcut: $shortcut)
-                            .frame(height: 40)
-
-                        // Conflict warnings
-                        if isSystemShortcut {
-                            Text("This shortcut is reserved for a system function")
-                                .font(.system(size: 9))
-                                .foregroundColor(.red)
-                        } else if let conflicting = conflictingPrompt {
-                            Text("Already used by \"\(conflicting)\" (will be replaced)")
-                                .font(.system(size: 9))
-                                .foregroundColor(.orange)
-                        }
-                    }
-                }
-            }
-
-            HStack {
-                Button("Cancel") {
-                    onCancel()
-                }
-                .keyboardShortcut(.escape)
-
-                Spacer()
-
-                if hasShortcut {
-                    Button("Remove") {
-                        var updatedItem = item
-                        updatedItem.shortcut = nil
-                        onSave(updatedItem)
-                    }
-                }
-
-                Button("Save") {
-                    var updatedItem = item
-                    updatedItem.shortcut = hasShortcut ? shortcut : nil
-                    onSave(updatedItem)
-                }
-                .keyboardShortcut(.return)
-            }
-        }
-        .padding(20)
-        .frame(width: 360)
-    }
 }

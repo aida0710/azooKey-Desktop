@@ -22,8 +22,10 @@ class CandidatesViewController: BaseCandidateViewController {
     var showCandidateIndex = false
     private let treeView = CandidateTreeView()
     private var treeEntries: [CandidateTree.Entry] = []
+    private var enterConfirmsCandidate = false
     private var lastCursorLocation: CGPoint?
     private var documentGeometry: CandidateDocumentGeometry?
+    private var alignmentReason = "client-rectangles-unavailable"
     private var usesTree: Bool { Config.TreeCandidates().value }
 
     override func loadView() {
@@ -39,6 +41,12 @@ class CandidatesViewController: BaseCandidateViewController {
         treeView.onSelectionChanged = { [weak self] row in
             self?.updateSelection(to: row)
         }
+        treeView.onLayoutChanged = { [weak self] in
+            guard let self, let cursor = self.lastCursorLocation else {
+                return
+            }
+            self.resizeWindowToFitContent(cursorLocation: cursor)
+        }
         treeView.onCandidateSubmitted = { [weak self] row in
             guard let self, self.candidates.indices.contains(row) else {
                 return
@@ -50,12 +58,16 @@ class CandidatesViewController: BaseCandidateViewController {
 
     private func refreshTree(selectionIndex: Int?) {
         var numbers: [Int: String] = [:]
-        if showCandidateIndex {
+        // Live numbers identify candidates without changing the input state's number-key behavior.
+        if showCandidateIndex || !enterConfirmsCandidate {
             for index in showedRows where candidates.indices.contains(index) {
                 numbers[index] = String(index - showedRows.lowerBound + 1)
             }
         }
-        treeView.update(entries: treeEntries, selectionIndex: selectionIndex, numbers: numbers, documentWidths: documentGeometry?.widths)
+        treeView.update(
+            entries: treeEntries, selectionIndex: selectionIndex, numbers: numbers,
+            documentWidths: documentGeometry?.widths, enterConfirmsCandidate: enterConfirmsCandidate
+        )
         if usesTree, let cursor = lastCursorLocation { resizeWindowToFitContent(cursorLocation: cursor) }
     }
 
@@ -66,6 +78,10 @@ class CandidatesViewController: BaseCandidateViewController {
         treeView.navigate(direction)
         // At the end of a path, Right must not fall through to upstream's commit.
         return true
+    }
+
+    func scrollTreeDetails(forward: Bool) -> Bool {
+        usesTree && !candidates.isEmpty && treeView.scrollDetails(forward: forward)
     }
 
     override func resizeWindowToFitContent(cursorLocation: CGPoint) {
@@ -84,46 +100,52 @@ class CandidatesViewController: BaseCandidateViewController {
             desiredSize: .init(width: min(size.width, screen.visibleFrame.width), height: min(size.height, screen.visibleFrame.height))
         ).cgRect
         window.setFrame(frame, display: true, animate: false)
+        CandidateLayoutDiagnostics.record(
+            reason: treeView.hasDocumentAlignment ? "client-rectangles" :
+                (documentGeometry == nil ? alignmentReason : "column-too-narrow"),
+            cursor: cursorLocation, popup: frame, workArea: screen.visibleFrame)
     }
 
-    override func updateCandidatePresentations(_ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint) {
+    override func updateCandidatePresentations(
+        _ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint,
+        enterConfirmsCandidate: Bool = false
+    ) {
+        self.enterConfirmsCandidate = enterConfirmsCandidate
         lastCursorLocation = cursorLocation
         self.showedRows = selectionIndex == nil ? 0...8 : self.showedRows
         treeView.isHidden = !usesTree
         tableView.enclosingScrollView?.isHidden = usesTree
         view.subviews.compactMap { $0 as? NSVisualEffectView }.forEach { $0.isHidden = usesTree }
         configureWindowForRoundedCorners()
-        treeEntries = candidates.enumerated().map { index, presentation in
-            .init(text: presentation.candidate.text,
-                  tokens: presentation.candidate.data.map { .init(text: $0.word, reading: $0.ruby) },
-                  candidateIndex: index, score: Double(presentation.candidate.value),
-                  comparisonGroup: presentation.consumedInputCount)
-        }
-        treeView.update(entries: treeEntries, selectionIndex: selectionIndex, documentWidths: documentGeometry?.widths)
+        treeEntries = candidates.enumerated().map { $0.element.treeEntry(index: $0.offset) }
+        treeView.update(
+            entries: treeEntries, selectionIndex: selectionIndex, documentWidths: documentGeometry?.widths,
+            enterConfirmsCandidate: enterConfirmsCandidate
+        )
         super.updateCandidatePresentations(
             candidates,
             selectionIndex: selectionIndex,
-            cursorLocation: cursorLocation
+            cursorLocation: cursorLocation,
+            enterConfirmsCandidate: enterConfirmsCandidate
         )
     }
 
     func alignWithDocument(_ candidates: [CandidatePresentation], selectionIndex: Int?, preedit: String,
                            rectAtOffset: (Int) -> NSRect) {
         documentGeometry = nil
+        alignmentReason = "client-rectangles-unavailable"
         guard usesTree, let selectionIndex, candidates.indices.contains(selectionIndex) else {
             return
         }
-        let projection = CandidateTree(entries: candidates.enumerated().map { index, presentation in
-            .init(text: presentation.candidate.text,
-                  tokens: presentation.candidate.data.map { .init(text: $0.word, reading: $0.ruby) }, candidateIndex: index)
-        })
+        let projection = CandidateTree(entries: candidates.enumerated().map { $0.element.treeEntry(index: $0.offset) })
         let words = (projection.paths[selectionIndex] ?? []).map { projection.nodes[$0].token.text }
         let geometry = CandidateDocumentGeometry(
             words: words, preedit: preedit, rectAtOffset: rectAtOffset
         )
-        if let geometry, let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(geometry.anchor) }),
-           geometry.anchor.x + max(60, geometry.widths.reduce(12, +)) <= screen.visibleFrame.maxX {
+        if let geometry, NSScreen.screens.contains(where: { geometry.fits(in: $0.visibleFrame) }) {
             documentGeometry = geometry
+        } else if geometry != nil {
+            alignmentReason = "outside-workarea"
         }
     }
 
@@ -136,7 +158,10 @@ class CandidatesViewController: BaseCandidateViewController {
     }
 
     override internal func updateSelectionCallback(_ row: Int, notifySelectionChange: Bool) {
-        if !self.showedRows.contains(row) {
+        if usesTree {
+            let start = max(0, row) / CandidatePage.size * CandidatePage.size
+            showedRows = start...(start + CandidatePage.size - 1)
+        } else if !self.showedRows.contains(row) {
             if row < self.showedRows.lowerBound {
                 self.showedRows = row...(row + 8)
             } else {
@@ -172,7 +197,7 @@ class CandidatesViewController: BaseCandidateViewController {
 
         if numberRange.location != NSNotFound {
             attributedString.addAttributes([
-                .font: NSFont.monospacedSystemFont(ofSize: 8, weight: .regular),
+                .font: NSFont.monospacedSystemFont(ofSize: max(14, Config.CandidateTextSize().value.pointSize - 4), weight: .regular),
                 .foregroundColor: currentSelectedRow == row ? NSColor.white : NSColor.gray,
                 .baselineOffset: 2
             ], range: numberRange)
@@ -196,8 +221,11 @@ class CandidatesViewController: BaseCandidateViewController {
         }
     }
 
-    func getNumberCandidate(num: Int) -> Int {
+    func getNumberCandidate(num: Int) -> Int? {
         let nextRow = self.showedRows.lowerBound + num - 1
+        guard (1...CandidatePage.size).contains(num), candidates.indices.contains(nextRow) else {
+            return nil
+        }
         return nextRow
     }
 
@@ -205,7 +233,8 @@ class CandidatesViewController: BaseCandidateViewController {
         self.currentSelectedRow = -1
         self.showedRows = 0...8
         treeEntries = []
-        treeView.update(entries: [], selectionIndex: nil)
+        enterConfirmsCandidate = false
+        treeView.update(entries: [], selectionIndex: nil, enterConfirmsCandidate: false)
     }
 
     override var numberOfVisibleRows: Int {
@@ -250,7 +279,7 @@ class PredictionCandidatesViewController: BaseCandidateViewController {
         let candidateAttributed = NSAttributedString(
             string: candidateText,
             attributes: [
-                .font: NSFont.systemFont(ofSize: 18),
+                .font: NSFont.systemFont(ofSize: Config.CandidateTextSize().value.pointSize),
                 .foregroundColor: candidateColor
             ]
         )

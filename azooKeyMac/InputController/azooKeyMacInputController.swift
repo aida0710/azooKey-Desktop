@@ -6,7 +6,7 @@ import KanaKanjiConverterModuleWithDefaultDictionary
 @objc(azooKeyMacInputController)
 class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // swiftlint:disable:this type_name
     var segmentsManager: SegmentsManager
-    private(set) var inputState: InputState = .none
+    var inputState: InputState = .none
     private var inputLanguage: InputLanguage = .japanese
     var liveConversionEnabled: Bool {
         Config.LiveConversion().value
@@ -25,11 +25,18 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     private var lastPredictionUpdateTime: TimeInterval = 0
     private var predictionHideWorkItem: DispatchWorkItem?
 
-    private var replaceSuggestionWindow: NSWindow
-    private var replaceSuggestionsViewController: ReplaceSuggestionsViewController
+    var replaceSuggestionWindow: NSWindow
+    var replaceSuggestionsViewController: ReplaceSuggestionsViewController
+    @MainActor lazy var aiSuggestionSession = AISuggestionSession()
+    let aiSuggestionConfirmationPanel = AISuggestionConfirmationPanel()
+    var aiSuggestionConfirmation: AISuggestionConfirmation?
+    let aiSuggestionStatusPanel = InputStatusPanel()
+    @MainActor lazy var reconversionClient = MacReconversionSession()
+    let reconversionStatusPanel = InputStatusPanel()
 
     var promptInputWindow: PromptInputWindow
     var isPromptWindowVisible: Bool = false
+    var selectedTextTransformTarget: SelectedTextReplacement?
 
     // ダブルタップ検出用
     private var lastKey: (time: TimeInterval, code: UInt16) = (0, 0)
@@ -41,7 +48,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
     private static func makeCandidateWindow(contentViewController: NSViewController) -> NSWindow {
         let window: NSWindow
-        if contentViewController is CandidatesViewController {
+        if contentViewController is CandidatesViewController || contentViewController is ReplaceSuggestionsViewController {
             let panel = CandidateTreePanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
             panel.contentViewController = contentViewController
             panel.hidesOnDeactivate = false
@@ -114,15 +121,19 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         return nil
     }
 
-    override init!(server: IMKServer!, delegate: Any!, client inputClient: Any!) {
+    override convenience init!(server: IMKServer!, delegate: Any!, client inputClient: Any!) {
         let applicationDirectoryURL = AppGroup.memoryDirectoryURL()
         let containerURL = AppGroup.containerURL()
-        self.segmentsManager = SegmentsManager(
+        let segmentsManager = SegmentsManager(
             kanaKanjiConverter: (NSApplication.shared.delegate as? AppDelegate)!.kanaKanjiConverter,
             applicationDirectoryURL: applicationDirectoryURL,
             containerURL: containerURL
         )
+        self.init(server: server, delegate: delegate, client: inputClient, segmentsManager: segmentsManager)
+    }
 
+    init!(server: IMKServer!, delegate: Any!, client inputClient: Any!, segmentsManager: SegmentsManager) {
+        self.segmentsManager = segmentsManager
         self.appMenu = NSMenu(title: "azooKey")
         self.liveConversionToggleMenuItem = NSMenuItem()
         self.transformSelectedTextMenuItem = NSMenuItem()
@@ -154,6 +165,9 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     @MainActor
     override func activateServer(_ sender: Any!) {
         super.activateServer(sender)
+        self.reconversionClient.clear()
+        self.reconversionStatusPanel.orderOut(nil)
+        self.cancelReplaceSuggestion()
         // アプリケーションサポートのディレクトリを準備しておく
         self.prepareApplicationSupportDirectory()
         // Register custom input table (if available) for `.tableName` usage
@@ -173,27 +187,43 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         // refreshCandidateWindow / refreshPredictionWindow は composing/selecting 状態で
         // client.attributes(...) を呼ぶ経路があるため、activate 中は使わずウィンドウを
         // 明示的に閉じる。
-        self.candidatesViewController.updateCandidatePresentations([], selectionIndex: nil, cursorLocation: .zero)
+        self.candidatesViewController.updateCandidatePresentations(
+            [], selectionIndex: nil, cursorLocation: .zero, enterConfirmsCandidate: false
+        )
         self.candidatesWindow.setIsVisible(false)
         self.candidatesWindow.orderOut(nil)
         self.candidatesViewController.hide()
         self.hidePredictionWindow()
+        if let client = sender as? IMKTextInput {
+            MacSelectedTextTransformSession.shared.activate(client: client)
+        }
     }
 
     @MainActor
     override func deactivateServer(_ sender: Any!) {
+        if let client = sender as? IMKTextInput {
+            MacSelectedTextTransformSession.shared.deactivate(client: client)
+        }
+        self.reconversionClient.clear()
+        self.reconversionStatusPanel.orderOut(nil)
+        self.cancelReplaceSuggestion()
         self.segmentsManager.deactivate(flushLearningData: false)
         (NSApplication.shared.delegate as? AppDelegate)?.scheduleLearningDataCommit()
         self.inputState = .none
         self.candidatesWindow.orderOut(nil)
         self.predictionWindow.orderOut(nil)
         self.replaceSuggestionWindow.orderOut(nil)
-        self.candidatesViewController.updateCandidatePresentations([], selectionIndex: nil, cursorLocation: .zero)
+        self.candidatesViewController.updateCandidatePresentations(
+            [], selectionIndex: nil, cursorLocation: .zero, enterConfirmsCandidate: false
+        )
         super.deactivateServer(sender)
     }
 
     @MainActor
     override func commitComposition(_ sender: Any!) {
+        defer { self.cancelReplaceSuggestion() }
+        self.aiSuggestionSession.cancel()
+        self.aiSuggestionStatusPanel.orderOut(nil)
         // Unicode入力モードの場合は状態だけリセットして終了
         // マウスクリック等でOSがMarkedTextを確定した場合、IME側からは消せないため
         if case .unicodeInput = self.inputState {
@@ -205,7 +235,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         }
         let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
         if let client = sender as? IMKTextInput {
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(text, client: client)
         }
         self.inputState = .none
         self.refreshMarkedText()
@@ -229,6 +259,9 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 // メニューバーやshortcut経由の切り替えに対応する。
                 // composing中でも英数キーMarkedTextを保ったまま英語入力へ移る。
                 if self.inputLanguage == .japanese {
+                    if self.aiSuggestionSession.isLoading || self.aiSuggestionConfirmation != nil {
+                        self.cancelReplaceSuggestion()
+                    }
                     self.inputLanguage = .english
                     self.segmentsManager.stopJapaneseInput()
                     self.refreshCandidateWindow()
@@ -271,6 +304,17 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         guard event.type == .keyDown else {
             return false
         }
+        if let consumed = self.handleAISuggestionConfirmationKey(event) {
+            return consumed
+        }
+        if self.handleReconversionReading(event.keyEventCore, client: client) {
+            return true
+        }
+        if let shortcut = ReconversionShortcut.resolve(event.keyEventCore) {
+            self.requestReconversion(undo: shortcut == .undoCommit, client: client)
+            return true
+        }
+        self.reconversionStatusPanel.orderOut(nil)
 
         // カスタムプロンプトショートカットのチェック
         if let matchedPrompt = checkCustomPromptShortcut(event: event) {
@@ -297,7 +341,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             inputState: inputState,
             typeBackSlash: Config.TypeBackSlash().value
            ) {
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(text, client: client)
             return true
         }
 
@@ -363,6 +407,12 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             }
         }
 
+        if event.keyEventCore.modifierFlags.isEmpty,
+           [UInt16(0x74), UInt16(0x79)].contains(event.keyEventCore.keyCode),
+           candidatesViewController.scrollTreeDetails(forward: event.keyEventCore.keyCode == 0x79) {
+            return true
+        }
+
         if inputState == .selecting, event.keyEventCore.modifierFlags.isEmpty,
            case .navigation(let direction) = userAction {
             let treeDirection: CandidateTreeSelection.Direction
@@ -410,12 +460,31 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     // この種のコードは複雑にしかならないので、lintを無効にする
     // swiftlint:disable:next cyclomatic_complexity
     @MainActor func handleClientAction(_ clientAction: ClientAction, clientActionCallback: ClientActionCallback, client: IMKTextInput) -> Bool {
+        self.reconversionClient.beginInput()
+        let commitSource: MacReconversionSession.CommitSource?
+        switch clientAction {
+        case .commitMarkedText, .commitMarkedTextAndAppendToMarkedText, .commitMarkedTextAndAppendPieceToMarkedText,
+             .commitMarkedTextAndSelectInputLanguage, .stopComposition:
+            commitSource = self.reconversionClient.captureCommit(from: self.segmentsManager, client: client)
+        default:
+            commitSource = nil
+        }
+        defer { self.reconversionClient.rememberCommit(commitSource, manager: self.segmentsManager, client: client) }
+        switch clientAction {
+        case .requestPredictiveSuggestion, .requestReplaceSuggestion, .consume:
+            break
+        default:
+            if self.aiSuggestionSession.isLoading || self.aiSuggestionConfirmation != nil {
+                self.cancelReplaceSuggestion()
+            }
+            self.aiSuggestionStatusPanel.orderOut(nil)
+        }
         // return only false
         switch clientAction {
         case .showCandidateWindow:
             self.segmentsManager.requestSetCandidateWindowState(visible: true)
         case .hideCandidateWindow:
-            self.segmentsManager.requestSetCandidateWindowState(visible: false)
+            self.segmentsManager.cancelCandidateSelection()
         case .enterFirstCandidatePreviewMode:
             self.segmentsManager.insertCompositionSeparator(inputStyle: self.inputStyle, skipUpdate: false)
             self.segmentsManager.requestSetCandidateWindowState(visible: false)
@@ -431,21 +500,23 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             let inputStyle: InputStyle = self.inputLanguage == .english ? .direct : self.inputStyle
             self.segmentsManager.insertAtCursorPosition(pieces: pieces, inputStyle: inputStyle)
         case .insertWithoutMarkedText(let string):
-            client.insertText(string, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(string, client: client)
         case .editSegment(let count):
             self.segmentsManager.editSegment(count: count)
+        case .moveCompositionCursor(let movement):
+            self.segmentsManager.moveCompositionCursor(movement)
         case .commitMarkedText:
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(text, client: client)
         case .commitMarkedTextAndAppendToMarkedText(let string):
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(text, client: client)
             // 英語モードの場合は.directでローマ字変換せずそのまま入力
             let inputStyle: InputStyle = self.inputLanguage == .english ? .direct : self.inputStyle
             self.segmentsManager.insertAtCursorPosition(string, inputStyle: inputStyle)
         case .commitMarkedTextAndAppendPieceToMarkedText(let pieces):
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(text, client: client)
             // 英語モードの場合は.directでローマ字変換せずそのまま入力
             let inputStyle: InputStyle = self.inputLanguage == .english ? .direct : self.inputStyle
             self.segmentsManager.insertAtCursorPosition(pieces: pieces, inputStyle: inputStyle)
@@ -454,12 +525,18 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .removeLastMarkedText:
             self.segmentsManager.deleteBackwardFromCursorPosition()
             self.segmentsManager.requestResettingSelection()
+        case .removeNextMarkedText:
+            self.segmentsManager.deleteForwardFromCursorPosition()
+            self.segmentsManager.requestResettingSelection()
         case .selectPrevCandidate:
             self.segmentsManager.requestSelectingPrevCandidate()
         case .selectNextCandidate:
             self.segmentsManager.requestSelectingNextCandidate()
         case .selectNumberCandidate(let num):
-            self.segmentsManager.requestSelectingRow(self.candidatesViewController.getNumberCandidate(num: num))
+            guard let index = self.candidatesViewController.getNumberCandidate(num: num) else {
+                return true
+            }
+            self.segmentsManager.requestSelectingRow(index)
             self.submitSelectedCandidate()
             self.segmentsManager.requestResettingSelection()
         case .submitHiraganaCandidate:
@@ -475,11 +552,11 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 $0.toKatakana().applyingTransform(.fullwidthToHalfwidth, reverse: false)!
             })
         case .submitFullWidthRomanCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate {
+            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate(inputState: self.inputState) {
                 $0.applyingTransform(.fullwidthToHalfwidth, reverse: true)!
             })
         case .submitHalfWidthRomanCandidate:
-            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate {
+            self.submitCandidate(self.segmentsManager.getModifiedRomanCandidate(inputState: self.inputState) {
                 $0.applyingTransform(.fullwidthToHalfwidth, reverse: false)!
             })
         case .enableDebugWindow:
@@ -487,6 +564,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .disableDebugWindow:
             self.segmentsManager.requestDebugWindowMode(enabled: false)
         case .stopComposition:
+            self.reconversionClient.restoreOriginal(client: client)
             self.segmentsManager.stopComposition()
         case .forgetMemory:
             self.segmentsManager.forgetMemory()
@@ -494,7 +572,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.switchInputLanguage(language, client: client)
         case .commitMarkedTextAndSelectInputLanguage(let language):
             let text = self.segmentsManager.commitMarkedText(inputState: self.inputState)
-            client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(text, client: client)
             self.switchInputLanguage(language, client: client)
         // PredictiveSuggestion
         case .requestPredictiveSuggestion:
@@ -511,16 +589,15 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .selectPrevReplaceSuggestionCandidate:
             self.replaceSuggestionsViewController.selectPrevCandidate()
         case .submitReplaceSuggestionCandidate:
-            self.submitSelectedSuggestionCandidate()
+            self.submitSelectedSuggestionCandidate(client: client)
         case .hideReplaceSuggestionWindow:
-            self.replaceSuggestionWindow.setIsVisible(false)
-            self.replaceSuggestionWindow.orderOut(nil)
+            self.cancelReplaceSuggestion()
         // Selected Text Transform
         case .showPromptInputWindow:
             self.segmentsManager.appendDebugMessage("Executing showPromptInputWindow")
             self.showPromptInputWindow()
         case .transformSelectedText(let selectedText, let prompt):
-            self.segmentsManager.appendDebugMessage("Executing transformSelectedText with text: '\(selectedText)' and prompt: '\(prompt)'")
+            self.segmentsManager.appendDebugMessage("Executing transformSelectedText")
             self.transformSelectedText(selectedText: selectedText, prompt: prompt)
         // Unicode Input (Shift+Ctrl+U)
         case .enterUnicodeInputMode:
@@ -535,7 +612,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         case .submitUnicodeInput(let codePoint):
             if let scalar = UInt32(codePoint, radix: 16), let unicodeScalar = Unicode.Scalar(scalar) {
                 let character = String(Character(unicodeScalar))
-                client.insertText(character, replacementRange: NSRange(location: NSNotFound, length: 0))
+                self.reconversionClient.commitText(character, client: client)
             }
         case .cancelUnicodeInput:
             // 状態遷移は clientActionCallback で行われるので、ここでは何もしない
@@ -546,7 +623,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             // 残りのテキストがあればひらがなのまま確定
             if !self.segmentsManager.isEmpty {
                 let text = self.segmentsManager.convertTarget
-                client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+                self.reconversionClient.commitText(text, client: client)
                 self.segmentsManager.stopComposition()
             }
         // MARK: 特殊ケース
@@ -573,6 +650,13 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.inputState = self.segmentsManager.isEmpty ? ifIsEmpty : ifIsNotEmpty
         }
 
+        if self.inputState != .replaceSuggestion, !self.aiSuggestionSession.isLoading, self.aiSuggestionConfirmation == nil {
+            self.aiSuggestionSession.cancel()
+            self.clearReplaceSuggestionCandidates()
+        }
+        if self.segmentsManager.isEmpty {
+            self.reconversionClient.restoreOriginal(client: client)
+        }
         self.refreshMarkedText()
         self.refreshCandidateWindow()
         self.refreshPredictionWindow()
@@ -580,6 +664,9 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
     }
 
     @MainActor func switchInputLanguage(_ language: InputLanguage, client: IMKTextInput) {
+        if self.aiSuggestionSession.isLoading || self.aiSuggestionConfirmation != nil {
+            self.cancelReplaceSuggestion()
+        }
         self.inputLanguage = language
         client.overrideKeyboard(withKeyboardNamed: Config.KeyboardLayout().value.layoutIdentifier)
         switch language {
@@ -607,7 +694,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.candidatesViewController.updateCandidatePresentations(
                 candidatePresentations,
                 selectionIndex: selectionIndex,
-                cursorLocation: rect.origin
+                cursorLocation: rect.origin,
+                enterConfirmsCandidate: self.inputState.enterConfirmsCandidate
             )
             self.candidatesWindow.orderFront(nil)
         case .composing(let candidates, let selectionIndex):
@@ -623,7 +711,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
             self.candidatesViewController.updateCandidatePresentations(
                 candidatePresentations,
                 selectionIndex: selectionIndex,
-                cursorLocation: rect.origin
+                cursorLocation: rect.origin,
+                enterConfirmsCandidate: self.inputState.enterConfirmsCandidate
             )
             self.candidatesWindow.orderFront(nil)
         case .hidden:
@@ -671,7 +760,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         self.predictionViewController.updateCandidatePresentations(
             candidates.map { .init(candidate: $0) },
             selectionIndex: nil,
-            cursorLocation: rect.origin
+            cursorLocation: rect.origin,
+            enterConfirmsCandidate: false
         )
 
         if self.candidatesWindow.isVisible {
@@ -730,7 +820,8 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         self.predictionViewController.updateCandidatePresentations(
             candidates.map { .init(candidate: $0) },
             selectionIndex: nil,
-            cursorLocation: rect.origin
+            cursorLocation: rect.origin,
+            enterConfirmsCandidate: false
         )
         if self.candidatesWindow.isVisible {
             self.positionPredictionWindowRightOfCandidateWindow()
@@ -774,9 +865,6 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
         )
     }
 
-    var retryCount = 0
-    let maxRetries = 3
-
     @MainActor func handleSuggestionError(_ error: Error, cursorPosition: CGPoint) {
         let errorMessage = "エラーが発生しました: \(error.localizedDescription)"
         self.segmentsManager.appendDebugMessage(errorMessage)
@@ -813,21 +901,33 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
                 )
             )
         }
+        var selectionRange = currentMarkedText.selectionRange
+        if selectionRange.location == NSNotFound {
+            // NSTextView moves an unspecified selection to the document end, beyond any unmarked suffix.
+            selectionRange = NSRange(location: text.length, length: 0)
+        }
         self.client()?.setMarkedText(
             text,
-            selectionRange: currentMarkedText.selectionRange,
+            selectionRange: selectionRange,
             replacementRange: NSRange(location: NSNotFound, length: 0)
         )
     }
 
     @MainActor
     func submitCandidate(_ candidate: Candidate) {
+        self.cancelReplaceSuggestion()
         if let client = self.client() {
+            guard self.reconversionClient.originalText == nil || self.segmentsManager.consumesWholeComposition(candidate) else {
+                self.showReconversionFailure(.wholeSelectionRequired)
+                return
+            }
+            let commitSource = self.reconversionClient.captureCommit(from: self.segmentsManager, client: client)
             // インサートを行う前にコンテキストを取得する
             let cleanLeftSideContext = self.segmentsManager.getCleanLeftSideContext(maxCount: 30)
-            client.insertText(candidate.text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.reconversionClient.commitText(candidate.text, client: client)
             // アプリケーションサポートのディレクトリを準備しておく
             self.segmentsManager.prefixCandidateCommited(candidate, leftSideContext: cleanLeftSideContext ?? "")
+            self.reconversionClient.rememberCommit(commitSource, manager: self.segmentsManager, client: client)
         }
     }
 
@@ -855,6 +955,7 @@ extension azooKeyMacInputController: CandidatesViewControllerDelegate {
     }
 
     func candidateSelectionChanged(_ row: Int) {
+        self.cancelReplaceSuggestion()
         self.segmentsManager.requestSelectingRow(row)
         self.inputState = .selecting
         self.refreshMarkedText()
@@ -869,7 +970,6 @@ extension azooKeyMacInputController: SegmentManagerDelegate {
         var actual = NSRange()
         // 同じ行の文字のみコンテキストに含める
         let leftSideContext = self.client().string(from: leftRange, actualRange: &actual)
-        self.segmentsManager.appendDebugMessage("\(#function): leftSideContext=\(leftSideContext ?? "nil")")
         return leftSideContext
     }
 
@@ -883,7 +983,6 @@ extension azooKeyMacInputController: SegmentManagerDelegate {
         let rightRange = NSRange(location: startIndex, length: min(documentLength - startIndex, maxCount))
         var actual = NSRange()
         let rightSideContext = self.client().string(from: rightRange, actualRange: &actual)
-        self.segmentsManager.appendDebugMessage("\(#function): rightSideContext=\(rightSideContext ?? "nil")")
         return rightSideContext
     }
 
@@ -902,169 +1001,17 @@ extension azooKeyMacInputController: SegmentManagerDelegate {
 
 extension azooKeyMacInputController: ReplaceSuggestionsViewControllerDelegate {
     @MainActor func replaceSuggestionSelectionChanged(_ row: Int) {
+        self.aiSuggestionSession.select(row)
         self.segmentsManager.requestSelectingSuggestionRow(row)
+        self.refreshMarkedText()
     }
 
     func replaceSuggestionSubmitted() {
         Task { @MainActor in
-            self.submitSelectedSuggestionCandidate()
-        }
-    }
-}
-
-// Suggest Candidate
-extension azooKeyMacInputController {
-    // MARK: - Replace Suggestion Request Handling
-    @MainActor func requestReplaceSuggestion() {
-        self.segmentsManager.appendDebugMessage("requestReplaceSuggestion: 開始")
-
-        // リクエスト開始時に前回の候補をクリアし、ウィンドウを非表示にする
-        self.segmentsManager.setReplaceSuggestions([])
-        self.replaceSuggestionWindow.setIsVisible(false)
-        self.replaceSuggestionWindow.orderOut(nil)
-
-        // Get selected backend preference
-        let preference = Config.AIBackendPreference().value
-
-        // If backend is off, do nothing
-        if preference == .off {
-            self.segmentsManager.appendDebugMessage("AI backend is off, skipping suggestion")
-            return
-        }
-
-        let composingText = self.segmentsManager.convertTarget
-
-        // プロンプトを取得
-        let leftContext = self.getLeftSideContext(maxCount: 100) ?? ""
-        let rightContext = self.getRightSideContext(maxCount: 100) ?? ""
-        let prompt = [
-            leftContext.isEmpty ? nil : "Text before: ...\(leftContext)",
-            rightContext.isEmpty ? nil : "Text after: \(rightContext)..."
-        ].compactMap(\.self).joined(separator: "\n")
-        let requestPrompt = Config.IncludeContextInAITransform().value ? prompt : ""
-
-        self.segmentsManager.appendDebugMessage("プロンプト取得成功: \(prompt) << \(composingText)")
-
-        let apiKey = Config.OpenAiApiKey().value
-        let modelName = Config.OpenAiModelName().value
-        let request = OpenAIRequest(prompt: requestPrompt, target: composingText, modelName: modelName.isEmpty ? Config.OpenAiModelName.default : modelName)
-        self.segmentsManager.appendDebugMessage("APIリクエスト準備完了: prompt=\(prompt), target=\(composingText), modelName=\(modelName)")
-
-        // Get selected backend
-        let backend: AIBackend
-        switch preference {
-        case .off:
-            // Already checked above, but defensive programming
-            self.segmentsManager.appendDebugMessage("Unexpected .off state in backend selection")
-            return
-        case .foundationModels:
-            backend = .foundationModels
-        case .openAI:
-            backend = .openAI
-        }
-        self.segmentsManager.appendDebugMessage("Using backend: \(backend.rawValue)")
-
-        // 非同期タスクでリクエストを送信
-        Task {
-            do {
-                self.segmentsManager.appendDebugMessage("APIリクエスト送信中...")
-                let predictions = try await AIClient.sendRequest(
-                    request,
-                    backend: backend,
-                    apiKey: apiKey,
-                    apiEndpoint: Config.OpenAiApiEndpoint().value.isEmpty ? Config.OpenAiApiEndpoint.default : Config.OpenAiApiEndpoint().value,
-                    logger: { [weak self] message in
-                        self?.segmentsManager.appendDebugMessage(message)
-                    }
-                )
-                self.segmentsManager.appendDebugMessage("APIレスポンス受信成功: \(predictions)")
-
-                // String配列からCandidate配列に変換
-                let candidates = predictions.map { text in
-                    Candidate(
-                        text: text,
-                        value: PValue(0),
-                        composingCount: .surfaceCount(composingText.count),
-                        lastMid: 0,
-                        data: [],
-                        actions: [],
-                        inputable: true
-                    )
-                }
-
-                self.segmentsManager.appendDebugMessage("候補変換成功: \(candidates.map { $0.text })")
-
-                // 候補をウィンドウに更新
-                await MainActor.run {
-                    self.segmentsManager.appendDebugMessage("候補ウィンドウ更新中...")
-                    guard self.inputState == .replaceSuggestion,
-                          self.segmentsManager.convertTarget == composingText else {
-                        return
-                    }
-                    if !candidates.isEmpty {
-                        self.segmentsManager.setReplaceSuggestions(candidates)
-                        self.replaceSuggestionsViewController.updateCandidatePresentations(
-                            candidates.map { .init(candidate: $0) },
-                            selectionIndex: 0,
-                            cursorLocation: getCursorLocation()
-                        )
-                        self.replaceSuggestionWindow.setIsVisible(true)
-                        self.replaceSuggestionWindow.makeKeyAndOrderFront(nil)
-                        self.segmentsManager.appendDebugMessage("候補ウィンドウ更新完了")
-                    }
-                }
-            } catch {
-                let errorMessage = "APIリクエストエラー: \(error.localizedDescription)"
-                self.segmentsManager.appendDebugMessage(errorMessage)
-
-                // ユーザーに通知
-                await MainActor.run {
-                    let alert = NSAlert()
-                    alert.messageText = "変換に失敗しました"
-                    alert.informativeText = error.localizedDescription
-                    alert.alertStyle = .warning
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
-                }
+            guard let client = self.client() else {
+                return
             }
-        }
-        self.segmentsManager.appendDebugMessage("requestReplaceSuggestion: 終了")
-    }
-
-    // MARK: - Window Management
-    @MainActor func hideReplaceSuggestionCandidateView() {
-        self.replaceSuggestionWindow.setIsVisible(false)
-        self.replaceSuggestionWindow.orderOut(nil)
-    }
-
-    @MainActor func submitSelectedSuggestionCandidate() {
-        if let candidate = self.replaceSuggestionsViewController.getSelectedCandidate() {
-            if let client = self.client() {
-                client.insertText(candidate.text, replacementRange: NSRange(location: NSNotFound, length: 0))
-                self.replaceSuggestionWindow.setIsVisible(false)
-                self.replaceSuggestionWindow.orderOut(nil)
-                self.segmentsManager.stopComposition()
-                self.inputState = .none
-                self.refreshMarkedText()
-                self.refreshCandidateWindow()
-                self.refreshPredictionWindow()
-            }
+            self.submitSelectedSuggestionCandidate(client: client)
         }
     }
-
-    // MARK: - Helper Methods
-    private func retrySuggestionRequestIfNeeded(cursorPosition: CGPoint) {
-        if retryCount < maxRetries {
-            retryCount += 1
-            self.segmentsManager.appendDebugMessage("再試行中... (\(retryCount)回目)")
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self.requestReplaceSuggestion()
-            }
-        } else {
-            self.segmentsManager.appendDebugMessage("再試行上限に達しました。")
-            retryCount = 0
-        }
-    }
-
 }

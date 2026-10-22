@@ -1,4 +1,3 @@
-import json
 import pathlib
 import subprocess
 import threading
@@ -7,91 +6,314 @@ import uuid
 import gi
 gi.require_version("IBus", "1.0")
 gi.require_version("Gtk", "3.0")
-from gi.repository import IBus, Gdk, GLib, Gtk
+gi.require_version("Gdk", "3.0")
+gi.require_version("Atk", "1.0")
+from gi.repository import Atk, IBus, Gdk, GLib, Gtk
 from .bridge import Bridge
+from .async_bridge import AsyncBridge
+from .input_coordinator import InputCoordinator
+from .input_preview import is_native_key
+from .native_key_reply import NativeKeyReply
 from .keymap import translate
 from .tree_panel import TreePanel
+from .candidate_announcements import CandidateAnnouncements
 from .preedit_anchor import PreeditAnchor
-from .settings import config_path, read_key
+from .settings import read_key
+from .settings_store import SettingsStore
+from .i18n import text
 from .shell_surface import surface
 from .prompts import PromptHistory, matches
-from .prompt_dialog import PromptDialog
+from .ai_transform_target import FocusedInputContext, InputSelection
+from .selected_text_transform import SelectedTextTransformation
+from .ai_scope import AIRequestConfiguration, AIRequestScope, MODIFIER_KEYS
+from .ai_review import AISuggestionReview
+from .i18n import text as message
+from .settings_store import update_settings
+from .reconversion import ReconversionCoordinator, surrounding_context
+from .reconversion_strings import message as reconversion_message
 
 
 class Engine(IBus.Engine):
     __gtype_name__ = "AzooKeyTreeEngine"
 
     def __init__(self, *args, **kwargs):
+        kwargs.update(has_focus_id=True, active_surrounding_text=True)
         super().__init__(*args, **kwargs)
         self.context_id = str(uuid.uuid4())
-        self.bridge = Bridge.acquire()
-        self.bridge_generation = self.bridge.restarts
+        self.bridge = AsyncBridge.acquire(GLib.idle_add)
         self.panel = TreePanel(self.choose)
+        self.lookup_announcements = CandidateAnnouncements(
+            lambda announcement: self.panel.get_accessible().emit("notification", announcement, Atk.Live.POLITE),
+        )
         self.anchor = PreeditAnchor(self.panel.measure)
         self.snapshot = {}
         self.private = False
         self.sensitive = False
         self.focused = False
-        self.prompt_open = False
+        self.focus_revision = object()
+        self.focus_identity = None
+        self.transform_selection = None
+        self.has_transform_surrounding_update = False
         self.ai_pending = False
-        self.pending_transform = None
         self.last_language_key = (None, 0)
         self.destroyed = False
-        self.settings = self.bridge.request("settings", context=self.context_id)["settings"]
+        self.settings = {}
         self.settings_stamp = None
+        self.pending_settings_stamp = None
+        self.settings_store = SettingsStore()
+        self.settings_problem_stamp = None
         self.selected_text = ""
         self.left = ""
         self.right = ""
+        self.reconversion_context = None
         self.table = IBus.LookupTable.new(9, 0, True, True)
         self.table.set_orientation(IBus.Orientation.VERTICAL)
+        self.input = InputCoordinator(
+            self.bridge, self.context_id, render=self.render, forward=self.forward_key_event,
+            recover=self.prepare_composition_recovery, preview=self.preview_pending,
+            schedule_timeout=GLib.timeout_add, remove_timeout=GLib.source_remove,
+        )
+        self.native_key_reply = None
+        self.native_key_passthrough = False
+        self.ai_review = AISuggestionReview(
+            current_state=self.ai_review_state, send=self.start_ai, save_context=self.save_ai_context,
+        )
+        self.transformation = SelectedTextTransformation(self)
+        self.reconversion = ReconversionCoordinator(
+            self.input, context=self.current_reconversion_context,
+            delete=self.delete_surrounding_text, status=self.show_reconversion_status,
+            replay=self.replay_key_event, forward=self.forward_key_event,
+            schedule_timeout=GLib.timeout_add, remove_timeout=GLib.source_remove,
+        )
+        self.input.submit("settings", completion=self.load_settings)
+
+    def ai_review_state(self):
+        return {
+            "snapshot": self.snapshot, "input_epoch": self.input.cancelled,
+            "bridge_generation": self.input.generation, "focused": self.focused,
+            "pending_input": any(pending.key is not None for pending in self.input.pending),
+        }
+
+    def make_ai_scope(self, target):
+        return AIRequestScope(
+            AIRequestConfiguration.from_settings(self.settings), target,
+            before=self.left, after=self.right, include_context=self.settings.get("includeContext", False),
+        )
+
+    def save_ai_context(self, value):
+        try:
+            # Other screens may have changed conversion or dictionary settings.
+            # Leave those for reload_settings and its Core acknowledgement.
+            update_settings({"includeContext": value}, defaults=self.settings)
+            self.settings = {**self.settings, "includeContext": value}
+            self.input.settings = self.settings
+            return True
+        except (OSError, ValueError):
+            return False
+
+    def load_settings(self, snapshot):
+        if "settings" in snapshot:
+            self.settings = snapshot["settings"]
+            self.input.settings = self.settings
+            self.reload_settings()
 
     def reload_settings(self):
-        path = config_path()
-        if path.is_file():
-            stamp = path.stat().st_mtime_ns
-            if stamp != self.settings_stamp:
-                settings = {**self.settings, **json.loads(path.read_text())}
-                result = self.bridge.request("configure", context=self.context_id, settings=settings)
-                if not result.get("error"):
-                    self.settings = settings
-                    self.settings_stamp = stamp
+        if not self.settings:
+            if not any(pending.operation == "settings" for pending in self.input.pending):
+                self.input.submit("settings", completion=self.load_settings)
+            return
+        loaded = self.settings_store.load(self.settings)
+        if loaded.problem:
+            self.notify_settings_problem(loaded.problem)
+            return
+        self.settings_problem_stamp = None
+        if loaded.stamp is None or loaded.stamp in (self.settings_stamp, self.pending_settings_stamp):
+            return
+        self.pending_settings_stamp = loaded.stamp
 
-    def request(self, operation, **values):
-        preserve = not (operation == "reset" and not values.get("submit", False))
-        if operation == "key" and values.get("event", {}).get("keyCode") == 53:
-            preserve = False
-        try:
-            self.bridge.ensure_running()
-            if self.bridge_generation != self.bridge.restarts:
-                self.recover_composition(preserve)
-                self.bridge_generation = self.bridge.restarts
-            result = self.bridge.request(operation, leftContext=self.left, rightContext=self.right,
-                                         privateInput=self.sensitive, context=self.context_id, **values)
-            self.render(result)
-            return result.get("consumed", False)
-        except (OSError, RuntimeError, ValueError):
-            self.recover_composition(preserve)
-            self.bridge.invalidate()
+        def configured(snapshot):
+            self.pending_settings_stamp = None
+            if snapshot.get("error"):
+                self.settings_store.reject(loaded)
+                self.notify_settings_problem(self.settings_store.load(self.settings).problem)
+                return
+            self.settings = loaded.values
+            self.input.settings = loaded.values
+            self.settings_stamp = loaded.stamp
+
+        self.input.submit(
+            "configure", payload={"settings": loaded.values}, completion=configured,
+            persist=lambda: self.settings_store.remember(loaded.values),
+        )
+
+    def notify_settings_problem(self, problem):
+        # The user may have repaired the file while Core rejected an older
+        # queued version. In that case there is no current problem to show.
+        if problem is None:
+            return
+        if problem.stamp != self.settings_problem_stamp:
+            self.settings_problem_stamp = problem.stamp
+            notification = text("settings.input_continues")
+            self.update_auxiliary_text(IBus.Text.new_from_string(notification), True)
+
+    def request(self, operation, *, original_key=None, **values):
+        if self.destroyed or self.private:
             return False
+        self.transformation.input_changed()
+        self.ai_review.cancel()
+        self.input.submit(operation, payload={
+            "leftContext": self.left, "rightContext": self.right, "privateInput": self.sensitive,
+            "reconversionContext": self.current_reconversion_context(), **values,
+        }, key=original_key, key_reply=self.defer_native_key(original_key))
+        return True
 
-    def recover_composition(self, preserve=True):
-        # No response has reached the application, so preserve exactly the last
-        # visible preedit once; never replay an uncertain converter operation.
-        text = self.snapshot.get("preedit", "")
-        self.snapshot = {}
-        self.anchor.update("", 0)
-        if preserve and text and not self.private:
-            self.commit_text(IBus.Text.new_from_string(text))
-        surface().hide(self)
-        self.panel.hide()
-        self.hide_preedit_text()
+    def defer_native_key(self, original_key):
+        if original_key is not None and self.native_key_reply:
+            return self.native_key_reply.defer()
+        return None
+
+    def replay_key_event(self, *key, key_reply=None):
+        def complete(consumed):
+            if key_reply:
+                key_reply(consumed)
+            elif not consumed:
+                self.forward_key_event(*key)
+
+        reply = NativeKeyReply(complete)
+        if self.destroyed or self.private or not self.focused:
+            reply.finish(True)
+            return
+        previous, self.native_key_reply = self.native_key_reply, reply
+        try:
+            consumed = self.do_process_key_event(*key)
+            if not reply.deferred:
+                reply.finish(consumed)
+        finally:
+            self.native_key_reply = previous
+
+    def current_reconversion_context(self):
+        if not self.focused or self.sensitive or not self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT:
+            return None
+        return self.reconversion_context
+
+    def current_transform_selection(self):
+        context = self.current_transform_context()
+        return context.selection if context else None
+
+    def current_transform_context(self):
+        if (not self.focused or self.sensitive
+                or not self.focus_identity or not self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT):
+            return None
+        return FocusedInputContext(context_id=self.focus_identity, selection=self.transform_selection,
+                                   has_surrounding_update=self.has_transform_surrounding_update)
+
+    def show_reconversion_status(self, text):
+        self.update_auxiliary_text(IBus.Text.new_from_string(text), bool(text))
+
+    def clear_reconversion(self):
+        self.reconversion.cancel()
+        self.reconversion_context = None
+        self.show_reconversion_status("")
+
+    def recover_composition(self, text=""):
+        self.prepare_composition_recovery(text)()
+
+    def prepare_composition_recovery(self, text):
+        self.lookup_announcements.reset()
+        self.ai_review.cancel()
+        text, recovery = self.reconversion.take_recovery(text)
+        try:
+            self.pending_settings_stamp = None
+            self.snapshot = {}
+            self.anchor.update("", 0)
+            self.update_preedit_text_with_mode(IBus.Text.new_from_string(""), 0, False, IBus.PreeditFocusMode.COMMIT)
+            surface().hide(self)
+            self.panel.dismiss()
+            self.hide_preedit_text()
+            self.hide_lookup_table()
+            can_restore = self.reconversion.is_current_recovery(recovery)
+            if text and self.focused and not self.private and can_restore:
+                self.commit_text(IBus.Text.new_from_string(text))
+        except (OSError, RuntimeError, ValueError):
+            # take_recovery transferred these calls out of the reconversion
+            # queue; a failed display must not leave their replies orphaned.
+            self.reconversion.finish_recovery(recovery, allow_native=False)
+            raise
+        return lambda: self.reconversion.finish_recovery(
+            recovery, allow_native=can_restore and self.focused and not self.private)
+
+    def preview_pending(self, text, cursor):
+        if not self.focused or self.private:
+            return
+        # IBus commits this visible text to the old input context on focus-out,
+        # before notifying the engine. No asynchronous commit may follow it.
+        self.update_preedit_text_with_mode(IBus.Text.new_from_string(text), cursor, bool(text), IBus.PreeditFocusMode.COMMIT)
+        # A pending key retires old actions while preserving the user's open list.
+        surface().suspend(self)
+        self.panel.suspend()
         self.hide_lookup_table()
 
+    def do_service_method_call(self, connection, sender, object_path, interface,
+                               method, parameters, invocation):
+        arguments = (connection, sender, object_path, interface, method, parameters, invocation)
+        if (method == "ProcessKeyEvent" and interface == "org.freedesktop.IBus.Engine"
+                and connection == self.get_connection()):
+            # GTK's synchronous client applies preedit from this invocation
+            # before earlier asynchronous signals. Keep every key's Core
+            # display changes inside its original reply, including plain text.
+            reply = NativeKeyReply(lambda consumed: self.finish_native_key(consumed, arguments))
+            previous, self.native_key_reply = self.native_key_reply, reply
+            try:
+                consumed = self.emit("process-key-event", *parameters.unpack())
+                if not reply.deferred:
+                    reply.finish(consumed)
+            finally:
+                self.native_key_reply = previous
+            return
+        IBus.Engine.do_service_method_call(self, *arguments)
+
+    def finish_native_key(self, consumed, arguments):
+        if consumed:
+            arguments[-1].return_value(GLib.Variant("(b)", (True,)))
+            return
+        # Reuse IBus's public method dispatcher so its extension filter and
+        # original invocation reply are preserved for an unhandled event.
+        previous, self.native_key_passthrough = self.native_key_passthrough, True
+        try:
+            IBus.Engine.do_service_method_call(self, *arguments)
+        finally:
+            self.native_key_passthrough = previous
+
     def do_process_key_event(self, keyval, keycode, state):
+        if self.native_key_passthrough:
+            return False
         event = translate(keyval, state, Gdk.keyval_to_unicode(keyval))
-        if event is None or self.private:
+        if self.private or not self.focused or self.input.recovering:
+            return False
+        if event is not None and keyval not in MODIFIER_KEYS:
+            self.transformation.input_changed()
+        if self.ai_review.confirmation and keyval in MODIFIER_KEYS:
+            return False
+        if self.ai_review.key(event):
+            return True
+        if (event and event["modifierFlags"] == 0 and not self.input.pending
+                and keyval in (Gdk.KEY_Page_Up, Gdk.KEY_Page_Down)
+                and self.settings.get("tree", True) and self.snapshot.get("nodes")):
+            forward = keyval == Gdk.KEY_Page_Down
+            if surface().scroll_details(self, forward) or self.panel.scroll_details(forward):
+                return True
+        original_key = (keyval, keycode, state)
+        if self.reconversion.process(event, original_key, key_reply=self.native_key_reply):
+            return True
+        if event is None:
+            # Modifier changes and releases do not edit text. Their original
+            # native events need no synthetic ForwardKeyEvent reconstruction.
+            if self.native_key_reply and self.input.pending:
+                self.input.submit(None, key=original_key, key_reply=self.defer_native_key(original_key))
+                return True
             return False
         try:
+            input_was_pending = bool(self.input.pending) or self.input.is_resetting
             self.reload_settings()
             double_tap = False
             if event["keyCode"] in (102, 104):
@@ -112,37 +334,45 @@ class Engine(IBus.Engine):
                 if double_tap:
                     self.prompt("english" if event["keyCode"] == 102 else "japanese")
                     return True
-            return self.request("key", event=event, doubleTap=double_tap)
+            if not input_was_pending and is_native_key(event, self.input.snapshot):
+                return False
+            return self.request("key", event=event, doubleTap=double_tap, original_key=original_key)
         except (OSError, RuntimeError, ValueError):
-            self.recover_composition()
-            return False
+            self.input.recover_pending(key=original_key, key_reply=self.defer_native_key(original_key))
+            return True
 
     def do_set_content_type(self, purpose, hints):
         self.private = purpose in (IBus.InputPurpose.PASSWORD, IBus.InputPurpose.PIN)
         self.sensitive = self.private or bool(hints & IBus.InputHints.PRIVATE)
+        if self.sensitive:
+            self.ai_review.cancel()
+            self.transformation.invalidate_target()
+            self.clear_reconversion()
         if self.private:
-            self.request("reset", submit=False)
+            self.input.cancel()
+            self.pending_settings_stamp = None
+            self.recover_composition()
 
     def do_set_surrounding_text(self, text, cursor, anchor):
+        IBus.Engine.do_set_surrounding_text(self, text, cursor, anchor)
         value = text.get_text()
         self.left = value[:min(cursor, anchor)][-100:]
         self.right = value[max(cursor, anchor):][:100]
         self.selected_text = value[min(cursor, anchor):max(cursor, anchor)]
-        self.apply_pending_transform()
-
-    def apply_pending_transform(self):
-        if not self.pending_transform or not self.focused:
-            return GLib.SOURCE_REMOVE
-        expected, result, deadline = self.pending_transform
-        if time.monotonic() > deadline:
-            self.pending_transform = None
-        elif expected == (self.left, self.right, self.selected_text):
-            self.pending_transform = None
-            self.commit_text(IBus.Text.new_from_string(result))
-        return GLib.SOURCE_REMOVE
+        self.transform_selection = InputSelection.capture(self.focus_identity, value, cursor=cursor, anchor=anchor)
+        self.has_transform_surrounding_update = True
+        self.reconversion_context = surrounding_context(
+            value, cursor, anchor,
+            can_replace=bool(self.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT),
+            sensitive=self.sensitive,
+        )
+        self.reconversion.surrounding_changed()
+        self.transformation.context_changed()
 
     def do_set_cursor_location(self, x, y, width, height):
         self.anchor.locate((x, y, width, height))
+        if self.input.pending:
+            return
         snapshot = self.positioned_snapshot(self.snapshot)
         if self.focused and self.settings.get("tree", True):
             surface().show(self, snapshot, self.panel.location)
@@ -154,17 +384,35 @@ class Engine(IBus.Engine):
         words = [nodes[column[0]]["text"] for column in snapshot.get("columns", []) if column]
         geometry = self.anchor.geometry(words)
         self.panel.location = self.anchor.position if geometry else (self.anchor.location or (0, 0, 0, 0))
+        self.panel.caret_location = self.anchor.location
         return {**snapshot, "wordGeometry": geometry}
 
     def do_focus_in(self):
+        self.focus_identity = None
+        self.activate_input_context()
+
+    def do_focus_in_id(self, object_path, client):
+        self.focus_identity = (object_path, client)
+        self.activate_input_context()
+
+    def activate_input_context(self):
         self.focused = True
+        self.focus_revision = object()
+        self.transform_selection = None
+        self.has_transform_surrounding_update = False
         self.anchor.update("", 0)
+        self.reload_settings()
         self.get_surrounding_text()
         properties = IBus.PropList()
         properties.append(IBus.Property.new("InputMode", IBus.PropType.NORMAL, IBus.Text.new_from_string("あ"), "",
                                             IBus.Text.new_from_string("日本語 / 英数を切り替え"), True, True, IBus.PropState.UNCHECKED, None))
         properties.append(IBus.Property.new("setup", IBus.PropType.NORMAL, IBus.Text.new_from_string("設定…"), "", IBus.Text.new_from_string("azooKey Tree の設定"), True, True, IBus.PropState.UNCHECKED, None))
+        for name, key in (("undo-commit", "undo_menu"), ("reconvert", "selection_menu")):
+            label = IBus.Text.new_from_string(reconversion_message(key))
+            properties.append(IBus.Property.new(name, IBus.PropType.NORMAL, label, "", label, True, True,
+                                                IBus.PropState.UNCHECKED, None))
         self.register_properties(properties)
+        self.transformation.focus_entered()
 
     def do_property_activate(self, name, _state):
         if name == "setup":
@@ -172,36 +420,50 @@ class Engine(IBus.Engine):
         elif name == "InputMode":
             keyval = 0xFF22 if self.snapshot.get("language", "japanese") == "japanese" else 0xFF23
             self.request("key", event=translate(keyval, 0))
+        elif name in ("undo-commit", "reconvert"):
+            self.reconversion.prompt_menu(undo=name == "undo-commit")
 
     def do_focus_out(self):
+        self.lookup_announcements.reset()
+        self.ai_review.cancel()
         self.focused = False
+        self.focus_revision = object()
+        self.focus_identity = self.transform_selection = None
+        self.has_transform_surrounding_update = False
+        self.clear_reconversion()
         surface().hide(self)
-        if self.prompt_open:
-            self.panel.hide()
-            return
-        # No composition is allowed to leak into the next input context.
-        self.request("reset", submit=True)
-        self.panel.hide()
+        self.input.cancel()
+        self.pending_settings_stamp = None
+        self.snapshot = {}
+        self.left = self.right = self.selected_text = ""
+        self.panel.dismiss()
+
+    def do_focus_out_id(self, _object_path):
+        self.do_focus_out()
 
     def do_reset(self):
-        self.request("reset", submit=False)
+        self.ai_review.cancel()
+        self.transformation.reset_input()
+        self.clear_reconversion()
+        self.input.cancel()
+        self.pending_settings_stamp = None
+        self.recover_composition()
 
     def do_disable(self):
-        self.request("reset", submit=True)
-        self.panel.hide()
-        surface().hide(self)
+        # IBus owns focus-out/reset preedit submission. Sending a second commit
+        # here would duplicate text or target the next application.
+        self.do_focus_out()
 
     def do_destroy(self):
         if self.destroyed:
             return
         self.destroyed = True
+        self.transformation.close()
+        self.ai_review.cancel()
+        self.clear_reconversion()
         surface().hide(self)
         self.panel.destroy()
-        try:
-            self.bridge.request("close", context=self.context_id)
-        except (OSError, RuntimeError, ValueError):
-            pass
-        Bridge.release()
+        self.input.close()
         IBus.Engine.do_destroy(self)
 
     def do_candidate_clicked(self, index, button, state):
@@ -225,6 +487,8 @@ class Engine(IBus.Engine):
         self.request("key", event=translate(0xFF54, 0))
 
     def choose(self, operation, index, submit):
+        if self.input.pending or self.reconversion.active or not self.focused:
+            return
         key = "node" if operation == "node" else "index"
         self.request(operation, **{key: index, "generation": self.snapshot.get("generation", -1), "submit": submit})
 
@@ -237,13 +501,30 @@ class Engine(IBus.Engine):
             self.commit_text(IBus.Text.new_from_string(text))
         preedit = snapshot.get("preedit", "")
         self.anchor.update(preedit, snapshot.get("cursor", 0), committed=bool(snapshot.get("commits")))
-        self.update_preedit_text(IBus.Text.new_from_string(preedit), snapshot.get("cursor", 0), bool(preedit))
+        focus_mode = (IBus.PreeditFocusMode.CLEAR if snapshot.get("inputState") == "unicodeInput"
+                      else IBus.PreeditFocusMode.COMMIT)
+        self.update_preedit_text_with_mode(IBus.Text.new_from_string(preedit), snapshot.get("cursor", 0),
+                                          bool(preedit), focus_mode)
+        snapshot = self.render_candidates(snapshot)
+        if snapshot.get("request") in ("replace", "predict", "prompt"):
+            if snapshot["request"] == "prompt" and self.selected_text:
+                self.prompt()
+            else:
+                if self.settings.get("aiEnabled") and not self.sensitive:
+                    scope = self.make_ai_scope(snapshot.get("reading") or "つづき")
+                    self.ai_review.show(scope, snapshot, self.panel.location)
+
+    def render_candidates(self, snapshot):
+        """Redraw candidates without resending input effects outside a key reply."""
         snapshot = self.positioned_snapshot(snapshot)
         prediction = snapshot.get("prediction", "")
         selected = snapshot.get("selection")
         annotation = next((c.get("annotation", "") for c in snapshot.get("candidates", []) if c["index"] == selected), "")
         auxiliary = f"Tab: {prediction}" if prediction else annotation or ""
-        self.update_auxiliary_text(IBus.Text.new_from_string(auxiliary), bool(auxiliary))
+        if snapshot.get("reconversionError"):
+            auxiliary = reconversion_message(snapshot["reconversionError"])
+        if snapshot.get("reconversionError") or self.settings_problem_stamp is None:
+            self.update_auxiliary_text(IBus.Text.new_from_string(auxiliary), bool(auxiliary))
         self.table.clear()
         for candidate in snapshot.get("candidates", []):
             self.table.append_candidate(IBus.Text.new_from_string(candidate["text"]))
@@ -251,22 +532,23 @@ class Engine(IBus.Engine):
             self.table.set_cursor_pos(snapshot.get("selection") or 0)
         is_wayland = "Wayland" in type(Gdk.Display.get_default()).__name__
         shell_tree = self.focused and self.settings.get("tree", True) and surface().show(self, snapshot, self.panel.location)
+        if not shell_tree:
+            surface().hide(self)
         if shell_tree:
-            self.panel.hide()
+            self.lookup_announcements.reset()
+            self.panel.dismiss()
             self.hide_lookup_table()
         elif is_wayland or not self.settings.get("tree", True):
-            self.panel.hide()
+            self.panel.dismiss()
             self.update_lookup_table(self.table, bool(snapshot.get("candidates")))
+            self.lookup_announcements.update(snapshot)
         else:
+            self.lookup_announcements.reset()
             self.hide_lookup_table()
             self.panel.update(snapshot)
-        if snapshot.get("request") in ("replace", "predict", "prompt"):
-            if snapshot["request"] == "prompt" and self.selected_text:
-                self.prompt()
-            else:
-                self.start_ai(snapshot)
+        return snapshot
 
-    def start_ai(self, snapshot, prompt=None, selected_target=None, completion=None):
+    def start_ai(self, snapshot, scope, *, prompt=None, completion=None):
         if self.ai_pending or self.sensitive or not self.settings.get("aiEnabled"):
             if completion:
                 completion(None)
@@ -276,46 +558,48 @@ class Engine(IBus.Engine):
         except (ValueError, GLib.Error):
             api_key = ""
         if not api_key:
-            self.update_auxiliary_text(IBus.Text.new_from_string("設定でAPIキーを登録してください。"), True)
+            self.update_auxiliary_text(IBus.Text.new_from_string(message("ai.error.missing-key")), True)
             if completion:
                 completion(None)
             return
         self.ai_pending = True
         reading = snapshot.get("reading", "")
         generation = snapshot.get("generation", -1)
-        bridge_generation = self.bridge.restarts
-        context = ""
-        if self.settings.get("includeContext"):
-            context = f"Text before: {self.left}\nText after: {self.right}"
+        bridge_generation = self.input.generation
+        focus_epoch = self.input.cancelled
+        arguments = scope.bridge_arguments()
 
         def work():
             connection = None
             try:
                 connection = Bridge(timeout=90)
-                if selected_target is not None:
-                    result = connection.request("transform", apiKey=api_key, prompt=f"{prompt}\n\n{selected_target}\n\n{context}")
+                if prompt is not None:
+                    result = connection.request("transform", apiKey=api_key, prompt=prompt, **arguments)
                 else:
-                    target = reading if reading else "つづき"
-                    result = connection.request("ai", apiKey=api_key, target=target, prompt=context)
+                    result = connection.request("ai", apiKey=api_key, **arguments)
                 texts = result.get("suggestions", [])
-                GLib.idle_add(self.finish_ai, texts, generation, reading, completion, bridge_generation)
+                GLib.idle_add(self.finish_ai, texts, generation, reading, completion, bridge_generation, focus_epoch)
             except (OSError, RuntimeError, ValueError):
-                GLib.idle_add(self.finish_ai, [], generation, reading, completion, bridge_generation)
+                GLib.idle_add(self.finish_ai, [], generation, reading, completion, bridge_generation, focus_epoch)
             finally:
                 if connection:
                     connection.close()
         threading.Thread(target=work, daemon=True).start()
 
-    def finish_ai(self, texts, generation, reading, completion, bridge_generation):
+    def finish_ai(self, texts, generation, reading, completion, bridge_generation, focus_epoch):
         self.ai_pending = False
         if self.destroyed:
             return GLib.SOURCE_REMOVE
-        if bridge_generation != self.bridge.restarts:
+        if bridge_generation != self.input.generation:
             if completion:
                 completion(None)
             return GLib.SOURCE_REMOVE
         if completion:
-            completion(texts[0] if texts else None)
+            # A selected-text preview has its own lifetime and request revision.
+            # Lost input focus removes apply permission, not its copyable result.
+            completion(texts[0] if texts else None, input_context_unchanged=focus_epoch is self.input.cancelled)
+            return GLib.SOURCE_REMOVE
+        if focus_epoch is not self.input.cancelled:
             return GLib.SOURCE_REMOVE
         if not texts:
             self.update_auxiliary_text(IBus.Text.new_from_string("AI変換に失敗しました。接続設定を確認してください。"), True)
@@ -324,20 +608,5 @@ class Engine(IBus.Engine):
         return GLib.SOURCE_REMOVE
 
     def prompt(self, initial_prompt=""):
-        if self.prompt_open:
-            return
-        target = self.selected_text
-        expected_context = (self.left, self.right, target)
-        snapshot = dict(self.snapshot)
-        self.prompt_open = True
-        dialog = PromptDialog(lambda prompt, completion: self.start_ai(snapshot, prompt=prompt, selected_target=target,
-                                                                       completion=completion), initial_prompt)
-        dialog.show_all()
-        response = dialog.run()
-        result = dialog.result
-        dialog.destroy()
-        self.prompt_open = False
-        if response == Gtk.ResponseType.OK and result:
-            self.pending_transform = (expected_context, result, time.monotonic() + 5)
-            self.get_surrounding_text()
-            GLib.idle_add(self.apply_pending_transform)
+        self.ai_review.cancel()
+        self.transformation.show(initial_prompt)

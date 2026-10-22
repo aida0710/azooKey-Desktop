@@ -20,11 +20,21 @@ struct BridgeRequest: Decodable {
     var suggestions: [String]?
     var reading: String?
     var apiKey: String?
+    var aiModel: String?
+    var aiEndpoint: String?
+    var includeContext: Bool?
     var prompt: String?
     var target: String?
     var privateInput: Bool?
     var context: String?
     var doubleTap: Bool?
+    var reconversionContext: ReconversionContext?
+    var reconversionToken: String?
+    var items: [Config.UserDictionaryEntry]?
+    var stagedSettingsPath: String?
+    var importPath: String?
+    var importFormat: UserDictionaryExchange.Format?
+    var importEncoding: UserDictionaryExchange.TextEncoding?
 }
 
 @main
@@ -50,6 +60,8 @@ struct BridgeMain {
         let environment = ProcessInfo.processInfo.environment
         let dataPath = environment["AZOOKEY_DATA_DIR"] ??
             (environment["XDG_DATA_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share").path) + "/azookey-tree"
+        let memoryDirectoryURL = URL(fileURLWithPath: dataPath, isDirectory: true)
+            .appendingPathComponent("memory", isDirectory: true)
         let resources = environment["AZOOKEY_RESOURCES"].map { URL(fileURLWithPath: $0, isDirectory: true) }
         let zenzai = resources.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("ggml-model-Q5_K_M.gguf").path) } ?? false
         let converter = KanaKanjiConverter.withDefaultDictionary()
@@ -64,6 +76,12 @@ struct BridgeMain {
                 if request.privateInput == true || request.operation == "configure" {
                     converter.commitUpdateLearningData()
                 }
+                if let response = try await DesktopDictionaryController.response(
+                    to: request, memoryDirectoryURL: memoryDirectoryURL, converter: converter
+                ) {
+                    try Self.write(response, to: output)
+                    continue
+                }
                 let context = request.context ?? "default"
                 let session: DesktopSession
                 if let existing = sessions[context] {
@@ -76,6 +94,7 @@ struct BridgeMain {
                 session.privateInput = request.privateInput ?? false
                 session.leftContext = String((request.leftContext ?? "").suffix(100))
                 session.rightContext = String((request.rightContext ?? "").prefix(100))
+                session.reconversionContext = request.reconversionContext
                 switch request.operation {
                 case "key":
                     guard let event = request.event else { throw ProtocolError.invalidRequest }
@@ -87,14 +106,22 @@ struct BridgeMain {
                     guard let node = request.node, let generation = request.generation else { throw ProtocolError.invalidRequest }
                     response = session.selectNode(node, submit: request.submit ?? false, expectedGeneration: generation)
                 case "reset": response = session.reset(commit: request.submit ?? false)
+                case "undo-commit": response = session.prepareReconversion(undo: true)
+                case "reconvert": response = session.prepareReconversion(undo: false, reading: request.reading)
+                case "reconversion-reading":
+                    guard let event = request.event else { throw ProtocolError.invalidRequest }
+                    response = session.editReconversionReading(event)
+                case "confirm-reconversion":
+                    guard let token = request.reconversionToken else { throw ProtocolError.invalidRequest }
+                    response = session.confirmReconversion(token)
                 case "snapshot": response = session.snapshot()
-                case "settings":
-                    response = DesktopSnapshot()
-                    response.settings = DesktopSettings()
                 case "configure":
                     guard let settings = request.settings else { throw ProtocolError.invalidRequest }
+                    try await DesktopDictionaryController.applyDictionary(
+                        settings.userDictionary.items, memoryDirectoryURL: memoryDirectoryURL, converter: converter
+                    )
                     try settings.apply()
-                    for item in sessions.values { try item.reloadSettings() }
+                    for item in sessions.values { try item.reloadSettings(rebuildDictionary: false) }
                     response = session.snapshot()
                 case "close":
                     session.close()
@@ -110,20 +137,25 @@ struct BridgeMain {
                     guard let texts = request.suggestions, let generation = request.generation, let reading = request.reading else { throw ProtocolError.invalidRequest }
                     response = session.applySuggestions(texts, reading: reading, expectedGeneration: generation)
                 case "ai":
-                    guard !session.privateInput, let apiKey = request.apiKey, let target = request.target else { throw ProtocolError.invalidRequest }
-                    let model = Config.OpenAiModelName().value
+                    guard !session.privateInput, let apiKey = request.apiKey, let target = request.target,
+                          let model = request.aiModel, let endpoint = request.aiEndpoint else { throw ProtocolError.invalidRequest }
+                    let scope = AIRequestScope(target: target, before: request.leftContext ?? "", after: request.rightContext ?? "",
+                                               includeContext: request.includeContext ?? false)
                     let modelName = model.isEmpty ? Config.OpenAiModelName.default : model
                     response = DesktopSnapshot()
                     response.suggestions = try await OpenAIClient.sendRequest(
-                        .init(prompt: request.prompt ?? "", target: target, modelName: modelName), apiKey: apiKey,
-                        apiEndpoint: Config.OpenAiApiEndpoint().value)
+                        .init(prompt: scope.suggestionContext, target: target, modelName: modelName), apiKey: apiKey,
+                        apiEndpoint: endpoint)
                 case "transform":
-                    guard !session.privateInput, let apiKey = request.apiKey, let prompt = request.prompt else { throw ProtocolError.invalidRequest }
-                    let model = Config.OpenAiModelName().value
+                    guard !session.privateInput, let apiKey = request.apiKey, let prompt = request.prompt, let target = request.target,
+                          let model = request.aiModel, let endpoint = request.aiEndpoint else { throw ProtocolError.invalidRequest }
+                    let scope = AIRequestScope(target: target, before: request.leftContext ?? "", after: request.rightContext ?? "",
+                                               includeContext: request.includeContext ?? false)
+                    let modelName = model.isEmpty ? Config.OpenAiModelName.default : model
                     response = DesktopSnapshot()
                     response.suggestions = [try await OpenAIClient.sendTextTransformRequest(
-                        prompt: prompt, modelName: model.isEmpty ? Config.OpenAiModelName.default : model,
-                        apiKey: apiKey, apiEndpoint: Config.OpenAiApiEndpoint().value)]
+                        prompt: scope.transformationPrompt(instructions: prompt), modelName: modelName,
+                        apiKey: apiKey, apiEndpoint: endpoint)]
                 default: throw ProtocolError.invalidRequest
                 }
             } catch {
@@ -131,10 +163,14 @@ struct BridgeMain {
                 response.consumed = false
                 response.error = "invalid_request"
             }
-            var data = try JSONEncoder().encode(response)
-            data.append(0x0a)
-            try output.write(contentsOf: data)
+            try Self.write(response, to: output)
         }
+    }
+
+    private static func write(_ response: DesktopSnapshot, to output: FileHandle) throws {
+        var encoded = try JSONEncoder().encode(response)
+        encoded.append(0x0a)
+        try output.write(contentsOf: encoded)
     }
     enum ProtocolError: Error { case invalidRequest }
 }

@@ -183,7 +183,11 @@ class BaseCandidateViewController: NSViewController {
         window.isOpaque = false
     }
 
-    func updateCandidatePresentations(_ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint) {
+    func updateCandidatePresentations(
+        _ candidates: [CandidatePresentation], selectionIndex: Int?, cursorLocation: CGPoint,
+        enterConfirmsCandidate _: Bool = false
+    ) {
+        tableView.rowHeight = Config.CandidateTextSize().value.pointSize + 14
         self.candidates = candidates
         self.currentSelectedRow = selectionIndex ?? -1
         self.tableView.reloadData()
@@ -214,7 +218,8 @@ class BaseCandidateViewController: NSViewController {
         }
     }
 
-    func getMaxTextWidth(candidates: some Sequence<String>, font: NSFont = .systemFont(ofSize: 18)) -> CGFloat {
+    func getMaxTextWidth(candidates: some Sequence<String>,
+                         font: NSFont = .systemFont(ofSize: Config.CandidateTextSize().value.pointSize)) -> CGFloat {
         candidates.reduce(0) { maxWidth, candidate in
             let attributedString = NSAttributedString(
                 string: candidate,
@@ -309,6 +314,7 @@ extension BaseCandidateViewController: NSTableViewDelegate, NSTableViewDataSourc
         }
 
         if let cell = cell {
+            cell.candidateTextField.font = .systemFont(ofSize: Config.CandidateTextSize().value.pointSize)
             configureCellView(cell, forRow: row)
         }
 
