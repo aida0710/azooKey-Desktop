@@ -45,16 +45,7 @@ public struct AIPromptHistory: Sendable {
         guard let data = try? Data(contentsOf: fileURL), let items = try? JSONDecoder().decode([Item].self, from: data) else {
             return []
         }
-        // Enumerated so equal keys keep their saved order.
-        return items.enumerated().sorted { first, second in
-            if first.element.pinned != second.element.pinned {
-                return first.element.pinned
-            }
-            if first.element.lastUsed != second.element.lastUsed {
-                return first.element.lastUsed > second.element.lastUsed
-            }
-            return first.offset < second.offset
-        }.map(\.element)
+        return Self.ranked(items)
     }
 
     /// Moves `prompt` to the front. A shortcut is kept only for a pinned
@@ -73,12 +64,37 @@ public struct AIPromptHistory: Sendable {
             throw .duplicateShortcut
         }
         items.insert(Item(prompt: prompt, pinned: pinned, lastUsed: usedAt.timeIntervalSince1970, shortcut: pinned ? shortcut : nil), at: 0)
-        let kept = items.filter(\.pinned) + items.filter { !$0.pinned }.prefix(Self.recentLimit)
-        do {
-            try write(kept)
-        } catch {
-            throw .saveFailed
+        try store(items)
+    }
+
+    /// Records that `prompt` was used again: it moves to the front and keeps
+    /// the pin and shortcut it already has. A new instruction starts unpinned.
+    public func recordUse(_ prompt: String) throws(Failure) {
+        let existing = load().first { $0.prompt.hasSameScalars(as: prompt) }
+        try save(prompt, pinned: existing?.pinned ?? false, shortcut: existing?.shortcut, usedAt: Date())
+    }
+
+    /// Starts the history from one kept elsewhere, such as the preferences of
+    /// an earlier macOS version. Does nothing once the history file exists.
+    /// The items are ranked like `load()`; the first of equal instructions is
+    /// kept, a shortcut stays only on a pinned item where it first appears,
+    /// and at most `recentLimit` unpinned items remain.
+    public func importItems(_ items: [Item]) throws(Failure) {
+        guard !FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
         }
+        var imported: [Item] = []
+        var usedShortcuts: Set<KeyboardShortcut> = []
+        for var item in Self.ranked(items) where !imported.contains(where: { $0.prompt.hasSameScalars(as: item.prompt) }) {
+            if !item.pinned || item.shortcut.map(usedShortcuts.contains) == true {
+                item.shortcut = nil
+            }
+            if let shortcut = item.shortcut {
+                usedShortcuts.insert(shortcut)
+            }
+            imported.append(item)
+        }
+        try store(imported)
     }
 
     /// Shortcuts of pinned instructions, in history order.
@@ -88,6 +104,30 @@ public struct AIPromptHistory: Sendable {
                 return nil
             }
             return (shortcut, item.prompt)
+        }
+    }
+
+    /// Pinned first, then most recently used. Enumerated so equal keys keep
+    /// their saved order.
+    private static func ranked(_ items: [Item]) -> [Item] {
+        items.enumerated().sorted { first, second in
+            if first.element.pinned != second.element.pinned {
+                return first.element.pinned
+            }
+            if first.element.lastUsed != second.element.lastUsed {
+                return first.element.lastUsed > second.element.lastUsed
+            }
+            return first.offset < second.offset
+        }.map(\.element)
+    }
+
+    /// Keeps every pinned instruction and the first `recentLimit` unpinned ones.
+    private func store(_ items: [Item]) throws(Failure) {
+        let kept = items.filter(\.pinned) + items.filter { !$0.pinned }.prefix(Self.recentLimit)
+        do {
+            try write(kept)
+        } catch {
+            throw .saveFailed
         }
     }
 

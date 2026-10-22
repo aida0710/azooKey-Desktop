@@ -192,4 +192,14 @@ struct AIDesktopRequestFlowTests {
             _ = try await arguments.requestTransformation(apiKey: "local-test-placeholder", session: Self.session)
         }
     }
+
+    @Test func aSuggestionRequestKeepsTheReviewedDestinationWithTheChosenBackend() {
+        let review = AISuggestionReview(id: 1, reading: "にほんご", generation: 1, before: "", after: "",
+                                        configuration: AISuggestionReviewTests.configuration)
+        let request = review.content.arguments(includeContext: false)
+            .suggestionRequest(backend: .foundationModels, apiKey: "local-test-placeholder")
+        #expect(request.backend == .foundationModels)
+        #expect(request.apiKey == "local-test-placeholder")
+        #expect(request.apiEndpoint == AISuggestionReviewTests.configuration.endpoint)
+    }
 }
