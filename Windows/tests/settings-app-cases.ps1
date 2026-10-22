@@ -13,14 +13,23 @@ $ErrorActionPreference = 'Stop'
 $startLimitMilliseconds = 15000
 $settingsWindowClass = 'azooKeyTreeSettings'
 $closeMessage = 0x0010  # WM_CLOSE
+$getSelectionMessage = 0x0188  # LB_GETCURSEL
+# The page list's order follows Core's definition: input, conversion, dictionary, ai, support.
+$dictionaryPage = 2
+# PowerShell passes $null as "" to a string parameter; FindWindow needs a real null title.
+$anyTitle = [NullString]::Value
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 public static class SettingsAppWindows {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern IntPtr FindWindow(string className, string title);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string title);
     [DllImport("user32.dll")]
     public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 }
 '@
 $failed = 0
@@ -43,12 +52,21 @@ Check (Test-Path (Join-Path $Destination 'build-info.txt')) 'the package records
 $windowReady = [System.Threading.EventWaitHandle]::new($false, [System.Threading.EventResetMode]::ManualReset, 'Local\azooKeyTreeSettingsWindowReady')
 $first = Start-Process -FilePath $target -ArgumentList '--page', 'ai' -PassThru
 Check ($windowReady.WaitOne($startLimitMilliseconds)) 'the settings app reports its window'
-$window = [SettingsAppWindows]::FindWindow($settingsWindowClass, $null)
+$window = [SettingsAppWindows]::FindWindow($settingsWindowClass, $anyTitle)
 Check ($window -ne [IntPtr]::Zero -and -not $first.HasExited) 'the settings window opens'
 
 $second = Start-Process -FilePath $target -ArgumentList '--page', 'dictionary' -PassThru
 Check ($second.WaitForExit($startLimitMilliseconds) -and $second.ExitCode -eq 0) 'a second start hands its page to the open window and exits'
-Check (-not $first.HasExited -and [SettingsAppWindows]::FindWindow($settingsWindowClass, $null) -eq $window) 'the first window stays the only one'
+Check (-not $first.HasExited -and [SettingsAppWindows]::FindWindow($settingsWindowClass, $anyTitle) -eq $window) 'the first window stays the only one'
+# The open window shows the second start's page once it has read Core's definition.
+$pageList = [SettingsAppWindows]::FindWindowEx($window, [IntPtr]::Zero, 'ListBox', $anyTitle)
+$deadline = [DateTime]::UtcNow.AddMilliseconds($startLimitMilliseconds)
+do {
+    $shownPage = [int][SettingsAppWindows]::SendMessage($pageList, $getSelectionMessage, [IntPtr]::Zero, [IntPtr]::Zero)
+    if ($shownPage -eq $dictionaryPage) { break }
+    Start-Sleep -Milliseconds 100
+} while ([DateTime]::UtcNow -lt $deadline)
+Check ($shownPage -eq $dictionaryPage) 'the open window switches to the page the second start asked for'
 
 [void][SettingsAppWindows]::PostMessage($window, $closeMessage, [IntPtr]::Zero, [IntPtr]::Zero)
 Check ($first.WaitForExit($startLimitMilliseconds)) 'closing the window ends the app'
