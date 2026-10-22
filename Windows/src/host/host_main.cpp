@@ -43,6 +43,12 @@ constexpr DWORD kClientReadTimeoutMilliseconds = INFINITE;
 // Sent when the converter could not answer, so the client recovers its
 // composition instead of waiting.
 constexpr char kUnavailableReply[] = "{\"consumed\":false,\"error\":\"converter_unavailable\"}";
+// Typing one letter into a context nobody else uses loads the dictionary and,
+// through live conversion, Zenzai's model; closing it commits and learns nothing.
+constexpr char kWarmUpKeyRequest[] =
+    "{\"operation\":\"key\",\"context\":\"azookey-host-warm-up\",\"event\":{\"keyCode\":65535,\"characters\":\"a\","
+    "\"charactersIgnoringModifiers\":\"a\",\"modifierFlags\":0}}";
+constexpr char kWarmUpCloseRequest[] = "{\"operation\":\"close\",\"context\":\"azookey-host-warm-up\"}";
 
 struct Options {
     std::wstring pipeName = azookey::channel::HostPipeName();
@@ -128,6 +134,12 @@ public:
                 LocalFree(descriptor);
                 return first ? 0 : 3;
             }
+            if (first) {
+                // Loading the converter takes longer than the text service waits for
+                // a key (2 s on a cold disk); do it now, before anyone types. Keys
+                // that arrive meanwhile wait for the converter like any other.
+                std::thread([this] { WarmUp(); }).detach();
+            }
             first = false;
             if (!WaitForClient(pipe)) {
                 CloseHandle(pipe);
@@ -186,6 +198,11 @@ private:
         }
         DisconnectNamedPipe(pipe);
         CloseHandle(pipe);
+    }
+
+    void WarmUp() {
+        Convert(kWarmUpKeyRequest);
+        Convert(kWarmUpCloseRequest);
     }
 
     std::string Convert(const std::string& line) {

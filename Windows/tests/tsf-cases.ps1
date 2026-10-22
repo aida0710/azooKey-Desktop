@@ -34,6 +34,27 @@ $cases = @(
     @{ Name = 'Ctrl+Shift+R reconverts the selection after its reading'; Keys = 'nihongo{ENTER}{SHIFT+LEFT}{SHIFT+LEFT}{SHIFT+LEFT}{CTRL+SHIFT+R}{SHOT:reading}nihongo{ENTER}{SHOT:reconverted}{F6}'; Expected = 'にほんご' },
     @{ Name = 'Esc leaves the reading prompt'; Keys = 'nihongo{ENTER}{SHIFT+LEFT}{SHIFT+LEFT}{SHIFT+LEFT}{CTRL+SHIFT+R}ka{ESC}a'; Expected = 'あ' }
 )
+# The host warms the converter up when it starts (dictionary and Zenzai's model),
+# as it does at sign-in before a user types. Start the cases after that, so they
+# check typing rather than a cold start; the host integration test times the
+# first key. A request with a long wait returns once the warm-up is done.
+function Wait-HostReady([string]$hostExecutable, [int]$limitMilliseconds = 60000) {
+    $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $pipeName = "azooKeyTree-$sid"
+    if (-not (Test-Path "\\.\pipe\$pipeName")) { Start-Process -FilePath $hostExecutable -WindowStyle Hidden }
+    $pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', $pipeName, [System.IO.Pipes.PipeDirection]::InOut)
+    $pipe.Connect($limitMilliseconds)
+    $writer = [System.IO.StreamWriter]::new($pipe, [System.Text.UTF8Encoding]::new($false))
+    $writer.NewLine = "`n"
+    $writer.WriteLine('{"operation":"ime-shortcuts"}')
+    $writer.Flush()
+    $reader = [System.IO.StreamReader]::new($pipe, [System.Text.UTF8Encoding]::new($false))
+    $reply = $reader.ReadLineAsync()
+    if (-not $reply.Wait($limitMilliseconds)) { throw 'the host did not answer after warming up' }
+    $pipe.Dispose()
+}
+Wait-HostReady (Join-Path $env:ProgramFiles 'azooKey Tree\azookey-windows-host.exe')
+
 $failed = 0
 foreach ($case in $cases) {
     $arguments = @('--clsid', $clsid, '--profile', $profileGuid, '--keys', $case.Keys, '--expect', $case.Expected, '--screenshots', $Screenshots)
