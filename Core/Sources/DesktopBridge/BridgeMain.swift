@@ -88,6 +88,12 @@ struct BridgeMain {
                     try Self.write(response, to: output)
                     continue
                 }
+                if let response = try DesktopServiceController.response(
+                    to: request.operation, line: line, dataDirectory: URL(fileURLWithPath: dataPath, isDirectory: true)
+                ) {
+                    try Self.write(response, to: output)
+                    continue
+                }
                 let context = request.context ?? "default"
                 let session: DesktopSession
                 if let existing = sessions[context] {
@@ -169,7 +175,7 @@ struct BridgeMain {
         }
     }
 
-    private static func write(_ response: DesktopSnapshot, to output: FileHandle) throws {
+    private static func write(_ response: some Encodable, to output: FileHandle) throws {
         var encoded = try JSONEncoder().encode(response)
         encoded.append(0x0a)
         try output.write(contentsOf: encoded)

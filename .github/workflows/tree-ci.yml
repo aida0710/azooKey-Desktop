@@ -26,6 +26,19 @@ jobs:
           script: |
             const { shouldRunChecks } = require('./Tools/ci/should-run-checks.cjs');
             return await shouldRunChecks({ github, context, warning: core.warning, info: core.info });
+  # Generated messages and palettes are committed; a stale copy must not ship.
+  generated-data:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 Tools/tests/test-generate-messages.py
+      - run: python3 Tools/generate-messages.py --check
+      - run: python3 Tools/generate-candidate-palettes.py --check
+      - name: Check the generated C++ message lookup
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror Tools/tests/test-message-catalog.cpp -o "$RUNNER_TEMP/test-message-catalog"
+          "$RUNNER_TEMP/test-message-catalog"
   ubuntu:
     needs: select-checks
     if: needs.select-checks.outputs.run-checks == 'true'

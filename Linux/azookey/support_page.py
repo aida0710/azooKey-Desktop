@@ -1,34 +1,42 @@
-"""Read-only setup guidance and an allowlisted diagnostic report."""
+"""Read-only setup guidance and Core's allowlisted diagnostic report."""
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from .i18n import text as message
-from .support_diagnostics import diagnostics, GUIDE_URL, RELEASES_URL, ISSUES_URL, UPSTREAM_URL
+from .support_diagnostics import support_environment
 
+GUIDE_URL = "https://github.com/aida0710/azooKey-Desktop/blob/main/docs/setup-and-recovery.md"
+RELEASES_URL = "https://github.com/aida0710/azooKey-Desktop/releases"
+ISSUES_URL = "https://github.com/aida0710/azooKey-Desktop/issues/new"
+UPSTREAM_URL = "https://github.com/azooKey/azooKey-Desktop"
 # This settings-only query must not leave an unresponsive engine blocking the UI.
 STATUS_QUERY_TIMEOUT_MS = 300
 # Keep about ten report lines visible while leaving space for copy controls.
 REPORT_MINIMUM_HEIGHT = 190
+# The Linux settings window is Japanese.
+REPORT_LANGUAGE = "ja"
 
 
-def engine_status():
+def renderer_registered():
+    """The engine's RendererStatus, or None when no engine answers."""
     try:
         reply = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
             "org.azookey.Tree", "/org/azookey/Tree", "org.azookey.Tree", "RendererStatus",
             None, GLib.VariantType.new("(b)"), Gio.DBusCallFlags.NO_AUTO_START,
             STATUS_QUERY_TIMEOUT_MS, None,
         )
-        return {"rendererRegistered": reply.unpack()[0]}
+        return reply.unpack()[0]
     except GLib.Error:
         return None
 
 
 class SupportPage(Gtk.Box):
-    def __init__(self, settings):
+    def __init__(self, settings, bridge):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.settings = settings
+        self.bridge = bridge
         for key in ("support.setup.linux", "support.recovery"):
             self.pack_start(Gtk.Label(label=message(key), xalign=0, wrap=True), False, False, 0)
         for key, url in (("support.guide", GUIDE_URL), ("support.releases", RELEASES_URL),
@@ -54,7 +62,10 @@ class SupportPage(Gtk.Box):
         self.refresh()
 
     def refresh(self):
-        self.report_text = diagnostics(tree_enabled=self.settings().get("tree", True), engine_status=engine_status())
+        environment = support_environment(tree_enabled=self.settings().get("tree", True),
+                                          renderer_registered=renderer_registered())
+        reply = self.bridge.request("support-diagnostics", supportEnvironment=environment, language=REPORT_LANGUAGE)
+        self.report_text = reply["supportDiagnostics"]
         self.report.get_buffer().set_text(self.report_text)
         self.notice.set_text("")
 

@@ -1,0 +1,334 @@
+{
+  "settings.backend_recovery_failed": {
+    "ja": "設定ファイルの保存と、変換器の元の設定への復元に失敗しました。もう一度保存すると、元の設定の復元から再試行します。",
+    "en": "Saving the settings file and restoring the converter's previous settings both failed. Saving again first retries restoring the previous settings."
+  },
+  "settings.backslash": {
+    "ja": "円記号の代わりにバックスラッシュ",
+    "en": "Backslash instead of the yen sign",
+    "macos": {
+      "ja": "円記号の代わりにバックスラッシュを入力",
+      "en": "Type a backslash instead of the yen sign"
+    }
+  },
+  "settings.backup_warning": {
+    "ja": "設定は保存しましたが、正常版の控えを保存できませんでした。設定フォルダーの権限を確認してください。",
+    "en": "The settings were saved, but a backup of the valid version could not be saved. Check the permissions of the settings folder."
+  },
+  "settings.busy": {
+    "ja": "別の画面が設定を保存しています。少し待ってもう一度保存してください。",
+    "en": "Another window is saving the settings. Wait a moment and save again."
+  },
+  "settings.cancel": {
+    "ja": "取消",
+    "en": "Cancel"
+  },
+  "settings.changed": {
+    "ja": "別の操作で設定ファイルが変わりました。設定画面を開き直してください。",
+    "en": "Another operation changed the settings file. Reopen the settings window."
+  },
+  "settings.custom-table": {
+    "ja": "カスタム入力表（TSV）",
+    "en": "Custom input table (TSV)"
+  },
+  "settings.debug": {
+    "ja": "デバッグ候補",
+    "en": "Debug candidates",
+    "macos": {
+      "ja": "デバッグウィンドウを有効化",
+      "en": "Enable debug window"
+    }
+  },
+  "settings.dictionary_edit": {
+    "ja": "ユーザー辞書を編集…（{count}件）",
+    "en": "Edit user dictionary… ({count} entries)"
+  },
+  "settings.dictionary_saved": {
+    "ja": "辞書を保存しました。次の変換から使用します。",
+    "en": "The dictionary was saved. It will be used for the next conversion."
+  },
+  "settings.dictionary_separate_save": {
+    "ja": "辞書は専用の画面で編集し、その画面の「保存」で反映します。",
+    "en": "The dictionary is edited in its own window and applied with that window's Save button."
+  },
+  "settings.downloadTypoWeights": {
+    "ja": "入力訂正モデルをダウンロード",
+    "en": "Download the typo correction model"
+  },
+  "settings.engine_rejected": {
+    "ja": "変換器が設定を適用できませんでした。カスタム入力表などを確認してください。",
+    "en": "The converter could not apply the settings. Check the custom input table and other settings."
+  },
+  "settings.halfSpace": {
+    "ja": "スペースを半角にする",
+    "en": "Type half-width spaces",
+    "macos": {
+      "ja": "スペースは常に半角を入力",
+      "en": "Always type half-width spaces"
+    }
+  },
+  "settings.importPersonalization": {
+    "ja": "Tunerの個人化モデルを読み込む…",
+    "en": "Import a Tuner personalization model…"
+  },
+  "settings.inferenceLimit": {
+    "ja": "推論回数 (1–100)",
+    "en": "Inference limit (1–100)",
+    "macos": {
+      "ja": "Zenzaiの推論上限",
+      "en": "Zenzai inference limit"
+    }
+  },
+  "settings.inputStyle": {
+    "ja": "入力配列",
+    "en": "Input layout",
+    "macos": {
+      "ja": "入力方式",
+      "en": "Input method"
+    }
+  },
+  "settings.inputStyle.custom": {
+    "ja": "カスタム",
+    "en": "Custom"
+  },
+  "settings.inputStyle.default": {
+    "ja": "ローマ字",
+    "en": "Romaji",
+    "macos": {
+      "ja": "デフォルト",
+      "en": "Default"
+    }
+  },
+  "settings.inputStyle.defaultAZIK": {
+    "ja": "AZIK",
+    "en": "AZIK"
+  },
+  "settings.inputStyle.defaultKanaJIS": {
+    "ja": "かな JIS",
+    "en": "Kana (JIS)",
+    "macos": {
+      "ja": "かな入力（JIS）",
+      "en": "Kana input (JIS)"
+    }
+  },
+  "settings.inputStyle.defaultKanaUS": {
+    "ja": "かな US",
+    "en": "Kana (US)",
+    "macos": {
+      "ja": "かな入力（US）",
+      "en": "Kana input (US)"
+    }
+  },
+  "settings.input_continues": {
+    "ja": "設定を読み込めないため、正常な設定で入力を続けます。設定画面で確認してください。",
+    "en": "The settings could not be loaded, so input continues with the last valid settings. Check them in the settings window."
+  },
+  "settings.invalid_json": {
+    "ja": "JSONの構文を確認してください（{line}行目、{column}列目）。",
+    "en": "Check the JSON syntax (line {line}, column {column})."
+  },
+  "settings.invalid_structure": {
+    "ja": "JSONの入れ子が深すぎます。設定の構造を確認してください。",
+    "en": "The JSON is nested too deeply. Check the structure of the settings."
+  },
+  "settings.invalid_value": {
+    "ja": "設定項目「{field}」の型または値を確認してください。",
+    "en": "Check the type or value of the setting “{field}”."
+  },
+  "settings.live": {
+    "ja": "ライブ変換",
+    "en": "Live conversion",
+    "macos": {
+      "ja": "ライブ変換を有効化",
+      "en": "Enable live conversion"
+    }
+  },
+  "settings.optionDirect": {
+    "ja": "Altキーで全角英数を直接入力",
+    "en": "Type full-width alphanumerics directly with Alt",
+    "macos": {
+      "ja": "Optionキーで直接全角英数を入力",
+      "en": "Type full-width alphanumerics directly with Option"
+    }
+  },
+  "settings.page.ai": {
+    "ja": "AI",
+    "en": "AI"
+  },
+  "settings.page.conversion": {
+    "ja": "変換表示",
+    "en": "Conversion and display"
+  },
+  "settings.page.dictionary": {
+    "ja": "辞書と学習",
+    "en": "Dictionaries and learning"
+  },
+  "settings.page.input": {
+    "ja": "入力",
+    "en": "Input"
+  },
+  "settings.page.support": {
+    "ja": "サポート",
+    "en": "Support"
+  },
+  "settings.personalization": {
+    "ja": "個人化モデル",
+    "en": "Personalization model"
+  },
+  "settings.personalization.explanation": {
+    "ja": "変換プロフィールは変換時の補足情報です。個人化モデルは別途作成したモデルを使います。どちらも履歴学習とは別の設定です。",
+    "en": "The conversion profile provides context for conversion. Personalization uses a separately created model. Both are independent of learning history."
+  },
+  "settings.personalization.hard": {
+    "ja": "強",
+    "en": "Strong",
+    "macos": {
+      "ja": "強く",
+      "en": "Strong"
+    }
+  },
+  "settings.personalization.normal": {
+    "ja": "標準",
+    "en": "Standard",
+    "macos": {
+      "ja": "普通",
+      "en": "Normal"
+    }
+  },
+  "settings.personalization.off": {
+    "ja": "オフ",
+    "en": "Off"
+  },
+  "settings.personalization.soft": {
+    "ja": "弱",
+    "en": "Weak",
+    "macos": {
+      "ja": "弱く",
+      "en": "Weak"
+    }
+  },
+  "settings.predictiveTyping": {
+    "ja": "予測入力（開発中）",
+    "en": "Predictive input (in development)",
+    "macos": {
+      "ja": "開発中の予測入力を有効化",
+      "en": "Enable predictive input (in development)"
+    }
+  },
+  "settings.profile": {
+    "ja": "変換プロフィール",
+    "en": "Conversion profile"
+  },
+  "settings.punctuation": {
+    "ja": "句読点",
+    "en": "Punctuation",
+    "macos": {
+      "ja": "句読点の種類",
+      "en": "Punctuation style"
+    }
+  },
+  "settings.punctuation.kutenAndComma": {
+    "ja": "，。",
+    "en": "， and 。",
+    "macos": {
+      "ja": "，と。",
+      "en": "， and 。"
+    }
+  },
+  "settings.punctuation.kutenAndToten": {
+    "ja": "、。",
+    "en": "、 and 。",
+    "macos": {
+      "ja": "、と。",
+      "en": "、 and 。"
+    }
+  },
+  "settings.punctuation.periodAndComma": {
+    "ja": "，．",
+    "en": "， and ．",
+    "macos": {
+      "ja": "，と．",
+      "en": "， and ．"
+    }
+  },
+  "settings.punctuation.periodAndToten": {
+    "ja": "、．",
+    "en": "、 and ．",
+    "macos": {
+      "ja": "、と．",
+      "en": "、 and ．"
+    }
+  },
+  "settings.read_failed": {
+    "ja": "設定ファイルを読み取れません。ファイルの権限と種類を確認してください。",
+    "en": "The settings file cannot be read. Check the file's permissions and type."
+  },
+  "settings.recovery_detail": {
+    "ja": "{reason}\n対象: {path}\n現在は正常な設定を使っています。復旧時は元ファイルを別名で残します。",
+    "en": "{reason}\nFile: {path}\nThe last valid settings are in use. Recovery keeps the original file under another name."
+  },
+  "settings.recovery_required": {
+    "ja": "設定ファイルの復旧が必要です。設定画面で元ファイルを保全してから復旧してください。",
+    "en": "The settings file needs recovery. Preserve the original file in the settings window, then recover it."
+  },
+  "settings.recovery_title": {
+    "ja": "設定ファイルを復旧できます",
+    "en": "The settings file can be recovered"
+  },
+  "settings.restore_current": {
+    "ja": "正常な設定で復旧",
+    "en": "Recover with the valid settings"
+  },
+  "settings.restore_defaults": {
+    "ja": "入力・表示を既定に戻して復旧",
+    "en": "Recover with default input and display settings"
+  },
+  "settings.restore_explanation": {
+    "ja": "辞書、学習データ、個人化モデル、APIキーは削除しません。AI設定と学習方法も保持します。",
+    "en": "Dictionaries, learning data, personalization models, and API keys are not deleted. AI settings and the learning mode are also kept."
+  },
+  "settings.restore_question": {
+    "ja": "元ファイルを保全して設定を復旧しますか？",
+    "en": "Preserve the original file and recover the settings?"
+  },
+  "settings.restored": {
+    "ja": "設定を復旧しました。元ファイル: {backup}",
+    "en": "The settings were recovered. Original file: {backup}"
+  },
+  "settings.save": {
+    "ja": "保存",
+    "en": "Save"
+  },
+  "settings.saved": {
+    "ja": "保存しました。次の入力から反映します。",
+    "en": "Saved. Changes apply from the next input."
+  },
+  "settings.tree": {
+    "ja": "木構造の候補ウィンドウ",
+    "en": "Tree candidate window",
+    "macos": {
+      "ja": "変換候補を木構造で表示",
+      "en": "Show candidates as a tree"
+    }
+  },
+  "settings.typoCorrection": {
+    "ja": "入力訂正（開発中）",
+    "en": "Typo correction (in development)",
+    "macos": {
+      "ja": "開発中の入力訂正を有効化",
+      "en": "Enable typo correction (in development)"
+    }
+  },
+  "settings.unavailable.marisa_windows": {
+    "ja": "Windows版の変換器はこのモデルの形式（MARISA）を読み込めないため、利用できません。",
+    "en": "Unavailable on Windows because its converter cannot read this model format (MARISA)."
+  },
+  "settings.unknown_key": {
+    "ja": "未対応の設定項目「{field}」があります。",
+    "en": "The setting “{field}” is not supported."
+  },
+  "settings.write_failed": {
+    "ja": "設定ファイルを保存できませんでした。ファイルとフォルダーの権限を確認してください。",
+    "en": "The settings file could not be saved. Check the permissions of the file and its folder."
+  }
+}

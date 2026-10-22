@@ -34,7 +34,7 @@ class SettingsAccessibilityTests(unittest.TestCase):
         self.path = pathlib.Path(self.directory.name) / "azookey-tree/settings.json"
         self.path.parent.mkdir()
         self.path.write_text(json.dumps(values, ensure_ascii=False))
-        support = mock.patch("azookey.support_page.engine_status", return_value=None)
+        support = mock.patch("azookey.support_page.renderer_registered", return_value=None)
         support.start()
         self.addCleanup(support.stop)
         self.window = SettingsWindow()

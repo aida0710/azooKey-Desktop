@@ -15,7 +15,7 @@ def populate_settings_pages(window, book):
         "note": lambda parent, element: add_note(parent, element["textKey"]),
         "action": lambda parent, element: add_action(window, parent, element["action"]),
         "secret": lambda parent, element: add_secret(window, parent, element["secret"]),
-        "support": lambda parent, _element: parent.pack_start(SupportPage(lambda: window.values), True, True, 0),
+        "support": lambda parent, _element: parent.pack_start(SupportPage(lambda: window.values, window.bridge), True, True, 0),
     }
     for page in window.schema["pages"]:
         parent = window.page(book, message(page["titleKey"]))

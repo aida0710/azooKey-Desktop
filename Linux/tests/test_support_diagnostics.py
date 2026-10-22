@@ -7,88 +7,26 @@ from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from azookey.i18n import text as message
-from azookey.support_diagnostics import diagnostics, read_build_info, renderer_status
+from azookey.support_diagnostics import component_version
 
 
-class SupportDiagnosticsTests(unittest.TestCase):
-    def test_build_info_ignores_unknown_keys_and_invalid_values(self):
+class ComponentVersionTests(unittest.TestCase):
+    def test_ibus_component_uses_only_a_recognized_packaged_version(self):
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "build-info.txt"
-            path.write_text("version=0.1.2\narchitecture=amd64\nsource=0123456789abcdef\napiKey=PRIVATE_KEY\n", encoding="utf-8")
-            self.assertEqual(read_build_info(path), {"version": "0.1.2", "architecture": "amd64", "source": "0123456789abcdef"})
-            path.write_text("version=PRIVATE_TEXT\narchitecture=PRIVATE_CPU\nsource=PRIVATE_DOCUMENT\n", encoding="utf-8")
-            self.assertEqual(read_build_info(path), {})
-            path.write_bytes(b"\xff")
-            self.assertEqual(read_build_info(path), {})
-            self.assertEqual(read_build_info(path.with_name("absent")), {})
-
-    def test_report_excludes_document_dictionary_history_api_key_and_user_environment(self):
-        report = diagnostics(
-            tree_enabled=True, engine_status={"rendererRegistered": False, "document": "PRIVATE_DOCUMENT"},
-            build_info={"version": "0.1.2", "architecture": "arm64", "source": "0123456789abcdef",
-                        "dictionary": "PRIVATE_DICTIONARY", "history": "PRIVATE_HISTORY", "apiKey": "PRIVATE_KEY"},
-            environment={"XDG_SESSION_TYPE": "wayland", "HOME": "/home/PRIVATE_USER", "API_KEY": "PRIVATE_ENV"},
-            os_release={"ID": "ubuntu", "VERSION_ID": "24.04", "PRETTY_NAME": "PRIVATE_OS_EXTRA"},
-            architecture="aarch64",
-        )
-        self.assertNotIn("PRIVATE_", report)
-        for value in ("0.1.2", "ubuntu 24.04", "aarch64", "arm64", "0123456789abcdef"):
-            self.assertIn(value, report)
-        self.assertIn(message("support.renderer.ibus-list"), report)
-        self.assertIn(message("support.fallback.extension"), report)
-
-    def test_unknown_environment_does_not_claim_a_working_renderer(self):
-        report = diagnostics(tree_enabled=True, engine_status=None,
-                             environment={"XDG_SESSION_TYPE": "PRIVATE_SESSION"},
-                             build_info={"version": "PRIVATE_VERSION"}, os_release={"ID": "PRIVATE OS"})
-        self.assertNotIn("PRIVATE", report)
-        self.assertIn(message("support.fallback.unavailable"), report)
-
-    def test_renderer_reason_distinguishes_setting_extension_and_missing_engine(self):
-        cases = [
-            (False, "wayland", None, "support.renderer.ibus-list", "support.fallback.setting"),
-            (False, "x11", {"rendererRegistered": True}, "support.renderer.ibus-list", "support.fallback.setting"),
-            (False, "wayland", {"rendererRegistered": True}, "support.renderer.ibus-list", "support.fallback.setting"),
-            (True, "x11", {}, "support.renderer.gtk-tree", "support.none"),
-            (True, "x11", {"rendererRegistered": False}, "support.renderer.gtk-tree", "support.none"),
-            (True, "wayland", {"rendererRegistered": True}, "support.renderer.shell-tree", "support.none"),
-            (True, "wayland", {"rendererRegistered": False}, "support.renderer.ibus-list", "support.fallback.extension"),
-            (True, "x11", None, "support.unknown", "support.fallback.unavailable"),
-            (True, "wayland", None, "support.unknown", "support.fallback.unavailable"),
-        ]
-        for tree, session, status, renderer, reason in cases:
-            with self.subTest(session=session, status=status, tree=tree):
-                self.assertEqual(renderer_status(tree_enabled=tree, session=session, engine_status=status),
-                                 (message(renderer), message(reason)))
-
-    def test_report_uses_the_registered_shell_renderer_on_both_sessions(self):
-        for session in ("x11", "wayland"):
-            with self.subTest(session=session):
-                report = diagnostics(
-                    tree_enabled=True, engine_status={"rendererRegistered": True},
-                    environment={"XDG_SESSION_TYPE": session}, build_info={},
-                    os_release={"ID": "ubuntu", "VERSION_ID": "24.04"}, architecture="x86_64",
-                )
-                self.assertIn(f"{message('support.renderer')}: {message('support.renderer.shell-tree')}",
-                              report.splitlines())
-                self.assertIn(f"{message('support.fallback')}: {message('support.none')}",
-                              report.splitlines())
-
-    def test_unknown_session_does_not_claim_a_registered_renderer(self):
-        for session in ("", "tty", "unknown"):
-            with self.subTest(session=session):
-                self.assertEqual(
-                    renderer_status(tree_enabled=True, session=session,
-                                    engine_status={"rendererRegistered": True}),
-                    (message("support.unknown"), message("support.fallback.unavailable")),
-                )
+            with mock.patch("azookey.support_diagnostics.BUILD_INFO_PATH", path):
+                self.assertEqual(component_version(), "development")
+                path.write_text("source=0123456789abcdef\nversion=0.2.0\n", encoding="utf-8")
+                self.assertEqual(component_version(), "0.2.0")
+                path.write_text("version=PRIVATE_TEXT\n", encoding="utf-8")
+                self.assertEqual(component_version(), "development")
 
 
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
 class SupportPageTests(unittest.TestCase):
     def test_missing_engine_on_a_real_session_bus_is_reported_as_unavailable(self):
-        from azookey.support_page import engine_status
-        self.assertIsNone(engine_status())
+        from azookey.support_page import renderer_registered
+        self.assertIsNone(renderer_registered())
 
     @unittest.skipUnless(os.environ.get("AZOOKEY_BRIDGE"), "the window reads its pages from the Swift bridge")
     def test_learning_reset_uses_the_bridge_when_the_session_has_no_engine(self):
@@ -113,7 +51,7 @@ class SupportPageTests(unittest.TestCase):
         from gi.repository import Gtk
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": directory, "AZOOKEY_DATA_DIR": directory}), \
-                mock.patch("azookey.support_page.engine_status", return_value=None), \
+                mock.patch("azookey.support_page.renderer_registered", return_value=None), \
                 mock.patch.object(Gtk, "main_quit"):
             for existing_settings in (False, True):
                 with self.subTest(existing_settings=existing_settings):
@@ -129,20 +67,30 @@ class SupportPageTests(unittest.TestCase):
                     finally:
                         window.destroy()
 
-    def test_copy_contains_only_the_visible_allowlisted_report(self):
+    @unittest.skipUnless(os.environ.get("AZOOKEY_BRIDGE"), "build the real Swift bridge first")
+    def test_copy_contains_only_core_s_allowlisted_report(self):
+        from azookey.bridge import Bridge
         from azookey.support_page import SupportPage
         from gi.repository import Gdk, Gtk
-        with mock.patch("azookey.support_page.engine_status", return_value={"rendererRegistered": False}):
-            page = SupportPage(lambda: {"tree": False, "profile": "PRIVATE_PROFILE", "apiKey": "PRIVATE_KEY"})
-            try:
-                page.copy(None)
-                copied = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).wait_for_text()
-                self.assertEqual(copied, page.report_text)
-                self.assertNotIn("PRIVATE_", copied)
-                self.assertIn(message("support.renderer.ibus-list"), copied)
-                self.assertEqual(page.notice.get_text(), message("support.copied"))
-            finally:
-                page.destroy()
+        bridge = Bridge()
+        private_environment = {"XDG_SESSION_TYPE": "PRIVATE_SESSION", "API_KEY": "PRIVATE_ENVIRONMENT"}
+        try:
+            with mock.patch("azookey.support_page.renderer_registered", return_value=False), \
+                    mock.patch.dict(os.environ, private_environment):
+                page = SupportPage(lambda: {"tree": False, "profile": "PRIVATE_PROFILE", "apiKey": "PRIVATE_KEY"}, bridge)
+                try:
+                    page.copy(None)
+                    copied = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).wait_for_text()
+                    self.assertEqual(copied, page.report_text)
+                    self.assertNotIn("PRIVATE_", copied)
+                    self.assertIn(f"{message('support.renderer')}: {message('support.renderer.ibus-list')}", copied.splitlines())
+                    self.assertIn(f"{message('support.fallback')}: {message('support.fallback.setting')}", copied.splitlines())
+                    self.assertIn(f"{message('support.session')}: {message('support.unknown')}", copied.splitlines())
+                    self.assertEqual(page.notice.get_text(), message("support.copied"))
+                finally:
+                    page.destroy()
+        finally:
+            bridge.close()
 
 
 if __name__ == "__main__":

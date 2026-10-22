@@ -1,0 +1,26 @@
+{
+  "shortcut.conflict": {
+    "ja": "次の指示のショートカットを置き換えます：",
+    "en": "This replaces the shortcut for:"
+  },
+  "shortcut.enabled": {
+    "ja": "ショートカットを使う",
+    "en": "Use shortcut"
+  },
+  "shortcut.help": {
+    "ja": "修飾キーと文字を押して登録します。Tabで次の項目、Shift+Tabで前の項目へ移動します。Escapeで記録を中止、Deleteで既定に戻します。",
+    "en": "Press modifiers and a character to record. Tab and Shift+Tab move between controls. Escape cancels recording; Delete restores the default."
+  },
+  "shortcut.recording": {
+    "ja": "キーを入力…",
+    "en": "Press a shortcut…"
+  },
+  "shortcut.remove": {
+    "ja": "登録を解除",
+    "en": "Remove shortcut"
+  },
+  "shortcut.reserved": {
+    "ja": "AI変換を開く操作に使われているため登録できません。",
+    "en": "This shortcut opens AI conversion and cannot be assigned here."
+  }
+}
