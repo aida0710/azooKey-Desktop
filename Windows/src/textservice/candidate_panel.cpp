@@ -19,12 +19,16 @@ constexpr float kRowExtraHeight = 14;  // a row is its text plus 7 above and bel
 constexpr float kRowGap = 2;
 constexpr float kCornerRadius = 8;
 constexpr float kNodeRadius = 4;
-constexpr float kMinimumScoreBadgeWidth = 22;
-constexpr float kScoreBadgeTextInset = 6;
+// A kanji reaches as high and low as Japanese candidate text does.
+constexpr wchar_t kLineSample[] = L"漢";
 
 bool windowClassRegistered = false;
 ID2D1Factory* direct2D = nullptr;
 IDWriteFactory* directWrite = nullptr;
+
+// Selection is shown by background, border and text color together; the
+// border is heavier in high contrast.
+float SelectionStrokeWidth(CandidateAppearance appearance) { return IsHighContrast(appearance) ? 3.0f : 2.0f; }
 
 template <typename T>
 void SafeRelease(T** pointer) {
@@ -158,6 +162,17 @@ IDWriteTextFormat* CandidatePanel::TextFormat(float size) {
     return format;
 }
 
+float CandidatePanel::LineHeight(float fontSize) {
+    IDWriteTextFormat* format = TextFormat(fontSize);
+    IDWriteTextLayout* layout = nullptr;
+    if (!format || FAILED(directWrite->CreateTextLayout(kLineSample, 1, format, 10000, 1000, &layout))) return fontSize;
+    DWRITE_TEXT_METRICS metrics{};
+    layout->GetMetrics(&metrics);
+    layout->Release();
+    // The border is centred on the node's edge, so half of it on each side falls inside.
+    return metrics.height + SelectionStrokeWidth(CurrentCandidateAppearance());
+}
+
 float CandidatePanel::MeasureText(const std::wstring& text, float fontSize) {
     IDWriteTextFormat* format = TextFormat(fontSize);
     if (!format || text.empty()) return 0;
@@ -216,6 +231,8 @@ void CandidatePanel::Show(const PanelContent& content, const RECT& frame, UINT d
     panelWidth_ = (frame.right - frame.left) * 96.0f / dpi_;
     panelHeight_ = (frame.bottom - frame.top) * 96.0f / dpi_;
     LayoutSections(content_, panelWidth_);
+    contentHeight_ = treeTop_ + (content_.tree ? content_.tree->contentHeight : 0);
+    KeepFocusVisible();
     SetWindowPos(window_, HWND_TOPMOST, frame.left, frame.top, frame.right - frame.left, frame.bottom - frame.top,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
     if (target_) {
@@ -227,6 +244,7 @@ void CandidatePanel::Show(const PanelContent& content, const RECT& frame, UINT d
 }
 
 void CandidatePanel::Hide() {
+    scrollOffset_ = 0;
     if (accessibility_) accessibility_->Clear();
     lastAnnouncement_.clear();
     if (window_) ShowWindow(window_, SW_HIDE);
@@ -238,8 +256,10 @@ void CandidatePanel::UpdateAccessibility() {
     GetWindowRect(window_, &window);
     float scale = dpi_ / 96.0f;
     auto toScreen = [&](const D2D1_RECT_F& frame) {
-        return RECT{window.left + static_cast<LONG>(frame.left * scale), window.top + static_cast<LONG>(frame.top * scale),
-                    window.left + static_cast<LONG>(frame.right * scale), window.top + static_cast<LONG>(frame.bottom * scale)};
+        float top = frame.top - scrollOffset_;
+        float bottom = frame.bottom - scrollOffset_;
+        return RECT{window.left + static_cast<LONG>(frame.left * scale), window.top + static_cast<LONG>(top * scale),
+                    window.left + static_cast<LONG>(frame.right * scale), window.top + static_cast<LONG>(bottom * scale)};
     };
     std::vector<AccessibleCandidate> items;
     if (content_.display.list && !rows_.empty()) {
@@ -254,6 +274,34 @@ void CandidatePanel::UpdateAccessibility() {
     if (content_.display.announcement != lastAnnouncement_) announcement = content_.display.announcement;
     lastAnnouncement_ = content_.display.announcement;
     accessibility_->Update(std::move(items), announcement);
+}
+
+std::optional<D2D1_RECT_F> CandidatePanel::FocusFrame() const {
+    if (content_.display.list) {
+        for (const auto& row : rows_) {
+            if (row.selected) return row.frame;
+        }
+    }
+    if (!content_.tree) return std::nullopt;
+    std::optional<D2D1_RECT_F> selected;
+    for (const auto& layoutNode : content_.tree->nodes) {
+        const display::DisplayNode* node = content_.display.FindNode(layoutNode.id);
+        if (node && node->focused) return TreeRect(layoutNode.frame);
+        if (node && node->selected && !selected) selected = TreeRect(layoutNode.frame);
+    }
+    return selected;
+}
+
+void CandidatePanel::KeepFocusVisible() {
+    if (auto focus = FocusFrame()) {
+        scrollOffset_ = std::min(scrollOffset_, focus->top - kPadding);
+        scrollOffset_ = std::max(scrollOffset_, focus->bottom + kPadding - panelHeight_);
+    }
+    ScrollBy(0);
+}
+
+void CandidatePanel::ScrollBy(float dips) {
+    scrollOffset_ = std::clamp(scrollOffset_ + dips, 0.0f, std::max(0.0f, contentHeight_ - panelHeight_));
 }
 
 void CandidatePanel::FillRounded(const D2D1_RECT_F& frame, float radius, uint32_t color) {
@@ -281,7 +329,7 @@ D2D1_RECT_F CandidatePanel::TreeRect(const display::Frame& frame) const {
 void CandidatePanel::PaintList() {
     const display::CandidateList& list = *content_.display.list;
     const CandidatePalette& palette = PaletteFor(appearance_);
-    float strokeWidth = IsHighContrast(appearance_) ? 3.0f : 2.0f;
+    float strokeWidth = SelectionStrokeWidth(appearance_);
     IDWriteTextFormat* candidateFormat = TextFormat(content_.fontSize);
     IDWriteTextFormat* labelFormat = TextFormat(kSmallTextSize);
     for (const auto& row : rows_) {
@@ -337,7 +385,7 @@ void CandidatePanel::PaintTree() {
     brush_->SetColor(Color(palette.text));
     target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(tree.rootAnchor.x, treeTop_ + tree.rootAnchor.y), 3, 3), brush_);
 
-    float strokeWidth = IsHighContrast(appearance_) ? 3.0f : 2.0f;
+    float strokeWidth = SelectionStrokeWidth(appearance_);
     IDWriteTextFormat* wordFormat = TextFormat(tree.metrics.fontSize);
     IDWriteTextFormat* numberFormat = TextFormat(tree.metrics.numberFontSize);
     IDWriteTextFormat* scoreFormat = TextFormat(tree.metrics.scoreFontSize);
@@ -360,9 +408,9 @@ void CandidatePanel::PaintTree() {
                  tree.leadingText ? DWRITE_TEXT_ALIGNMENT_LEADING : DWRITE_TEXT_ALIGNMENT_CENTER);
         if (content_.showScores && layoutNode.scoreFrame && word->score) {
             D2D1_RECT_F row = TreeRect(*layoutNode.scoreFrame);
-            float badgeWidth = std::min(row.right - row.left,
-                                        std::max(kMinimumScoreBadgeWidth,
-                                                 MeasureText(word->score->label, tree.metrics.scoreFontSize) + kScoreBadgeTextInset));
+            float labelWidth = MeasureText(word->score->label, tree.metrics.scoreFontSize);
+            float badgeWidth = std::min(row.right - row.left, std::max(tree.metrics.scoreBadgeMinimumWidth,
+                                                                       labelWidth + 2 * tree.metrics.scoreBadgeHorizontalInset));
             float left = row.left + (row.right - row.left - badgeWidth) / 2;
             D2D1_RECT_F badge = D2D1::RectF(left, row.top, left + badgeWidth, row.bottom);
             uint32_t badgeColor = word->score->role == "scoreLow"    ? palette.scoreLow
@@ -384,14 +432,17 @@ void CandidatePanel::Paint() {
     target_->BeginDraw();
     const CandidatePalette& palette = PaletteFor(appearance_);
     target_->Clear(Color(palette.background));
-    StrokeRounded(D2D1::RectF(0.5f, 0.5f, panelWidth_ - 0.5f, panelHeight_ - 0.5f), kCornerRadius, palette.border, 1.0f);
+    target_->SetTransform(D2D1::Matrix3x2F::Translation(0, -scrollOffset_));
     if (!rows_.empty() && content_.display.list) PaintList();
     if (content_.tree) PaintTree();
+    target_->SetTransform(D2D1::Matrix3x2F::Identity());
+    // The outline goes last so scrolled content never covers it.
+    StrokeRounded(D2D1::RectF(0.5f, 0.5f, panelWidth_ - 0.5f, panelHeight_ - 0.5f), kCornerRadius, palette.border, 1.0f);
     if (target_->EndDraw() == D2DERR_RECREATE_TARGET) ReleaseDeviceResources();
 }
 
 CandidatePanel::Hit CandidatePanel::HitTest(POINT clientPixels) const {
-    D2D1_POINT_2F point = D2D1::Point2F(clientPixels.x * 96.0f / dpi_, clientPixels.y * 96.0f / dpi_);
+    D2D1_POINT_2F point = D2D1::Point2F(clientPixels.x * 96.0f / dpi_, clientPixels.y * 96.0f / dpi_ + scrollOffset_);
     if (content_.display.list && !rows_.empty()) {
         for (const auto& row : rows_) {
             if (Contains(row.frame, point)) return {Hit::Kind::Row, row.candidateIndex};
@@ -461,6 +512,16 @@ LRESULT CALLBACK CandidatePanel::WindowProcedure(HWND window, UINT message, WPAR
     case WM_LBUTTONDBLCLK:
         if (self) self->Activate(self->HitTest({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}), message == WM_LBUTTONDBLCLK);
         return 0;
+    case WM_MOUSEWHEEL:
+        // Windows sends the wheel to the window under the pointer, so a shrunk panel can be scrolled without focus.
+        if (self && self->contentHeight_ > self->panelHeight_) {
+            float rowStep = self->content_.fontSize + kRowExtraHeight;
+            self->ScrollBy(-static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam)) / WHEEL_DELTA * rowStep);
+            InvalidateRect(window, nullptr, FALSE);
+            self->UpdateAccessibility();
+            return 0;
+        }
+        break;
     case WM_SETTINGCHANGE:
     case WM_THEMECHANGED:
         if (self) {

@@ -11,6 +11,7 @@ XML = """<node><interface name="org.azookey.Tree">
   <method name="DescribeLayout"><arg type="s" direction="out"/></method>
   <method name="RendererStatus"><arg type="b" direction="out"/></method>
   <method name="SetRenderer"><arg type="b" direction="in"/></method>
+  <method name="Layout"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>
   <method name="Select"><arg type="s" direction="in"/><arg type="i" direction="in"/>
     <arg type="b" direction="in"/><arg type="i" direction="in"/><arg type="s" direction="in"/></method>
   <signal name="Update"><arg type="s"/></signal>
@@ -59,6 +60,16 @@ class ShellSurface:
             if self.renderer:
                 self.watch = Gio.bus_watch_name_on_connection(self.connection, sender, Gio.BusNameWatcherFlags.NONE,
                                                               None, lambda *_: self.lost())
+        elif name == "Layout" and sender == self.renderer:
+            engine = self.engine() if self.engine else None
+            if not engine:
+                invocation.return_dbus_error(NAME + ".Unavailable", "No input context")
+                return
+            # Core replies after earlier conversion requests; the renderer
+            # discards a layout for a snapshot it no longer shows.
+            engine.request_layout(json.loads(values[0]), lambda layout: invocation.return_value(
+                GLib.Variant("(s)", (json.dumps(layout),))))
+            return
         elif name == "Select" and sender == self.renderer:
             engine = self.engine() if self.engine else None
             operation, index, submit, generation, context = values

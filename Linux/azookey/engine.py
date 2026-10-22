@@ -11,7 +11,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("Atk", "1.0")
 from gi.repository import Atk, IBus, Gdk, GLib, Gtk
 from .bridge import Bridge
-from .async_bridge import AsyncBridge
+from .async_bridge import AsyncBridge, Request
 from .input_coordinator import InputCoordinator
 from .input_preview import is_native_key
 from .native_key_reply import NativeKeyReply
@@ -41,7 +41,7 @@ class Engine(IBus.Engine):
         super().__init__(*args, **kwargs)
         self.context_id = str(uuid.uuid4())
         self.bridge = AsyncBridge.acquire(GLib.idle_add)
-        self.panel = TreePanel(self.choose)
+        self.panel = TreePanel(self.choose, self.request_layout)
         self.lookup_announcements = CandidateAnnouncements(
             lambda announcement: self.panel.get_accessible().emit("notification", announcement, Atk.Live.POLITE),
         )
@@ -138,6 +138,23 @@ class Engine(IBus.Engine):
             "reconversionContext": self.current_reconversion_context(), **values,
         }, key=original_key, key_reply=self.defer_native_key(original_key))
         return True
+
+    def request_layout(self, layout, completion):
+        """Ask Core to lay out candidates after the conversion requests before it.
+
+        The request is not input: it never joins InputCoordinator.pending, so
+        native-key decisions do not wait for it. Callers check that their reply
+        still belongs to the displayed snapshot.
+        """
+        if self.destroyed:
+            completion(None)
+            return
+
+        def complete(reply):
+            snapshot = reply.snapshot or {}
+            completion(None if reply.failed or snapshot.get("error") else snapshot.get("candidateLayout"))
+
+        self.bridge.submit(Request("candidate-layout", {"layout": layout}, complete))
 
     def defer_native_key(self, original_key):
         if original_key is not None and self.native_key_reply:
@@ -346,7 +363,7 @@ class Engine(IBus.Engine):
         snapshot = self.positioned_snapshot(self.snapshot)
         if self.focused and self.settings.get("tree", True):
             surface().show(self, snapshot, self.panel.location)
-        if self.panel.get_visible():
+        if self.panel.is_presenting:
             self.panel.update(snapshot)
 
     def positioned_snapshot(self, snapshot):

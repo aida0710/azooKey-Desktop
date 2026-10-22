@@ -3,6 +3,7 @@ import {attachCandidateAction} from '../gnome-extension/candidateAccessibility.j
 import {messages} from '../gnome-extension/candidateMessages.js';
 import {serializeCandidateIdentity} from '../gnome-extension/candidateIdentity.js';
 import {Actor, ScrollableActor, ScrollViewActor, drainActions, loadShellClass} from './gnome_actor_fixture.js';
+import {closeCoreBridge, withDisplay} from './core_bridge_gjs.js';
 
 function equal(actual, expected) {
     if (JSON.stringify(actual) !== JSON.stringify(expected))
@@ -20,13 +21,14 @@ const imports = {
 };
 imports.createWrappingLabel = loadShellClass({fileName: 'candidateText.js', imports, className: 'createWrappingLabel'});
 const Navigation = loadShellClass({fileName: 'candidateNavigation.js', className: 'CandidateNavigation', imports});
-function snapshot(start, generation, contextId = 'synthetic-field') {
-    return {contextId, generation, selection: start, showCandidateIndex: true,
-        candidatePage: {totalCount: 27, position: start + 1,
+// Core derives the list display from these synthetic pages.
+function snapshot(start, generation, contextId = 'synthetic-field', selection = start) {
+    return withDisplay({contextId, generation, selection, inputState: 'selecting', showCandidateIndex: true,
+        candidatePage: {totalCount: 27, position: selection + 1, start,
             previousIndex: start === 0 ? null : start - 9, nextIndex: start >= 18 ? null : start + 9,
             items: Array.from({length: 9}, (_, offset) => ({
                 index: start + offset, text: `候補${start + offset + 1}`, reading: 'ご',
-            }))}};
+            }))}});
 }
 const submitted = [];
 const navigation = new Navigation({select: action => submitted.push(action.values), changed() {}, preview() {}});
@@ -44,7 +46,7 @@ equal(submitted, [['select', 18, false, 2, 'synthetic-field']]);
 submitted.length = 0;
 
 navigation._rows.get_children()[0].get_accessible().do_action(0);
-navigation.update({...snapshot(9, 2), selection: 10}, layout);
+navigation.update(snapshot(9, 2, 'synthetic-field', 10), layout);
 drainActions();
 equal(submitted, []);
 navigation._rows.get_children()[1].get_accessible().do_action(0);
@@ -79,7 +81,7 @@ oldHoveredRow.hover = true;
 oldHoveredRow.emit('notify::hover');
 equal(previews, [0]);
 oldHoveredRow.get_accessible().do_action(0);
-hoveredNavigation.update({...snapshot(0, 2), selection: 2}, layout);
+hoveredNavigation.update(snapshot(0, 2, 'synthetic-field', 2), layout);
 drainActions();
 equal(submitted, []);
 equal(hoveredNavigation.hoveredItem.index, 0);
@@ -113,11 +115,12 @@ print('GNOME stationary hover: selection preserves the candidate, leave/page/col
 submitted.length = 0;
 const many = new Navigation({select: action => submitted.push(action.values), changed() {}, preview() {}});
 for (let start = 0; start < 500; start += 9) {
-    const page = snapshot(start, 8);
-    page.candidatePage = {totalCount: 500, position: start + 1,
-        previousIndex: start ? start - 9 : null, nextIndex: start + 9 < 500 ? start + 9 : null,
-        items: Array.from({length: Math.min(9, 500 - start)}, (_, offset) => ({index: start + offset,
-            text: `候補${start + offset + 1}`, reading: 'ご'}))};
+    const page = withDisplay({contextId: 'synthetic-field', generation: 8, selection: start,
+        inputState: 'selecting', showCandidateIndex: true,
+        candidatePage: {totalCount: 500, position: start + 1, start,
+            previousIndex: start ? start - 9 : null, nextIndex: start + 9 < 500 ? start + 9 : null,
+            items: Array.from({length: Math.min(9, 500 - start)}, (_, offset) => ({index: start + offset,
+                text: `候補${start + offset + 1}`, reading: 'ご'}))}});
     many.update(page, layout);
     equal(many._previous.reactive, start > 0);
     equal(many._next.reactive, start + 9 < 500);
@@ -134,7 +137,7 @@ equal(submitted, [['select', 499, false, 8, 'synthetic-field']]);
 print('GNOME full list: 500 candidates remain reachable and the short final page selects actual index 499 PASS');
 
 const reveal = new Navigation({select() {}, changed() {}, preview() {}});
-reveal.update({...snapshot(0, 1), selection: 5}, layout);
+reveal.update(snapshot(0, 1, 'synthetic-field', 5), layout);
 const selectedRow = reveal._rows.get_children()[5];
 selectedRow.y = 300;
 selectedRow.height = 40;
@@ -147,7 +150,7 @@ equal(scroll.value, 240);
 scroll.value = 50;
 selectedRow.emit('notify::allocation');
 equal(scroll.value, 50);
-reveal.update({...snapshot(0, 1), selection: 6}, layout);
+reveal.update(snapshot(0, 1, 'synthetic-field', 6), layout);
 const longRow = reveal._rows.get_children()[6];
 longRow.y = 400;
 longRow.height = 150;
@@ -168,7 +171,7 @@ const requestedImports = {...imports, St: {...imports.St, Button: RequestedHeigh
 const RequestedNavigation = loadShellClass({fileName: 'candidateNavigation.js',
     className: 'CandidateNavigation', imports: requestedImports});
 const awaitingLayout = new RequestedNavigation({select() {}, changed() {}, preview() {}});
-awaitingLayout.update({...snapshot(0, 1), selection: 8}, layout);
+awaitingLayout.update(snapshot(0, 1, 'synthetic-field', 8), layout);
 const pendingRow = awaitingLayout._rows.get_children()[8];
 const pendingScroll = awaitingLayout._scroll.get_vadjustment();
 pendingScroll.page_size = 100;
@@ -182,7 +185,7 @@ equal(pendingScroll.value, 180);
 print('GNOME newly created row: natural height does not consume the pending reveal before allocation PASS');
 
 const growingPage = new RequestedNavigation({select() {}, changed() {}, preview() {}});
-growingPage.update({...snapshot(0, 1), selection: 8}, layout);
+growingPage.update(snapshot(0, 1, 'synthetic-field', 8), layout);
 const growingRow = growingPage._rows.get_children()[8];
 const growingScroll = growingPage._scroll.get_vadjustment();
 growingScroll.page_size = 100;
@@ -197,3 +200,4 @@ growingScroll.value = 180;
 growingScroll.emit('notify::upper');
 equal(growingScroll.value, 180);
 print('GNOME growing page: allocation waits for its scroll range, then reveals once without overriding manual scroll PASS');
+closeCoreBridge();

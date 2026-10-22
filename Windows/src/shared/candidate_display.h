@@ -96,13 +96,18 @@ struct LayoutRequest {
     float textScale = 1;
     float measuredFontSize = 18;
     std::vector<LayoutColumn> columns;
+    // One line of text at measuredFontSize, including a border drawn inside a
+    // node; Core never makes rows lower than this ratio.
+    std::optional<float> lineHeight;
     std::optional<std::vector<float>> documentWordWidths;
     std::optional<float> columnAnchorX;
     bool showScores = false;
     bool showNumbers = false;
     Frame cursor;
     Frame workArea;
-    std::optional<float> popupHeight;
+    // Whole DIPs: Core truncates positions and sizes, so a fractional height
+    // would come back one smaller and look like a shrunk placement.
+    std::optional<int> popupHeight;
     std::string preferredSide;
 };
 
@@ -113,6 +118,10 @@ struct TreeMetrics {
     float wordHeight = 32;
     float numberHeight = 0;
     float scoreHeight = 0;
+    // A score badge is its text plus this inset on each side, at least the
+    // minimum width and at most the scoreFrame's width, centred in scoreFrame.
+    float scoreBadgeMinimumWidth = 22;
+    float scoreBadgeHorizontalInset = 3;
 };
 
 struct LayoutNode {

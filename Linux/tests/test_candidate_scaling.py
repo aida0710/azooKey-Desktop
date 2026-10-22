@@ -33,7 +33,7 @@ class CandidateCoordinateTests(unittest.TestCase):
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
 class CandidateScalingTests(unittest.TestCase):
     def setUp(self):
-        from azookey.tree_panel import TreePanel
+        from candidate_core import core_tree_panel
         from gi.repository import Gtk
         from Linux.tests.test_candidate_presentation import CandidatePresentationTests
 
@@ -43,7 +43,7 @@ class CandidateScalingTests(unittest.TestCase):
         self.document.add(self.entry)
         self.document.show_all()
         self.entry.grab_focus()
-        self.panel = TreePanel(lambda *action: self.actions.append(action))
+        self.panel = core_tree_panel(lambda *action: self.actions.append(action))
         self.snapshot = CandidatePresentationTests.make_snapshot()
         self.scale = self.panel.get_scale_factor()
         self.area = self.panel.get_display().get_monitor(0).get_workarea()
@@ -92,7 +92,6 @@ class CandidateScalingTests(unittest.TestCase):
         self.assertEqual(self.actions, [])
 
     def test_alignment_uses_logical_word_widths_without_modifying_shared_geometry(self):
-        from azookey.candidate_placement import COLUMN_START_INSET
         # Fit below the cursor on both 1280x800@100% and 1920x1080@200%.
         logical_start = (self.area.x + 80, self.area.y + 20, 0, 30)
         logical_caret = (logical_start[0] + 300, logical_start[1], 0, 30)
@@ -104,7 +103,8 @@ class CandidateScalingTests(unittest.TestCase):
         self.paint()
         self.assertTrue(self.panel.aligned)
         self.assertEqual(self.panel.rectangles[0][4], 300)
-        self.assertEqual(self.panel.get_position()[0], logical_start[0] - COLUMN_START_INSET)
+        first_word = self.panel.layout["tree"]["nodes"][0]["frame"]
+        self.assertEqual(self.panel.get_position()[0] + first_word["x"], logical_start[0])
         self.assertEqual(snapshot["wordGeometry"], geometry)
         self.assertEqual(self.panel.location, tuple(value * self.scale for value in logical_start))
         self.assertEqual(self.panel.caret_location, tuple(value * self.scale for value in logical_caret))
@@ -164,7 +164,7 @@ class CandidateScalingTests(unittest.TestCase):
         self.paint()
         with patch.object(self.panel, "update") as update:
             self.panel.get_screen().emit("monitors-changed")
-            update.assert_called_once_with(self.snapshot)
+            update.assert_called_once_with(self.panel.snapshot)
             update.reset_mock()
             self.panel.suspend()
             self.panel.get_screen().emit("monitors-changed")

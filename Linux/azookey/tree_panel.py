@@ -1,6 +1,7 @@
 import gi
 import cairo
 import json
+import math
 gi.require_version("Gtk", "3.0")
 gi.require_version("Atk", "1.0")
 gi.require_version("PangoCairo", "1.0")
@@ -10,28 +11,36 @@ from .candidate_accessibility import CandidateAction
 from .candidate_announcements import CandidateAnnouncements
 from .candidate_detail import CandidateDetail
 from .candidate_navigation import CandidateNavigation
-from .candidate_placement import COLUMN_START_INSET, popup_placement
 from .ibus_coordinates import logical_cursor_rectangle
 from .candidate_theme import CandidateTheme
-from .candidate_score import SCORE_LINE_HEIGHT, draw_score_badge, score_presentation
+from .candidate_score import draw_score_badge
 from .i18n import text as message
 
 
-CANDIDATE_ROW_GAP = 4  # Separate actions even when the score line is hidden.
-MINIMUM_POPUP_WIDTH = 420  # Leave room for readable sentences and a separate confirm action.
-MINIMUM_LIVE_WIDTH = 240  # The live tree has no permanent full-sentence list beside it.
-MINIMUM_NODE_SIZE = 44  # A node and its displayed badge share one pointer/AT action.
 COMPOSITION_MAXIMUM_HEIGHT = 132  # Fits three large-text lines before scrolling.
 REMAINING_MAXIMUM_HEIGHT = 72  # Keep the unconsumed reading beside the commit preview.
 TREE_MAXIMUM_HEIGHT = 240  # The optional tree shares the work area with the primary list.
 PRIMARY_LIST_HEIGHT_SHARE = 3  # Prioritize sentences when several scrollable panes are open.
 SUPPLEMENT_HEIGHT_SHARE = 2  # The tree and details each receive less room than the list.
+# PreeditAnchor calibrates this reference font against the document caret.
+DOCUMENT_REFERENCE_FONT_SIZE = 40 / 3
+LINE_HEIGHT_SAMPLE = "あg"  # A kana and a descender give the tallest candidate line.
+NODE_CORNER_RADIUS = 4
+FOCUS_UNDERLINE_INSET = 6
+
+
+def rectangle(x, y, width, height):
+    return {"x": x, "y": y, "width": width, "height": height}
 
 
 class TreePanel(Gtk.Window):
-    """Non-focusable X11 candidate popup. Source indices come from Core."""
+    """Non-focusable X11 candidate popup. Core decides what it shows and where.
 
-    def __init__(self, select):
+    `request_layout(request, completion)` sends a `candidate-layout` request to
+    Core and later calls `completion` with its result, or None on failure.
+    """
+
+    def __init__(self, select, request_layout):
         super().__init__(type=Gtk.WindowType.POPUP)
         self.set_accept_focus(False)
         self.set_focus_on_map(False)
@@ -53,14 +62,27 @@ class TreePanel(Gtk.Window):
         """)
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.select = select
+        self.request_layout = request_layout
         self.snapshot = {}
+        self.display = {}
+        # The canvas keeps drawing the snapshot its layout belongs to while
+        # Core lays out a newer one.
+        self.drawn_snapshot = {}
+        self.drawn_display = {}
+        self.layout = None
+        self.placement = None
+        self.awaiting_layout = False
+        self.layout_generation = 0
         self.announcements = CandidateAnnouncements(
             lambda announcement: self.get_accessible().emit("notification", announcement, Atk.Live.POLITE),
         )
         self.candidate_identity = None
         self.presentation_mode = None
+        self.tree_expanded_for = None
         self.candidate_numbers = {}
         self.rectangles = []
+        self.aligned = False
+        self.font_size = 0
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         self.scroll.set_no_show_all(True)
@@ -145,6 +167,7 @@ class TreePanel(Gtk.Window):
 
     def suspend(self):
         """Hide pending conversion while retaining the user's list and page state."""
+        self.retire_layout()
         self.cancel_scroll()
         self.clear_actions()
         self.retire_disclosures()
@@ -161,7 +184,19 @@ class TreePanel(Gtk.Window):
     def hide(self):
         self.dismiss()
 
+    def retire_layout(self):
+        # A Core reply for an older snapshot or a hidden popup is ignored.
+        self.layout_generation += 1
+        self.placement = None
+        self.awaiting_layout = False
+
+    @property
+    def is_presenting(self):
+        """Shown, or waiting for Core to lay out a snapshot it will show."""
+        return self.get_visible() or self.awaiting_layout
+
     def reset_presentation(self):
+        self.retire_layout()
         self.cancel_scroll()
         self.clear_actions()
         self.retire_disclosures()
@@ -169,6 +204,7 @@ class TreePanel(Gtk.Window):
         self.navigation.dismiss()
         self.candidate_identity = None
         self.presentation_mode = None
+        self.tree_expanded_for = None
         self.candidate_numbers = {}
         self.tree_expanded = False
         self.details_expanded = False
@@ -205,7 +241,14 @@ class TreePanel(Gtk.Window):
 
     def update(self, snapshot):
         # The engine uses this renderer only when tree display is enabled.
-        mode = "live" if snapshot.get("inputState") == "composing" else "menu"
+        display = snapshot.get("candidateDisplay") or {}
+        mode = display.get("mode", "hidden")
+        if mode == "hidden":
+            self.snapshot = snapshot
+            self.display = display
+            self.clear_actions()
+            self.hide()
+            return
         identity = json.dumps([
             snapshot.get("contextId"), snapshot.get("reading"), snapshot.get("candidates", []),
             [{key: value for key, value in node.items() if key not in ("relativeScore", "scorePresentation", "preview", "previewDescription")}
@@ -214,90 +257,95 @@ class TreePanel(Gtk.Window):
         if identity != self.candidate_identity or mode != self.presentation_mode:
             self.clear_actions()
             self.navigation.clear_preview()
-            self.navigation.dismiss(expanded_on_update=mode != "live")
-            self.tree_expanded = mode == "live"
+            self.navigation.dismiss(expanded_on_update=mode == "list")
+            self.tree_expanded = mode == "tree"
             self.details_expanded = False
             self.retire_disclosures()
             self.candidate_identity = identity
             self.presentation_mode = mode
             self.focus_key = None
             self.reset_popup_scroll()
-        elif (snapshot.get("selection") is not None and snapshot.get("selection") == self.snapshot.get("selection")
-              and self.snapshot.get("focusedNode") is not None
-              and snapshot.get("focusedNode") is not None
-              and snapshot.get("focusedNode") != self.snapshot.get("focusedNode")):
-            # A keyboard move within the same candidate must expose its word
-            # target even when the user has not opened the optional tree yet.
+        expansion = (snapshot.get("contextId"), snapshot.get("generation"))
+        if display.get("expandTree") and expansion != self.tree_expanded_for:
+            # Core asks once per reply; redrawing the same reply keeps the user's choice.
             self.tree_expanded = True
+            self.tree_expanded_for = expansion
         self.snapshot = snapshot
-        nodes = snapshot.get("nodes", [])
-        if not nodes:
-            self.clear_actions()
-            self.hide()
-            return
-        by_id = {node["id"]: node for node in nodes}
-        columns = snapshot.get("columns", [])
-        if not columns:
-            self.clear_actions()
-            self.hide()
-            return
-        self.rectangles = []
-        geometry = snapshot.get("wordGeometry") or {}
-        widths = [width / self.ibus_coordinate_scale for width in geometry.get("widths", [])]
-        # Logical pixels are scaled by GTK; do not copy AppKit point measurements.
-        base_size = 24 if snapshot.get("candidateTextSize") == "large" else 18
-        scale = self.get_settings().get_property("gtk-xft-dpi") / (96 * Pango.SCALE)
-        self.font_size = base_size * max(1, scale)
-        self.word_height = int(self.font_size + 14)
-        self.number_font_size = max(12, self.font_size * 2 / 3)
-        self.candidate_numbers = {}
-        if snapshot.get("showCandidateIndex") or mode == "live":
-            visible_nodes = {node_id for column in columns for node_id in column}
-            for node in nodes:
-                if node["id"] not in visible_nodes:
-                    continue
-                # Shared nodes can terminate a shorter candidate than the
-                # descendant Core will select. Only its preview gives that ID.
-                index = (node.get("preview") or {}).get("candidateIndex")
-                if index is not None:
-                    number = index - snapshot.get("pageStart", 0) + 1
-                    if 1 <= number <= 9:
-                        self.candidate_numbers[node["id"]] = number
-        self.number_height = int(self.number_font_size + 6) if self.candidate_numbers else 0
-        minimum_width = max(MINIMUM_NODE_SIZE, self.font_size + 8)
-        aligned = len(widths) == len(columns) and all(w >= minimum_width for w in widths)
-        self.aligned = aligned
-        score_height = SCORE_LINE_HEIGHT if snapshot.get("showRelativeScores") else 0
-        row_height = max(MINIMUM_NODE_SIZE, self.word_height + score_height + self.number_height)
-        row_pitch = row_height + CANDIDATE_ROW_GAP
-        x = COLUMN_START_INSET
-        for depth, column in enumerate(columns):
-            # Other candidates may cover the entire sentence. They must never
-            # change the chosen word's position or cover the following column.
-            column_width = widths[depth] if aligned else max(minimum_width, min(
-                240, self.measure(by_id[column[0]]["text"], font_size=self.font_size) + 12))
-            for row, node_id in enumerate(column):
-                node = by_id[node_id]
-                self.rectangles.append(("node", node_id, x, 6 + row * row_pitch, column_width, row_height, node["text"], node["reading"]))
-            x += column_width + (0 if aligned else 12)
-        width = max(60, x)
-        height = max(32, max(map(len, columns)) * row_pitch + 6)
-        self.canvas.set_size_request(int(width + 0.5), height)
-        self.surface.set_size_request(int(width + 0.5), height)
+        self.display = display
+        self.candidate_numbers = {node["id"]: node["number"] for node in display.get("nodes", [])
+                                  if node.get("number") is not None}
+        self.retire_layout()
+        self.awaiting_layout = True
+        # Shown controls belong to the previous snapshot until Core replies.
+        self.navigation.hold()
+        self.request_core_layout()
+
+    def request_core_layout(self, *, popup_height=None, measured_width=None):
+        generation = self.layout_generation
+
+        def apply(layout):
+            if generation != self.layout_generation:
+                return
+            if layout is None:
+                self.suspend()
+            elif popup_height is None:
+                self.apply_tree_layout(layout)
+            else:
+                self.apply_placement(layout, measured_width=measured_width, requested_height=popup_height)
+
+        self.request_layout(self.layout_request(popup_height), apply)
+
+    def layout_request(self, popup_height):
+        nodes = {node["id"]: node for node in self.snapshot.get("nodes", [])}
+        base_size = self.display["baseFontSize"]
+        geometry = self.snapshot.get("wordGeometry") or {}
+        document_widths = [width / self.ibus_coordinate_scale for width in geometry.get("widths", [])]
         area = self.work_area()
-        live = mode == "live"
-        minimum_popup_width = MINIMUM_LIVE_WIDTH if live and not self.navigation.expanded else MINIMUM_POPUP_WIDTH
-        aligned_x = self.column_anchor_x - COLUMN_START_INSET
-        if aligned and (aligned_x < area.x or aligned_x + max(minimum_popup_width, width) > area.x + area.width):
-            # Clamping or scrolling would invalidate the document coordinates.
-            # Use the ordinary compact popup when the span cannot fit onscreen.
-            self.update({**snapshot, "wordGeometry": None, "layoutReason": "outside-workarea"})
-            return
-        # Keep a useful detail line below even for a one-character candidate.
-        popup_width = int(min(max(minimum_popup_width, width), 760 if not aligned else max(minimum_popup_width, width), area.width) + 0.5)
+        caret = self.current_caret
+        list_shown = self.display["mode"] == "list" or self.navigation.expanded
+        return {
+            "mode": "list" if list_shown else "tree",
+            "textSize": self.snapshot.get("candidateTextSize", "standard"),
+            "textScale": self.get_settings().get_property("gtk-xft-dpi") / (96 * Pango.SCALE),
+            "measuredFontSize": base_size,
+            "lineHeight": self.measure_height(LINE_HEIGHT_SAMPLE, font_size=base_size),
+            "columns": [{"nodes": [{"id": node_id, "parent": nodes[node_id].get("parent")} for node_id in column],
+                         "textWidth": self.measure(nodes[column[0]]["text"], font_size=base_size)}
+                        for column in self.display["columns"]],
+            "documentWordWidths": document_widths or None,
+            "columnAnchorX": self.column_anchor_x if document_widths else None,
+            "showScores": bool(self.snapshot.get("showRelativeScores")),
+            "showNumbers": bool(self.display.get("showsNumbers")),
+            "cursor": rectangle(*caret),
+            "workArea": rectangle(area.x, area.y, area.width, area.height),
+            "popupHeight": popup_height,
+            "preferredSide": self.placement_side,
+        }
+
+    def apply_tree_layout(self, layout):
+        tree = layout["tree"]
+        self.layout = layout
+        self.drawn_snapshot = self.snapshot
+        self.drawn_display = self.display
+        self.aligned = tree["aligned"]
+        self.font_size = tree["metrics"]["fontSize"]
+        nodes = {node["id"]: node for node in self.snapshot.get("nodes", [])}
+        self.rectangles = []
+        for node in tree["nodes"]:
+            frame = node["frame"]
+            source = nodes[node["id"]]
+            self.rectangles.append(("node", node["id"], frame["x"], frame["y"], frame["width"], frame["height"],
+                                    source["text"], source["reading"]))
+        width = math.ceil(tree["contentSize"]["width"])
+        height = math.ceil(tree["contentSize"]["height"])
+        self.canvas.set_size_request(width, height)
+        self.surface.set_size_request(width, height)
+        popup_width = int(layout["popupWidth"])
+        area = self.work_area()
+        tree_only = self.display["mode"] == "tree"
         list_height = min(CandidateNavigation.MAXIMUM_LIST_HEIGHT, area.height // 3)
-        self.navigation.update(snapshot, font_size=self.font_size, list_height=list_height, compact=live)
-        show_menu = not live or self.navigation.expanded
+        self.navigation.update(self.snapshot, font_size=self.font_size, list_height=list_height, compact=tree_only)
+        show_menu = not tree_only or self.navigation.expanded
         self.composition_title.set_visible(show_menu)
         self.composition.set_visible(show_menu)
         self.disclosures.set_visible(show_menu)
@@ -316,57 +364,61 @@ class TreePanel(Gtk.Window):
         self.details.set_visible(self.details_expanded)
         self.fit_content_height(width=popup_width, available_height=area.height)
         requested_height = self.content.get_preferred_height_for_width(popup_width)[1]
-        placement = popup_placement(
-            cursor=self.current_caret, work_area=(area.x, area.y, area.width, area.height),
-            popup_size=(popup_width, requested_height), preferred_side=self.placement_side,
-            column_anchor_x=self.column_anchor_x if self.aligned else None,
-        )
+        self.request_core_layout(popup_height=requested_height, measured_width=popup_width)
+
+    def apply_placement(self, layout, *, measured_width, requested_height):
+        if int(layout["popupWidth"]) != measured_width:
+            # Core gave up document alignment for a sideways popup; measure
+            # the popup again at its new width before placing it.
+            self.apply_tree_layout(layout)
+            return
+        placement = layout.get("placement")
         if placement is None:
             self.suspend()
             return
-        if self.aligned and placement.side in ("left", "right"):
-            self.update({**snapshot, "wordGeometry": None, "layoutReason": "outside-workarea"})
-            return
-        self.placement_side = placement.side
-        if placement.height < requested_height:
-            self.fit_content_height(width=placement.width, available_height=placement.height)
-        self.limit_viewport(width=placement.width, height=placement.height)
-        self.resize(placement.width, placement.height)
+        self.layout = layout
+        self.placement = placement
+        self.awaiting_layout = False
+        self.placement_side = placement["side"]
+        width, height = int(placement["width"]), int(placement["height"])
+        if height < requested_height:
+            self.fit_content_height(width=width, available_height=height)
+        self.limit_viewport(width=width, height=height)
+        self.resize(width, height)
         self.show()
-        self.announcements.update(snapshot)
+        self.announcements.update(self.snapshot)
         self.position()
         self.canvas.queue_draw()
-        focus = by_id.get(snapshot.get("focusedNode"))
-        key = (snapshot.get("contextId"), snapshot.get("selection"), snapshot.get("focusedNode"))
-        if self.tree_expanded and focus and key != self.focus_key:
-            self.focus_key = key
-            self.cancel_scroll()
-            def reveal():
-                self.scroll_idle = None
-                for kind, index, x, y, width, height, *_ in self.rectangles:
-                    if kind == "node" and index == focus["id"]:
-                        self.scroll.get_hadjustment().clamp_page(max(0, x - 8), x + width + 22)
-                        self.scroll.get_vadjustment().clamp_page(max(0, y - 8), y + height + 16)
-                        break
-                return GLib.SOURCE_REMOVE
-            self.scroll_idle = GLib.idle_add(reveal)
+        self.reveal_focus()
+
+    def reveal_focus(self):
+        focus = self.snapshot.get("focusedNode")
+        key = (self.snapshot.get("contextId"), self.snapshot.get("selection"), focus)
+        if not self.tree_expanded or focus is None or key == self.focus_key:
+            return
+        self.focus_key = key
+        self.cancel_scroll()
+
+        def reveal():
+            self.scroll_idle = None
+            for kind, index, x, y, width, height, *_ in self.rectangles:
+                if kind == "node" and index == focus:
+                    self.scroll.get_hadjustment().clamp_page(max(0, x - 8), x + width + 22)
+                    self.scroll.get_vadjustment().clamp_page(max(0, y - 8), y + height + 16)
+                    break
+            return GLib.SOURCE_REMOVE
+        self.scroll_idle = GLib.idle_add(reveal)
 
     def update_composition(self, width):
-        title_key = ("candidate.composition" if self.navigation.keyboard_confirms_candidate else "candidate.proposal")
-        self.composition_title.set_text(message(title_key))
-        self.composition.get_accessible().set_name(message(title_key))
-        selection = self.snapshot.get("selection")
-        candidate = next((item for item in self.snapshot.get("candidates", []) if item.get("index") == selection), None)
-        candidate = candidate or self.numbered_candidate(selection)
-        preview = next((node["preview"] for node in self.snapshot.get("nodes", [])
-                        if node.get("preview") and node["preview"].get("candidateIndex") == selection), {})
-        commit_text = (candidate or preview).get("text", self.snapshot.get("preedit", ""))
-        self.composition.update(commit_text, font_size=self.font_size + 2, width=width)
+        listing = self.display.get("list") or {}
+        title = listing.get("title", message("candidate.proposal"))
+        self.composition_title.set_text(title)
+        self.composition.get_accessible().set_name(title)
+        self.composition.update(listing.get("commitText", self.snapshot.get("preedit", "")),
+                                font_size=self.font_size + 2, width=width)
         self.composition.get_child().show_all()
-        scope = (candidate or {}).get("commitScope") or preview.get("scope") or {}
-        remaining = scope.get("remainingReading", "")
-        self.remaining.update(message("candidate.announceRemaining", reading=remaining) if remaining else "",
-                              font_size=self.font_size, width=width)
+        remaining = listing.get("remainingText") or ""
+        self.remaining.update(remaining, font_size=self.font_size, width=width)
         self.remaining.get_child().show_all()
         self.remaining.set_visible(bool(remaining))
 
@@ -440,6 +492,9 @@ class TreePanel(Gtk.Window):
         for button in retired:
             button.destroy()
 
+    def displayed_node(self, node_id):
+        return next((node for node in self.drawn_display.get("nodes", []) if node["id"] == node_id), None)
+
     def update_actions(self):
         visible = {(item[0], item[1]) for item in self.rectangles}
         for identity in list(self.actions):
@@ -447,8 +502,7 @@ class TreePanel(Gtk.Window):
                 self.actions.pop(identity).destroy()
                 if self.hovered_action == identity:
                     self.hovered_action = None
-        selected = set(self.snapshot.get("selectedPath", []))
-        for kind, index, x, y, width, height, text, reading in self.rectangles:
+        for kind, index, x, y, width, height, *_ in self.rectangles:
             identity = (kind, index)
             button = self.actions.get(identity)
             if button is None:
@@ -460,22 +514,13 @@ class TreePanel(Gtk.Window):
                 self.surface.put(button, int(x), int(y))
                 self.actions[identity] = button
             self.surface.move(button, int(x), int(y))
-            button.activation_token = (self.snapshot.get("contextId"), self.snapshot.get("generation"),
-                                       self.snapshot.get("selection"))
+            button.activation_token = (self.drawn_snapshot.get("contextId"), self.drawn_snapshot.get("generation"),
+                                       self.drawn_snapshot.get("selection"))
             button.set_size_request(max(1, int(width)), max(1, int(height)))
-            name = text if not reading else message("candidate.withReading", text=text, reading=reading)
-            active = index in selected
-            description = message("candidate.focusedSelect" if index == self.snapshot.get("focusedNode")
-                                  else "candidate.select")
-            node = next(item for item in self.snapshot["nodes"] if item["id"] == index)
-            if node.get("previewDescription"):
-                description += "\n" + node["previewDescription"]
-            if presentation := score_presentation(self.snapshot, node):
-                description += "\n" + presentation["detailDescription"]
-            if index in self.candidate_numbers:
-                description += "\n" + message("candidate.numberBadge", number=self.candidate_numbers[index])
-            button.set_tooltip_text(name + "\n" + description)
-            button.update_accessibility(name, selected=active, description=description)
+            node = self.displayed_node(index)
+            button.set_tooltip_text(node["accessibleName"] + "\n" + node["accessibleDescription"])
+            button.update_accessibility(node["accessibleName"], selected=node["selected"],
+                                        description=node["accessibleDescription"])
 
     def hover_action(self, identity, source):
         if self.get_visible() and self.tree_expanded and self.actions.get(identity) is source:
@@ -494,34 +539,19 @@ class TreePanel(Gtk.Window):
             return self.show_candidate_details(self.navigation.hovered_item)
         if self.hovered_action in self.actions:
             return self.show_details(self.hovered_action[1])
-        columns = self.snapshot.get("columns", [])
-        node_id = self.snapshot.get("focusedNode")
-        return self.show_details(node_id if node_id is not None else (columns[0][0] if columns else None))
+        return self.show_details(self.display.get("detailNode"))
 
     def show_details(self, node_id):
-        node = next((item for item in self.snapshot.get("nodes", []) if item["id"] == node_id), None)
-        if node is None:
-            self.details.update("", font_size=self.font_size, width=320)
-            return False
-        content = node["text"] + ("\n" + node["reading"] if node.get("reading") else "")
-        if node.get("previewDescription"):
-            content += "\n" + node["previewDescription"]
-        if presentation := score_presentation(self.snapshot, node):
-            content += "\n" + presentation["detailDescription"]
+        node = self.displayed_node(node_id)
         width = self.scroll.get_min_content_width()
-        self.details.update(content + "\n" + message("candidate.detailKeys"), font_size=self.font_size, width=width)
+        self.details.update(node["detailText"] if node else "", font_size=self.font_size, width=width)
         return False
 
     def show_candidate_details(self, item):
         if item is None:
             return self.refresh_details()
-        content = item.get("detailDescription", item["text"])
-        self.details.update(content, font_size=self.font_size, width=self.scroll.get_min_content_width())
+        self.details.update(item["detailText"], font_size=self.font_size, width=self.scroll.get_min_content_width())
         return False
-
-    def numbered_candidate(self, index):
-        return next((item for item in self.snapshot.get("candidatePage", {}).get("items", [])
-                     if item["index"] == index), None)
 
     def scroll_details(self, forward):
         if not self.get_visible():
@@ -532,9 +562,14 @@ class TreePanel(Gtk.Window):
         self.details.scroll_page(forward)
         return True
 
+    @property
+    def shows_current_layout(self):
+        # Selecting from a layout of an older snapshot could target another candidate.
+        return self.get_visible() and self.placement is not None
+
     def activate(self, identity, source):
         # Removed ATK objects may outlive a candidate update in the AT client.
-        if self.get_visible() and self.tree_expanded and self.actions.get(identity) is source:
+        if self.shows_current_layout and self.tree_expanded and self.actions.get(identity) is source:
             self.select(*identity, False)
 
     @property
@@ -569,47 +604,41 @@ class TreePanel(Gtk.Window):
         self.viewport.set_min_content_height(min(height, natural_height))
 
     def position(self):
-        area = self.work_area()
-        width, popup_height = self.get_size()
-        placement = popup_placement(
-            cursor=self.current_caret, work_area=(area.x, area.y, area.width, area.height),
-            popup_size=(width, popup_height), preferred_side=self.placement_side,
-            column_anchor_x=self.column_anchor_x if self.aligned else None,
-        )
+        # apply_placement already sized the popup; GTK reports the new size
+        # only after its next allocation, so this only moves it.
+        placement = self.placement
         if placement is None:
-            self.suspend()
             return
-        if self.aligned and placement.side in ("left", "right"):
-            # A sideways popup no longer follows the document's word positions.
-            self.update({**self.snapshot, "wordGeometry": None, "layoutReason": "outside-workarea"})
-            return
-        self.placement_side = placement.side
-        if (placement.width, placement.height) != (width, popup_height):
-            self.fit_content_height(width=placement.width, available_height=placement.height)
-            self.limit_viewport(width=placement.width, height=placement.height)
-            self.resize(placement.width, placement.height)
-        self.move(placement.x, placement.y)
+        width, height = int(placement["width"]), int(placement["height"])
+        area = self.work_area()
+        self.move(int(placement["x"]), int(placement["y"]))
+        tree = self.layout["tree"]
         self.layout_diagnostics = {
             "renderer": "gtk", "source": "ibus-caret",
-            "mode": "aligned" if self.aligned else "compact",
-            "reason": self.snapshot.get("layoutReason", "estimated-inline" if self.aligned else "unavailable-or-narrow"),
+            "mode": "aligned" if tree["aligned"] else "compact",
+            "reason": tree["reason"],
             "cursor": self.current_caret, "workArea": [area.x, area.y, area.width, area.height],
-            "popup": [placement.x, placement.y, width, popup_height],
-            "side": placement.side,
+            "popup": [int(placement["x"]), int(placement["y"]), width, height],
+            "side": placement["side"],
             "coordinateSpace": "gtk-logical",
             "ibusCursor": self.caret_location or self.location,
             "ibusCoordinateScale": self.ibus_coordinate_scale,
         }
 
-    def measure(self, text, *, font_size=None):
-        # PreeditAnchor calibrates this reference font against the document caret.
-        # Candidate preferences must not change that measurement mid-composition.
-        document_reference_size = 40 / 3
+    def text_layout(self, text, font_size):
         layout = self.canvas.create_pango_layout(text)
         font = Pango.FontDescription("Sans")
-        font.set_absolute_size((font_size or document_reference_size) * Pango.SCALE)
+        font.set_absolute_size(font_size * Pango.SCALE)
         layout.set_font_description(font)
-        return layout.get_pixel_size()[0]
+        return layout
+
+    def measure(self, text, *, font_size=None):
+        # Candidate preferences must not change PreeditAnchor's reference
+        # measurement mid-composition, so it uses the document size by default.
+        return self.text_layout(text, font_size or DOCUMENT_REFERENCE_FONT_SIZE).get_pixel_size()[0]
+
+    def measure_height(self, text, *, font_size):
+        return self.text_layout(text, font_size).get_pixel_size()[1]
 
     def draw(self, widget, context):
         context.set_operator(cairo.OPERATOR_SOURCE)
@@ -625,61 +654,65 @@ class TreePanel(Gtk.Window):
             context.arc(cx, cy, 6, start, start + 1.5708)
         context.close_path()
         context.fill()
-        frames = {item[1]: item[2:6] for item in self.rectangles if item[0] == "node"}
-        selected = set(self.snapshot.get("selectedPath", []))
-        nodes = {node["id"]: node for node in self.snapshot.get("nodes", [])}
-        for node in self.snapshot.get("nodes", []):
-            if node["id"] not in frames:
-                continue
-            x1, y1, width, height = frames.get(node.get("parent"), (4, 18, 0, 0))
-            x2, y2, _, h2 = frames[node["id"]]
-            start, end = (x1 + width, y1 + height / 2), (x2, y2 + h2 / 2)
-            active = node["id"] in selected
+        if not self.layout:
+            return False
+        tree = self.layout["tree"]
+        displayed = {node["id"]: node for node in self.drawn_display.get("nodes", [])}
+        for edge in tree["edges"]:
+            active = displayed.get(edge["node"], {}).get("selected", False)
             context.set_source_rgb(*self.theme.rgb("text" if active else "border"))
             context.set_line_width(3 if active else 1)
             context.set_dash([] if active else [2, 3])
-            middle = (start[0] + end[0]) / 2
-            context.move_to(*start)
-            context.curve_to(middle, start[1], middle, end[1], *end)
+            start, end = edge["start"], edge["end"]
+            middle = (start["x"] + end["x"]) / 2
+            context.move_to(start["x"], start["y"])
+            context.curve_to(middle, start["y"], middle, end["y"], end["x"], end["y"])
             context.stroke()
         context.set_dash([])
         context.set_source_rgb(*self.theme.rgb("text"))
-        context.arc(4, 18, 3, 0, 6.2832)
+        context.arc(tree["rootAnchor"]["x"], tree["rootAnchor"]["y"], 3, 0, 6.2832)
         context.fill()
-        for kind, index, x, y, width, height, text, reading in self.rectangles:
-            active = index in selected
-            context.set_source_rgb(*self.theme.rgb("selection" if active else "surface"))
-            radius = 4
-            context.new_sub_path()
-            for cx, cy, start in ((x + width - radius, y + radius, -1.5708), (x + width - radius, y + height - radius, 0),
-                                  (x + radius, y + height - radius, 1.5708), (x + radius, y + radius, 3.1416)):
-                context.arc(cx, cy, radius, start, start + 1.5708)
-            context.close_path()
-            context.fill_preserve()
-            if active:
-                context.set_source_rgb(*self.theme.rgb("text"))
-                context.set_line_width(3 if self.theme.high_contrast else 2)
-                context.stroke()
-            else:
-                context.new_path()
-            if index == self.snapshot.get("focusedNode"):
-                context.set_source_rgb(*self.theme.rgb("selectionText" if active else "text"))
-                context.set_line_width(2)
-                context.move_to(x + 6, y + self.word_height - 4)
-                context.line_to(x + width - 6, y + self.word_height - 4)
-                context.stroke()
-            color = self.theme.rgb("selectionText" if active else "text")
-            inset = 2 if self.aligned else 4
-            self.text(context, text, x + inset, y, width - inset * 2, self.font_size, color,
-                      self.aligned, self.word_height)
-            node = nodes[index]
-            if presentation := score_presentation(self.snapshot, node):
-                draw_score_badge(context, presentation, (x, y, width, self.word_height),
-                                 score=node.get("relativeScore"), theme=self.theme)
-            if index in self.candidate_numbers:
-                self.text(context, str(self.candidate_numbers[index]), x + 6, y + height - self.number_height,
-                          width - 12, self.number_font_size, color, True, self.number_height)
+        sources = {node["id"]: node for node in self.drawn_snapshot.get("nodes", [])}
+        for node in tree["nodes"]:
+            self.draw_node(context, node, displayed[node["id"]], sources[node["id"]])
         return False
+
+    def draw_node(self, context, layout, displayed, source):
+        tree = self.layout["tree"]
+        metrics = tree["metrics"]
+        frame, text_frame = layout["frame"], layout["textFrame"]
+        x, y, width, height = frame["x"], frame["y"], frame["width"], frame["height"]
+        active = displayed["selected"]
+        context.set_source_rgb(*self.theme.rgb("selection" if active else "surface"))
+        radius = NODE_CORNER_RADIUS
+        context.new_sub_path()
+        for cx, cy, start in ((x + width - radius, y + radius, -1.5708), (x + width - radius, y + height - radius, 0),
+                              (x + radius, y + height - radius, 1.5708), (x + radius, y + radius, 3.1416)):
+            context.arc(cx, cy, radius, start, start + 1.5708)
+        context.close_path()
+        context.fill_preserve()
+        if active:
+            context.set_source_rgb(*self.theme.rgb("text"))
+            context.set_line_width(3 if self.theme.high_contrast else 2)
+            context.stroke()
+        else:
+            context.new_path()
+        if displayed["focused"]:
+            underline = text_frame["y"] + text_frame["height"] - 4
+            context.set_source_rgb(*self.theme.rgb("selectionText" if active else "text"))
+            context.set_line_width(2)
+            context.move_to(x + FOCUS_UNDERLINE_INSET, underline)
+            context.line_to(x + width - FOCUS_UNDERLINE_INSET, underline)
+            context.stroke()
+        color = self.theme.rgb("selectionText" if active else "text")
+        self.text(context, source["text"], text_frame, metrics["fontSize"], color,
+                  aligned=tree["textAlignment"] == "leading")
+        if layout.get("scoreFrame") and source.get("scorePresentation"):
+            draw_score_badge(context, source["scorePresentation"], layout["scoreFrame"],
+                             metrics=metrics, theme=self.theme)
+        if layout.get("numberFrame") and displayed.get("number") is not None:
+            self.text(context, str(displayed["number"]), layout["numberFrame"], metrics["numberFontSize"],
+                      color, aligned=True)
 
     @staticmethod
     def fitted_layout(context, text, width, size):
@@ -693,25 +726,25 @@ class TreePanel(Gtk.Window):
         return layout
 
     @staticmethod
-    def text(context, text, x, y, width, size, color, aligned=False, height=24):
-        layout = TreePanel.fitted_layout(context, text, width, size)
+    def text(context, text, frame, size, color, *, aligned):
+        layout = TreePanel.fitted_layout(context, text, frame["width"], size)
         layout.set_alignment(Pango.Alignment.LEFT if aligned else Pango.Alignment.CENTER)
         context.set_source_rgb(*color)
-        context.move_to(x, y + (height - layout.get_pixel_size()[1]) / 2)
+        context.move_to(frame["x"], frame["y"] + (frame["height"] - layout.get_pixel_size()[1]) / 2)
         PangoCairo.show_layout(context, layout)
 
     def tooltip(self, _widget, x, y, _keyboard_mode, tooltip):
-        nodes = {node["id"]: node for node in self.snapshot.get("nodes", [])}
-        for kind, index, left, top, width, height, text, reading in self.rectangles:
-            if kind == "node" and left <= x <= left + width and top <= y <= top + height + 12:
-                presentation = score_presentation(self.snapshot, nodes[index])
-                detail = "\n" + presentation["detailDescription"] if presentation else ""
-                tooltip.set_text(f"{text}（{reading}）{detail}")
+        sources = {node["id"]: node for node in self.drawn_snapshot.get("nodes", [])}
+        for kind, index, left, top, width, height, *_ in self.rectangles:
+            if kind == "node" and left <= x <= left + width and top <= y <= top + height:
+                presentation = sources[index].get("scorePresentation") or {}
+                tooltip.set_text("\n".join(filter(None, [self.displayed_node(index)["accessibleName"],
+                                                         presentation.get("detailDescription")])))
                 return True
         return False
 
     def click(self, _widget, event):
-        if not self.get_visible() or not self.tree_expanded or event.button != 1:
+        if not self.shows_current_layout or not self.tree_expanded or event.button != 1:
             return False
         for kind, index, x, y, width, height, *_ in reversed(self.rectangles):
             if x <= event.x <= x + width and y <= event.y <= y + height:

@@ -91,10 +91,8 @@ public struct CandidateDisplay: Encodable, Equatable, Sendable {
         self.list = Self.list(input)
     }
 
-    private static let selectionStates: Set<String> = ["previewing", "selecting", "replaceSuggestion"]
-
     static func keyboardConfirmsCandidate(_ input: CandidateDisplayInput) -> Bool {
-        selectionStates.contains(input.inputState)
+        InputState(bridgeName: input.inputState)?.enterConfirmsCandidate ?? false
     }
 
     private static func mode(_ input: CandidateDisplayInput) -> Mode {

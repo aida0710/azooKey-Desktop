@@ -21,6 +21,15 @@ private let announcementSnapshot = """
 }
 """
 
+/// Expected text from the same catalog Core uses, so tests pass in any locale.
+private func text(_ key: String, _ values: String...) -> String {
+    String(format: Localization.text("candidate." + key), arguments: values)
+}
+
+private func announcement(_ parts: String...) -> String {
+    parts.joined(separator: text("announceSeparator"))
+}
+
 private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInput {
     var object = try #require(try JSONSerialization.jsonObject(with: Data(announcementSnapshot.utf8)) as? [String: Any])
     object.merge(changes) { _, new in new }
@@ -28,11 +37,15 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
 }
 
 @Test func movingToAnotherReadingOrWordAnnouncesTheRealCommit() throws {
-    #expect(CandidateDisplay(try input()).announcement == "変換候補 1 / 2。日本。読み ニホン。語 1 / 2。確定予定 日本に行く")
+    #expect(CandidateDisplay(try input()).announcement == announcement(
+        text("position", "1", "2"), "日本", text("announceReading", "ニホン"), text("wordPosition", "1", "2"),
+        text("announceCommit", "日本に行く")))
     #expect(CandidateDisplay(try input(["selection": 1, "focusedNode": 11, "selectedPath": [11, 13]])).announcement
-        == "変換候補 2 / 2。日本。読み ニッポン。語 1 / 2。確定予定 日本に行く")
+        == announcement(text("position", "2", "2"), "日本", text("announceReading", "ニッポン"),
+                        text("wordPosition", "1", "2"), text("announceCommit", "日本に行く")))
     #expect(CandidateDisplay(try input(["focusedNode": 12])).announcement
-        == "変換候補 1 / 2。に行く。読み ニイク。語 2 / 2。確定予定 日本に行く")
+        == announcement(text("position", "1", "2"), "に行く", text("announceReading", "ニイク"),
+                        text("wordPosition", "2", "2"), text("announceCommit", "日本に行く")))
 }
 
 @Test func partialCommitAnnouncesTheRemainingReadingWithoutInventingText() throws {
@@ -41,7 +54,8 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
         ["index": 1, "text": "日本に行く"]
     ]
     #expect(CandidateDisplay(try input(["candidates": candidates])).announcement
-        == "変換候補 1 / 2。日本。読み ニホン。語 1 / 2。残る読み にいく")
+        == announcement(text("position", "1", "2"), "日本", text("announceReading", "ニホン"),
+                        text("wordPosition", "1", "2"), text("announceRemaining", "にいく")))
 }
 
 @Test func typingInvalidSelectionAndMissingFocusAreSilent() throws {
@@ -75,7 +89,7 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     let live = CandidateDisplay(try input(changes.merging(["inputState": "composing"]) { _, new in new }))
     #expect(live.nodes.map(\.number) == [1, 4, nil])
     #expect(live.showsNumbers)
-    #expect(live.nodes[0].accessibleDescription.hasSuffix("候補番号 1"))
+    #expect(live.nodes[0].accessibleDescription.hasSuffix(text("numberBadge", "1")))
     let unnumbered = CandidateDisplay(try input(changes.merging(["showCandidateIndex": false]) { _, new in new }))
     #expect(unnumbered.nodes.allSatisfy { $0.number == nil } && !unnumbered.showsNumbers)
     let numbered = CandidateDisplay(try input(changes.merging(["showCandidateIndex": true]) { _, new in new }))
@@ -86,16 +100,16 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     let display = CandidateDisplay(try input(["showRelativeScores": true]))
     let focused = try #require(display.nodes.first(where: { $0.id == 10 }))
     #expect(focused.selected && focused.focused)
-    #expect(focused.accessibleName == "日本（ニホン）")
+    #expect(focused.accessibleName == text("withReading", "日本", "ニホン"))
     let lines = focused.accessibleDescription.components(separatedBy: "\n")
-    #expect(lines.first == "操作対象。押すと候補を選択")
-    #expect(lines.contains("相対スコア 100"))
+    #expect(lines.first == text("focusedSelect"))
+    #expect(lines.contains(String(format: Localization.text("candidate.score.value"), 100)))
     let detail = focused.detailText.components(separatedBy: "\n")
     #expect(Array(detail.prefix(2)) == ["日本", "ニホン"])
-    #expect(detail.last == "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール")
+    #expect(detail.last == text("detailKeys"))
     let hidden = CandidateDisplay(try input())
     let unscored = try #require(hidden.nodes.first(where: { $0.id == 10 }))
-    #expect(!unscored.detailText.contains("相対スコア"))
+    #expect(!unscored.detailText.contains(String(format: Localization.text("candidate.score.value"), 100)))
     #expect(hidden.detailNode == 10)
 }
 
@@ -107,18 +121,19 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     ]
     let display = CandidateDisplay(try input(["candidatePage": page, "showCandidateIndex": true]))
     let list = try #require(display.list)
-    #expect(list.title == "確定する文章" && list.commitText == "日本に行く")
-    #expect(list.readingText == "読み にほんにいく" && list.remainingText == nil)
-    #expect(list.positionText == "変換候補 1 / 12")
-    #expect(list.keyboardConfirmsCandidate && list.confirmLabel == "確定 ↵")
-    #expect(list.confirmAccessibleName == "確定 日本に行く" && list.confirmAccessibleDescription == "押すと候補を確定")
+    #expect(list.title == text("composition") && list.commitText == "日本に行く")
+    #expect(list.readingText == text("announceReading", "にほんにいく") && list.remainingText == nil)
+    #expect(list.positionText == text("position", "1", "12"))
+    #expect(list.keyboardConfirmsCandidate && list.confirmLabel == text("submit") + " ↵")
+    #expect(list.confirmAccessibleName == text("submit") + " 日本に行く")
+    #expect(list.confirmAccessibleDescription == text("confirm"))
     #expect(list.confirmIndex == 0 && list.previousIndex == nil && list.nextIndex == 9)
     #expect(list.items.map(\.number) == [1, 2] && list.items.map(\.selected) == [true, false])
-    #expect(list.items[1].accessibleName == "日本に行く（にっぽんにいく）")
-    #expect(list.items[1].accessibleDescription == "押すと候補を選択\n確定予定: 日本に行く")
+    #expect(list.items[1].accessibleName == text("withReading", "日本に行く", "にっぽんにいく"))
+    #expect(list.items[1].accessibleDescription == text("select") + "\n確定予定: 日本に行く")
 
     let proposal = try #require(CandidateDisplay(try input(["inputState": "composing", "candidatePage": page])).list)
-    #expect(proposal.title == "候補のプレビュー" && proposal.confirmLabel == "この候補を確定")
+    #expect(proposal.title == text("proposal") && proposal.confirmLabel == text("submitCandidate"))
     #expect(!proposal.keyboardConfirmsCandidate && proposal.items.allSatisfy { $0.number == nil })
     #expect(try CandidateDisplay(input(["selection": NSNull(), "candidates": [Any]()])).list == nil)
 }
