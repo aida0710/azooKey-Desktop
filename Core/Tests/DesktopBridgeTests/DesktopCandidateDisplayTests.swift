@@ -45,6 +45,51 @@ extension DesktopSegmentEditingTests {
         }
     }
 
+    @Test func upAndDownStepThroughTheListRowsWhileTheListHidesTheTree() throws {
+        try withSession(liveConversion: true, treeCandidates: true) { session in
+            _ = type("watashihanihongowobenkyoushiteimasu", into: session)
+            _ = session.key(key(49))
+            let listed = session.key(key(49))
+            let first = try #require(listed.selection)
+            try #require(listed.candidates.count > first + 2)
+            #expect(session.key(key(125)).selection == first + 1)
+            #expect(session.key(key(125)).selection == first + 2)
+            let back = session.key(key(126))
+            #expect(back.selection == first + 1)
+            #expect(back.candidateDisplay?.mode == .list)
+        }
+    }
+
+    @Test func upAndDownMoveBetweenSiblingsOnceTheListShowsTheTree() throws {
+        try withSession(liveConversion: true, treeCandidates: true) { session in
+            _ = type("watashihanihongowobenkyoushiteimasu", into: session)
+            _ = session.key(key(49))
+            _ = session.key(key(49))
+            _ = session.key(key(124))
+            try #require(session.key(key(124)).candidateDisplay?.expandTree == true)
+            // Back on the first word, which has alternatives such as 私 and 渡し.
+            var shown = session.key(key(123))
+            for _ in 0..<4 where shown.nodes.first(where: { $0.id == shown.focusedNode })?.depth != 0 {
+                shown = session.key(key(123))
+            }
+            let focused = try #require(shown.nodes.first { $0.id == shown.focusedNode })
+            let siblings = shown.nodes.filter { $0.parent == focused.parent && $0.depth == focused.depth }
+            try #require(siblings.count > 1)
+
+            let moved = session.key(key(125))
+            let movedFocus = try #require(moved.nodes.first { $0.id == moved.focusedNode })
+            #expect(movedFocus.id != focused.id)
+            #expect(movedFocus.parent == focused.parent && movedFocus.depth == focused.depth)
+
+            // Leaving the selection closes the tree; the next list starts on its rows again.
+            _ = session.key(key(53))
+            _ = session.key(key(49))
+            let relisted = session.key(key(49))
+            let first = try #require(relisted.selection)
+            #expect(session.key(key(125)).selection == first + 1)
+        }
+    }
+
     @Test func layoutAndDisplayOperationsNeedNoSession() throws {
         let layout = try JSONDecoder().decode(BridgeRequest.self, from: Data("""
         {"operation":"candidate-layout","layout":{"mode":"list","textSize":"large","textScale":1,"measuredFontSize":24,
