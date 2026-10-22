@@ -1,6 +1,6 @@
 # AI 機能のブリッジ操作
 
-AI 機能で何を送るか、送ってよいか、結果を本文へ適用してよいかは Core（`Core/Sources/Core/Desktop/AI`）が決めます。各 OS は入力欄について分かる事実を渡し、Core の答えを表示し、AI への通信と画面・API キーの保管を受け持ちます。この文書は、その受け渡しに使う `azookey-desktop-bridge` の操作をまとめたものです。Ubuntu の IBus エンジンはこの操作を使っています。Windows（TSF）と macOS も同じ操作で揃えます。
+AI 機能で何を送るか、送ってよいか、結果を本文へ適用してよいかは Core（`Core/Sources/Core/Desktop/AI`）が決めます。各 OS は入力欄について分かる事実を渡し、Core の答えを表示し、AI への通信と画面・API キーの保管を受け持ちます。この文書は、その受け渡しに使う `azookey-desktop-bridge` の操作をまとめたものです。Ubuntu の IBus エンジンと Windows（TSF）はこの操作を使っています。macOS は Core を直接 import するので、同じ判断を Core の型（`AISuggestionReview`・`AISelectedTextTransformation`・`AIPromptHistory`・`AIPromptShortcuts`）で直接呼びます。入力欄の事実と二つ目の読み取りは、IMK から `SelectedTextClient.aiTextField(identity:isSensitive:)`・`aiSelectionWitness(identity:window:)` で読みます（下の Windows と同じく、入力と同じ API で読み直します）。
 
 ブリッジは 1 行 1 要求の JSON（JSONL）で、要求ごとに 1 行の応答を返します。入力欄ごとの状態は要求の `context` で分かれます。AI の判断に使う値は要求の `ai` オブジェクトに入れます。要求の形式が誤っている場合は、ほかの操作と同じく `{"error": "invalid_request", ...}` を返します。
 
@@ -253,7 +253,7 @@ Core は画面の文言ではなくコードを返します。各 OS は次の�
 
 ## 保存先
 
-プロンプト履歴は設定ファイルと同じディレクトリの `prompts.json`（Ubuntu では `$XDG_CONFIG_HOME/azookey-tree/prompts.json`）に、指示文だけを保存します。ファイルは利用者だけが読める権限（0600）で作り、ディレクトリがなければ 0700 で作ります。形式は Ubuntu の既存の形式と同じです。
+プロンプト履歴は設定ファイルと同じディレクトリの `prompts.json`（Ubuntu では `$XDG_CONFIG_HOME/azookey-tree/prompts.json`）に、指示文だけを保存します。macOS は App Group の `Library/Application Support/azooKey/prompts.json` に置き、以前の版が設定に残した履歴を、このファイルが無いときに一度だけ取り込みます（`AIPromptHistory.importItems`）。ファイルは利用者だけが読める権限（0600）で作り、ディレクトリがなければ 0700 で作ります。形式は Ubuntu の既存の形式と同じです。
 
 ```json
 [{"prompt": "敬語に直す", "pinned": true, "lastUsed": 1792500000.0, "shortcut": {"key": "e", "modifiers": 6}}]
