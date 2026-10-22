@@ -18,7 +18,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 Get-Process azookey-windows-host, azookey-desktop-bridge -ErrorAction SilentlyContinue | Stop-Process -Force
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 $source = $PSScriptRoot
-foreach ($item in 'azookey-tsf.dll', 'azookey-windows-host.exe', 'bridge', 'models', 'licenses', 'LICENSE', 'uninstall.ps1') {
+foreach ($item in 'azookey-tsf.dll', 'x86', 'azookey-windows-host.exe', 'bridge', 'models', 'licenses', 'LICENSE', 'uninstall.ps1') {
     $target = Join-Path $Destination $item
     if (Test-Path $target) {
         try { Remove-Item -Recurse -Force $target }
@@ -31,9 +31,16 @@ foreach ($item in 'azookey-tsf.dll', 'azookey-windows-host.exe', 'bridge', 'mode
     Copy-Item -Recurse (Join-Path $source $item) $target
 }
 
-$dll = Join-Path $Destination 'azookey-tsf.dll'
-$registration = Start-Process -FilePath "$env:SystemRoot\System32\regsvr32.exe" -ArgumentList @('/s', "`"$dll`"") -Wait -PassThru
-if ($registration.ExitCode -ne 0) { throw "regsvr32 failed ($($registration.ExitCode))" }
+# 64-bit and 32-bit applications each load the build of their own bitness,
+# registered under the same CLSID by the matching regsvr32.
+$registrations = @(
+    @{ Dll = (Join-Path $Destination 'azookey-tsf.dll'); Regsvr32 = "$env:SystemRoot\System32\regsvr32.exe" },
+    @{ Dll = (Join-Path $Destination 'x86\azookey-tsf.dll'); Regsvr32 = "$env:SystemRoot\SysWOW64\regsvr32.exe" }
+)
+foreach ($entry in $registrations) {
+    $registration = Start-Process -FilePath $entry.Regsvr32 -ArgumentList @('/s', "`"$($entry.Dll)`"") -Wait -PassThru
+    if ($registration.ExitCode -ne 0) { throw "regsvr32 failed for $($entry.Dll) ($($registration.ExitCode))" }
+}
 
 # Start the converter host at sign-in so the first key press does not wait for it.
 $hostPath = Join-Path $Destination 'azookey-windows-host.exe'

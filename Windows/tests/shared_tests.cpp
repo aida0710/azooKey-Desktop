@@ -148,6 +148,30 @@ void TestSnapshotParsing() {
     Check(!azookey::protocol::ParseSnapshot("not json").has_value(), "a broken line is not a snapshot");
 }
 
+void TestTreeAndPageParsing() {
+    auto snapshot = azookey::protocol::ParseSnapshot(
+        R"({"inputState":"composing","preedit":"日本語","nodes":[)"
+        R"({"id":0,"text":"日本","reading":"にほん","parent":null,"children":[1],"terminals":[],"depth":0,)"
+        R"("preview":{"candidateIndex":2,"text":"日本"},"scorePresentation":{"label":"80","detailDescription":"相対スコア 80","role":"scoreHigh"}},)"
+        R"({"id":1,"text":"語","reading":"ご","parent":0,"children":[],"terminals":[0],"depth":1}],)"
+        R"("columns":[[0],[1]],"selectedPath":[0,1],"focusedNode":1,)"
+        R"("candidatePage":{"totalCount":12,"position":3,"start":0,"items":[{"index":0,"text":"日本語","reading":"にほんご","annotation":null,"detailDescription":"日本語"}],"previousIndex":null,"nextIndex":9},)"
+        R"("candidateTextSize":"large","showRelativeScores":true})");
+    Check(snapshot.has_value(), "a snapshot with a tree parses");
+    Check(snapshot->inputState == "composing", "the input state is read");
+    Check(snapshot->nodes.size() == 2 && !snapshot->nodes[0].parent && snapshot->nodes[1].parent == 0, "nodes keep their parents");
+    Check(snapshot->nodes[0].previewCandidateIndex == 2, "a node's preview candidate is read");
+    Check(snapshot->nodes[0].score && snapshot->nodes[0].score->role == "scoreHigh", "Core's score role is read");
+    Check(snapshot->columns.size() == 2 && snapshot->columns[1][0] == 1, "columns are read");
+    Check(snapshot->selectedPath.size() == 2 && snapshot->focusedNode == 1, "the selected path and focus are read");
+    Check(snapshot->candidatePage.totalCount == 12 && snapshot->candidatePage.position == 3, "the page position is read");
+    Check(!snapshot->candidatePage.previousIndex && snapshot->candidatePage.nextIndex == 9, "page neighbors are read");
+    Check(snapshot->largeText && snapshot->showRelativeScores, "presentation settings are read");
+    Check(snapshot->FindNode(1) && snapshot->FindNode(1)->text == L"語" && !snapshot->FindNode(5), "nodes are found by id");
+    auto settings = azookey::protocol::ParsePresentationSettings(R"({"settings":{"tree":false}})");
+    Check(settings && !settings->treeCandidates, "the tree setting is read from the settings reply");
+}
+
 }  // namespace
 
 int main() {
@@ -161,6 +185,7 @@ int main() {
     TestTranslationUsesCoreKeyCodes();
     TestKeyRequestMatchesBridgeContract();
     TestSnapshotParsing();
+    TestTreeAndPageParsing();
     std::printf("%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

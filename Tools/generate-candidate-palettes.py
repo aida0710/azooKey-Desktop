@@ -41,12 +41,34 @@ def swift_source(palettes):
     return "\n".join(lines)
 
 
+def cpp_identifier(name):
+    return name[0].upper() + name[1:]
+
+
+def cpp_source(palettes):
+    roles = list(next(iter(palettes.values())))
+    modes = list(palettes)
+    lines = [f"// {GENERATED_NOTICE}", "#pragma once", "", "#include <cstdint>", "", "namespace azookey::tsf {", ""]
+    lines.append("// Colors are 0xRRGGBB sRGB values.")
+    lines.append("struct CandidatePalette {")
+    lines += [f"    uint32_t {role};" for role in roles]
+    lines += ["};", ""]
+    lines.append("enum class CandidateAppearance { " + ", ".join(cpp_identifier(mode) for mode in modes) + " };")
+    lines += ["", "inline constexpr CandidatePalette kCandidatePalettes[] = {"]
+    for mode in modes:
+        values = ", ".join(f"0x{palettes[mode][role][1:]}" for role in roles)
+        lines.append(f"    {{{values}}},  // {mode}")
+    lines += ["};", "", "}  // namespace azookey::tsf", ""]
+    return "\n".join(lines)
+
+
 def generated_sources(palettes):
     document = json.dumps(palettes, ensure_ascii=False, indent=4)
     return {
         "Linux/azookey/candidate_palette_data.py": f"# {GENERATED_NOTICE}\nPALETTES = {document}\n",
         "Linux/gnome-extension/candidatePaletteData.js": f"// {GENERATED_NOTICE}\nexport const PALETTES = {document};\n",
         "azooKeyMac/InputController/CandidateWindow/CandidatePaletteData.swift": swift_source(palettes),
+        "Windows/src/textservice/candidate_palette_data.h": cpp_source(palettes),
     }
 
 

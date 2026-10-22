@@ -8,6 +8,7 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "shared/bridge_protocol.h"
 
@@ -17,6 +18,14 @@ struct ClauseAttributeAtoms {
     TfGuidAtom input = TF_INVALID_GUIDATOM;
     TfGuidAtom targetClause = TF_INVALID_GUIDATOM;
     TfGuidAtom convertedClause = TF_INVALID_GUIDATOM;
+};
+
+// Where the composition is on screen, in physical pixels. `words` has one
+// rectangle per tree column when the preedit is exactly the chosen words, so
+// the tree can line its columns up under them.
+struct CompositionGeometry {
+    RECT composition{};
+    std::vector<RECT> words;
 };
 
 struct InputField {
@@ -29,10 +38,10 @@ public:
     CompositionWriter(ITfCompositionSink* sink, ClauseAttributeAtoms atoms) : sink_(sink), atoms_(atoms) {}
 
     // Applies `snapshot`; `composition` is the live composition (or nullptr)
-    // and is updated when one starts or ends. Returns the composition's screen
-    // rectangle when a composition remains, for placing the candidate list.
-    std::optional<RECT> Apply(TfEditCookie cookie, ITfContext* context, const protocol::Snapshot& snapshot,
-                              ITfComposition** composition);
+    // and is updated when one starts or ends. Returns where the composition is
+    // when one remains, for placing the candidate panel.
+    std::optional<CompositionGeometry> Apply(TfEditCookie cookie, ITfContext* context, const protocol::Snapshot& snapshot,
+                                             ITfComposition** composition);
 
     // Leaves `text` in the document in place of the composition (used when the
     // converter is unavailable or focus moves away).
@@ -49,6 +58,8 @@ private:
     static void ClearClauseAttributes(TfEditCookie cookie, ITfContext* context, ITfRange* range);
     static void PlaceCaret(TfEditCookie cookie, ITfContext* context, ITfRange* range, LONG offset);
     static std::optional<RECT> ScreenRectangle(TfEditCookie cookie, ITfContext* context, ITfRange* range);
+    static std::vector<RECT> WordRectangles(TfEditCookie cookie, ITfContext* context, ITfRange* range,
+                                            const protocol::Snapshot& snapshot);
 
     ITfCompositionSink* sink_;
     ClauseAttributeAtoms atoms_;

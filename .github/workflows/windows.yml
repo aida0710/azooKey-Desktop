@@ -34,7 +34,13 @@ jobs:
         run: |
           build/windows-package/install.ps1
           New-Item -ItemType Directory -Force -Path build/screenshots | Out-Null
-          build/windows-frontend/tsf-harness.exe --clsid '{DC2488F5-F672-4910-9FEA-6D97306B86DA}' --profile '{30051583-6CBB-49E0-AEAA-91AE64DCA550}' --keys 'nihongo{SHOT:typing}{SPACE}{SHOT:converting}{ENTER}{SHOT:committed}' --expect '日本語' --screenshots build/screenshots
+          Windows/tests/tsf-cases.ps1 -Harness build/windows-frontend/tsf-harness.exe -Screenshots build/screenshots
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Type through TSF from a 32-bit application
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/screenshots/x86 | Out-Null
+          Windows/tests/tsf-cases.ps1 -Harness build/windows-frontend-x86/tsf-harness.exe -Screenshots build/screenshots/x86
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
