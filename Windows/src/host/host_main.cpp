@@ -15,13 +15,16 @@
 #include <string>
 #include <thread>
 
+#include "../shared/data_directory.h"
 #include "../shared/host_channel.h"
 #include "../shared/json.h"
 #include "bridge_process.h"
+#include "settings_reload.h"
 
 namespace {
 
 using azookey::host::BridgeProcess;
+using azookey::host::SettingsReload;
 
 constexpr DWORD kPipeBufferBytes = 64 * 1024;
 // Idle clients keep their connection; this only bounds a single reply write.
@@ -47,20 +50,10 @@ std::wstring ModuleDirectory() {
     return directory.substr(0, directory.find_last_of(L'\\'));
 }
 
-std::wstring DefaultDataDirectory() {
-    PWSTR localAppData = nullptr;
-    std::wstring directory;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &localAppData))) {
-        directory = std::wstring(localAppData) + L"\\azooKey Tree";
-        CoTaskMemFree(localAppData);
-    }
-    return directory;
-}
-
 Options ParseOptions() {
     Options options;
     options.bridge = ModuleDirectory() + L"\\bridge\\azookey-desktop-bridge.exe";
-    options.dataDirectory = DefaultDataDirectory();
+    options.dataDirectory = azookey::storage::DefaultDataDirectory();
     options.resourcesDirectory = ModuleDirectory() + L"\\models";
     int count = 0;
     wchar_t** arguments = CommandLineToArgvW(GetCommandLineW(), &count);
@@ -156,6 +149,8 @@ private:
             std::string reply;
             {
                 std::lock_guard<std::mutex> lock(bridgeMutex_);
+                settingsReload_.BeforeRequest([this](const std::string& request) { return bridge_.Request(request); },
+                                              bridge_.restarts());
                 reply = bridge_.Request(*line).value_or(kUnavailableReply);
             }
             if (!azookey::channel::WriteAll(pipe, reply + "\n", kClientWriteTimeoutMilliseconds)) break;
@@ -173,6 +168,7 @@ private:
     Options options_;
     std::mutex bridgeMutex_;
     BridgeProcess bridge_;
+    SettingsReload settingsReload_;  // guarded by bridgeMutex_
 };
 
 }  // namespace

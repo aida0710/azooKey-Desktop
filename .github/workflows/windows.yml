@@ -47,6 +47,7 @@ jobs:
           . Windows/scripts/enter-dev-shell.ps1
           Windows/scripts/build-llama.ps1
       - name: Build the package
+        id: package
         shell: pwsh
         run: |
           . Windows/scripts/enter-dev-shell.ps1
@@ -77,6 +78,30 @@ jobs:
           New-Item -ItemType Directory -Force -Path build/screenshots/x86 | Out-Null
           Windows/tests/tsf-cases.ps1 -Harness build/windows-frontend-x86/tsf-harness.exe -Screenshots build/screenshots/x86
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # The settings steps run after the TSF steps, and even when one of those
+      # failed, so neither hides the state of the other.
+      - name: Settings unit tests
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-settings-tests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: The host applies a changed settings.json
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-settings-reload-test.exe build/windows-package/azookey-windows-host.exe build/windows-package/bridge/azookey-desktop-bridge.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Drive the settings windows and capture every page
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-settings-ui-test.exe build/windows-package/azookey-windows-host.exe build/windows-package/bridge/azookey-desktop-bridge.exe --screenshots build/settings-screenshots
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Start the installed settings app from the Start menu entry
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: Windows/tests/settings-app-cases.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: azookey-tree-windows-x64
@@ -86,4 +111,10 @@ jobs:
         with:
           name: tsf-screenshots
           path: build/screenshots
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: settings-screenshots
+          path: build/settings-screenshots
           if-no-files-found: ignore

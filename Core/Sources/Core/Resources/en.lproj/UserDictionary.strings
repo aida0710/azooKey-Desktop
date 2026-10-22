@@ -45,6 +45,9 @@
 "failure.unknown" = "Saving the dictionary could not be confirmed. The draft is kept. Save again.";
 "failure.validation" = "The entries could not be validated. The draft is kept. Save again.";
 "field_unknown" = "Field";
+"file_type.all" = "All files (*.*)";
+"file_type.json" = "azooKey JSON (*.json)";
+"file_type.text" = "Text files (*.txt)";
 "filtered_count" = "Showing %2$@ of %1$@";
 "hint" = "Hint";
 "import" = "Import…";

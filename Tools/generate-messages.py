@@ -225,24 +225,37 @@ inline const MessageEntry* FindMessage(std::string_view key, Table table = Table
     return found != end && std::string_view(found->key) == key ? found : nullptr;
 }
 
-// The text with every "{name}" replaced by its value. An unknown key returns
+// The text with its "{name}" placeholders left in place. An unknown key returns
 // the key itself, as Apple's NSLocalizedString does, so a gap stays visible.
-inline std::wstring Text(std::string_view key, Language language,
-                         std::initializer_list<std::pair<std::wstring_view, std::wstring_view>> values = {},
-                         Table table = Table::Localizable) {
+inline std::wstring Template(std::string_view key, Language language, Table table = Table::Localizable) {
     const MessageEntry* entry = FindMessage(key, table);
     if (entry == nullptr) {
         return std::wstring(key.begin(), key.end());
     }
-    std::wstring text = language == Language::Japanese ? entry->japanese : entry->english;
+    return language == Language::Japanese ? entry->japanese : entry->english;
+}
+
+// Replaces every "{name}" in `text` with its value. `values` is any range of
+// (name, value) pairs of wide strings, so values known only at run time (the
+// arguments of an error Core reported) fill a template the same way.
+template <typename Values>
+std::wstring FillPlaceholders(std::wstring text, const Values& values) {
     for (const auto& [name, value] : values) {
         const std::wstring placeholder = L"{" + std::wstring(name) + L"}";
+        const std::wstring_view replacement(value);
         for (size_t found = text.find(placeholder); found != std::wstring::npos;
-             found = text.find(placeholder, found + value.size())) {
-            text.replace(found, placeholder.size(), value);
+             found = text.find(placeholder, found + replacement.size())) {
+            text.replace(found, placeholder.size(), replacement);
         }
     }
     return text;
+}
+
+// The text with every "{name}" replaced by its value.
+inline std::wstring Text(std::string_view key, Language language,
+                         std::initializer_list<std::pair<std::wstring_view, std::wstring_view>> values = {},
+                         Table table = Table::Localizable) {
+    return FillPlaceholders(Template(key, language, table), values);
 }
 """
 

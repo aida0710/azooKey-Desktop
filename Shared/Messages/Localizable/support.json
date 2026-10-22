@@ -15,6 +15,10 @@
     "ja": "実行環境の CPU",
     "en": "Runtime CPU architecture"
   },
+  "support.data_directory": {
+    "ja": "学習データと辞書の保存先",
+    "en": "Learning and dictionary data"
+  },
   "support.fallback": {
     "ja": "通常リストに戻る理由",
     "en": "List fallback reason"
@@ -91,9 +95,21 @@
     "ja": "GNOME 拡張のツリー",
     "en": "GNOME extension tree"
   },
+  "support.renderer.windows-list": {
+    "ja": "Windows の候補パネル（一覧）",
+    "en": "Windows candidate panel (list)"
+  },
+  "support.renderer.windows-tree": {
+    "ja": "Windows の候補パネル（ツリー）",
+    "en": "Windows candidate panel (tree)"
+  },
   "support.session": {
     "ja": "画面の方式",
     "en": "Display session"
+  },
+  "support.settings_file": {
+    "ja": "設定ファイル",
+    "en": "Settings file"
   },
   "support.setup.linux": {
     "ja": "GNOME の設定 → キーボード → 入力ソースに「日本語 → azooKey Tree」を追加します。入力方式は IBus を選びます。初回は作業を保存してログアウトし、再ログインしてください。GNOME 46 / Wayland のツリーには azooKey Tree 拡張を有効にします。",
@@ -102,6 +118,10 @@
   "support.setup.mac": {
     "ja": "システム設定 → キーボード → 入力ソースに azooKey を追加します。表示されない場合は、作業を保存してログアウトし、再ログインしてください。設定はメニューバーの入力メニュー → 設定…から開けます。",
     "en": "Add azooKey in System Settings → Keyboard → Input Sources. If it is missing, save your work, log out and log back in. Open settings from the input menu in the menu bar."
+  },
+  "support.setup.windows": {
+    "ja": "導入すると、日本語のキーボードの一覧に azooKey Tree が加わります。Win+Space で切り替えます。一覧にない場合は、設定 → 時刻と言語 → 言語と地域 → 日本語の言語のオプション → キーボードの追加から azooKey Tree を選びます。この画面は、タスクバーの入力モードの表示のメニュー → 設定…から開けます。",
+    "en": "Installing adds azooKey Tree to your Japanese keyboards. Press Win+Space to switch. If it is missing, open Settings → Time & language → Language & region → Japanese language options → Add a keyboard and choose azooKey Tree. Open this window from the menu of the input mode indicator on the taskbar → Settings…"
   },
   "support.source": {
     "ja": "ソースのコミット",

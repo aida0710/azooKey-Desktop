@@ -183,6 +183,18 @@
     "ja": "項目",
     "en": "Field"
   },
+  "file_type.all": {
+    "ja": "すべてのファイル（*.*）",
+    "en": "All files (*.*)"
+  },
+  "file_type.json": {
+    "ja": "azooKey JSON（*.json）",
+    "en": "azooKey JSON (*.json)"
+  },
+  "file_type.text": {
+    "ja": "テキスト（*.txt）",
+    "en": "Text files (*.txt)"
+  },
   "filtered_count": {
     "ja": "{total}件中{visible}件を表示",
     "en": "Showing {visible} of {total}"

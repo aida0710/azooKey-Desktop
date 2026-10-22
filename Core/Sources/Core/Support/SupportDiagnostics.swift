@@ -10,6 +10,8 @@ public struct SupportDiagnostics: Equatable, Sendable {
         case gtkTree = "gtk-tree"
         case shellTree = "shell-tree"
         case ibusList = "ibus-list"
+        case windowsTree = "windows-tree"
+        case windowsList = "windows-list"
     }
 
     /// Why the plain list is shown instead of the tree.

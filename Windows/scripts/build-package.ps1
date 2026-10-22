@@ -11,7 +11,9 @@ param(
     [string]$LlamaDirectory = (Join-Path $PSScriptRoot '..\..\build\llama-windows\install'),
     # Verified by `python Tools\fetch-models.py --model gguf` (same source and
     # SHA-256 as the macOS and Linux packages).
-    [string]$ModelDirectory = (Join-Path $PSScriptRoot '..\..\build\models')
+    [string]$ModelDirectory = (Join-Path $PSScriptRoot '..\..\build\models'),
+    # MAJOR.MINOR.PATCH of a release; the support report shows it.
+    [string]$Version = ''
 )
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -63,7 +65,7 @@ if ($LASTEXITCODE -ne 0) { throw "x86 text service build failed ($LASTEXITCODE)"
 if (Test-Path $Output) { Remove-Item -Recurse -Force $Output }
 $bridgeDirectory = Join-Path $Output 'bridge'
 New-Item -ItemType Directory -Force -Path $bridgeDirectory | Out-Null
-Copy-Item (Join-Path $frontendBuild 'azookey-tsf.dll'), (Join-Path $frontendBuild 'azookey-windows-host.exe') $Output
+Copy-Item (Join-Path $frontendBuild 'azookey-tsf.dll'), (Join-Path $frontendBuild 'azookey-windows-host.exe'), (Join-Path $frontendBuild 'azookey-settings.exe') $Output
 New-Item -ItemType Directory -Force -Path (Join-Path $Output 'x86') | Out-Null
 Copy-Item (Join-Path $frontendBuildX86 'azookey-tsf.dll') (Join-Path $Output 'x86')
 Copy-Item (Join-Path $swiftBuild 'azookey-desktop-bridge.exe') $bridgeDirectory
@@ -94,5 +96,11 @@ New-Item -ItemType Directory -Force -Path $licensesDirectory | Out-Null
 Copy-Item (Join-Path $repository 'packaging\licenses\llama.txt') $licensesDirectory
 $apacheLicense = Join-Path $repository 'Core\.build\checkouts\AzooKeyKanaKanjiConverter\Sources\KanaKanjiConverterModuleWithDefaultDictionary\azooKey_dictionary_storage\LICENSE'
 Copy-Item $apacheLicense (Join-Path $licensesDirectory 'Apache-2.0.txt')
+# The settings app's support report reads these lines (Core: PackageBuildInfo).
+$buildInfo = @('architecture=x64')
+if ($Version) { $buildInfo = @("version=$Version") + $buildInfo }
+$sourceCommit = git -C $repository rev-parse HEAD 2>$null
+if ($LASTEXITCODE -eq 0 -and $sourceCommit) { $buildInfo += "source=$sourceCommit" }
+Set-Content -Path (Join-Path $Output 'build-info.txt') -Value $buildInfo -Encoding utf8NoBOM
 Copy-Item (Join-Path $PSScriptRoot 'install.ps1'), (Join-Path $PSScriptRoot 'uninstall.ps1') $Output
 Write-Output "staged: $Output"

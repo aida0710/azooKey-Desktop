@@ -45,6 +45,9 @@
 "failure.unknown" = "辞書の保存を確認できませんでした。下書きを残しています。もう一度保存してください。";
 "failure.validation" = "入力内容を確認できませんでした。下書きを残しています。もう一度保存してください。";
 "field_unknown" = "項目";
+"file_type.all" = "すべてのファイル（*.*）";
+"file_type.json" = "azooKey JSON（*.json）";
+"file_type.text" = "テキスト（*.txt）";
 "filtered_count" = "%@件中%@件を表示";
 "hint" = "ヒント";
 "import" = "取り込む…";

@@ -8,13 +8,15 @@ Windows 10/11 の 64 ビット（x64）と 32 ビット（x86）のアプリで�
 | --- | --- |
 | `azookey-tsf.dll`、`x86\azookey-tsf.dll` | TSFのテキストサービス。入力欄を持つアプリごとに、そのアプリと同じビット数のものが読み込まれ、キーを受け取って未確定文字・確定・候補一覧を扱います。2つは同じ CLSID に登録します |
 | `azookey-windows-host.exe` | 利用者ごとに1つ動く常駐プロセス。各アプリのテキストサービスから名前付きパイプで要求を受け、変換エンジンを1つだけ動かします |
+| `azookey-settings.exe` | 設定画面とユーザー辞書の画面。常駐プロセス経由で Core の設定の操作を使います |
+| `build-info.txt` | 配布物の CPU とソースのコミット（版を指定して作ったときは版も）。設定画面の診断に載せます |
 | `bridge\azookey-desktop-bridge.exe` | Ubuntu版と同じ変換エンジン（Core、trait ZenzaiCPU）。Swiftの実行時ライブラリ、辞書、llama.cppのDLL（`llama.dll`・`ggml.dll`・`ggml-base.dll`・`ggml-cpu.dll`）を同じフォルダに置きます |
 | `models\ggml-model-Q5_K_M.gguf` | Zenzaiのモデル（zenz-v3.2-small、Q5_K_M）。常駐プロセスがこのフォルダを`AZOOKEY_RESOURCES`としてブリッジへ渡します |
 | `licenses\` | 同梱したllama.cpp（MIT、`llama.txt`）とモデル（Apache-2.0、`Apache-2.0.txt`）の告知 |
 
 配布物は展開して約211MBです（CI run 39775273822の成果物。モデル74MB、Swiftと Visual C++ の実行時ライブラリ62MB、ブリッジ42MB、辞書29MB、llama.cppのDLL 2.3MB）。
 
-アプリごとに変換エンジンを起動すると、辞書と学習データをアプリの数だけ読み込むため、常駐プロセスに集めています。パイプは利用者本人とSYSTEM、同じ利用者のストアアプリ（AppContainer）だけが開けます。学習データは`%LOCALAPPDATA%\azooKey Tree`に置きます。
+アプリごとに変換エンジンを起動すると、辞書と学習データをアプリの数だけ読み込むため、常駐プロセスに集めています。パイプは利用者本人とSYSTEM、同じ利用者のストアアプリ（AppContainer）だけが開けます。学習データは`%LOCALAPPDATA%\azooKey Tree`に、設定ファイルは`%APPDATA%\azooKey Tree\settings.json`（場所は Core が決めます）に置きます。
 
 ## キー操作
 
@@ -91,6 +93,37 @@ Zenzaiありでは、2打目以降の応答の中央値が約2.1〜2.3倍（11�
 | kyouhaisyaniiku | 今日は医者に行く | 今日歯医者に行く |
 | niwanihaniwaniwatorigairu | 庭には庭ニワトリがいる | 庭には庭にわとりがいる |
 
+## 設定画面
+
+`azookey-settings.exe` は、Core の設定の定義（ブリッジの操作 `settings-schema`）から画面を組み立てます。ページと項目、選択肢、既定値、文言のキーは Core が決めるので、Linux の設定画面と同じページ（入力・変換表示・辞書と学習・AI・サポート）と項目が並びます。左にページの一覧、右に選んだページの項目、下に状態の行と「保存」「キャンセル」を置きます。
+
+開き方は、スタートメニューの「azooKey Tree の設定」と、タスクバーの入力モードの表示のメニューの「設定…」です（「ユーザー辞書…」は `--page dictionary` で「辞書と学習」のページを開きます）。設定ファイルがまだ無い最初の起動では、Linux と同じくサポートのページ（導入の案内）を開きます。画面が開いているときにもう一度起動すると、新しい画面は作らず、開いている画面を前に出して指定のページに切り替えます（最初の起動の画面がまだできていなければ、できるまで待ちます）。
+
+| 定義の種類 | Windows の部品 |
+| --- | --- |
+| toggle | チェックボックス |
+| choice | ドロップダウン（値は文字列・整数のまま Core へ返す） |
+| integer | 数値の欄と上下の矢印 |
+| text / multilineText | 1行・複数行の入力欄（カスタム入力表は複数行） |
+| shortcut | 押したキーの組み合わせを記録する欄（`Ctrl+Alt+E` のように表示）。Ctrl・Alt・Shift・Windows キーのどれかが要ります。Tab・Enter・Esc は通常どおり使えます |
+| dictionary | 「ユーザー辞書を編集…（N件）」ボタン |
+| note | 説明文 |
+| action | ボタン。学習のリセットは確認してから行います |
+| secret | パスワード欄。API キーは Windows の資格情報マネージャー（汎用資格情報 `azooKey Tree/openai-compatible`、この機械だけに保存）に入れ、設定ファイルには書きません。空欄なら変更しません |
+| support | サポートの欄（下記） |
+
+- 読み込みと保存: 常駐プロセスのパイプを通して Core の操作を使い、常駐プロセスが動いていなければ起動します。要求は画面とは別のスレッドで送り、待つ間も画面は応答します。保存（`settings-save`）には開いたときの設定ファイルの版（stamp）を付けます。ほかの操作で設定ファイルが変わっていたら Core が断るので、読み直すか尋ねます（読み直すと、この画面で保存していない変更は消えます）。Core が値を断ったときは、設定項目の名前を入れた文言で知らせます（例: 推論回数が範囲外）。
+- 壊れた設定ファイル: 画面の上部に理由とファイルの場所を出し、「正常な設定で復旧」「入力・表示を既定に戻して復旧」を置きます（`settings-recover`）。確認のあと、元のファイルを別名で残して置き換えます。
+- Windows で使えない項目: 入力訂正、個人化モデル、入力訂正モデルのダウンロード、個人化モデルの読み込みは、変換エンジンが MARISA 形式を読めないため Core が「使えない」と返します。画面では無効にして、その下に理由を出します。
+- ユーザー辞書の画面: Linux の `user_dictionary_editor.py` と同じことができます。一覧（単語・読み・ヒント・確認する内容）、単語・読み・ヒントの検索、列の見出しでの並べ替えと登録順への戻し、追加・選んだ項目の編集・削除。「保存」で Core が読みを検証し（`dictionary-validate`）、問題があれば該当する項目を選んで理由を出します。問題がなければ設定ファイルへ保存し（`dictionary-save`、stamp 付き）、変換に反映します。取込はファイルと形式（azooKey JSON、ATOK 2017 の公開テキスト、Mozc・Google 日本語入力の公開テキスト）・文字コードを選び、Core の取込内容（`dictionary-import-preview`。追加・重複・衝突・除外と理由）を確認してから下書きへ加えます。書出は下書きの全項目を azooKey JSON で書きます（`dictionary-export`）。「キャンセル」で下書きを捨てます。
+- サポート: 導入と困ったときの案内、ガイド・配布版・問題の報告・上流へのリンク、設定ファイルと学習データの置き場所、Core が作る診断（版、ソース、OS、CPU、配布物の CPU、推論方式、TSF、候補の表示方式）と、そのコピー。診断には本文・辞書・指示の履歴・API キーを含めません。
+- 表示: Per-Monitor V2 で、モニターの表示倍率に合わせて文字と配置を変えます。色はシステムのダイアログの配色（ハイコントラストを含む）です。すべての操作はキーボードででき、各項目には読み上げ用の名前（項目の文言）と説明を付け、状態の行の変化は読み上げソフトに伝えます。
+- 文言は共通カタログ（`Shared/Messages`）から引き、Windows の UI 言語が日本語なら日本語、それ以外は英語です。
+
+### 常駐プロセスへの反映
+
+常駐プロセスは、各アプリの要求を変換エンジンへ渡す前に `settings.json` の大きさと最終更新時刻を見て、前に見たときと違えば `settings-reload` を送ります（Linux と同じく変わったときだけ）。設定画面で保存しても、ファイルを直接書き換えても、次の打鍵から反映します。ファイルの場所は Core の `settings-load` の応答から受け取ります。
+
 ## ビルドと導入
 
 Visual Studio Build Tools 2022（C++のx64ツール、Windows SDK、CMake）と、Swift 6.2（`Windows\scripts\install-swift.ps1`）を使います。Zenzaiのモデルの取得にはPythonが要ります。Pythonの無い機械では、別の機械で取得・照合した`build\models\ggml-model-Q5_K_M.gguf`を写して使えます。
@@ -107,7 +140,7 @@ Windows\scripts\build-package.ps1 -Output build\windows-package
 build\windows-package\install.ps1
 ```
 
-`build-package.ps1`は、llama.cpp（`build\llama-windows\install`）とモデル（`build\models`）が無ければ止まります。場所は`-LlamaDirectory`・`-ModelDirectory`で変えられます。`install.ps1`は`C:\Program Files\azooKey Tree`へ置き、テキストサービスを登録し、サインイン時に常駐プロセスを起動するよう設定し、日本語のキーボード一覧に追加します。Win+Spaceで切り替えられます。削除は`uninstall.ps1`です。学習データは`-RemoveUserData`を付けたときだけ消します。
+`build-package.ps1`は、llama.cpp（`build\llama-windows\install`）とモデル（`build\models`）が無ければ止まります。場所は`-LlamaDirectory`・`-ModelDirectory`で変えられます。`install.ps1`は`C:\Program Files\azooKey Tree`へ置き、テキストサービスを登録し、サインイン時に常駐プロセスを起動するよう設定し、日本語のキーボード一覧に追加します。Win+Spaceで切り替えられます。スタートメニュー（すべての利用者）に「azooKey Tree の設定」を置きます。`build-package.ps1`に`-Version 0.2.0`のように版を渡すと、設定画面の診断に版が出ます。削除は`uninstall.ps1`です。学習データ、設定ファイル、API キーは`-RemoveUserData`を付けたときだけ消します。
 
 ## 試験
 
@@ -115,6 +148,10 @@ build\windows-package\install.ps1
 | --- | --- | --- |
 | `azookey-windows-tests.exe` | JSON、UTF-8/UTF-16の位置換算、キーの振り分けと変換、要求・応答の形式、確定後の文書の進め方 | なし |
 | `azookey-host-integration-test.exe` | 常駐プロセスとブリッジを起動し、「nihongo→Space→Enter」で「日本語」を確定。2つのアプリの入力が混ざらないこと。確定の取り消しと、読みを入力しての選択の再変換を Core と往復して確かめる。`--expect-zenzai`を付けると、常駐プロセスの隣の`models`のモデルでZenzaiが変換したこと（`zenzaiLoaded`）も確かめます。付けないときはZenzaiを「NOT RUN」と表示し、成功とは扱いません | なし（SSHのセッションでも可） |
+| `azookey-settings-tests.exe` | 設定画面の定義の読み取り、どの定義がどの部品になるか、保存・復旧・辞書の要求の組み立て、応答の読み取り、エラーの文言（設定項目の名前への置き換え）、辞書の下書き（追加・編集・削除・検索・並べ替え・取込・状態の文言）、ショートカットの記録と表示 | なし |
+| `azookey-settings-reload-test.exe` | 常駐プロセスを専用のパイプと一時フォルダーの`APPDATA`で起動し、`settings.json`を書き換えると次の打鍵から変わること（ライブ変換を切ると「nihongo」の未確定文字が「にほんご」のまま、戻すと「日本語」） | なし（SSHのセッションでも可） |
+| `azookey-settings-ui-test.exe` | 同じく専用の常駐プロセスと実際の変換エンジンで設定画面を作り、ウィンドウメッセージで操作して`settings.json`を確かめる。ページと部品、読み上げ用の名前、Windowsで使えない項目の無効表示と理由、保存、Coreが断った値、ほかで変わったファイルの読み直し、学習のリセット、診断のコピー、辞書の追加・編集・削除・検証・取込（300件）・書出、APIキーが設定ファイルに出ないこと、壊れたファイルの復旧。`--screenshots`で各ページと辞書の画面を撮影する | 資格情報マネージャーと撮影はデスクトップのセッション。SSHのセッションでは資格情報を保存できません |
+| `Windows\tests\settings-app-cases.ps1` | 導入した設定画面をスタートメニューの項目から起動し、二重起動で前の画面にページを渡して終わること、閉じると終わること | 導入済みの機械とデスクトップのセッション |
 | `Windows\tools\measure-zenzai.ps1` | 配布物のブリッジをモデルあり・なしで起動し、打鍵ごとの応答時間、メモリ、8つの読みの変換結果を並べる | なし |
 | `tsf-harness.exe`（`Windows\tests\tsf-cases.ps1` で16種類） | TSFに対応したRichEditを開き、導入したテキストサービスを有効にしてキーを送り、文書の文字列を確かめる。変換と確定、F7、Backspace、数字キーと↓の候補選択、句読点、長音、Escの後の打ち直し、半角/全角・無変換・変換による切り替え、候補を自分で描くアプリ、確定の取り消し、読みを入力しての再変換とその取りやめ。途中の画面を撮影できる | デスクトップのセッション。SSHのセッション（セッション0）ではTSFが使えません |
 
@@ -125,7 +162,8 @@ CIは`.github/workflows/windows.yml`で、ビルド、上の試験（TSFの試�
 - Arm64のアプリでは使えません（x64とx86には対応）。
 - Zenzaiの個人化と誤字補正の重みは使えません（marisa形式を読めないため）。Zenzaiを切る設定もまだありません。
 - 最初の打鍵は、ブリッジの起動と辞書・モデルの読み込みを待ちます。GitHubの実行環境では常駐プロセス経由の1打目が256〜531ms（3回）でした。テキストサービスは常駐プロセスの応答を2秒まで待つため、遅い機械や、ディスクのキャッシュが無い起動直後では1打目が間に合わない恐れがあります。実機では測っていません。
-- 設定画面、ユーザー辞書の編集画面、AI変換は、Linuxの処理をCoreへまとめる作業と合わせて実装中です。いまの設定は既定値です。
+- AI変換は、Linuxの処理をCoreへまとめる作業と合わせて実装中です。設定画面で資格情報マネージャーに保存したAPIキーを、テキストサービスが読む部分はまだありません。
+- 設定画面は標準のコントロールを使うため、Windowsのダークモードの配色にはなりません（ハイコントラストには従います）。
 - 候補一覧のナレーターへの読み上げには未対応です。
 - WindowsのSwiftは検査付き（+Asserts）の版だけが配布されており、依存ライブラリの最適化中に検査が止まるため、SIL検証を外してビルドしています（Linuxの通常版と同じ条件）。
 - Smart App Controlが有効な機械では、署名のない実行ファイル・DLLが止められることがあります。開発機（Core i3-10100T、Smart App Control有効）では、2026-10-22 20:44 JSTごろから、新しくビルドした実行ファイル（Zenzai付きのブリッジ、試験、SwiftPMの`core-manifest.exe`）が毎回止められるようになりました（Code Integrity 3077）。そのためZenzai付きのブリッジの実行と計測は、GitHubのCIだけで行いました。配布するにはコード署名が必要です。

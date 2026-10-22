@@ -1,4 +1,12 @@
 {
+  "settings.api_key_failed": {
+    "ja": "設定は保存しましたが、API キーを保存できませんでした。",
+    "en": "The settings were saved, but the API key could not be saved.",
+    "windows": {
+      "ja": "設定は保存しましたが、API キーを Windows の資格情報マネージャーに保存できませんでした。",
+      "en": "The settings were saved, but the API key could not be saved to Windows Credential Manager."
+    }
+  },
   "settings.backend_recovery_failed": {
     "ja": "設定ファイルの保存と、変換器の元の設定への復元に失敗しました。もう一度保存すると、元の設定の復元から再試行します。",
     "en": "Saving the settings file and restoring the converter's previous settings both failed. Saving again first retries restoring the previous settings."
@@ -21,11 +29,23 @@
   },
   "settings.cancel": {
     "ja": "取消",
-    "en": "Cancel"
+    "en": "Cancel",
+    "windows": {
+      "ja": "キャンセル",
+      "en": "Cancel"
+    }
   },
   "settings.changed": {
     "ja": "別の操作で設定ファイルが変わりました。設定画面を開き直してください。",
     "en": "Another operation changed the settings file. Reopen the settings window."
+  },
+  "settings.changed_explanation": {
+    "ja": "読み直すと、この画面でまだ保存していない変更は取り消されます。",
+    "en": "Reloading discards the changes you have not saved in this window."
+  },
+  "settings.changed_question": {
+    "ja": "設定ファイルがほかの操作で変わりました。読み直しますか？",
+    "en": "The settings file was changed elsewhere. Reload it?"
   },
   "settings.custom-table": {
     "ja": "カスタム入力表（TSV）",
@@ -66,6 +86,10 @@
       "ja": "スペースは常に半角を入力",
       "en": "Always type half-width spaces"
     }
+  },
+  "settings.host_unavailable": {
+    "ja": "変換エンジンに接続できませんでした。azooKey Tree が正しく導入されているか確認してください。",
+    "en": "Could not connect to the converter. Check that azooKey Tree is installed correctly."
   },
   "settings.importPersonalization": {
     "ja": "Tunerの個人化モデルを読み込む…",
@@ -143,6 +167,10 @@
       "en": "Enable live conversion"
     }
   },
+  "settings.loading": {
+    "ja": "設定を読み込んでいます…",
+    "en": "Loading settings…"
+  },
   "settings.optionDirect": {
     "ja": "Altキーで全角英数を直接入力",
     "en": "Type full-width alphanumerics directly with Alt",
@@ -170,6 +198,10 @@
   "settings.page.support": {
     "ja": "サポート",
     "en": "Support"
+  },
+  "settings.pages": {
+    "ja": "設定のページ",
+    "en": "Settings pages"
   },
   "settings.personalization": {
     "ja": "個人化モデル",
@@ -275,6 +307,18 @@
     "ja": "設定ファイルを復旧できます",
     "en": "The settings file can be recovered"
   },
+  "settings.reload": {
+    "ja": "読み直す",
+    "en": "Reload"
+  },
+  "settings.reloaded": {
+    "ja": "設定ファイルを読み直しました。",
+    "en": "The settings file was reloaded."
+  },
+  "settings.request_failed": {
+    "ja": "変換エンジンが要求を処理できませんでした。もう一度試してください。",
+    "en": "The converter could not process the request. Try again."
+  },
   "settings.restore_current": {
     "ja": "正常な設定で復旧",
     "en": "Recover with the valid settings"
@@ -303,6 +347,10 @@
     "ja": "保存しました。次の入力から反映します。",
     "en": "Saved. Changes apply from the next input."
   },
+  "settings.shortcut_instructions": {
+    "ja": "この欄を選んで、Ctrl・Alt・Shift・Windows キーのいずれかと文字のキーを同時に押します。",
+    "en": "Select this field and press a character key together with Ctrl, Alt, Shift or the Windows key."
+  },
   "settings.tree": {
     "ja": "木構造の候補ウィンドウ",
     "en": "Tree candidate window",
@@ -326,6 +374,10 @@
   "settings.unknown_key": {
     "ja": "未対応の設定項目「{field}」があります。",
     "en": "The setting “{field}” is not supported."
+  },
+  "settings.window_title": {
+    "ja": "azooKey Tree の設定",
+    "en": "azooKey Tree Settings"
   },
   "settings.write_failed": {
     "ja": "設定ファイルを保存できませんでした。ファイルとフォルダーの権限を確認してください。",

@@ -15,12 +15,15 @@ private func linuxEnvironment(
 }
 
 @Test func buildInfoKeepsOnlyRecognizedFieldsAndValues() {
-    let valid = SupportDiagnostics.LinuxBuildInfo(parsing: "version=0.1.2\narchitecture=amd64\nsource=0123456789abcdef\napiKey=PRIVATE_KEY\n")
+    let linux = SupportDiagnostics.PackageBuildInfo.linuxArchitectures
+    let valid = SupportDiagnostics.PackageBuildInfo(parsing: "version=0.1.2\narchitecture=amd64\nsource=0123456789abcdef\napiKey=PRIVATE_KEY\n",
+                                                    architectures: linux)
     #expect(valid.version == "0.1.2")
     #expect(valid.architecture == "amd64")
     #expect(valid.source == "0123456789abcdef")
-    let invalid = SupportDiagnostics.LinuxBuildInfo(parsing: "version=PRIVATE_TEXT\narchitecture=PRIVATE_CPU\nsource=PRIVATE_DOCUMENT\nsource=ABCDEF0\n")
-    #expect(invalid == .init(parsing: ""))
+    let invalid = SupportDiagnostics.PackageBuildInfo(parsing: "version=PRIVATE_TEXT\narchitecture=PRIVATE_CPU\nsource=PRIVATE_DOCUMENT\nsource=ABCDEF0\n",
+                                                      architectures: linux)
+    #expect(invalid == .init(parsing: "", architectures: linux))
 }
 
 @Test func linuxReportExcludesUnrecognizedEnvironmentText() {
@@ -87,4 +90,32 @@ func linuxRendererDistinguishesSettingExtensionAndMissingEngine(_ rendererCase: 
     #expect(lines.contains("\(Localization.text("support.renderer", language: .english)): \(Localization.text("support.renderer.mac-list", language: .english))"))
     #expect(lines.contains("\(Localization.text("support.fallback", language: .english)): \(Localization.text("support.fallback.setting", language: .english))"))
     #expect(!report.contains(Localization.text("support.package-cpu", language: .english)))
+}
+
+@Test func windowsReportKeepsOnlyRecognizedValues() {
+    let report = SupportDiagnostics.windows(.init(
+        treeEnabled: true, osVersion: "10.0.26200", machine: "x64",
+        buildInfo: "version=0.2.0\narchitecture=x64\nsource=0123456789abcdef\napiKey=PRIVATE_KEY\n"
+    )).report(language: .japanese)
+    #expect(!report.contains("PRIVATE_"))
+    for value in ["0.2.0", "Windows 10.0.26200", "x64", "0123456789abcdef", "TSF"] {
+        #expect(report.contains(value))
+    }
+    #expect(report.contains("\(japanese("support.renderer")): \(japanese("support.renderer.windows-tree"))"))
+    #expect(report.contains("\(japanese("support.fallback")): \(japanese("support.none"))"))
+    #expect(report.contains("\(japanese("support.backend")): CPU"))
+}
+
+@Test func windowsReportDropsUnrecognizedVersionAndCPU() {
+    let report = SupportDiagnostics.windows(.init(
+        treeEnabled: false, osVersion: "Windows 11 Pro PRIVATE", machine: "PRIVATE_CPU",
+        buildInfo: "architecture=amd64\n"
+    )).report(language: .english)
+    #expect(!report.contains("PRIVATE"))
+    #expect(!report.contains("amd64"))
+    let unknown = Localization.text("support.unknown", language: .english)
+    #expect(report.contains("\(Localization.text("support.os", language: .english)): \(unknown)"))
+    #expect(report.contains("\(Localization.text("support.cpu", language: .english)): \(unknown)"))
+    #expect(report.contains("\(Localization.text("support.renderer", language: .english)): \(Localization.text("support.renderer.windows-list", language: .english))"))
+    #expect(report.contains("\(Localization.text("support.fallback", language: .english)): \(Localization.text("support.fallback.setting", language: .english))"))
 }

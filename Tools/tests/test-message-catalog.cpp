@@ -4,6 +4,9 @@
 #include <cstdio>
 #include <cstring>
 #include <iterator>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -37,6 +40,11 @@ int main() {
     Expect(Text("reconversion.undo_menu", Language::English) == L"Undo the last commit (Ctrl+Shift+Backspace)",
            "Windows uses the base wording, not the macOS override");
     Expect(Text("title", Language::English, {}, Table::UserDictionary) == L"User dictionary", "UserDictionary table lookup");
+    const std::vector<std::pair<std::wstring, std::wstring>> runtimeValues = {{L"line", L"3"}, {L"column", L"14"}};
+    Expect(FillPlaceholders(Template("settings.invalid_json", Language::English), runtimeValues) ==
+               Text("settings.invalid_json", Language::English, {{L"line", L"3"}, {L"column", L"14"}}),
+           "values known only at run time fill a template like Text");
+    Expect(Template("missing.key", Language::English) == L"missing.key", "Template keeps an unknown key visible");
     Expect(Text("missing.key", Language::Japanese) == L"missing.key", "an unknown key stays visible");
     Expect(FindMessage("missing.key") == nullptr, "FindMessage reports an unknown key");
     Expect(LanguageForLocaleName(L"ja-JP") == Language::Japanese, "ja-JP shows Japanese");

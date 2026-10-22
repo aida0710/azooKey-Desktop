@@ -6,9 +6,22 @@ import Foundation
 /// operations do not extend `BridgeRequest`.
 @MainActor
 enum DesktopServiceController {
+    /// Each platform's settings screen sends the environment values it can read.
     private struct SupportDiagnosticsRequest: Decodable {
+        #if os(Windows)
+        var supportEnvironment: SupportDiagnostics.WindowsEnvironment
+        #else
         var supportEnvironment: SupportDiagnostics.LinuxEnvironment
+        #endif
         var language: Localization.Language
+
+        var diagnostics: SupportDiagnostics {
+            #if os(Windows)
+            SupportDiagnostics.windows(supportEnvironment)
+            #else
+            SupportDiagnostics.linux(supportEnvironment)
+            #endif
+        }
     }
 
     private struct PersonalizationImportRequest: Decodable {
@@ -25,7 +38,7 @@ enum DesktopServiceController {
         switch operation {
         case "support-diagnostics":
             let request = try decode(SupportDiagnosticsRequest.self, from: line)
-            return Response(supportDiagnostics: SupportDiagnostics.linux(request.supportEnvironment).report(language: request.language))
+            return Response(supportDiagnostics: request.diagnostics.report(language: request.language))
         case "import-personalization":
             let request = try decode(PersonalizationImportRequest.self, from: line)
             let root = dataDirectory.appendingPathComponent(PersonalizationModelImport.directoryName, isDirectory: true)

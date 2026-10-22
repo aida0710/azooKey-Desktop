@@ -29,13 +29,17 @@ extension SupportDiagnostics {
         }
     }
 
-    /// The fields build-info.txt may provide; any other line is ignored.
-    public struct LinuxBuildInfo: Equatable, Sendable {
+    /// The fields a package's build-info.txt may provide; any other line is ignored.
+    /// Linux and Windows packages write the same format with their own CPU names.
+    public struct PackageBuildInfo: Equatable, Sendable {
+        public static let linuxArchitectures: Set<String> = ["amd64", "arm64"]
+        public static let windowsArchitectures: Set<String> = ["x64", "arm64"]
+
         public var version: String?
         public var architecture: String?
         public var source: String?
 
-        public init(parsing text: String) {
+        public init(parsing text: String, architectures: Set<String>) {
             for line in text.split(whereSeparator: \.isNewline) {
                 let parts = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
                 guard parts.count == 2 else {
@@ -45,7 +49,7 @@ extension SupportDiagnostics {
                 switch parts[0] {
                 case "version" where Self.isVersion(value):
                     version = value
-                case "architecture" where ["amd64", "arm64"].contains(value):
+                case "architecture" where architectures.contains(value):
                     architecture = value
                 case "source" where (7...40).contains(value.count) && value.allSatisfy({ Self.lowercaseHexDigits.contains($0) }):
                     source = value
@@ -90,7 +94,7 @@ extension SupportDiagnostics {
     }
 
     public static func linux(_ environment: LinuxEnvironment) -> Self {
-        let build = LinuxBuildInfo(parsing: environment.buildInfo ?? "")
+        let build = PackageBuildInfo(parsing: environment.buildInfo ?? "", architectures: PackageBuildInfo.linuxArchitectures)
         let session = environment.sessionType?.lowercased()
         let recognizedSession = session.flatMap { recognizedSessions.contains($0) ? $0 : nil }
         let operatingSystem = [environment.osReleaseID, environment.osReleaseVersionID]
