@@ -36,6 +36,16 @@ class ReadingReconversionAdapter:
     def active(self):
         return self.coordinator.active
 
+    @property
+    def can_finish_release(self):
+        frontend = self.engine.frontend
+        # GTK fetches the recovery preedit after its native key reply. A release
+        # never edits formal input, but must not overtake an earlier held press.
+        return (self.coordinator.phase in ("deleting", "confirming")
+                and self.coordinator.start_reply is None and not self.coordinator.queued
+                and not frontend.blocked and not frontend.closed
+                and not any(owner.reply is not None for owner in frontend.pending))
+
     def current_context(self):
         if (not self.engine.focused or self.engine.sensitive or self.engine.focus_identity is None
                 or not self.engine.client_capabilities & IBus.Capabilite.SURROUNDING_TEXT):
