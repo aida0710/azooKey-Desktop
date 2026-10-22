@@ -1,5 +1,7 @@
 #include "input_mode_button.h"
 
+#include <olectl.h>
+
 #include <new>
 
 #include "guids.h"
@@ -12,6 +14,9 @@ namespace {
 
 // Any value works as long as it is ours; TSF only hands it back to AdviseSink callers.
 constexpr DWORD kSinkCookie = 1;
+
+// GUID_LBI_INPUTMODE (Windows 8 SDK documentation); the SDK headers do not declare it.
+constexpr GUID kInputModeItemGuid = {0x2c77a81e, 0x41cc, 0x4178, {0xa3, 0xa7, 0x5f, 0x8a, 0x98, 0x75, 0x68, 0xe6}};
 
 std::wstring Message(const char* key) { return messages::Text(key, messages::CurrentUiLanguage()); }
 
@@ -55,7 +60,7 @@ STDMETHODIMP InputModeButton::GetInfo(TF_LANGBARITEMINFO* info) {
     if (!info) return E_INVALIDARG;
     info->clsidService = kTextServiceClsid;
     // Windows 8 and later show this item as the taskbar's input mode indicator.
-    info->guidItem = GUID_LBI_INPUTMODE;
+    info->guidItem = kInputModeItemGuid;
     info->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY;
     info->ulSort = 0;
     lstrcpynW(info->szDescription, Message("input.menu.toggleMode").c_str(), ARRAYSIZE(info->szDescription));
