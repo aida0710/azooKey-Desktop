@@ -618,13 +618,17 @@ final class DesktopSession: SegmentManagerDelegate {
         result.showCandidateIndex = state == .selecting
         result.candidateDisplay = CandidateDisplay(result.candidateDisplayInput(previous: displayedSelection))
         displayedSelection = .init(selection: result.selection, focusedNode: result.focusedNode)
-        // The windows keep the tree open from the response that asks for it
-        // until the selection ends.
+        updateListShowsTree(expandTree: result.candidateDisplay?.expandTree == true)
+        return result
+    }
+
+    /// The windows keep the tree open from the response that asks for it
+    /// until the selection ends.
+    private func updateListShowsTree(expandTree: Bool) {
         if state != .selecting {
             listShowsTree = false
-        } else if result.candidateDisplay?.expandTree == true {
+        } else if expandTree {
             listShowsTree = true
         }
-        return result
     }
 }
