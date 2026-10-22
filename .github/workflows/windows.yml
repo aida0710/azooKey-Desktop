@@ -98,6 +98,18 @@ jobs:
         run: |
           build/windows-frontend/azookey-settings-ui-test.exe build/windows-package/azookey-windows-host.exe build/windows-package/bridge/azookey-desktop-bridge.exe --screenshots build/settings-screenshots
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: The host's AI path against a stub AI API
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-ai-host-test.exe build/windows-package/azookey-windows-host.exe build/windows-package/bridge/azookey-desktop-bridge.exe build/windows-frontend/azookey-ai-transform-probe.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Drive the AI instruction window
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-ai-transform-window-test.exe --screenshots build/settings-screenshots
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Start the installed settings app from the Start menu entry
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         shell: pwsh

@@ -34,11 +34,12 @@ public:
 
     // Not thread-safe; the host serializes callers.
     std::optional<std::string> Request(const std::string& line);
+    // Ends the bridge (letting it save first); the next request starts it again.
+    void Stop();
     unsigned restarts() const { return restarts_; }
 
 private:
     bool EnsureRunning();
-    void Stop();
     void ReadReplies(HANDLE output);
 
     Options options_;

@@ -2,6 +2,7 @@
 "ai.api-key" = "APIキー";
 "ai.api-key-placeholder" = "空欄ならAPIキーを変更しません";
 "ai.backend.external" = "OpenAI互換API";
+"ai.close" = "閉じる";
 "ai.destination.invalid" = "送信先を確認できません";
 "ai.destination.on-device" = "端末内 AI（Foundation Models）";
 "ai.disabled" = "AI変換（設定で無効）";
@@ -14,6 +15,8 @@
 "ai.example.rewrite" = "わかりやすく書き直す";
 "ai.history" = "指示の履歴";
 "ai.history.choose" = "履歴から指示を選択";
+"ai.history.error.save" = "指示の履歴を保存できませんでした。";
+"ai.history.item-with-shortcut" = "%@（%@）";
 "ai.instruction" = "AIへの指示";
 "ai.instruction-placeholder" = "例：敬語に直す、英語へ翻訳する";
 "ai.model" = "モデル名";
@@ -46,6 +49,9 @@
 "ai.scope.target" = "対象の本文";
 "ai.shortcut" = "AI変換のショートカット";
 "ai.shortcut.edit" = "ショートカットを編集";
+"ai.shortcut.error.duplicate" = "このショートカットは別のプロンプトに割り当てられています。";
+"ai.shortcut.error.format" = "ショートカットは Ctrl+Alt+e の形式で入力してください。";
+"ai.shortcut.error.modifier-required" = "Ctrl・Alt・Shift・Superのいずれかを指定してください。";
 "ai.shortcut.placeholder" = "例：Ctrl+Alt+e";
 "ai.shortcut.prompt" = "この指示のショートカット";
 "ai.shortcut.required" = "AI変換のショートカットを指定してください。";

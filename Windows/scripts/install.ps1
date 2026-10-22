@@ -15,10 +15,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 
 # A running host or loaded DLL would keep the old files locked.
-Get-Process azookey-windows-host, azookey-desktop-bridge, azookey-settings -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process azookey-windows-host, azookey-desktop-bridge, azookey-settings, azookey-ai-transform -ErrorAction SilentlyContinue | Stop-Process -Force
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
 $source = $PSScriptRoot
-foreach ($item in 'azookey-tsf.dll', 'x86', 'azookey-windows-host.exe', 'azookey-settings.exe', 'build-info.txt', 'bridge', 'models', 'licenses', 'LICENSE', 'uninstall.ps1') {
+foreach ($item in 'azookey-tsf.dll', 'x86', 'azookey-windows-host.exe', 'azookey-settings.exe', 'azookey-ai-transform.exe', 'build-info.txt', 'bridge', 'models', 'licenses', 'LICENSE', 'uninstall.ps1') {
     $target = Join-Path $Destination $item
     if (Test-Path $target) {
         try { Remove-Item -Recurse -Force $target }

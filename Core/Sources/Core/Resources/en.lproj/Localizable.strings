@@ -2,6 +2,7 @@
 "ai.api-key" = "API key";
 "ai.api-key-placeholder" = "Leave blank to keep the API key";
 "ai.backend.external" = "OpenAI-compatible API";
+"ai.close" = "Close";
 "ai.destination.invalid" = "Unable to identify the destination";
 "ai.destination.on-device" = "On-device AI (Foundation Models)";
 "ai.disabled" = "AI conversion (disabled in settings)";
@@ -14,6 +15,8 @@
 "ai.example.rewrite" = "Rewrite this clearly";
 "ai.history" = "Instruction history";
 "ai.history.choose" = "Select an instruction from history";
+"ai.history.error.save" = "The instruction history could not be saved.";
+"ai.history.item-with-shortcut" = "%@ (%@)";
 "ai.instruction" = "AI instruction";
 "ai.instruction-placeholder" = "For example: formalize or translate into English";
 "ai.model" = "Model name";
@@ -46,6 +49,9 @@
 "ai.scope.target" = "Text to send";
 "ai.shortcut" = "AI conversion shortcut";
 "ai.shortcut.edit" = "Edit shortcut";
+"ai.shortcut.error.duplicate" = "This shortcut is already assigned to another instruction.";
+"ai.shortcut.error.format" = "Enter the shortcut in the form Ctrl+Alt+e.";
+"ai.shortcut.error.modifier-required" = "Include Ctrl, Alt, Shift or Super.";
 "ai.shortcut.placeholder" = "For example: Ctrl+Alt+e";
 "ai.shortcut.prompt" = "Shortcut for this instruction";
 "ai.shortcut.required" = "Specify a shortcut for AI conversion.";

@@ -3,11 +3,11 @@
 #include <commctrl.h>
 #include <shellapi.h>
 
-#include <cstring>
 #include <utility>
 
 #include "../shared/text_encoding.h"
 #include "../ui/child_controls.h"
+#include "../ui/clipboard.h"
 #include "../ui/control_accessibility.h"
 #include "support_environment.h"
 
@@ -23,22 +23,6 @@ constexpr wchar_t kUpstreamUrl[] = L"https://github.com/azooKey/azooKey-Desktop"
 constexpr int kSectionGap = 14;
 constexpr int kLabelGap = 4;
 constexpr DWORD kTextStyle = SS_LEFT | SS_NOPREFIX;
-
-bool CopyToClipboard(HWND owner, const std::wstring& text) {
-    if (!OpenClipboard(owner)) return false;
-    EmptyClipboard();
-    size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    bool copied = false;
-    if (memory) {
-        std::memcpy(GlobalLock(memory), text.c_str(), bytes);
-        GlobalUnlock(memory);
-        copied = SetClipboardData(CF_UNICODETEXT, memory) != nullptr;
-        if (!copied) GlobalFree(memory);
-    }
-    CloseClipboard();
-    return copied;
-}
 
 // SysLink markup: the label is plain text inside the anchor.
 std::wstring LinkMarkup(const std::wstring& label, const wchar_t* url) {
@@ -125,7 +109,7 @@ void SupportPanel::Refresh() {
 void SupportPanel::Copy() {
     RequestReport([this](const std::wstring& report) {
         if (!report.empty()) {
-            bool copied = CopyToClipboard(GetParent(report_), ui::ToEditLineBreaks(report));
+            bool copied = ui::CopyTextToClipboard(GetParent(report_), ui::ToEditLineBreaks(report));
             ui::AnnounceText(notice_, copied ? messages::Text("support.copied", context_.language) : L"");
         }
         page_.Relayout();

@@ -65,7 +65,7 @@ if ($LASTEXITCODE -ne 0) { throw "x86 text service build failed ($LASTEXITCODE)"
 if (Test-Path $Output) { Remove-Item -Recurse -Force $Output }
 $bridgeDirectory = Join-Path $Output 'bridge'
 New-Item -ItemType Directory -Force -Path $bridgeDirectory | Out-Null
-Copy-Item (Join-Path $frontendBuild 'azookey-tsf.dll'), (Join-Path $frontendBuild 'azookey-windows-host.exe'), (Join-Path $frontendBuild 'azookey-settings.exe') $Output
+Copy-Item (Join-Path $frontendBuild 'azookey-tsf.dll'), (Join-Path $frontendBuild 'azookey-windows-host.exe'), (Join-Path $frontendBuild 'azookey-settings.exe'), (Join-Path $frontendBuild 'azookey-ai-transform.exe') $Output
 New-Item -ItemType Directory -Force -Path (Join-Path $Output 'x86') | Out-Null
 Copy-Item (Join-Path $frontendBuildX86 'azookey-tsf.dll') (Join-Path $Output 'x86')
 Copy-Item (Join-Path $swiftBuild 'azookey-desktop-bridge.exe') $bridgeDirectory
