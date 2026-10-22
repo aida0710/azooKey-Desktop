@@ -17,9 +17,11 @@ add_library(azookey_shared STATIC
     src/shared/candidate_display.cpp
     src/shared/ui_language.cpp
     src/shared/host_channel.cpp
+    src/shared/data_directory.cpp
+    src/shared/api_key_credential.cpp
 )
 target_include_directories(azookey_shared PUBLIC src)
-target_link_libraries(azookey_shared PUBLIC advapi32)
+target_link_libraries(azookey_shared PUBLIC advapi32 shell32 ole32)
 
 # 32-bit builds provide only the text service for 32-bit applications; the
 # host, the converter and the tests run as 64-bit programs.
@@ -32,6 +34,7 @@ if(NOT AZOOKEY_X86)
     add_executable(azookey-windows-host WIN32
         src/host/host_main.cpp
         src/host/bridge_process.cpp
+        src/host/settings_reload.cpp
     )
     target_link_libraries(azookey-windows-host PRIVATE azookey_shared shell32 ole32)
 endif()
