@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "candidate_display.h"
+#include "key_binding.h"
 #include "key_translation.h"
 
 namespace azookey::protocol {
@@ -90,6 +91,16 @@ struct ReconversionReplacement {
     std::wstring text;
 };
 
+// Core's review of an AI suggestion request (the `ai.review` of a key reply):
+// what would be sent and where, shown before anything leaves the machine.
+struct AIReview {
+    int id = 0;
+    std::wstring target;                      // the text to send; Core's word for "the continuation" when nothing is composed
+    std::optional<std::wstring> destination;  // host and port; missing when the endpoint cannot be shown
+    bool includeContext = false;
+    std::vector<keys::KeyBinding> bindings;   // send / toggleContext / cancel while the review is shown
+};
+
 struct Snapshot {
     bool consumed = false;
     std::wstring preedit;
@@ -112,6 +123,9 @@ struct Snapshot {
     std::optional<ReconversionReplacement> reconversion;
     std::string reconversionError;              // ReconversionSession.Failure raw value
     std::optional<std::wstring> reconversionReading;  // set while the user types the reading
+
+    std::optional<AIReview> aiReview;
+    std::optional<std::wstring> aiPrompt;  // open the selected-text instruction window with this text
 
     std::string inputState;  // Core's InputState: "composing" while typing, "selecting" while choosing, ...
     std::vector<TreeNode> nodes;
@@ -149,7 +163,12 @@ struct RequestContext {
     DocumentContext document;
 };
 
-std::string KeyRequest(const RequestContext& context, const keys::CoreKeyEvent& event);
+// What the text service knows about the field when the key arrives.
+struct KeyFacts {
+    bool hasSelection = false;  // Core opens the AI instruction window only for a selection
+};
+
+std::string KeyRequest(const RequestContext& context, const keys::CoreKeyEvent& event, const KeyFacts& facts);
 // While Core asks for the reading of the selection, keys go here instead.
 std::string ReconversionReadingRequest(const RequestContext& context, const keys::CoreKeyEvent& event);
 std::string ConfirmReconversionRequest(const RequestContext& context, const std::string& token);

@@ -1,8 +1,8 @@
 #include "bridge_protocol.h"
 
 #include <algorithm>
-#include <cctype>
 
+#include "ai_protocol.h"
 #include "json.h"
 #include "text_encoding.h"
 
@@ -12,13 +12,6 @@ namespace {
 // The bridge keeps only this much surrounding text (DesktopSession), so sending
 // more would only enlarge every request.
 constexpr size_t kMaximumLeftContextUnits = 100;
-
-std::string AsciiLowercase(std::string text) {
-    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
-        return static_cast<char>(c < 0x80 ? std::tolower(c) : c);
-    });
-    return text;
-}
 
 std::string ReconversionContextField(const ReconversionContext& reconversion) {
     return ",\"reconversionContext\":{\"before\":" + json::Quote(text::Utf16ToUtf8(reconversion.before)) +
@@ -44,7 +37,8 @@ std::string CommonFields(const RequestContext& context) {
 
 std::string EventField(const keys::CoreKeyEvent& event) {
     std::string characters = event.characters ? json::Quote(*event.characters) : "null";
-    std::string ignoring = event.characters ? json::Quote(AsciiLowercase(*event.characters)) : "null";
+    auto unmodified = event.CharactersIgnoringModifiers();
+    std::string ignoring = unmodified ? json::Quote(*unmodified) : "null";
     return ",\"event\":{\"keyCode\":" + std::to_string(event.keyCode) + ",\"characters\":" + characters +
            ",\"charactersIgnoringModifiers\":" + ignoring + ",\"modifierFlags\":" + std::to_string(event.modifierFlags) + "}";
 }
@@ -69,8 +63,9 @@ DocumentContext AdvancedPastCommit(const DocumentContext& document, const std::w
     return advanced;
 }
 
-std::string KeyRequest(const RequestContext& context, const keys::CoreKeyEvent& event) {
-    return "{\"operation\":\"key\"" + CommonFields(context) + EventField(event) + "}";
+std::string KeyRequest(const RequestContext& context, const keys::CoreKeyEvent& event, const KeyFacts& facts) {
+    std::string ai = facts.hasSelection ? ",\"ai\":{\"hasSelection\":true}" : "";
+    return "{\"operation\":\"key\"" + CommonFields(context) + EventField(event) + ai + "}";
 }
 
 std::string ReconversionReadingRequest(const RequestContext& context, const keys::CoreKeyEvent& event) {
@@ -195,6 +190,11 @@ std::optional<Snapshot> ParseSnapshot(const std::string& line) {
     snapshot.reconversionError = value["reconversionError"].AsString();
     if (value["reconversionReading"].kind() == json::Value::Kind::String) {
         snapshot.reconversionReading = text::Utf8ToUtf16(value["reconversionReading"].AsString());
+    }
+    const json::Value& ai = value["ai"];
+    snapshot.aiReview = ParseAIReview(ai["review"]);
+    if (ai["prompt"].kind() == json::Value::Kind::Object) {
+        snapshot.aiPrompt = text::Utf8ToUtf16(ai["prompt"]["initialPrompt"].AsString());
     }
     return snapshot;
 }

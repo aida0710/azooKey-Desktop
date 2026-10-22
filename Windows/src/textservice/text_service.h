@@ -8,6 +8,8 @@
 #include <memory>
 #include <optional>
 
+#include "ai_review_window.h"
+#include "background_requests.h"
 #include "candidate_list_element.h"
 #include "candidate_panel.h"
 #include "input_mode_button.h"
@@ -113,6 +115,28 @@ private:
     void EndReconversionReading();
     void ShowNotice(const std::wstring& text);
     void HideNotice();
+    // Popups other than the candidate panel go on the side it leaves free.
+    PopupSide SideAwayFromCandidates() const;
+
+    // AI suggestions (text_service_ai.cpp): Core reviews the request, the user
+    // confirms it, and the host makes the call on its own AI bridge.
+    void ShowAIReview(const protocol::AIReview& review, const std::optional<RECT>& caret);
+    void CloseAIReview();
+    // True when `event` is one of the review's keys and has been acted on.
+    bool HandleAIReviewKey(const keys::CoreKeyEvent& event);
+    void SendAIReview();
+    void ToggleAIReviewContext();
+    void FinishAISuggestions(const protocol::AISuggestionRequest& request, std::optional<std::string> reply);
+
+    // Selected-text transformation (text_service_ai_transform.cpp): Core opens
+    // it, the host shows the instruction window in its own process, and the
+    // result replaces the selection once focus is back in the same field.
+    void StartAITransformation(ITfContext* context, const std::wstring& initialPrompt);
+    void ReturnToAITransformation(ITfContext* context);
+    // `reject`: the target is gone (the user typed), but the window keeps its result to copy.
+    void ForgetAITransformation(bool reject);
+    protocol::AITextField AIFieldFacts(ITfContext* context, const InputField& field) const;
+    protocol::AISelectionWitness AIWitness(ITfContext* context, const InputField& field) const;
 
     bool IsInputOpen();
     void SetInputOpen(bool open);
@@ -135,10 +159,22 @@ private:
     std::unique_ptr<CandidatePanel> candidatePanel_;
     std::unique_ptr<NoticeWindow> notice_;
     std::optional<RECT> noticeCaret_;  // where the latest notice belongs
+    std::unique_ptr<AIReviewWindow> aiReviewWindow_;
+    std::unique_ptr<BackgroundRequests> backgroundRequests_;
+    std::optional<protocol::AIReview> aiReview_;  // set while the review is shown
+    struct PendingAITransformation {
+        int id = 0;
+        ITfDocumentMgr* document = nullptr;  // AddRef'd: the field the result goes back to
+    };
+    std::optional<PendingAITransformation> aiTransformation_;
+    bool aiReviewIncludeContext_ = false;         // the user's choice in the open review
     CandidateListElement* candidateElement_ = nullptr;  // COM object; the application may hold it too
     InputModeButton* inputModeButton_ = nullptr;        // COM object owned with the language bar
     std::string lastPlacementSide_;  // Core keeps the popup on this side while it still fits
     std::optional<protocol::PresentationSettings> presentationSettings_;  // read again after a focus change
+    // Core's ime-shortcuts, read again after a focus change because settings and
+    // pinned instructions change in other windows.
+    std::optional<std::vector<keys::KeyBinding>> coreShortcuts_;
     protocol::Snapshot snapshot_;  // last state written to the document
     std::optional<std::wstring> reconversionReading_;  // set while the user types the reading of a selection
 

@@ -57,9 +57,6 @@ public:
     void Hide();
     bool visible() const { return window_ && IsWindowVisible(window_); }
 
-    // Must run before the DLL unloads so no window class points into freed code.
-    static void UnregisterWindowClass();
-
 private:
     struct ListRow {
         int candidateIndex = 0;

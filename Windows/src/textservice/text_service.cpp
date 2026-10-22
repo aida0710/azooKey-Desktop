@@ -24,6 +24,10 @@ constexpr UINT kToUnicodeKeepKeyboardState = 0x4;
 
 bool IsKeyDown(int virtualKey) { return (GetKeyState(virtualKey) & 0x8000) != 0; }
 
+// Control and Alt chords are shortcuts: Core may act on them, and otherwise
+// they belong to the application (Alt opens its menus), never typed as text.
+bool IsChord(const keys::Modifiers& modifiers) { return modifiers.control || modifiers.alt; }
+
 std::wstring JoinCommits(const protocol::Snapshot& snapshot) {
     std::wstring text;
     for (const auto& commit : snapshot.commits) text += commit;
@@ -101,6 +105,13 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadManager, TfClientId cli
     };
     candidatePanel_ = std::make_unique<CandidatePanel>(std::move(actions));
     notice_ = std::make_unique<NoticeWindow>();
+    AIReviewWindow::Actions reviewActions;
+    reviewActions.send = [this]() { SendAIReview(); };
+    reviewActions.toggleContext = [this]() { ToggleAIReviewContext(); };
+    reviewActions.cancel = [this]() { CloseAIReview(); };
+    aiReviewWindow_ = std::make_unique<AIReviewWindow>(std::move(reviewActions));
+    backgroundRequests_ = std::make_unique<BackgroundRequests>(TextServiceHostOptions());
+    coreShortcuts_ = converter_->ImeShortcuts();
     CreateCandidateElement();
     AddInputModeButton();
     // Choosing azooKey Tree means the user wants Japanese input now.
@@ -118,6 +129,10 @@ STDMETHODIMP TextService::Deactivate() {
     RemoveInputModeButton();
     candidatePanel_.reset();
     notice_.reset();
+    aiReview_.reset();
+    ForgetAITransformation(false);
+    aiReviewWindow_.reset();
+    backgroundRequests_.reset();
     converter_.reset();
     UnadviseCompartment(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, openCloseSinkCookie_);
     UnadviseCompartment(GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION, conversionSinkCookie_);
@@ -160,13 +175,23 @@ void TextService::RegisterClauseAttributes() {
     categories->Release();
 }
 
-STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) {
+STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* focus, ITfDocumentMgr*) {
     // Moving to another field must not carry the composition along with it.
     if (IsComposing()) FinishComposition(true, kAnytimeWrite);
     HideNotice();
+    CloseAIReview();
     privacyCheckedContext_ = nullptr;
     // Settings may have changed while another window had focus.
     presentationSettings_.reset();
+    if (converter_) coreShortcuts_ = converter_->ImeShortcuts();
+    // Back from the instruction window: the confirmed result may replace the selection.
+    if (aiTransformation_ && focus && focus == aiTransformation_->document) {
+        ITfContext* context = nullptr;
+        if (SUCCEEDED(focus->GetTop(&context)) && context) {
+            ReturnToAITransformation(context);
+            context->Release();
+        }
+    }
     lastPlacementSide_.clear();
     return S_OK;
 }
@@ -220,6 +245,12 @@ TextService::KeyInput TextService::ReadKey(ITfContext* context, WPARAM virtualKe
     state.inputOpen = IsInputOpen();
     state.composing = IsComposing();
     state.privateInput = !state.composing && state.inputOpen && IsFieldPrivate(context);
+    state.coreShortcuts = coreShortcuts_ ? &*coreShortcuts_ : nullptr;
+    state.aiReviewOpen = aiReview_.has_value();
+    // Reading the field is a round trip into the application; only chords need it.
+    if (IsChord(input.modifiers) && state.inputOpen && !state.composing && !state.privateInput) {
+        state.hasSelection = ReadInputField(context).hasSelection;
+    }
     input.action = keys::Classify(static_cast<uint32_t>(virtualKey), input.modifiers, input.typedText, state);
     return input;
 }
@@ -233,6 +264,15 @@ STDMETHODIMP TextService::OnTestKeyDown(ITfContext* context, WPARAM wParam, LPAR
 STDMETHODIMP TextService::OnKeyDown(ITfContext* context, WPARAM wParam, LPARAM lParam, BOOL* eaten) {
     if (!eaten) return E_INVALIDARG;
     KeyInput input = ReadKey(context, wParam, lParam);
+    if (aiReview_ && input.action == KeyAction::SendToConverter) {
+        if (HandleAIReviewKey(keys::Translate(static_cast<uint32_t>(wParam), input.modifiers, input.typedText))) {
+            *eaten = TRUE;
+            return S_OK;
+        }
+        // Any other key closes the review and then means what it always does.
+        CloseAIReview();
+        input = ReadKey(context, wParam, lParam);
+    }
     *eaten = input.action != KeyAction::PassThrough;
     if (*eaten) HandleKey(context, wParam, input, eaten);
     return S_OK;
@@ -263,6 +303,8 @@ void TextService::HandleKey(ITfContext* context, WPARAM virtualKey, const KeyInp
         break;
     }
     auto event = keys::Translate(static_cast<uint32_t>(virtualKey), input.modifiers, input.typedText);
+    // Typing again means the selection waiting for an AI result is no longer the target.
+    ForgetAITransformation(true);
     if (reconversionReading_) {
         HandleReadingKey(context, event);
         return;
@@ -275,17 +317,28 @@ void TextService::HandleKey(ITfContext* context, WPARAM virtualKey, const KeyInp
         field = ReadInputField(context);
         converter_->SetDocument(field.document);
     }
-    auto snapshot = converter_->Key(event);
+    protocol::KeyFacts facts;
+    facts.hasSelection = !wasComposing && field.hasSelection;
+    auto snapshot = converter_->Key(event, facts);
     if (!snapshot) {
         // Keep what the user already sees, and do not lose the key just typed.
         FinishComposition(false, kSyncWrite);
-        if (event.characters && !input.modifiers.control) InsertText(context, input.typedText, kSyncWrite);
+        if (event.characters && !IsChord(input.modifiers)) InsertText(context, input.typedText, kSyncWrite);
         return;
     }
     if (!wasComposing && HandleReconversionReply(context, *snapshot, field)) return;
+    if (snapshot->aiPrompt) {
+        StartAITransformation(context, *snapshot->aiPrompt);
+        return;
+    }
+    // Ctrl+S with nothing composed reviews a request for the continuation.
+    if (snapshot->aiReview && snapshot->preedit.empty()) {
+        ShowAIReview(*snapshot->aiReview, field.caret);
+        return;
+    }
     if (!snapshot->consumed && !wasComposing && snapshot->preedit.empty() && snapshot->commits.empty()) {
         // Core declined the key; behave as if the IME had not taken it.
-        if (event.characters && !input.modifiers.control) InsertText(context, input.typedText, kSyncWrite);
+        if (event.characters && !IsChord(input.modifiers)) InsertText(context, input.typedText, kSyncWrite);
         else *eaten = FALSE;
         return;
     }
@@ -304,6 +357,7 @@ void TextService::ApplySnapshot(ITfContext* context, const protocol::Snapshot& s
         ShowCandidates(snapshot, geometry);
         // For example a candidate that covers only part of a reconverted selection.
         if (geometry) ShowReconversionNotice(snapshot, geometry->composition);
+        if (snapshot.aiReview && geometry) ShowAIReview(*snapshot.aiReview, geometry->composition);
     });
 }
 
@@ -324,6 +378,7 @@ void TextService::FinishComposition(bool confirm, DWORD sessionFlags) {
     snapshot_ = {};
     HideCandidates();
     EndReconversionReading();
+    CloseAIReview();
     if (!composition_) return;
     // The session may run after a new composition has started elsewhere, so it
     // finishes exactly this composition object.
@@ -370,7 +425,7 @@ void TextService::CreateCandidateElement() {
     };
     actions.cancel = [this]() {
         // Leaving the list is what Escape does in the converter.
-        if (converter_) ApplyPointerChoice(converter_->Key(keys::Translate(VK_ESCAPE, {}, L"")));
+        if (converter_) ApplyPointerChoice(converter_->Key(keys::Translate(VK_ESCAPE, {}, L""), {}));
     };
     candidateElement_ = new (std::nothrow) CandidateListElement(threadManager_, std::move(actions));
 }

@@ -13,7 +13,9 @@ add_library(azookey_shared STATIC
     src/shared/json.cpp
     src/shared/text_encoding.cpp
     src/shared/key_translation.cpp
+    src/shared/key_binding.cpp
     src/shared/bridge_protocol.cpp
+    src/shared/ai_protocol.cpp
     src/shared/candidate_display.cpp
     src/shared/ui_language.cpp
     src/shared/host_channel.cpp

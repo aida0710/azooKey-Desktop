@@ -128,9 +128,13 @@ void TextService::EndReconversionReading() {
 
 void TextService::ShowNotice(const std::wstring& text) {
     if (!notice_ || !noticeCaret_) return;
-    // Keep clear of the candidate panel, which Core usually puts below the text.
+    notice_->Show(text, *noticeCaret_, SideAwayFromCandidates());
+}
+
+PopupSide TextService::SideAwayFromCandidates() const {
+    // Core usually puts the candidate panel below the text.
     bool candidatesBelow = candidatePanel_ && candidatePanel_->visible() && lastPlacementSide_ != "above";
-    notice_->Show(text, *noticeCaret_, candidatesBelow ? NoticePlacement::AboveCaret : NoticePlacement::BelowCaret);
+    return candidatesBelow ? PopupSide::AboveCaret : PopupSide::BelowCaret;
 }
 
 void TextService::HideNotice() {

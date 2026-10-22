@@ -34,6 +34,8 @@
 "ai.scope.generating" = "生成中…";
 "ai.scope.history" = "履歴に保存するのは指示文だけです（本文・周辺テキストは含みません）。";
 "ai.scope.include-context" = "周辺テキストを含める（前後最大100文字）";
+"ai.scope.include-context.off" = "周辺テキストは含めません";
+"ai.scope.include-context.on" = "周辺テキストを含めます";
 "ai.scope.include-error" = "周辺テキストの設定を保存できませんでした。今回の選択は表示のとおりです。";
 "ai.scope.keyboard" = "Control+S: 送信 / Control+Shift+S: 周辺設定 / Escape: 取消";
 "ai.scope.preview" = "AI へ送信してプレビュー";
