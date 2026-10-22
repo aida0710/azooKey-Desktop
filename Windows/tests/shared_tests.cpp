@@ -3,9 +3,11 @@
 #include <cstdio>
 #include <string>
 
+#include "../src/shared/ai_protocol.h"
 #include "../src/shared/bridge_protocol.h"
 #include "../src/shared/candidate_display.h"
 #include "../src/shared/json.h"
+#include "../src/shared/key_binding.h"
 #include "../src/shared/key_translation.h"
 #include "../src/shared/text_encoding.h"
 
@@ -30,7 +32,7 @@ using azookey::keys::Translate;
 
 constexpr uint32_t kVkA = 'A', kVkBack = 0x08, kVkReturn = 0x0D, kVkSpace = 0x20, kVkLeft = 0x25, kVkF7 = 0x76;
 constexpr uint32_t kVkConvert = 0x1C, kVkNonConvert = 0x1D, kVkKanji = 0x19, kVkShift = 0x10, kVkNext = 0x22;
-constexpr uint32_t kVkOem3 = 0xC0, kVkImeOn = 0x16, kVkR = 'R';
+constexpr uint32_t kVkOem3 = 0xC0, kVkImeOn = 0x16, kVkR = 'R', kVkS = 'S', kVkC = 'C', kVkE = 'E', kVkEscape = 0x1B;
 
 void TestJsonRoundTripKeepsJapaneseAndEscapes() {
     auto parsed = azookey::json::Parse(R"({"text":"日本\u8a9e","list":[1,true,null],"quote":"a\"b\n"})");
@@ -83,6 +85,50 @@ void TestPrintableKeysStartCompositionOnlyWhenInputIsOn() {
     Check(Classify(kVkA, {false, true, false}, L"a", on) == KeyAction::PassThrough, "Ctrl+A stays an application shortcut");
 }
 
+azookey::keys::KeyBinding Binding(const char* key, int modifiers, const char* command) {
+    azookey::keys::KeyBinding binding;
+    binding.key = key;
+    binding.modifiers = modifiers;
+    binding.command = command;
+    return binding;
+}
+
+void TestKeyBindingsMatchLikeCore() {
+    auto save = Binding("s", 2, "suggestion");
+    Check(save.Matches(Translate(kVkS, {false, true, false}, L"s")), "Ctrl+S matches its binding");
+    Check(!save.Matches(Translate(kVkS, {true, true, false}, L"S")), "modifiers must be exactly equal");
+    Check(Binding("s", 3, "toggleContext").Matches(Translate(kVkS, {true, true, false}, L"S")),
+          "Shift's capital letter is compared lowercased");
+    azookey::keys::KeyBinding escape;
+    escape.keyCode = 53;
+    escape.command = "cancel";
+    Check(escape.Matches(Translate(kVkEscape, {}, L"")), "keys without text match by key code");
+    std::vector<azookey::keys::KeyBinding> bindings{save, escape};
+    const auto* found = azookey::keys::FindBinding(Translate(kVkEscape, {}, L""), bindings);
+    Check(found && found->command == "cancel", "the first matching binding names the command");
+}
+
+void TestCoreShortcutsDecideWhichChordsReachCore() {
+    std::vector<azookey::keys::KeyBinding> shortcuts{Binding("s", 2, "suggestion"), Binding("e", 6, "prompt")};
+    KeyState listed{true, false, false};
+    listed.coreShortcuts = &shortcuts;
+    Modifiers control{false, true, false};
+    Modifiers controlAlt{false, true, true};
+    Check(Classify(kVkS, control, L"s", listed) == KeyAction::SendToConverter, "Ctrl+S asks Core for AI candidates");
+    Check(Classify(kVkC, control, L"c", listed) == KeyAction::PassThrough, "Ctrl+C stays the application's once the list is known");
+    Check(Classify(kVkE, controlAlt, L"e", listed) == KeyAction::PassThrough, "a prompt chord without a selection stays the application's");
+    KeyState selected = listed;
+    selected.hasSelection = true;
+    Check(Classify(kVkE, controlAlt, L"e", selected) == KeyAction::SendToConverter, "a prompt chord on a selection reaches Core");
+    KeyState unknown{true, false, false};
+    Check(Classify(kVkC, control, L"c", unknown) == KeyAction::SendToConverter, "before the list arrives every Control chord reaches Core");
+    Check(Classify(kVkE, {false, false, true}, L"e", unknown) == KeyAction::PassThrough, "Alt alone without a selection stays a menu key");
+    KeyState reviewing{true, false, false};
+    reviewing.aiReviewOpen = true;
+    Check(Classify(kVkA, {}, L"a", reviewing) == KeyAction::SendToConverter, "an open review sees the next key first");
+    Check(Classify(0x10, {true, false, false}, L"", reviewing) == KeyAction::PassThrough, "a bare modifier does not close the review");
+}
+
 void TestReconversionShortcutsReachCore() {
     KeyState on{true, false, false};
     Modifiers controlShift{true, true, false};
@@ -132,7 +178,7 @@ void TestTranslationUsesCoreKeyCodes() {
 
 void TestKeyRequestMatchesBridgeContract() {
     azookey::protocol::RequestContext context{"ctx", {L"前の文", false}};
-    std::string request = azookey::protocol::KeyRequest(context, Translate(kVkA, {true, false, false}, L"A"));
+    std::string request = azookey::protocol::KeyRequest(context, Translate(kVkA, {true, false, false}, L"A"), {});
     auto parsed = azookey::json::Parse(request);
     Check(parsed.has_value(), "key request is valid JSON");
     Check((*parsed)["operation"].AsString() == "key", "operation is key");
@@ -173,7 +219,7 @@ void TestReconversionRequestsCarryTheField() {
     auto reading = azookey::json::Parse(azookey::protocol::ReconversionReadingRequest(context, Translate(kVkA, {}, L"a")));
     Check(reading && (*reading)["operation"].AsString() == "reconversion-reading" && (*reading)["event"]["characters"].AsString() == "a",
           "reading keys go to reconversion-reading");
-    auto plain = azookey::json::Parse(azookey::protocol::KeyRequest({"ctx", {}}, Translate(kVkA, {}, L"a")));
+    auto plain = azookey::json::Parse(azookey::protocol::KeyRequest({"ctx", {}}, Translate(kVkA, {}, L"a"), {}));
     Check(plain && (*plain)["reconversionContext"].kind() == azookey::json::Value::Kind::Null, "no field, no reconversionContext");
 }
 
@@ -228,6 +274,45 @@ void TestReconversionReplyParsing() {
         R"({"consumed":true,"preedit":"","commits":[],"reconversionError":"reading_required","reconversionReading":""})");
     Check(reading && reading->reconversionError == "reading_required" && reading->reconversionReading == L"",
           "an empty reading still means the reading prompt is open");
+}
+
+void TestAIRepliesAndRequests() {
+    auto shortcuts = azookey::protocol::ParseImeShortcuts(
+        R"({"shortcuts":[{"key":"s","modifiers":2,"command":"suggestion"},{"keyCode":53,"modifiers":0,"command":"cancel"},{"modifiers":2}]})");
+    Check(shortcuts && shortcuts->size() == 2 && (*shortcuts)[1].keyCode == 53, "ime-shortcuts are read and malformed items skipped");
+    Check(!azookey::protocol::ParseImeShortcuts(R"({"preedit":""})"), "a reply without shortcuts is not a list");
+
+    auto review = azookey::protocol::ParseSnapshot(
+        R"({"consumed":true,"preedit":"にほんご","ai":{"review":{"id":7,"target":"にほんご","destination":"api.example.com:8443",)"
+        R"("includeContext":false,"bindings":[{"key":"s","modifiers":2,"command":"send"}]}}})");
+    Check(review && review->aiReview && review->aiReview->id == 7 && review->aiReview->destination == L"api.example.com:8443" &&
+              review->aiReview->bindings.size() == 1,
+          "a suggestion review is read from the key reply");
+    auto prompt = azookey::protocol::ParseSnapshot(R"({"consumed":true,"preedit":"","ai":{"prompt":{"initialPrompt":"敬語に直す"}}})");
+    Check(prompt && prompt->aiPrompt == L"敬語に直す" && !prompt->aiReview, "an instruction window request is read");
+
+    azookey::protocol::RequestContext context{"ctx", {L"", false}};
+    auto send = azookey::json::Parse(azookey::protocol::AIReviewSendRequest(context, 7, true));
+    Check(send && (*send)["operation"].AsString() == "ai-review-send" && (*send)["ai"]["review"].AsInteger() == 7 &&
+              (*send)["ai"]["includeContext"].AsBoolean(false),
+          "ai-review-send names the review and the context choice");
+    Check(!azookey::protocol::ParseAIReviewSend("{}"), "an empty reply means the review no longer applies");
+    auto allowed = azookey::protocol::ParseAIReviewSend(
+        R"({"request":{"target":"にほんご","leftContext":"","rightContext":"","includeContext":false,"aiModel":"m",)"
+        R"("aiEndpoint":"https://api.example.com/v1","apiKey":"from-the-application"},"generation":12,"reading":"にほんご"})");
+    Check(allowed && allowed->generation == 12 && allowed->reading == L"にほんご", "Core's request arguments are kept");
+    auto line = azookey::json::Parse(azookey::protocol::AISuggestionsLine(*allowed));
+    Check(line && (*line)["operation"].AsString() == "ai" && (*line)["target"].AsString() == "にほんご" && !(*line).Has("apiKey"),
+          "the ai line passes Core's arguments on and never carries a key from the application");
+    auto texts = azookey::protocol::ParseAISuggestions(R"({"suggestions":["日本語","二本後"]})");
+    Check(texts && texts->size() == 2 && (*texts)[1] == L"二本後", "AI suggestions are read");
+    Check(!azookey::protocol::ParseAISuggestions(R"({"consumed":false,"error":"invalid_request"})"), "a failed AI request has no suggestions");
+    auto suggestions = azookey::json::Parse(azookey::protocol::SuggestionsRequest(context, {L"日本語"}, 12, L"にほんご"));
+    Check(suggestions && (*suggestions)["operation"].AsString() == "suggestions" && (*suggestions)["generation"].AsInteger() == 12 &&
+              (*suggestions)["suggestions"].AsArray().size() == 1,
+          "suggestions go back to the reviewed composition");
+    auto withSelection = azookey::json::Parse(azookey::protocol::KeyRequest(context, Translate(kVkE, {false, true, true}, L"e"), {true}));
+    Check(withSelection && (*withSelection)["ai"]["hasSelection"].AsBoolean(false), "a key on a selection says so");
 }
 
 void TestTreeAndPageParsing() {
@@ -337,6 +422,8 @@ int main() {
     TestScalarWindowsKeepSurrogatePairsWhole();
     TestPrintableKeysStartCompositionOnlyWhenInputIsOn();
     TestReconversionShortcutsReachCore();
+    TestKeyBindingsMatchLikeCore();
+    TestCoreShortcutsDecideWhichChordsReachCore();
     TestCompositionKeepsEditingKeys();
     TestModeKeys();
     TestTranslationUsesCoreKeyCodes();
@@ -345,6 +432,7 @@ int main() {
     TestCommitAdvancesTheDocumentLikeCore();
     TestSnapshotParsing();
     TestReconversionReplyParsing();
+    TestAIRepliesAndRequests();
     TestTreeAndPageParsing();
     TestCandidateDisplayParsing();
     TestLayoutRequestAndResult();

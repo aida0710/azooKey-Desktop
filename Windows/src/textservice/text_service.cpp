@@ -24,6 +24,10 @@ constexpr UINT kToUnicodeKeepKeyboardState = 0x4;
 
 bool IsKeyDown(int virtualKey) { return (GetKeyState(virtualKey) & 0x8000) != 0; }
 
+// Control and Alt chords are shortcuts: Core may act on them, and otherwise
+// they belong to the application (Alt opens its menus), never typed as text.
+bool IsChord(const keys::Modifiers& modifiers) { return modifiers.control || modifiers.alt; }
+
 std::wstring JoinCommits(const protocol::Snapshot& snapshot) {
     std::wstring text;
     for (const auto& commit : snapshot.commits) text += commit;
@@ -101,6 +105,7 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadManager, TfClientId cli
     };
     candidatePanel_ = std::make_unique<CandidatePanel>(std::move(actions));
     notice_ = std::make_unique<NoticeWindow>();
+    coreShortcuts_ = converter_->ImeShortcuts();
     CreateCandidateElement();
     AddInputModeButton();
     // Choosing azooKey Tree means the user wants Japanese input now.
@@ -167,6 +172,7 @@ STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) {
     privacyCheckedContext_ = nullptr;
     // Settings may have changed while another window had focus.
     presentationSettings_.reset();
+    if (converter_) coreShortcuts_ = converter_->ImeShortcuts();
     lastPlacementSide_.clear();
     return S_OK;
 }
@@ -220,6 +226,11 @@ TextService::KeyInput TextService::ReadKey(ITfContext* context, WPARAM virtualKe
     state.inputOpen = IsInputOpen();
     state.composing = IsComposing();
     state.privateInput = !state.composing && state.inputOpen && IsFieldPrivate(context);
+    state.coreShortcuts = coreShortcuts_ ? &*coreShortcuts_ : nullptr;
+    // Reading the field is a round trip into the application; only chords need it.
+    if (IsChord(input.modifiers) && state.inputOpen && !state.composing && !state.privateInput) {
+        state.hasSelection = ReadInputField(context).hasSelection;
+    }
     input.action = keys::Classify(static_cast<uint32_t>(virtualKey), input.modifiers, input.typedText, state);
     return input;
 }
@@ -275,17 +286,19 @@ void TextService::HandleKey(ITfContext* context, WPARAM virtualKey, const KeyInp
         field = ReadInputField(context);
         converter_->SetDocument(field.document);
     }
-    auto snapshot = converter_->Key(event);
+    protocol::KeyFacts facts;
+    facts.hasSelection = !wasComposing && field.hasSelection;
+    auto snapshot = converter_->Key(event, facts);
     if (!snapshot) {
         // Keep what the user already sees, and do not lose the key just typed.
         FinishComposition(false, kSyncWrite);
-        if (event.characters && !input.modifiers.control) InsertText(context, input.typedText, kSyncWrite);
+        if (event.characters && !IsChord(input.modifiers)) InsertText(context, input.typedText, kSyncWrite);
         return;
     }
     if (!wasComposing && HandleReconversionReply(context, *snapshot, field)) return;
     if (!snapshot->consumed && !wasComposing && snapshot->preedit.empty() && snapshot->commits.empty()) {
         // Core declined the key; behave as if the IME had not taken it.
-        if (event.characters && !input.modifiers.control) InsertText(context, input.typedText, kSyncWrite);
+        if (event.characters && !IsChord(input.modifiers)) InsertText(context, input.typedText, kSyncWrite);
         else *eaten = FALSE;
         return;
     }
@@ -370,7 +383,7 @@ void TextService::CreateCandidateElement() {
     };
     actions.cancel = [this]() {
         // Leaving the list is what Escape does in the converter.
-        if (converter_) ApplyPointerChoice(converter_->Key(keys::Translate(VK_ESCAPE, {}, L"")));
+        if (converter_) ApplyPointerChoice(converter_->Key(keys::Translate(VK_ESCAPE, {}, L""), {}));
     };
     candidateElement_ = new (std::nothrow) CandidateListElement(threadManager_, std::move(actions));
 }

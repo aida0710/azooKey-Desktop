@@ -34,6 +34,7 @@ struct CompositionGeometry {
 // positions (ITfRangeACP).
 struct InputField {
     protocol::DocumentContext document;
+    bool hasSelection = false;  // also where reconversion is unavailable
     std::optional<RECT> caret;  // physical screen pixels
 };
 

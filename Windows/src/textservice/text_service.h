@@ -139,6 +139,9 @@ private:
     InputModeButton* inputModeButton_ = nullptr;        // COM object owned with the language bar
     std::string lastPlacementSide_;  // Core keeps the popup on this side while it still fits
     std::optional<protocol::PresentationSettings> presentationSettings_;  // read again after a focus change
+    // Core's ime-shortcuts, read again after a focus change because settings and
+    // pinned instructions change in other windows.
+    std::optional<std::vector<keys::KeyBinding>> coreShortcuts_;
     protocol::Snapshot snapshot_;  // last state written to the document
     std::optional<std::wstring> reconversionReading_;  // set while the user types the reading of a selection
 

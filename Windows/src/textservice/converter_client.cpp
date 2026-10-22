@@ -3,6 +3,7 @@
 #include <objbase.h>
 
 #include "module.h"
+#include "shared/ai_protocol.h"
 #include "shared/text_encoding.h"
 
 namespace azookey::tsf {
@@ -49,8 +50,8 @@ std::optional<protocol::Snapshot> ConverterClient::Send(const std::string& reque
     return snapshot;
 }
 
-std::optional<protocol::Snapshot> ConverterClient::Key(const keys::CoreKeyEvent& event) {
-    return Send(protocol::KeyRequest(context_, event));
+std::optional<protocol::Snapshot> ConverterClient::Key(const keys::CoreKeyEvent& event, const protocol::KeyFacts& facts) {
+    return Send(protocol::KeyRequest(context_, event, facts));
 }
 
 std::optional<protocol::Snapshot> ConverterClient::ReconversionReading(const keys::CoreKeyEvent& event) {
@@ -80,6 +81,11 @@ std::optional<protocol::Snapshot> ConverterClient::Reset(bool submit) {
 std::optional<display::LayoutResult> ConverterClient::Layout(const display::LayoutRequest& request) {
     auto reply = connection_.Request(display::LayoutRequestLine(request));
     return reply ? display::ParseLayoutResult(*reply) : std::nullopt;
+}
+
+std::optional<std::vector<keys::KeyBinding>> ConverterClient::ImeShortcuts() {
+    auto reply = connection_.Request(protocol::ImeShortcutsRequest());
+    return reply ? protocol::ParseImeShortcuts(*reply) : std::nullopt;
 }
 
 std::optional<protocol::PresentationSettings> ConverterClient::PresentationSettings() {

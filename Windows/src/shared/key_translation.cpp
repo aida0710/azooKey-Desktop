@@ -1,5 +1,9 @@
 #include "key_translation.h"
 
+#include <algorithm>
+#include <cctype>
+
+#include "key_binding.h"
 #include "text_encoding.h"
 
 namespace azookey::keys {
@@ -21,7 +25,6 @@ constexpr uint32_t kOemAuto = 0xF3, kOemEnlw = 0xF4;  // 半角/全角 on JIS la
 constexpr int kCoreReturn = 36, kCoreTab = 48, kCoreSpace = 49, kCoreDelete = 51, kCoreEscape = 53;
 constexpr int kCoreF6 = 97, kCoreF7 = 98, kCoreF8 = 100, kCoreF9 = 101, kCoreF10 = 109;
 constexpr int kCoreLeft = 123, kCoreRight = 124, kCoreDown = 125, kCoreUp = 126;
-constexpr int kShiftFlag = 1 << 0, kControlFlag = 1 << 1, kOptionFlag = 1 << 2;
 
 bool IsModifierOnly(uint32_t key) {
     return key == kShift || key == kControl || key == kMenu || (key >= kLeftShift && key <= kRightMenu) ||
@@ -39,15 +42,34 @@ int CoreDigitKeyCode(wchar_t digit) {
     return codes[digit - L'0'];
 }
 
+// Chords Core acts on with nothing composed. TSF has to answer before Core
+// sees the key, so it matches them against Core's ime-shortcuts list.
+bool IsCoreShortcut(uint32_t virtualKey, Modifiers modifiers, const std::wstring& typedText, const KeyState& state) {
+    if (!modifiers.control && !modifiers.alt) return false;
+    // Core's ReconversionShortcut is not in the list: Ctrl+Shift+Backspace undoes
+    // the last commit and Ctrl+Shift+R reconverts the selection.
+    bool reconversion = modifiers.control && modifiers.shift && !modifiers.alt && (virtualKey == kBack || virtualKey == 'R');
+    if (reconversion) return true;
+    // Before the list arrives: every Control chord, and Alt chords that could
+    // open the instruction window for a selection.
+    if (!state.coreShortcuts) return modifiers.control || state.hasSelection;
+    const KeyBinding* binding = FindBinding(Translate(virtualKey, modifiers, typedText), *state.coreShortcuts);
+    return binding && (binding->command != "prompt" || state.hasSelection);
+}
+
 }  // namespace
 
 KeyAction Classify(uint32_t virtualKey, Modifiers modifiers, const std::wstring& typedText, KeyState state) {
     if (state.privateInput || IsModifierOnly(virtualKey)) return KeyAction::PassThrough;
+    if (state.aiReviewOpen) return KeyAction::SendToConverter;
     if (virtualKey == kImeOn) return KeyAction::TurnInputOn;
     if (virtualKey == kImeOff) return KeyAction::TurnInputOff;
     if (virtualKey == kKanji || virtualKey == kOemAuto || virtualKey == kOemEnlw) return KeyAction::ToggleInput;
     if (modifiers.alt) {
-        return virtualKey == kOem3 && !modifiers.control ? KeyAction::ToggleInput : KeyAction::PassThrough;
+        if (virtualKey == kOem3 && !modifiers.control) return KeyAction::ToggleInput;
+        // Otherwise menu keys, except an instruction-window chord on a selection.
+        bool coreChord = state.inputOpen && !state.composing && IsCoreShortcut(virtualKey, modifiers, typedText, state);
+        return coreChord ? KeyAction::SendToConverter : KeyAction::PassThrough;
     }
     // Like the JIS keys on a Mac (英数/かな): 無変換 leaves Japanese input and
     // 変換 enters it. While composing, 変換 converts as Space does.
@@ -55,10 +77,7 @@ KeyAction Classify(uint32_t virtualKey, Modifiers modifiers, const std::wstring&
     if (!state.inputOpen) return KeyAction::PassThrough;
     if (virtualKey == kNonConvert) return KeyAction::TurnInputOff;
     if (!state.composing) {
-        // Core's ReconversionShortcut: Ctrl+Shift+Backspace undoes the last commit and
-        // Ctrl+Shift+R reconverts the selection. TSF needs the answer before Core sees the key.
-        bool reconversionShortcut = modifiers.control && modifiers.shift && (virtualKey == kBack || virtualKey == 'R');
-        if (reconversionShortcut) return KeyAction::SendToConverter;
+        if (IsCoreShortcut(virtualKey, modifiers, typedText, state)) return KeyAction::SendToConverter;
         return !modifiers.control && IsPrintable(typedText) ? KeyAction::SendToConverter : KeyAction::PassThrough;
     }
     if (virtualKey == kPrior) return KeyAction::PreviousPage;
@@ -66,6 +85,14 @@ KeyAction Classify(uint32_t virtualKey, Modifiers modifiers, const std::wstring&
     // Every other key belongs to the composition; letting it through would
     // edit the document underneath the preedit.
     return KeyAction::SendToConverter;
+}
+
+std::optional<std::string> CoreKeyEvent::CharactersIgnoringModifiers() const {
+    if (!characters) return std::nullopt;
+    std::string lowered = *characters;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                   [](unsigned char c) { return static_cast<char>(c < 0x80 ? std::tolower(c) : c); });
+    return lowered;
 }
 
 CoreKeyEvent Translate(uint32_t virtualKey, Modifiers modifiers, const std::wstring& typedText) {

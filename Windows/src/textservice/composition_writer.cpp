@@ -280,6 +280,7 @@ InputField CompositionWriter::ReadInputField(TfEditCookie cookie, ITfContext* co
 
     auto extent = DocumentExtent(caret.pointer);
     std::wstring selected = ReadRange(cookie, caret.pointer, kSurroundingReadUnits + 1);
+    field.hasSelection = !selected.empty();
     if (!extent || static_cast<LONG>(selected.size()) != extent->length ||
         text::ScalarCount(selected) > protocol::kReconversionContextLimit) {
         return field;  // no character positions, or a selection Core does not reconvert

@@ -60,7 +60,7 @@ void TypeRomaji(azookey::channel::HostConnection& connection, const azookey::pro
     for (wchar_t c : romaji) {
         auto event = azookey::keys::Translate(towupper(c), {}, std::wstring(1, c));
         connection.Request(reading ? azookey::protocol::ReconversionReadingRequest(context, event)
-                                   : azookey::protocol::KeyRequest(context, event));
+                                   : azookey::protocol::KeyRequest(context, event, {}));
     }
 }
 
@@ -70,7 +70,7 @@ void TypeRomaji(azookey::channel::HostConnection& connection, const azookey::pro
 void TestUndoingACommit(azookey::channel::HostConnection& connection) {
     azookey::protocol::RequestContext context{"undo", FieldWithCaret()};
     TypeRomaji(connection, context, L"nihongo", false);
-    auto committed = Ask(connection, azookey::protocol::KeyRequest(context, azookey::keys::Translate(0x0D, {}, L"")));
+    auto committed = Ask(connection, azookey::protocol::KeyRequest(context, azookey::keys::Translate(0x0D, {}, L""), {}));
     Check(committed && committed->commits.size() == 1, "Enter commits the composition");
     if (!committed || committed->commits.empty()) return;
     std::wstring text = committed->commits[0];
@@ -158,7 +158,7 @@ int wmain(int argc, wchar_t** argv) {
     for (wchar_t c : std::wstring(L"nihongo")) {
         auto event = azookey::keys::Translate(towupper(c), {}, std::wstring(1, c));
         auto started = std::chrono::steady_clock::now();
-        auto reply = connection.Request(azookey::protocol::KeyRequest(context, event));
+        auto reply = connection.Request(azookey::protocol::KeyRequest(context, event, {}));
         keyMilliseconds.push_back(
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
         last = reply ? azookey::protocol::ParseSnapshot(*reply) : std::nullopt;
@@ -172,7 +172,7 @@ int wmain(int argc, wchar_t** argv) {
     std::printf("first key: %.1f ms; later keys: median %.1f ms, slowest %.1f ms\n", keyMilliseconds.front(),
                 Median(laterKeys), laterKeys.empty() ? 0 : *std::max_element(laterKeys.begin(), laterKeys.end()));
 
-    auto space = connection.Request(azookey::protocol::KeyRequest(context, azookey::keys::Translate(0x20, {}, L" ")));
+    auto space = connection.Request(azookey::protocol::KeyRequest(context, azookey::keys::Translate(0x20, {}, L" "), {}));
     auto converting = space ? azookey::protocol::ParseSnapshot(*space) : std::nullopt;
     Check(converting && converting->selection.has_value() && !converting->candidates.empty(), "Space opens candidates");
     bool zenzaiLoaded = converting && converting->zenzaiLoaded;
@@ -187,11 +187,11 @@ int wmain(int argc, wchar_t** argv) {
     // A second client (another application) gets its own composition.
     azookey::channel::HostConnection other(options);
     auto otherReply = other.Request(azookey::protocol::KeyRequest({"other", {}},
-                                                                  azookey::keys::Translate('K', {}, L"k")));
+                                                                  azookey::keys::Translate('K', {}, L"k"), {}));
     auto otherSnapshot = otherReply ? azookey::protocol::ParseSnapshot(*otherReply) : std::nullopt;
     Check(otherSnapshot && otherSnapshot->preedit == L"k", "a second application composes independently");
 
-    auto enter = connection.Request(azookey::protocol::KeyRequest(context, azookey::keys::Translate(0x0D, {}, L"")));
+    auto enter = connection.Request(azookey::protocol::KeyRequest(context, azookey::keys::Translate(0x0D, {}, L""), {}));
     auto committed = enter ? azookey::protocol::ParseSnapshot(*enter) : std::nullopt;
     Check(committed && committed->commits.size() == 1 && committed->commits[0] == L"日本語" && committed->preedit.empty(),
           "Enter commits 日本語 and clears the preedit");
