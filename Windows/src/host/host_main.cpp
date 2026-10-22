@@ -10,6 +10,7 @@
 #include <shlobj.h>
 
 #include <atomic>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -45,12 +46,21 @@ constexpr DWORD kClientReadTimeoutMilliseconds = INFINITE;
 // Sent when the converter could not answer, so the client recovers its
 // composition instead of waiting.
 constexpr char kUnavailableReply[] = "{\"consumed\":false,\"error\":\"converter_unavailable\"}";
-// Typing one letter into a context nobody else uses loads the dictionary and,
-// through live conversion, Zenzai's model; closing it commits and learns nothing.
-constexpr char kWarmUpKeyRequest[] =
-    "{\"operation\":\"key\",\"context\":\"azookey-host-warm-up\",\"event\":{\"keyCode\":65535,\"characters\":\"a\","
-    "\"charactersIgnoringModifiers\":\"a\",\"modifierFlags\":0}}";
+// The warm-up types a word and converts it in a context nobody else uses, the
+// way a user's first word goes, so that loading the dictionary and Zenzai's
+// first conversions happen before anyone types. Closing the context commits
+// and learns nothing.
+constexpr char kWarmUpReading[] = "nihongo";
 constexpr char kWarmUpCloseRequest[] = "{\"operation\":\"close\",\"context\":\"azookey-host-warm-up\"}";
+// Core's key codes (macOS kVK_*): a letter goes by its characters alone.
+constexpr int kCharacterKeyCode = 65535;
+constexpr int kSpaceKeyCode = 49;
+
+std::string WarmUpKeyRequest(const std::string& characters, int keyCode) {
+    std::string quoted = azookey::json::Quote(characters);
+    return "{\"operation\":\"key\",\"context\":\"azookey-host-warm-up\",\"event\":{\"keyCode\":" + std::to_string(keyCode) +
+           ",\"characters\":" + quoted + ",\"charactersIgnoringModifiers\":" + quoted + ",\"modifierFlags\":0}}";
+}
 
 struct Options {
     std::wstring pipeName = azookey::channel::HostPipeName();
@@ -141,8 +151,8 @@ public:
             }
             if (first) {
                 // Loading the converter takes longer than the text service waits for
-                // a key (2 s on a cold disk); do it now, before anyone types. Keys
-                // that arrive meanwhile wait for the converter like any other.
+                // a key (2 s on a cold disk); do it now, before anyone types.
+                // Conversion requests that arrive meanwhile wait until it is done.
                 std::thread([this] { WarmUp(); }).detach();
             }
             first = false;
@@ -181,6 +191,7 @@ private:
             switch (request ? azookey::host::RouteFor(*request) : RequestRoute::Conversion) {
             case RequestRoute::Conversion:
                 if (request && azookey::host::OwnsContext(*request)) contexts.insert((*request)["context"].AsString());
+                warmedUp_.wait();
                 reply = Convert(*line, request ? (*request)["operation"].AsString() : "invalid");
                 break;
             case RequestRoute::AIService:
@@ -206,8 +217,12 @@ private:
     }
 
     void WarmUp() {
-        Convert(kWarmUpKeyRequest, "warm-up key");
+        for (char letter : std::string_view(kWarmUpReading)) {
+            Convert(WarmUpKeyRequest(std::string(1, letter), kCharacterKeyCode), "warm-up key");
+        }
+        Convert(WarmUpKeyRequest(" ", kSpaceKeyCode), "warm-up space");
         Convert(kWarmUpCloseRequest, "warm-up close");
+        warmUpFinished_.set_value();
     }
 
     std::string Convert(const std::string& line, std::string_view operation) {
@@ -223,6 +238,8 @@ private:
     }
 
     Options options_;
+    std::promise<void> warmUpFinished_;
+    std::shared_future<void> warmedUp_ = warmUpFinished_.get_future().share();
     std::mutex bridgeMutex_;
     BridgeProcess bridge_;
     SettingsReload settingsReload_;  // guarded by bridgeMutex_
