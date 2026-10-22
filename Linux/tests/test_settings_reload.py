@@ -91,8 +91,8 @@ class SettingsReloadTests(unittest.TestCase):
         self.start()
         self.path.write_text('{"live":true}')
         self.reload.request()
+        # InputCoordinator.cancel drops every pending request without an answer.
         self.queue.pending.clear()
-        self.reload.forget_pending()
         self.reload.request()
         self.assertEqual(len(self.queue.pending), 1)
         applied = len(self.applied)

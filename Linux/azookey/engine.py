@@ -196,7 +196,6 @@ class Engine(IBus.Engine):
         self.ai_review.cancel()
         text, recovery = self.reconversion.take_recovery(text)
         try:
-            self.settings_reload.forget_pending()
             self.snapshot = {}
             self.anchor.update("", 0)
             self.update_preedit_text_with_mode(IBus.Text.new_from_string(""), 0, False, IBus.PreeditFocusMode.COMMIT)
@@ -323,7 +322,6 @@ class Engine(IBus.Engine):
             self.clear_reconversion()
         if self.private:
             self.input.cancel()
-            self.settings_reload.forget_pending()
             self.recover_composition()
 
     def do_set_surrounding_text(self, text, cursor, anchor):
@@ -406,7 +404,6 @@ class Engine(IBus.Engine):
         self.clear_reconversion()
         surface().hide(self)
         self.input.cancel()
-        self.settings_reload.forget_pending()
         self.snapshot = {}
         self.left = self.right = self.selected_text = ""
         self.panel.dismiss()
@@ -419,7 +416,6 @@ class Engine(IBus.Engine):
         self.transformation.reset_input()
         self.clear_reconversion()
         self.input.cancel()
-        self.settings_reload.forget_pending()
         self.recover_composition()
 
     def do_disable(self):

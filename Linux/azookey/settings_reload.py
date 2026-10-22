@@ -36,30 +36,19 @@ class SettingsReload:
         self.problem = problem
         self.path = None
         self.signature = None
-        self.pending_signature = None
 
     def request(self):
-        if self.path is None:
-            # Core names the file in its first answer.
-            if not any(pending.operation == "settings-reload" for pending in self.input.pending):
-                self._submit(None)
+        # One reload at a time; a change made meanwhile is seen by the next request.
+        # Cancelling the input queue drops the reload with the rest of its requests.
+        if any(pending.operation == "settings-reload" for pending in self.input.pending):
             return
-        signature = file_signature(self.path)
-        if signature in (self.signature, self.pending_signature):
+        # Core names the file in its first answer.
+        signature = None if self.path is None else file_signature(self.path)
+        if signature is not None and signature == self.signature:
             return
-        self._submit(signature)
-
-    def forget_pending(self):
-        """The input queue was cancelled, so its reload will never answer."""
-        self.pending_signature = None
-
-    def _submit(self, signature):
-        self.pending_signature = signature
         self.input.submit("settings-reload", completion=lambda snapshot: self._answered(signature, snapshot))
 
     def _answered(self, signature, snapshot):
-        if self.pending_signature == signature:
-            self.pending_signature = None
         state = (snapshot.get("settingsResult") or {}).get("file")
         if snapshot.get("error") or state is None or "settings" not in snapshot:
             # The next key asks again; the engine keeps its last settings meanwhile.
