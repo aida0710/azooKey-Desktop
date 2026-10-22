@@ -58,6 +58,12 @@ void Check(bool condition, const std::string& description) {
     std::fflush(stdout);
 }
 
+// Like Check, and shows what the window or the file actually held when it fails.
+void CheckShowing(bool condition, const std::string& description, const std::string& actual) {
+    Check(condition, description);
+    if (!condition) std::printf("  actual: %s\n", actual.c_str());
+}
+
 std::string Utf8(const std::wstring& text) { return azookey::text::Utf16ToUtf8(text); }
 
 // The dialogs answer as the test decides and record what they were asked.
@@ -155,7 +161,12 @@ std::wstring AccessibleName(HWND control) {
 
 void Click(HWND button) { SendMessageW(button, BM_CLICK, 0, 0); }
 
-void SetText(HWND edit, const std::wstring& text) { SetWindowTextW(edit, text.c_str()); }
+// Replaces an edit's text the way typing does, so the edit reports EN_CHANGE
+// (a multi-line edit does not report text set with WM_SETTEXT).
+void SetText(HWND edit, const std::wstring& text) {
+    SendMessageW(edit, EM_SETSEL, 0, -1);
+    SendMessageW(edit, EM_REPLACESEL, FALSE, reinterpret_cast<LPARAM>(text.c_str()));
+}
 
 void SelectChoice(HWND comboBox, int index) {
     SendMessageW(comboBox, CB_SETCURSEL, static_cast<WPARAM>(index), 0);
@@ -266,7 +277,8 @@ void TestSavingWritesTheFileAndKeepsTheKeyOut(SettingsWindow& window, const Envi
     const std::wstring apiKey = L"sk-settings-test-" + std::to_wstring(GetCurrentProcessId());
     SetText(form.SecretEdit(), apiKey);
     Click(window.saveButton());
-    Check(WaitIdle(window) && StatusOf(window) == Message("settings.saved"), "Save reports that the settings were saved");
+    WaitIdle(window);
+    CheckShowing(StatusOf(window) == Message("settings.saved"), "Save reports that the settings were saved", Utf8(StatusOf(window)));
     auto file = ReadSettingsFile(environment);
     Check(file.has_value(), "settings.json is valid JSON");
     if (!file) return;
@@ -325,8 +337,8 @@ void TestSupportReportIsCopied(SettingsWindow& window) {
         return;
     }
     std::wstring report = WindowText(support->reportEdit());
-    Check(report.find(L"azooKey Tree") != std::wstring::npos && report.find(L"TSF") != std::wstring::npos,
-          "the support page shows Core's Windows report");
+    CheckShowing(report.find(L"azooKey Tree") != std::wstring::npos && report.find(L"TSF") != std::wstring::npos,
+                 "the support page shows Core's Windows report", Utf8(report + L" / " + WindowText(support->notice())));
     Click(support->copyButton());
     WaitIdle(window);
     std::wstring copied;
@@ -369,9 +381,9 @@ void TestDictionaryAddEditDeleteAndValidation(SettingsWindow& window, const Envi
     Check(dictionary->draft().HasChanges(), "the form edits the draft");
     Check(SaveDictionary(window, *dictionary) && window.dictionaryWindow() == nullptr, "a valid draft is saved and the editor closes");
     auto items = DictionaryItems(environment);
-    Check(items.size() == 1 && items[0]["word"].AsString() == "東京タワー" && items[0]["reading"].AsString() == "とうきょうたわー" &&
-              items[0]["hint"].AsString() == "観光地",
-          "the added entry is in settings.json");
+    CheckShowing(items.size() == 1 && items[0]["word"].AsString() == "東京タワー" &&
+                     items[0]["reading"].AsString() == "とうきょうたわー" && items[0]["hint"].AsString() == "観光地",
+                 "the added entry is in settings.json", ReadBytes(environment.settingsFile));
     Check(StatusOf(window) == Message("settings.dictionary_saved"), "the settings window reports the saved dictionary");
     Check(WindowText(window.form()->DictionaryButton()).find(L"1") != std::wstring::npos, "the dictionary button counts the entry");
 
@@ -514,26 +526,33 @@ void CaptureImportPreview(const Environment& environment, HWND owner) {
     Capture(environment, window.window(), L"dictionary-import-preview");
 }
 
-// Leaves the converter's stored preferences as a new installation has them,
-// so tests that run later on the same machine see the defaults.
-void RestoreConverterDefaults(const Environment& environment) {
+std::optional<Value> Ask(azookey::channel::HostConnection& connection, const std::string& request) {
+    auto line = connection.Request(request);
+    return line ? azookey::json::Parse(*line) : std::nullopt;
+}
+
+// Gives the converter the preferences of a new installation and removes the
+// settings file. The converter keeps its preferences outside the settings
+// folder, so a run must not depend on what an earlier run left there.
+void ResetToNewInstallation(const Environment& environment) {
     azookey::channel::HostConnection connection(BridgeWorker::ConnectionOptions(environment.pipe, L""));
-    auto schemaReply = connection.Request(SchemaRequest());
-    auto schema = schemaReply ? azookey::json::Parse(*schemaReply) : std::nullopt;
     std::map<std::string, Value> defaults;
-    if (schema) {
+    if (auto schema = Ask(connection, SchemaRequest())) {
         for (const auto& item : (*schema)["settingsResult"]["schema"]["items"].AsArray()) {
             defaults[item["key"].AsString()] = item["default"];
         }
     }
-    auto loadReply = connection.Request(LoadRequest());
-    auto loaded = ParseSettingsReply(loadReply ? azookey::json::Parse(*loadReply) : std::nullopt);
-    std::optional<Value> saveReply;
-    if (loaded.file && !defaults.empty()) {
-        auto line = connection.Request(SaveRequest(Value::MakeObject(defaults), loaded.file->stamp));
-        if (line) saveReply = azookey::json::Parse(*line);
-    }
-    Check(ParseSettingsReply(saveReply).succeeded(), "the converter's preferences are back to the defaults");
+    // Only dictionary-save changes the dictionary; settings-save keeps the file's.
+    defaults.erase("userDictionary");
+    auto loaded = ParseSettingsReply(Ask(connection, LoadRequest()));
+    std::string stamp = loaded.file ? loaded.file->stamp : "";
+    auto emptied = ParseDictionarySaveReply(Ask(connection, DictionarySaveRequest({}, stamp)));
+    if (emptied.settings.file) stamp = emptied.settings.file->stamp;
+    auto restored = Ask(connection, SaveRequest(Value::MakeObject(defaults), stamp));
+    CheckShowing(emptied.saved && ParseSettingsReply(restored).succeeded(), "the converter starts from the defaults",
+                 restored ? azookey::json::Serialize(*restored) : "no reply");
+    std::filesystem::path folder = std::filesystem::path(environment.settingsFile).parent_path();
+    for (const auto& file : std::filesystem::directory_iterator(folder)) std::filesystem::remove_all(file.path());
 }
 
 }  // namespace
@@ -577,6 +596,7 @@ int wmain(int argc, wchar_t** argv) {
                                   ICC_STANDARD_CLASSES | ICC_LISTVIEW_CLASSES | ICC_UPDOWN_CLASS | ICC_LINK_CLASS};
     InitCommonControlsEx(&controls);
     RegisterWindowClasses(GetModuleHandleW(nullptr), nullptr);
+    ResetToNewInstallation(environment);
     {
         ScriptedDialogs dialogs;
         auto window = OpenSettings(environment, dialogs);
@@ -598,7 +618,7 @@ int wmain(int argc, wchar_t** argv) {
         ScriptedDialogs dialogs;
         TestADamagedFileIsRecovered(environment, dialogs);
     }
-    RestoreConverterDefaults(environment);
+    ResetToNewInstallation(environment);
     azookey::credentials::DeleteApiKey(environment.credential);
     TerminateProcess(host.hProcess, 0);
     WaitForSingleObject(host.hProcess, 5000);

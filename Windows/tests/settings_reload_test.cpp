@@ -96,7 +96,10 @@ int wmain(int argc, wchar_t** argv) {
     HostConnection connection(options);
     RequestContext context{"reload-test", {}};
 
-    Check(Type(connection, context, L"nihongo") == L"日本語", "with the default settings live conversion shows 日本語");
+    // The converter keeps its preferences outside the settings folder, so the
+    // first file sets live conversion explicitly instead of relying on a default.
+    WriteText(settingsFile, "{\"live\": true}\n");
+    Check(Type(connection, context, L"nihongo") == L"日本語", "with live conversion on in settings.json the preedit shows 日本語");
     Cancel(connection, context);
 
     WriteText(settingsFile, "{\"live\": false}\n");
