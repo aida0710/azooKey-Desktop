@@ -604,15 +604,12 @@ class TreePanel(Gtk.Window):
         self.viewport.set_min_content_height(min(height, natural_height))
 
     def position(self):
+        # apply_placement already sized the popup; GTK reports the new size
+        # only after its next allocation, so this only moves it.
         placement = self.placement
         if placement is None:
             return
         width, height = int(placement["width"]), int(placement["height"])
-        if self.get_size() != (width, height):
-            # Keep Core's size when GTK allocates the popup differently.
-            self.fit_content_height(width=width, available_height=height)
-            self.limit_viewport(width=width, height=height)
-            self.resize(width, height)
         area = self.work_area()
         self.move(int(placement["x"]), int(placement["y"]))
         tree = self.layout["tree"]
