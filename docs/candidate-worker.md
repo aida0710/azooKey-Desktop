@@ -17,6 +17,8 @@
 | `configure-learning` | workerGeneration、settingsRevision、learning | 更新後のsettings |
 | `close` | workerGeneration、context、readingProcessGeneration | contextを終了した応答 |
 | `resolve-reconversion-reading` | reconversionReadingRequest | 元要求と解決した読み。候補計算・学習なし |
+| `prepare-dictionary` | workerGeneration | settings応答とpreparedDictionaryRevision。現在の入力・候補・適用値は不変 |
+| `bind-initial-dictionary` | workerGeneration / settingsRevision / settings / dictionaryRevision | 初回だけ既存設定のまま辞書版を適用するsettings ACK |
 
 辞書読み解決のpayload、本文照合、削除ACKとの境界は [再変換契約](reading-reconversion.md) を参照してください。
 
@@ -57,3 +59,5 @@ completionのauthorityは計算時のものを保ち、別fieldの `settingsRevi
 `configure-settings` の要求は `workerGeneration`、`settingsRevision`、`settings` を持ちます。[worker設定契約](worker-settings.md) の19項目を全量適用し、`settings` と同じ適用値ACKを返します。通常入口の `DesktopSettings.apply()` や辞書transactionを呼ぶ操作ではありません。
 
 変更には全contextの `close` が必要です。単なる `release` では確定receiptが残るため、設定変更を許可しません。同revision・同payloadの再送だけは、保持中の候補を壊さず再ACKできます。全量契約開始後の `configure-learning` は `full_settings_required` で拒否します。candidate再生成後は新世代へ確認済みの全量設定を送り、ACKが一致するまで候補を要求しません。不明な学習完了通知は再送しません。
+
+保存済み辞書は[辞書同期契約](reading-dictionary-sync.md)でprepareし、configure-settingsのdictionaryRevisionへ指定できます。準備済みと適用済みを別々にACKし、候補と再変換の読み解決に同じ版を使います。

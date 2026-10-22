@@ -20,13 +20,15 @@ public final class SegmentsManager {
     /// テストなどの設定注入のための型。外部には設定を露出させない。
     public struct Context {
         public init() {}
-        public init(useZenzai: Bool, resourcesDirectoryURL: URL? = nil) {
+        public init(useZenzai: Bool, resourcesDirectoryURL: URL? = nil, userDictionaryDirectoryURL: URL? = nil) {
             self.useZenzai = useZenzai
             self.resourcesDirectoryURL = resourcesDirectoryURL
+            self.userDictionaryDirectoryURL = userDictionaryDirectoryURL
         }
 
         var useZenzai: Bool = true
         var resourcesDirectoryURL: URL?
+        var userDictionaryDirectoryURL: URL?
     }
 
     public weak var delegate: (any SegmentManagerDelegate)?
@@ -237,7 +239,7 @@ public final class SegmentsManager {
             fullWidthRomanCandidate: true,
             learningType: learningEnabled ? Config.Learning().value.learningType : Config.Learning.Value.nothing.learningType,
             memoryDirectoryURL: self.azooKeyMemoryDir,
-            sharedContainerURL: CompiledUserDictionaryStore.directoryURL(memoryDirectoryURL: self.azooKeyMemoryDir),
+            sharedContainerURL: self.userDictionaryDirectoryURL,
             textReplacer: Self.textReplacer,
             specialCandidateProviders: KanaKanjiConverter.defaultSpecialCandidateProviders,
             zenzaiMode: self.zenzaiMode(
@@ -259,6 +261,10 @@ public final class SegmentsManager {
         self.applicationDirectoryURL
     }
 
+    private var userDictionaryDirectoryURL: URL {
+        self.context.userDictionaryDirectoryURL ?? CompiledUserDictionaryStore.directoryURL(memoryDirectoryURL: self.azooKeyMemoryDir)
+    }
+
     public var downloadedInputN5LMDir: URL {
         DebugTypoCorrectionWeights.modelDirectoryURL(
             azooKeyApplicationSupportDirectoryURL: self.applicationDirectoryURL.deletingLastPathComponent()
@@ -278,7 +284,7 @@ public final class SegmentsManager {
     public func reloadUserDictionary() {
         self.withConverter { converter in
             converter.updateUserDictionaryURL(
-                CompiledUserDictionaryStore.directoryURL(memoryDirectoryURL: self.azooKeyMemoryDir),
+                self.userDictionaryDirectoryURL,
                 forceReload: true
             )
         }

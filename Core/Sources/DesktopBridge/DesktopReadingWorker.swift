@@ -33,6 +33,7 @@ struct DesktopReadingWorker {
     func rejected(_ error: Error) -> DesktopReadingWorkerResponse {
         var response = response(.error)
         switch error {
+        case let failure as DesktopDictionarySyncFailure: response.error = failure.rawValue
         case let failure as DesktopWorkerSettingsFailure: response.error = failure.rawValue
         case let failure as DesktopReadingProtocolFailure: response.error = failure.rawValue
         case let failure as DesktopReadingSession.Failure: response.error = failure.rawValue
@@ -55,6 +56,7 @@ struct DesktopReadingWorker {
             return try defaults.adding(to: reply)
         case "settings": return try defaults.adding(to: settingsResponse(.acknowledgement))
         case "configure-settings": return try configureSettings(request)
+        case "bind-initial-dictionary": return try bindInitialDictionary(request)
         case "open": return try open(request)
         case "learning-revision": return try updateLearning(request)
         default: return try applyToContext(request)
@@ -123,13 +125,14 @@ struct DesktopReadingWorker {
         let revision = try DesktopReadingProtocolValidation.required(request.settingsRevision)
         let settings = try DesktopReadingProtocolValidation.required(request.settings)
         guard try DesktopWorkerSettingsRuntime.isChange(settings, revision: revision,
-                                                        currentRevision: settingsRevision, current: appliedSettings) else {
+                                                        currentRevision: settingsRevision, current: appliedSettings,
+                                                        dictionaryRevision: request.dictionaryRevision) else {
             return settingsResponse(.acknowledgement)
         }
         guard focusedContext == nil, contexts.values.allSatisfy({ $0.session.canConfigureSettings }) else {
             throw DesktopWorkerSettingsFailure.settingsBusy
         }
-        let prepared = try DesktopWorkerSettingsRuntime(settings)
+        let prepared = try DesktopWorkerSettingsRuntime(settings, dictionaryRevision: request.dictionaryRevision)
         for name in Array(contexts.keys) { contexts[name]?.configureSettings(prepared) }
         appliedSettings = prepared
         settingsRevision = revision
@@ -148,6 +151,23 @@ struct DesktopReadingWorker {
         }
         settingsRevision = revision
         return response(.acknowledgement)
+    }
+
+    private mutating func bindInitialDictionary(_ request: DesktopReadingWorkerRequest) throws -> DesktopReadingWorkerResponse {
+        try validateProcess(DesktopReadingProtocolValidation.required(request.readingProcessGeneration))
+        guard let current = appliedSettings else { throw DesktopWorkerSettingsFailure.fullSettingsRequired }
+        let revision = try DesktopReadingProtocolValidation.required(request.settingsRevision)
+        let settings = try DesktopReadingProtocolValidation.required(request.settings)
+        let dictionary = try DesktopReadingProtocolValidation.required(request.dictionaryRevision)
+        let bound = try current.bindingDictionary(dictionary, settings: settings, revision: revision, currentRevision: settingsRevision)
+        if current.dictionaryRevision == nil {
+            // No request from an unversioned dictionary may become valid after this metadata-only change.
+            guard contexts.values.allSatisfy({ !$0.hasRequestedDictionaryData }) else {
+                throw DesktopDictionarySyncFailure.bindingBusy
+            }
+            appliedSettings = bound
+        }
+        return settingsResponse(.acknowledgement)
     }
 
     private func validateProcess(_ generation: String) throws {
@@ -172,6 +192,7 @@ struct DesktopReadingWorker {
         var reply = response(kind)
         reply.settingsContract = DesktopWorkerSettingsRuntime.contract
         reply.settings = appliedSettings?.settings
+        reply.dictionaryRevision = appliedSettings?.dictionaryRevision
         reply.customInputTableRevisions = appliedSettings?.customInputTableRevisions ?? [:]
         reply.unsupportedFeatures = DesktopWorkerSettingsRuntime.unsupportedFeatures
         return reply

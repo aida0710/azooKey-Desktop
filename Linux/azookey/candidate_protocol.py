@@ -124,7 +124,7 @@ def completion_receipt(response, request):
     return deepcopy(receipt)
 
 
-def settings_response(response):
+def settings_response(response, *, prepared_dictionary=False):
     learning = response.get("learning")
     tables = response.get("customInputTableRevisions")
     if not isinstance(learning, str) or learning not in LEARNING_MODES or not isinstance(tables, dict):
@@ -137,4 +137,9 @@ def settings_response(response):
         settings.update(worker_settings.acknowledgement(response))
         if "settings" in settings and settings["settings"]["learning"] != learning:
             raise ValueError("candidate learning differs from applied settings")
+    if prepared_dictionary:
+        settings["preparedDictionaryRevision"] = worker_settings.dictionary_revision(
+            response.get("preparedDictionaryRevision"))
+    elif "preparedDictionaryRevision" in response:
+        raise ValueError("candidate prepared a dictionary in an unrelated reply")
     return deepcopy(settings)

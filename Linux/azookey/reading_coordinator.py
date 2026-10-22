@@ -10,9 +10,11 @@ from . import reading_protocol as protocol
 from .candidate_coordinator import CandidateCoordinator
 from .reading_transport import ReadingTransport
 from .reading_settings import ReadingSettingsAgreement
+from .reading_dictionary import ReadingDictionaryPreparation
 from .reading_candidate_view import validate_view
 from . import reconversion_protocol
 from .worker_settings import UnsupportedWorkerSettings, validated_settings
+from . import worker_settings
 
 
 LOGGER = logging.getLogger(__name__)
@@ -82,6 +84,10 @@ class ReadingCoordinator:
         self._publishing = None
         self._settings_provider = settings_provider
         self._bootstrap_operation = None
+        self._dictionary = ReadingDictionaryPreparation(
+            self.candidates, prepared=self._dictionary_prepared, notify=self._notice,
+            is_closed=lambda: self._closed or self._broken,
+        )
         if initial_settings is not None:
             self.configure_settings(initial_settings, 0)
         elif settings_provider is not None:
@@ -151,7 +157,7 @@ class ReadingCoordinator:
 
     def prepare_reconversion_worker(self):
         self._owner()
-        if self._changing_settings:
+        if self._changing_settings or not self._dictionary_is_acknowledged():
             return None
         if self._settings_agreement is not None:
             return self._settings_agreement.ensure_candidate_settings()
@@ -278,7 +284,7 @@ class ReadingCoordinator:
     def _payload(self, operation):
         if operation.operation == "open":
             return {"readingProcessGeneration": self._generation, "context": operation.context.name}
-        if operation.operation in ("learning-revision", "configure-settings"):
+        if operation.operation in ("learning-revision", "configure-settings", "bind-initial-dictionary"):
             return {**operation.payload, "readingProcessGeneration": self._generation}
         state = operation.context
         if self._contexts.get(state.name) is not state or state.reference is None:
@@ -305,6 +311,8 @@ class ReadingCoordinator:
                                   lambda reply, current=operation: self._received(current, reply))
             return
         if self._active is None:
+            if self._apply_prepared_dictionary():
+                return
             self._prepare_wanted()
 
     def _received(self, operation, reply):
@@ -354,7 +362,7 @@ class ReadingCoordinator:
             self._prepared(operation, response)
         elif name == "adopt-candidates":
             self._adopted(operation, response)
-        elif name == "configure-settings":
+        elif name in ("configure-settings", "bind-initial-dictionary"):
             self._changing_settings = False
             self._settings_agreement.confirm_reading(response)
         elif name in reconversion_protocol.CONTROL_OPERATIONS:
@@ -507,7 +515,7 @@ class ReadingCoordinator:
         return None
 
     def _prepare_wanted(self):
-        if self._changing_settings:
+        if self._changing_settings or not self._dictionary_is_acknowledged():
             return
         if self._settings_agreement is not None:
             generation = self._settings_agreement.ensure_candidate_settings()
@@ -634,7 +642,7 @@ class ReadingCoordinator:
                                             callback=lambda reply: self._configured(reply, learning=learning,
                                                                                      revision=revision, callback=callback))
 
-    def configure_settings(self, settings, revision, callback=None):
+    def configure_settings(self, settings, revision, callback=None, *, dictionary_revision=None):
         self._owner()
         values = validated_settings(settings)
         candidate_protocol.revision(revision)
@@ -645,14 +653,74 @@ class ReadingCoordinator:
         if revision < self._settings_revision:
             raise ValueError("reading settings revision cannot move backwards")
         previous = self._settings_agreement.reader if self._settings_agreement is not None else None
-        if previous is not None and revision == previous["settingsRevision"] and values != previous["settings"]:
+        if dictionary_revision is None and previous is not None:
+            dictionary_revision = previous.get("dictionaryRevision")
+        if dictionary_revision is not None:
+            worker_settings.dictionary_revision(dictionary_revision)
+        if (previous is not None and revision == previous["settingsRevision"]
+                and (values != previous["settings"] or dictionary_revision != previous.get("dictionaryRevision"))):
             raise ValueError("changed worker settings require a new revision")
-        self._queue_settings({"settings": values, "settingsRevision": revision}, callback)
+        payload = {"settings": values, "settingsRevision": revision}
+        if dictionary_revision is not None:
+            payload["dictionaryRevision"] = dictionary_revision
+        self._queue_settings(payload, callback)
+
+    def refresh_dictionary(self):
+        self._owner()
+        if self._settings_agreement is None:
+            raise ValueError("dictionary synchronization requires full worker settings")
+        self._dictionary.refresh()
+
+    def _dictionary_prepared(self, reply):
+        if self._settings_agreement.record_dictionary_preparation(reply):
+            self._pump()
+        else:
+            self._dictionary.available = None
+
+    def _dictionary_is_acknowledged(self):
+        if not self._dictionary.required:
+            return True
+        agreement = self._settings_agreement
+        return bool(agreement is not None and agreement.reader is not None
+                    and agreement.reader.get("dictionaryRevision") is not None)
+
+    def _apply_prepared_dictionary(self):
+        prepared = self._dictionary.available
+        agreement = self._settings_agreement
+        if (prepared is None or agreement is None or agreement.reader is None or agreement.pending
+                or self._changing_settings or self._pending):
+            return False
+        identity, revision = prepared
+        if identity != self.candidates.transport.identity:
+            self._dictionary.available = None
+            self._notice(protocol.ReadingNotice("candidate_worker_changed", operation="prepare-dictionary"))
+            return False
+        if revision == agreement.reader.get("dictionaryRevision"):
+            self._dictionary.available = None
+            if agreement.failed or agreement.confirmed_identity != identity:
+                agreement.retry_candidate()
+            return False
+        initial = agreement.reader.get("dictionaryRevision") is None
+        if not initial and (self._planned_focus is not None or any(state.active for state in self._contexts.values())):
+            return False
+        self._dictionary.available = None
+        if initial:
+            # Binding the first dictionary changes metadata only. Formal input
+            # keeps its settings revision, caret, owner and original replies.
+            payload = {"settings": self.settings, "settingsRevision": self._settings_revision,
+                       "dictionaryRevision": revision}
+            self._changing_settings = True
+            self._enqueue(OwnedReadingOperation("bind-initial-dictionary", None, payload))
+            return True
+        # A completed focus-out has already queued close for the old candidate
+        # contexts. Candidate configuration follows those closes on its FIFO.
+        self.configure_settings(self.settings, self._settings_revision + 1, dictionary_revision=revision)
+        return True
 
     def _queue_settings(self, payload, callback=None):
         if self._settings_agreement is None:
             self._settings_agreement = ReadingSettingsAgreement(
-                self.candidates, ready=self._pump, notify=self._notice,
+                self.candidates, changed=self._pump, notify=self._notice,
                 is_closed=lambda: self._closed or self._broken, initial_reply=self._candidate_settings_reply,
             )
         self._settings_agreement.begin_configuration()
@@ -687,6 +755,8 @@ class ReadingCoordinator:
         self._callback(callback, response)
 
     def _reject(self, operation, error):
+        if operation.operation == "bind-initial-dictionary":
+            self._changing_settings = False
         if operation.operation in ("learning-revision", "configure-settings"):
             self._fail_all("reading_settings_unconfirmed", operation, "rejected")
             return

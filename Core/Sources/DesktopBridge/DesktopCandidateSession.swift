@@ -17,6 +17,7 @@ final class DesktopCandidateSession {
     private let directory: URL
     private let resources: URL?
     private let useZenzai: Bool
+    private let userDictionaryDirectoryURL: URL?
     private var latestAuthority: CandidateRequestAuthority?
     private var latestBatchID: String?
     private var batches: [String: DesktopCandidateConversion] = [:]
@@ -24,7 +25,7 @@ final class DesktopCandidateSession {
     private var completed: [String: Completed] = [:]
 
     init(authority: CandidateRequestAuthority, workerGeneration: String, converter: KanaKanjiConverter,
-         directory: URL, resources: URL?, useZenzai: Bool) {
+         directory: URL, resources: URL?, useZenzai: Bool, userDictionaryDirectoryURL: URL? = nil) {
         context = authority.context
         readingProcessGeneration = authority.readingProcessGeneration
         self.workerGeneration = workerGeneration
@@ -32,6 +33,7 @@ final class DesktopCandidateSession {
         self.directory = directory
         self.resources = resources
         self.useZenzai = useZenzai
+        self.userDictionaryDirectoryURL = userDictionaryDirectoryURL
     }
 
     func candidates(_ request: DesktopCandidateRequest, composition: CompositionState) throws -> DesktopCandidateBatch {
@@ -46,7 +48,8 @@ final class DesktopCandidateSession {
         guard requestIDs.count < DesktopCandidateLimits.requestsPerContext else { throw DesktopCandidateFailure.requestLimit }
         if request.privateInput { converter.commitUpdateLearningData() }
         let conversion = DesktopCandidateConversion(request: request, composition: composition, converter: converter,
-                                                     directory: directory, resources: resources, useZenzai: useZenzai)
+                                                     directory: directory, resources: resources, useZenzai: useZenzai,
+                                                     userDictionaryDirectoryURL: userDictionaryDirectoryURL)
         if let latestBatchID, let previous = batches[latestBatchID], !previous.retained {
             previous.release()
             batches.removeValue(forKey: latestBatchID)

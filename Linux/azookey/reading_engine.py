@@ -17,6 +17,8 @@ from .reading_frontend import ReadingFrontend
 from .reading_protocol import ReadingNotice
 from .reading_reconversion_adapter import ReadingReconversionAdapter
 from .reading_settings_bootstrap import ReadingSettingsBootstrap
+from .saved_settings_monitor import SavedSettingsMonitor
+from .settings_store import config_path
 
 
 LANGUAGE_DOUBLE_TAP_SECONDS = 0.5  # Preserve the existing desktop language-key gesture.
@@ -52,6 +54,21 @@ class ReadingEngine(IBus.Engine):
         self.reconversion = ReadingReconversionAdapter(
             self, schedule_timeout=GLib.timeout_add, remove_timeout=GLib.source_remove,
         )
+        self.settings_monitor = None
+        try:
+            self.settings_monitor = SavedSettingsMonitor(
+                config_path(), changed=self.frontend.refresh_dictionary,
+                unavailable=self.dictionary_monitor_unavailable,
+            )
+        except (OSError, GLib.Error):
+            self.dictionary_monitor_unavailable()
+
+    def dictionary_monitor_unavailable(self):
+        LOGGER.error("Could not observe saved dictionary changes")
+        try:
+            self.notice(ReadingNotice("reading_dictionary_unavailable", operation="monitor-settings"))
+        except Exception:
+            LOGGER.exception("Could not display dictionary monitoring failure")
 
     @property
     def context_id(self):
@@ -267,6 +284,8 @@ class ReadingEngine(IBus.Engine):
 
     def close_worker(self):
         try:
+            if self.settings_monitor is not None:
+                self.settings_monitor.close()
             self.reconversion.clear()
             self.frontend.close()
         finally:

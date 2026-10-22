@@ -11,15 +11,18 @@ final class DesktopCandidateWorker {
     private let directory: URL
     private let resources: URL?
     private let useZenzai: Bool
+    private let dictionary: DesktopCandidateDictionary
     private var customInputTableRevisions: [String: String]
     private var appliedSettings: DesktopWorkerSettingsRuntime?
     private var sessions: [String: DesktopCandidateSession] = [:]
 
-    init(directory: URL, resources: URL? = nil, useZenzai: Bool = false) throws {
+    init(directory: URL, resources: URL? = nil, useZenzai: Bool = false,
+         dictionarySourceStore: UserDictionarySourceStore = .init()) throws {
         self.directory = directory
         self.resources = resources
         self.useZenzai = useZenzai
         let memory = directory.appendingPathComponent("memory", isDirectory: true)
+        dictionary = DesktopCandidateDictionary(memoryDirectoryURL: memory, sourceStore: dictionarySourceStore)
         try FileManager.default.createDirectory(at: memory, withIntermediateDirectories: true)
         converter = KanaKanjiConverter.withDefaultDictionary()
         if let table = CustomInputTableStore.load(), CustomInputTableStore.registerIfExists() {
@@ -33,6 +36,38 @@ final class DesktopCandidateWorker {
     }
 
     func process(_ message: DesktopCandidateWorkerRequest) throws -> DesktopCandidateWorkerResponse {
+        if let source = dictionary.applied?.source {
+            return try source.perform { try processWithSettings(message) }
+        }
+        return try processWithSettings(message)
+    }
+
+    /// File work stays in the candidate process and cannot hold a reading input reply.
+    func processAsync(_ message: DesktopCandidateWorkerRequest) async throws -> DesktopCandidateWorkerResponse {
+        if message.operation == "bind-initial-dictionary" {
+            return try await bindInitialDictionary(message)
+        }
+        if message.operation == "prepare-dictionary" {
+            try validatePreparation(message)
+            let revision = try await dictionary.prepare()
+            var response = settingsSnapshot()
+            response.preparedDictionaryRevision = revision
+            return response
+        }
+        if message.operation == "configure-settings", let revision = message.dictionaryRevision {
+            guard try settingsChange(message) != nil else {
+                return settingsSnapshot()
+            }
+            guard sessions.isEmpty else { throw DesktopWorkerSettingsFailure.settingsBusy }
+            let snapshot = try await dictionary.verify(revision)
+            // Recheck after file work: callbacks may have opened a context or changed settings.
+            try configureSettings(message, dictionarySnapshot: snapshot)
+            return settingsSnapshot()
+        }
+        return try process(message)
+    }
+
+    private func processWithSettings(_ message: DesktopCandidateWorkerRequest) throws -> DesktopCandidateWorkerResponse {
         if let appliedSettings {
             return try appliedSettings.perform { try apply(message) }
         }
@@ -81,6 +116,8 @@ final class DesktopCandidateWorker {
         var response = snapshot()
         if let authority, (try? DesktopCandidateValidation.authority(authority)) != nil { response.authority = authority }
         response.error = (error as? ReconversionSession.Failure)?.rawValue ??
+            (error as? DesktopDictionarySyncFailure)?.rawValue ??
+            (error as? UserDictionarySource.Failure)?.rawValue ??
             (error as? DesktopWorkerSettingsFailure)?.rawValue ??
             (error as? DesktopCandidateFailure)?.rawValue ?? "invalid_candidate_snapshot"
         return response
@@ -89,6 +126,7 @@ final class DesktopCandidateWorker {
     func shutdown() {
         for session in sessions.values { session.close() }
         sessions.removeAll()
+        dictionary.clear()
         converter.commitUpdateLearningData()
     }
 
@@ -107,8 +145,8 @@ final class DesktopCandidateWorker {
         try request.validate()
         try validateWorker(request.workerGeneration)
         guard request.authority.settingsRevision == settingsRevision else { throw DesktopCandidateFailure.staleAuthority }
-        let reading = ReconversionReading.resolve(request.text, dictionary:
-            Config.UserDictionary().value.items + Config.SystemUserDictionary().value.items)
+        let items = dictionary.applied?.source.items ?? (Config.UserDictionary().value.items + Config.SystemUserDictionary().value.items)
+        let reading = ReconversionReading.resolve(request.text, dictionary: items)
         return .init(request: request, reading: reading)
     }
 
@@ -124,14 +162,25 @@ final class DesktopCandidateWorker {
         } else {
             guard sessions.count < DesktopCandidateLimits.contexts else { throw DesktopCandidateFailure.requestLimit }
             session = .init(authority: request.authority, workerGeneration: workerGeneration, converter: converter,
-                            directory: directory, resources: resources, useZenzai: useZenzai)
+                            directory: directory, resources: resources, useZenzai: useZenzai,
+                            userDictionaryDirectoryURL: dictionary.applied?.directoryURL)
         }
         let batch = try session.candidates(request, composition: composition)
         sessions[request.authority.context] = session
         return batch
     }
 
-    private func configureSettings(_ message: DesktopCandidateWorkerRequest) throws {
+    private func settingsChange(_ message: DesktopCandidateWorkerRequest) throws -> (settings: DesktopWorkerSettings, revision: Int)? {
+        let (settings, revision) = try settingsPayload(message)
+        guard try DesktopWorkerSettingsRuntime.isChange(settings, revision: revision,
+                                                        currentRevision: settingsRevision, current: appliedSettings,
+                                                        dictionaryRevision: message.dictionaryRevision) else {
+            return nil
+        }
+        return (settings, revision)
+    }
+
+    private func settingsPayload(_ message: DesktopCandidateWorkerRequest) throws -> (settings: DesktopWorkerSettings, revision: Int) {
         try validateWorker(DesktopCandidateValidation.required(message.workerGeneration))
         let revision = try DesktopCandidateValidation.required(message.settingsRevision)
         let settings = try DesktopCandidateValidation.required(message.settings)
@@ -140,20 +189,62 @@ final class DesktopCandidateWorker {
               message.reconversionReadingRequest == nil else {
             throw DesktopWorkerSettingsFailure.invalidSettings
         }
-        guard try DesktopWorkerSettingsRuntime.isChange(settings, revision: revision,
-                                                        currentRevision: settingsRevision, current: appliedSettings) else {
+        return (settings, revision)
+    }
+
+    private func dictionaryBinding(_ message: DesktopCandidateWorkerRequest) throws -> DesktopWorkerSettingsRuntime {
+        let (settings, revision) = try settingsPayload(message)
+        guard let current = appliedSettings else { throw DesktopWorkerSettingsFailure.fullSettingsRequired }
+        return try current.bindingDictionary(DesktopCandidateValidation.required(message.dictionaryRevision),
+            settings: settings, revision: revision, currentRevision: settingsRevision)
+    }
+
+    private func bindInitialDictionary(_ message: DesktopCandidateWorkerRequest) async throws -> DesktopCandidateWorkerResponse {
+        let bound = try dictionaryBinding(message)
+        if appliedSettings?.dictionaryRevision != nil {
+            return settingsSnapshot()
+        }
+        guard sessions.isEmpty else { throw DesktopDictionarySyncFailure.bindingBusy }
+        let snapshot = try await dictionary.verify(DesktopCandidateValidation.required(bound.dictionaryRevision))
+        // File work yields the actor. Reject contexts/settings created before this operation resumes.
+        let confirmed = try dictionaryBinding(message)
+        if appliedSettings?.dictionaryRevision == nil {
+            guard sessions.isEmpty else { throw DesktopDictionarySyncFailure.bindingBusy }
+            appliedSettings = confirmed
+            dictionary.apply(snapshot)
+        }
+        return settingsSnapshot()
+    }
+
+    private func configureSettings(_ message: DesktopCandidateWorkerRequest,
+                                   dictionarySnapshot: CompiledUserDictionarySnapshot? = nil) throws {
+        guard let (settings, revision) = try settingsChange(message) else {
             return
         }
         guard sessions.isEmpty else { throw DesktopWorkerSettingsFailure.settingsBusy }
-        let prepared = try DesktopWorkerSettingsRuntime(settings)
+        if let expected = message.dictionaryRevision {
+            guard dictionarySnapshot?.source.revision == expected else { throw DesktopDictionarySyncFailure.notPrepared }
+        }
+        let prepared = try DesktopWorkerSettingsRuntime(settings, dictionaryRevision: message.dictionaryRevision)
         converter.commitUpdateLearningData()
         prepared.perform {
             ConverterLearningConfiguration.apply(learningType: settings.learning.learningType, converter: converter,
                                                  memoryDirectoryURL: directory.appendingPathComponent("memory"))
         }
         appliedSettings = prepared
+        if let dictionarySnapshot { dictionary.apply(dictionarySnapshot) }
         customInputTableRevisions = prepared.customInputTableRevisions
         settingsRevision = revision
+    }
+
+    private func validatePreparation(_ message: DesktopCandidateWorkerRequest) throws {
+        try validateWorker(DesktopCandidateValidation.required(message.workerGeneration))
+        guard message.request == nil, message.reference == nil, message.completion == nil,
+              message.settingsRevision == nil, message.learning == nil, message.context == nil,
+              message.readingProcessGeneration == nil, message.settings == nil,
+              message.dictionaryRevision == nil, message.reconversionReadingRequest == nil else {
+            throw DesktopCandidateFailure.invalidRequest
+        }
     }
 
     private func configureLearning(_ learning: Config.Learning.Value, revision: Int, generation: String) throws {
@@ -205,6 +296,7 @@ final class DesktopCandidateWorker {
         var response = snapshot()
         response.settingsContract = DesktopWorkerSettingsRuntime.contract
         response.settings = appliedSettings?.settings
+        response.dictionaryRevision = appliedSettings?.dictionaryRevision
         response.unsupportedFeatures = DesktopWorkerSettingsRuntime.unsupportedFeatures
         return response
     }

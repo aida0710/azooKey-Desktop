@@ -30,6 +30,7 @@ class ObservedInputField:
         self.on_commit = None
         self.on_preedit = None
         self.fail_status = False
+        self.settings_monitor = None
         self.renderer = SimpleNamespace(dismiss=lambda: None, close=lambda: None, input_changed=lambda _snapshot: None)
         for name in ("activate", "do_focus_out", "do_reset", "do_set_content_type",
                      "close_worker", "surroundings"):

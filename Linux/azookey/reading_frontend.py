@@ -52,11 +52,21 @@ class ReadingFrontend:
             settings_provider=self.settings_provider,
         )
         coordinator.open_context(self.context, self._opened)
+        if self.settings_provider is not None:
+            coordinator.refresh_dictionary()
         return coordinator
 
     def _opened(self, response):
         if response.get("error"):
             self.blocked = True
+
+    def refresh_dictionary(self):
+        if self.closed or self.blocked:
+            return
+        try:
+            self.coordinator.refresh_dictionary()
+        except (OSError, RuntimeError, ValueError):
+            self._notice(ReadingNotice("reading_dictionary_unavailable", operation="prepare-dictionary"))
 
     def focus_in(self, surroundings):
         if self.closed:
