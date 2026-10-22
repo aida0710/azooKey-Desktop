@@ -112,6 +112,13 @@ if (-not $ended) {
     $bitmap = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
     [System.Drawing.Graphics]::FromImage($bitmap).CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bitmap.Size)
     $bitmap.Save((Join-Path $screenshots 'settings-app-not-closed.png'))
+    # Where each thread of the app waits, and their stacks when a debugger is at hand.
+    "  threads: " + (($first.Threads | ForEach-Object { "$($_.Id):$($_.ThreadState)/$($_.WaitReason)" }) -join ', ')
+    $debugger = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Debuggers\x64\cdb.exe'
+    if (Test-Path $debugger) {
+        & $debugger -p $first.Id -pv -c '.symfix; .reload; ~*kn 25; qd' 2>&1 |
+            Where-Object { $_ -match '^\s*#|^\s*[0-9a-f]{2} |Id: ' } | Select-Object -First 200 | ForEach-Object { "  $_" }
+    }
     $exited = $first.WaitForExit(30000)
     "  the app " + $(if ($exited) { "ended $([math]::Round(((Get-Date) - $closedAt).TotalSeconds, 1)) s after the close request" } else { 'was still running 45 s after the close request' })
     if (-not $exited) { Stop-Process -Id $first.Id -Force }
