@@ -64,6 +64,7 @@ struct DesktopSnapshot: Encodable {
     var zenzaiLoaded = false
     var personalizationConfigured = false
     var language = "japanese"
+    var ai: DesktopAIKeyResult?
 }
 
 /// Platform-neutral adapter around upstream's input state and conversion session.
