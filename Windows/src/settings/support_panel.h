@@ -9,8 +9,8 @@
 #include <string>
 
 #include "../shared/message_catalog_data.h"
-#include "bridge_worker.h"
-#include "command_map.h"
+#include "../ui/bridge_worker.h"
+#include "../ui/command_map.h"
 #include "page_view.h"
 
 namespace azookey::settings {
@@ -19,13 +19,13 @@ class SupportPanel {
 public:
     struct Context {
         messages::Language language = messages::Language::English;
-        BridgeWorker* worker = nullptr;
+        ui::BridgeWorker* worker = nullptr;
         std::function<bool()> treeEnabled;  // the setting as the window shows it now
         std::wstring dataDirectory;
         std::wstring buildInfoPath;  // the package's build-info.txt
     };
 
-    SupportPanel(PageView& page, CommandMap& commands, Context context);
+    SupportPanel(PageView& page, ui::CommandMap& commands, Context context);
 
     void SetSettingsFilePath(const std::wstring& path);
     // Asks Core for a fresh report.
@@ -36,7 +36,7 @@ public:
     HWND notice() const { return notice_; }
 
 private:
-    HWND AddPath(PageView& page, CommandMap& commands, const std::string& labelKey, const std::wstring& path);
+    HWND AddPath(PageView& page, ui::CommandMap& commands, const std::string& labelKey, const std::wstring& path);
     // Shows a fresh report, then runs `then` with it.
     void RequestReport(std::function<void(const std::wstring& report)> then);
     void Copy();

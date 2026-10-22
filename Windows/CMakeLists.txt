@@ -42,7 +42,6 @@ if(NOT AZOOKEY_X86)
 
     # The settings app's logic without windows, tested by azookey-settings-tests.
     add_library(azookey_settings_model STATIC
-        src/settings/access_key_label.cpp
         src/settings/dictionary_draft.cpp
         src/settings/dictionary_protocol.cpp
         src/settings/dictionary_text.cpp
@@ -55,12 +54,22 @@ if(NOT AZOOKEY_X86)
     )
     target_link_libraries(azookey_settings_model PUBLIC azookey_shared)
 
+    # Win32 window parts shared by the settings app and the AI instruction window:
+    # DPI and fonts, dialog colors, keyboard navigation, accessibility, and the
+    # thread that talks to the host.
+    add_library(azookey_ui STATIC
+        src/ui/access_key_label.cpp
+        src/ui/bridge_worker.cpp
+        src/ui/child_controls.cpp
+        src/ui/command_map.cpp
+        src/ui/control_accessibility.cpp
+        src/ui/top_level_window.cpp
+        src/ui/ui_metrics.cpp
+    )
+    target_link_libraries(azookey_ui PUBLIC azookey_shared user32 gdi32 comctl32 oleacc ole32)
+
     # The settings windows, shared by the app and its screen test.
     add_library(azookey_settings_screens STATIC
-        src/settings/bridge_worker.cpp
-        src/settings/child_controls.cpp
-        src/settings/command_map.cpp
-        src/settings/control_accessibility.cpp
         src/settings/dictionary_window.cpp
         src/settings/file_replace.cpp
         src/settings/import_preview_window.cpp
@@ -71,17 +80,15 @@ if(NOT AZOOKEY_X86)
         src/settings/shortcut_field.cpp
         src/settings/support_panel.cpp
         src/settings/system_dialogs.cpp
-        src/settings/top_level_window.cpp
-        src/settings/ui_metrics.cpp
         src/settings/window_classes.cpp
     )
-    target_link_libraries(azookey_settings_screens PUBLIC azookey_settings_model user32 gdi32 comctl32 oleacc ole32 shell32 uuid)
+    target_link_libraries(azookey_settings_screens PUBLIC azookey_settings_model azookey_ui shell32 uuid)
 
     # The manifest selects common controls 6 and Per-Monitor V2 DPI awareness.
     add_executable(azookey-settings WIN32
         src/settings/settings_main.cpp
         src/settings/azookey-settings.rc
-        src/settings/azookey-settings.manifest
+        src/ui/azookey-ui.manifest
     )
     target_link_libraries(azookey-settings PRIVATE azookey_settings_screens)
 endif()
@@ -110,7 +117,7 @@ if(NOT AZOOKEY_X86)
     add_executable(azookey-settings-ui-test
         tests/settings_ui_test.cpp
         tests/screen_capture.cpp
-        src/settings/azookey-settings.manifest
+        src/ui/azookey-ui.manifest
     )
     target_link_libraries(azookey-settings-ui-test PRIVATE azookey_settings_screens dwmapi windowscodecs)
 

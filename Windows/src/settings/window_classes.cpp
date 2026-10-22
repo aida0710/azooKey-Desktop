@@ -9,9 +9,9 @@ namespace azookey::settings {
 
 void RegisterWindowClasses(HINSTANCE instance, HICON icon) {
     PageView::RegisterWindowClass(instance);
-    TopLevelWindow::RegisterWindowClass(instance, SettingsWindow::kClassName, icon);
-    TopLevelWindow::RegisterWindowClass(instance, DictionaryWindow::kClassName, icon);
-    TopLevelWindow::RegisterWindowClass(instance, ImportPreviewWindow::kClassName, icon);
+    ui::TopLevelWindow::RegisterWindowClass(instance, SettingsWindow::kClassName, icon);
+    ui::TopLevelWindow::RegisterWindowClass(instance, DictionaryWindow::kClassName, icon);
+    ui::TopLevelWindow::RegisterWindowClass(instance, ImportPreviewWindow::kClassName, icon);
 }
 
 }  // namespace azookey::settings

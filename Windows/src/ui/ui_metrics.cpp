@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace azookey::settings {
+namespace azookey::ui {
 namespace {
 
 // Push buttons keep at least this width so short labels remain easy to hit.
@@ -83,4 +83,4 @@ void ApplyFont(HWND window, HFONT font) {
         reinterpret_cast<LPARAM>(font));
 }
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

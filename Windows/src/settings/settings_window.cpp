@@ -5,8 +5,8 @@
 #include <algorithm>
 
 #include "../shared/api_key_credential.h"
-#include "child_controls.h"
-#include "control_accessibility.h"
+#include "../ui/child_controls.h"
+#include "../ui/control_accessibility.h"
 #include "dictionary_protocol.h"
 #include "problem_text.h"
 
@@ -35,7 +35,7 @@ std::wstring WindowsPath(std::wstring path) {
 SettingsWindow::SettingsWindow(Options options) : options_(std::move(options)) {
     if (!Create(kClassName, Text("settings.window_title"), nullptr, kClientSize)) return;
     Build();
-    worker_ = std::make_unique<BridgeWorker>(BridgeWorker::Options{options_.connection, window(), kRepliesReadyMessage});
+    worker_ = std::make_unique<ui::BridgeWorker>(ui::BridgeWorker::Options{options_.connection, window(), kRepliesReadyMessage});
     LoadDefinition();
 }
 
@@ -51,34 +51,34 @@ std::wstring SettingsWindow::Text(std::string_view key) const { return messages:
 
 void SettingsWindow::Build() {
     HWND window = this->window();
-    noticeTitle_ = CreateChildControl(window, WC_STATICW, Text("settings.recovery_title"), SS_LEFT | SS_NOPREFIX,
+    noticeTitle_ = ui::CreateChildControl(window, WC_STATICW, Text("settings.recovery_title"), SS_LEFT | SS_NOPREFIX,
                                       commands_.Reserve());
-    noticeText_ = CreateChildControl(window, WC_STATICW, L"", SS_LEFT | SS_NOPREFIX, commands_.Reserve());
-    recover_ = CreateChildControl(window, WC_BUTTONW, Text("settings.restore_current"), kButtonStyle,
+    noticeText_ = ui::CreateChildControl(window, WC_STATICW, L"", SS_LEFT | SS_NOPREFIX, commands_.Reserve());
+    recover_ = ui::CreateChildControl(window, WC_BUTTONW, Text("settings.restore_current"), kButtonStyle,
                                   commands_.Register([this](unsigned notification) {
                                       if (notification == BN_CLICKED) Recover(false);
                                   }));
-    recoverDefaults_ = CreateChildControl(window, WC_BUTTONW, Text("settings.restore_defaults"), kButtonStyle,
+    recoverDefaults_ = ui::CreateChildControl(window, WC_BUTTONW, Text("settings.restore_defaults"), kButtonStyle,
                                           commands_.Register([this](unsigned notification) {
                                               if (notification == BN_CLICKED) Recover(true);
                                           }));
-    pageList_ = CreateChildControl(window, WC_LISTBOXW, L"", WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
+    pageList_ = ui::CreateChildControl(window, WC_LISTBOXW, L"", WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
                                    commands_.Register([this](unsigned notification) {
                                        if (notification != LBN_SELCHANGE) return;
                                        LRESULT selected = SendMessageW(pageList_, LB_GETCURSEL, 0, 0);
                                        if (selected >= 0) ShowPage(static_cast<size_t>(selected));
                                    }),
                                    WS_EX_CLIENTEDGE);
-    SetAccessibleName(pageList_, Text("settings.pages"));
-    status_ = CreateChildControl(window, WC_STATICW, L"", SS_LEFT | SS_NOPREFIX, commands_.Reserve());
-    MakeLiveRegion(status_);
-    save_ = CreateChildControl(window, WC_BUTTONW, Text("settings.save"), kButtonStyle,
+    ui::SetAccessibleName(pageList_, Text("settings.pages"));
+    status_ = ui::CreateChildControl(window, WC_STATICW, L"", SS_LEFT | SS_NOPREFIX, commands_.Reserve());
+    ui::MakeLiveRegion(status_);
+    save_ = ui::CreateChildControl(window, WC_BUTTONW, Text("settings.save"), kButtonStyle,
                                commands_.Register([this](unsigned notification) {
                                    if (notification == BN_CLICKED) Save();
                                }));
-    cancel_ = CreateChildControl(window, WC_BUTTONW, Text("settings.cancel"), kButtonStyle, IDCANCEL);
+    cancel_ = ui::CreateChildControl(window, WC_BUTTONW, Text("settings.cancel"), kButtonStyle, IDCANCEL);
     EnableWindow(save_, FALSE);
-    ApplyFont(window, metrics().font());
+    ui::ApplyFont(window, metrics().font());
     OnFontsChanged();
     ShowRecoveryNotice(std::nullopt);
 }
@@ -156,7 +156,7 @@ void SettingsWindow::BuildForm() {
         // Tab goes from the page list into the page, then to Save and Cancel.
         SetWindowPos(form_->page(index).window(), pageList_, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
-    ApplyFont(window(), metrics().font());
+    ui::ApplyFont(window(), metrics().font());
     OnFontsChanged();
 }
 
@@ -196,7 +196,7 @@ void SettingsWindow::ShowRecoveryNotice(const std::optional<Problem>& problem) {
 }
 
 void SettingsWindow::SetStatus(const std::wstring& text) {
-    AnnounceText(status_, text);
+    ui::AnnounceText(status_, text);
     Layout();
 }
 
@@ -352,7 +352,7 @@ void SettingsWindow::OnFontsChanged() {
 
 void SettingsWindow::Layout() {
     if (!cancel_) return;
-    const UiMetrics& metrics = this->metrics();
+    const ui::UiMetrics& metrics = this->metrics();
     RECT client{};
     GetClientRect(window(), &client);
     const int margin = metrics.Scale(kMargin);
@@ -361,39 +361,39 @@ void SettingsWindow::Layout() {
     int y = margin;
     // The style, not IsWindowVisible: the layout is also computed while the window is hidden.
     if (GetWindowLongW(noticeTitle_, GWL_STYLE) & WS_VISIBLE) {
-        int titleHeight = metrics.WrappedTextHeight(WindowText(noticeTitle_), width, metrics.headingFont());
-        MoveControl(noticeTitle_, margin, y, width, titleHeight);
+        int titleHeight = metrics.WrappedTextHeight(ui::WindowText(noticeTitle_), width, metrics.headingFont());
+        ui::MoveControl(noticeTitle_, margin, y, width, titleHeight);
         y += titleHeight + metrics.Scale(4);
-        int textHeight = metrics.WrappedTextHeight(WindowText(noticeText_), width, metrics.font());
-        MoveControl(noticeText_, margin, y, width, textHeight);
+        int textHeight = metrics.WrappedTextHeight(ui::WindowText(noticeText_), width, metrics.font());
+        ui::MoveControl(noticeText_, margin, y, width, textHeight);
         y += textHeight + gap;
         int x = margin;
         int buttonHeight = 0;
         for (HWND button : {recover_, recoverDefaults_}) {
-            SIZE size = metrics.ButtonSize(WindowText(button));
-            MoveControl(button, x, y, size.cx, size.cy);
+            SIZE size = metrics.ButtonSize(ui::WindowText(button));
+            ui::MoveControl(button, x, y, size.cx, size.cy);
             x += size.cx + gap;
             buttonHeight = std::max(buttonHeight, static_cast<int>(size.cy));
         }
         y += buttonHeight + metrics.Scale(kMargin);
     }
-    SIZE saveSize = metrics.ButtonSize(WindowText(save_));
-    SIZE cancelSize = metrics.ButtonSize(WindowText(cancel_));
+    SIZE saveSize = metrics.ButtonSize(ui::WindowText(save_));
+    SIZE cancelSize = metrics.ButtonSize(ui::WindowText(cancel_));
     const int buttonsWidth = saveSize.cx + gap + cancelSize.cx;
     const int statusWidth = std::max(1, width - buttonsWidth - gap);
-    const int statusHeight = metrics.WrappedTextHeight(WindowText(status_), statusWidth, metrics.font());
+    const int statusHeight = metrics.WrappedTextHeight(ui::WindowText(status_), statusWidth, metrics.font());
     const int footerHeight = std::max(static_cast<int>(saveSize.cy), statusHeight);
     const int footerTop = client.bottom - margin - footerHeight;
-    MoveControl(status_, margin, footerTop, statusWidth, std::max(statusHeight, 1));
-    MoveControl(cancel_, margin + width - cancelSize.cx, footerTop, cancelSize.cx, cancelSize.cy);
-    MoveControl(save_, margin + width - cancelSize.cx - gap - saveSize.cx, footerTop, saveSize.cx, saveSize.cy);
+    ui::MoveControl(status_, margin, footerTop, statusWidth, std::max(statusHeight, 1));
+    ui::MoveControl(cancel_, margin + width - cancelSize.cx, footerTop, cancelSize.cx, cancelSize.cy);
+    ui::MoveControl(save_, margin + width - cancelSize.cx - gap - saveSize.cx, footerTop, saveSize.cx, saveSize.cy);
     const int listWidth = metrics.Scale(kPageListWidth);
     const int pagesHeight = std::max(1, footerTop - gap - y);
-    MoveControl(pageList_, margin, y, listWidth, pagesHeight);
+    ui::MoveControl(pageList_, margin, y, listWidth, pagesHeight);
     if (form_) {
         const int pagesLeft = margin + listWidth + gap;
         for (size_t page = 0; page < form_->pageCount(); ++page) {
-            MoveControl(form_->page(page).window(), pagesLeft, y, std::max(1, margin + width - pagesLeft), pagesHeight);
+            ui::MoveControl(form_->page(page).window(), pagesLeft, y, std::max(1, margin + width - pagesLeft), pagesHeight);
         }
         form_->Layout(metrics);
     }

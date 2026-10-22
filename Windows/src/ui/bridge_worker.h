@@ -16,7 +16,7 @@
 #include "../shared/host_channel.h"
 #include "../shared/json.h"
 
-namespace azookey::settings {
+namespace azookey::ui {
 
 class BridgeWorker {
 public:
@@ -69,4 +69,4 @@ private:
     std::thread thread_;
 };
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

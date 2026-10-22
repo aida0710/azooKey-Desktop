@@ -4,7 +4,7 @@
 
 #include "dialog_colors.h"
 
-namespace azookey::settings {
+namespace azookey::ui {
 namespace {
 
 // Below this the controls of the smallest window no longer fit side by side.
@@ -185,4 +185,4 @@ void RunModalLoop(HWND owner, const bool& finished) {
     }
 }
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

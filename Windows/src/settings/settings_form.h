@@ -13,8 +13,8 @@
 
 #include "../shared/json.h"
 #include "../shared/message_catalog_data.h"
-#include "access_key_label.h"
-#include "command_map.h"
+#include "../ui/access_key_label.h"
+#include "../ui/command_map.h"
 #include "page_view.h"
 #include "settings_schema.h"
 #include "settings_widgets.h"
@@ -35,7 +35,7 @@ public:
     // `schema` must outlive the form. Pages are children of `pageParent`;
     // their notifications go to `commandTarget`, which dispatches them with `commands`.
     SettingsForm(const Schema& schema, messages::Language language, HWND pageParent, HWND commandTarget,
-                 CommandMap& commands, Actions actions);
+                 ui::CommandMap& commands, Actions actions);
 
     size_t pageCount() const { return pages_.size(); }
     PageView& page(size_t index) { return *pages_[index]; }
@@ -51,7 +51,7 @@ public:
     std::wstring ApiKeyText() const;
     void ClearApiKey();
 
-    void Layout(const UiMetrics& metrics);
+    void Layout(const ui::UiMetrics& metrics);
     void ApplyHeadingFont(HFONT font);
 
     // The control that edits `settingKey`, for focus and for the screen tests.
@@ -83,7 +83,7 @@ private:
     const Schema& schema_;
     messages::Language language_;
     HWND commandTarget_;
-    CommandMap& commands_;
+    ui::CommandMap& commands_;
     Actions actions_;
     std::vector<std::unique_ptr<PageView>> pages_;
     std::vector<HWND> headings_;

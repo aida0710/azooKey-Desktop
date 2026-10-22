@@ -4,8 +4,8 @@
 
 #include <algorithm>
 
-#include "child_controls.h"
-#include "control_accessibility.h"
+#include "../ui/child_controls.h"
+#include "../ui/control_accessibility.h"
 #include "dictionary_text.h"
 #include "file_replace.h"
 #include "list_view.h"
@@ -38,7 +38,7 @@ std::wstring DictionaryWindow::Text(std::string_view key,
 }
 
 HWND DictionaryWindow::AddButton(const std::string& key, std::function<void()> action) {
-    return CreateChildControl(window(), WC_BUTTONW, Text(key), kButtonStyle,
+    return ui::CreateChildControl(window(), WC_BUTTONW, Text(key), kButtonStyle,
                               commands_.Register([action = std::move(action)](unsigned notification) {
                                   if (notification == BN_CLICKED) action();
                               }));
@@ -46,9 +46,9 @@ HWND DictionaryWindow::AddButton(const std::string& key, std::function<void()> a
 
 HWND DictionaryWindow::AddFormField(const std::string& labelKey, DictionaryField field, DWORD style) {
     // The label's access key would need a letter per language; the list and Tab reach the fields.
-    HWND label = CreateChildControl(window(), WC_STATICW, Text(labelKey), kTextStyle, commands_.Reserve());
+    HWND label = ui::CreateChildControl(window(), WC_STATICW, Text(labelKey), kTextStyle, commands_.Reserve());
     formLabels_.push_back(label);
-    HWND edit = CreateChildControl(window(), WC_EDITW, L"", WS_TABSTOP | style,
+    HWND edit = ui::CreateChildControl(window(), WC_EDITW, L"", WS_TABSTOP | style,
                                    commands_.Register([this, field](unsigned notification) {
                                        if (notification != EN_CHANGE) return;
                                        Edit(field, field == DictionaryField::Word      ? word_
@@ -56,29 +56,29 @@ HWND DictionaryWindow::AddFormField(const std::string& labelKey, DictionaryField
                                                                                        : hint_);
                                    }),
                                    WS_EX_CLIENTEDGE);
-    SetAccessibleName(edit, Text(labelKey));
+    ui::SetAccessibleName(edit, Text(labelKey));
     return edit;
 }
 
 void DictionaryWindow::Build() {
     HWND window = this->window();
-    instructions_ = CreateChildControl(window, WC_STATICW, Text("instructions"), kTextStyle, commands_.Reserve());
-    search_ = CreateChildControl(window, WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL, commands_.Register([this](unsigned n) {
+    instructions_ = ui::CreateChildControl(window, WC_STATICW, Text("instructions"), kTextStyle, commands_.Reserve());
+    search_ = ui::CreateChildControl(window, WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL, commands_.Register([this](unsigned n) {
         if (n != EN_CHANGE || settingText_) return;
-        query_ = WindowText(search_);
+        query_ = ui::WindowText(search_);
         RefreshRows(selectedId_);
     }), WS_EX_CLIENTEDGE);
     std::wstring searchLabel = Text("search");
     SendMessageW(search_, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(searchLabel.c_str()));
-    SetAccessibleName(search_, searchLabel);
+    ui::SetAccessibleName(search_, searchLabel);
     sortReset_ = AddButton("sort_original", [this] {
         order_ = DictionaryOrder::Registration;
         RefreshRows(selectedId_);
     });
-    filterCount_ = CreateChildControl(window, WC_STATICW, L"", kTextStyle, commands_.Reserve());
+    filterCount_ = ui::CreateChildControl(window, WC_STATICW, L"", kTextStyle, commands_.Reserve());
     list_ = CreateReportList(window, commands_.Reserve(),
                              {Text("word"), Text("reading"), Text("hint"), Text("issues")});
-    SetAccessibleName(list_, Text("title"));
+    ui::SetAccessibleName(list_, Text("title"));
     add_ = AddButton("add", [this] { AddEntry(); });
     remove_ = AddButton("remove", [this] { RemoveEntry(); });
     import_ = AddButton("import.title", [this] { Import(); });
@@ -86,12 +86,12 @@ void DictionaryWindow::Build() {
     word_ = AddFormField("word", DictionaryField::Word, ES_AUTOHSCROLL);
     reading_ = AddFormField("reading", DictionaryField::Reading, ES_AUTOHSCROLL);
     hint_ = AddFormField("hint", DictionaryField::Hint, WS_VSCROLL | ES_MULTILINE | ES_WANTRETURN | ES_AUTOVSCROLL);
-    issues_ = CreateChildControl(window, WC_STATICW, L"", kTextStyle, commands_.Reserve());
-    status_ = CreateChildControl(window, WC_STATICW, L"", kTextStyle, commands_.Reserve());
-    MakeLiveRegion(status_);
-    cancel_ = CreateChildControl(window, WC_BUTTONW, Text("cancel"), kButtonStyle, IDCANCEL);
+    issues_ = ui::CreateChildControl(window, WC_STATICW, L"", kTextStyle, commands_.Reserve());
+    status_ = ui::CreateChildControl(window, WC_STATICW, L"", kTextStyle, commands_.Reserve());
+    ui::MakeLiveRegion(status_);
+    cancel_ = ui::CreateChildControl(window, WC_BUTTONW, Text("cancel"), kButtonStyle, IDCANCEL);
     save_ = AddButton("save", [this] { Save(); });
-    ApplyFont(window, metrics().font());
+    ui::ApplyFont(window, metrics().font());
     RefreshRows(std::nullopt);
 }
 
@@ -110,62 +110,62 @@ void DictionaryWindow::OnFontsChanged() {
 
 void DictionaryWindow::Layout() {
     if (!save_) return;
-    const UiMetrics& metrics = this->metrics();
+    const ui::UiMetrics& metrics = this->metrics();
     RECT client{};
     GetClientRect(window(), &client);
     const int margin = metrics.Scale(kMargin);
     const int gap = metrics.Scale(kGap);
     const int width = std::max(1, static_cast<int>(client.right) - 2 * margin);
-    auto wrapped = [&](HWND text) { return metrics.WrappedTextHeight(WindowText(text), width, metrics.font()); };
+    auto wrapped = [&](HWND text) { return metrics.WrappedTextHeight(ui::WindowText(text), width, metrics.font()); };
 
     // From the top: instructions, search, the filter count.
     int y = margin;
     int height = wrapped(instructions_);
-    MoveControl(instructions_, margin, y, width, height);
+    ui::MoveControl(instructions_, margin, y, width, height);
     y += height + gap;
-    SIZE sortSize = metrics.ButtonSize(WindowText(sortReset_));
-    MoveControl(search_, margin, y, std::max(1, width - static_cast<int>(sortSize.cx) - gap), metrics.FieldHeight());
-    MoveControl(sortReset_, margin + width - sortSize.cx, y, sortSize.cx, sortSize.cy);
+    SIZE sortSize = metrics.ButtonSize(ui::WindowText(sortReset_));
+    ui::MoveControl(search_, margin, y, std::max(1, width - static_cast<int>(sortSize.cx) - gap), metrics.FieldHeight());
+    ui::MoveControl(sortReset_, margin + width - sortSize.cx, y, sortSize.cx, sortSize.cy);
     y += std::max(metrics.FieldHeight(), static_cast<int>(sortSize.cy)) + gap;
     height = wrapped(filterCount_);
-    MoveControl(filterCount_, margin, y, width, height);
+    ui::MoveControl(filterCount_, margin, y, width, height);
     const int listTop = y + height + gap;
 
     // From the bottom: the footer buttons, status, issues, the form and the entry buttons.
-    SIZE saveSize = metrics.ButtonSize(WindowText(save_));
-    SIZE cancelSize = metrics.ButtonSize(WindowText(cancel_));
+    SIZE saveSize = metrics.ButtonSize(ui::WindowText(save_));
+    SIZE cancelSize = metrics.ButtonSize(ui::WindowText(cancel_));
     int bottom = client.bottom - margin;
-    MoveControl(save_, margin + width - saveSize.cx, bottom - saveSize.cy, saveSize.cx, saveSize.cy);
-    MoveControl(cancel_, margin + width - saveSize.cx - gap - cancelSize.cx, bottom - cancelSize.cy, cancelSize.cx,
+    ui::MoveControl(save_, margin + width - saveSize.cx, bottom - saveSize.cy, saveSize.cx, saveSize.cy);
+    ui::MoveControl(cancel_, margin + width - saveSize.cx - gap - cancelSize.cx, bottom - cancelSize.cy, cancelSize.cx,
                 cancelSize.cy);
     bottom -= saveSize.cy + gap;
     for (HWND text : {status_, issues_}) {
         height = wrapped(text);
-        MoveControl(text, margin, bottom - height, width, height);
+        ui::MoveControl(text, margin, bottom - height, width, height);
         if (height > 0) bottom -= height + gap;
     }
     int labelWidth = 0;
-    for (HWND label : formLabels_) labelWidth = std::max(labelWidth, metrics.TextWidth(WindowText(label), metrics.font()));
+    for (HWND label : formLabels_) labelWidth = std::max(labelWidth, metrics.TextWidth(ui::WindowText(label), metrics.font()));
     const int fieldLeft = margin + labelWidth + gap;
     const int fieldWidth = std::max(1, margin + width - fieldLeft);
     const HWND fields[] = {word_, reading_, hint_};
     for (int index = 2; index >= 0; --index) {
         int fieldHeight = index == 2 ? metrics.Scale(kHintHeight) : metrics.FieldHeight();
         bottom -= fieldHeight;
-        MoveControl(fields[index], fieldLeft, bottom, fieldWidth, fieldHeight);
-        MoveControl(formLabels_[static_cast<size_t>(index)], margin, bottom + metrics.Scale(3), labelWidth, metrics.LineHeight());
+        ui::MoveControl(fields[index], fieldLeft, bottom, fieldWidth, fieldHeight);
+        ui::MoveControl(formLabels_[static_cast<size_t>(index)], margin, bottom + metrics.Scale(3), labelWidth, metrics.LineHeight());
         bottom -= gap;
     }
     int buttonsHeight = 0;
     int x = margin;
     for (HWND button : {add_, remove_, import_, export_}) {
-        SIZE size = metrics.ButtonSize(WindowText(button));
-        MoveControl(button, x, bottom - size.cy, size.cx, size.cy);
+        SIZE size = metrics.ButtonSize(ui::WindowText(button));
+        ui::MoveControl(button, x, bottom - size.cy, size.cx, size.cy);
         x += size.cx + gap;
         buttonsHeight = std::max(buttonsHeight, static_cast<int>(size.cy));
     }
     bottom -= buttonsHeight + gap;
-    MoveControl(list_, margin, listTop, width, std::max(metrics.Scale(kMinimumListHeight), bottom - listTop));
+    ui::MoveControl(list_, margin, listTop, width, std::max(metrics.Scale(kMinimumListHeight), bottom - listTop));
     ResizeColumns(list_, kColumnWeights);
     // A selection made while the list was smaller may have scrolled it; keep the selected row in view.
     int selectedRow = ListView_GetNextItem(list_, -1, LVNI_SELECTED);
@@ -217,7 +217,7 @@ void DictionaryWindow::SelectionChanged() {
         settingText_ = true;
         SetWindowTextW(word_, entry ? entry->word.c_str() : L"");
         SetWindowTextW(reading_, entry ? entry->reading.c_str() : L"");
-        SetWindowTextW(hint_, entry ? ToEditLineBreaks(entry->hint).c_str() : L"");
+        SetWindowTextW(hint_, entry ? ui::ToEditLineBreaks(entry->hint).c_str() : L"");
         settingText_ = false;
     }
     RefreshFeedback();
@@ -271,14 +271,14 @@ void DictionaryWindow::RefreshFeedback() {
                                          messages::Template(line.key, options_.language, messages::Table::UserDictionary),
                                          line.arguments);
     }
-    if (status != WindowText(status_)) AnnounceText(status_, status);
+    if (status != ui::WindowText(status_)) ui::AnnounceText(status_, status);
     Layout();
 }
 
 void DictionaryWindow::Edit(DictionaryField field, HWND edit) {
     if (settingText_ || selectedId_.empty() || !draft_.CanEdit()) return;
-    std::wstring value = WindowText(edit);
-    draft_.Update(selectedId_, field, field == DictionaryField::Hint ? FromEditLineBreaks(value) : value);
+    std::wstring value = ui::WindowText(edit);
+    draft_.Update(selectedId_, field, field == DictionaryField::Hint ? ui::FromEditLineBreaks(value) : value);
     UpdateSelectedRow();
     RefreshFeedback();
 }

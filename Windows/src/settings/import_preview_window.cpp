@@ -4,8 +4,8 @@
 
 #include <algorithm>
 
-#include "child_controls.h"
-#include "control_accessibility.h"
+#include "../ui/child_controls.h"
+#include "../ui/control_accessibility.h"
 #include "dictionary_text.h"
 #include "list_view.h"
 
@@ -41,7 +41,7 @@ bool ImportPreviewWindow::RunModal() {
     ShowWindow(window(), SW_SHOW);
     SetFocus(list_);
     // The owner is enabled again before this window goes away, so activation returns to it.
-    RunModalLoop(owner_, finished_);
+    ui::RunModalLoop(owner_, finished_);
     return accepted_;
 }
 
@@ -51,19 +51,19 @@ void ImportPreviewWindow::Build() {
         "import.counts", language_,
         {{L"additions", std::to_wstring(preview_.additions)}, {L"duplicates", std::to_wstring(preview_.duplicates)},
          {L"conflicts", std::to_wstring(preview_.conflicts)}, {L"excluded", std::to_wstring(preview_.excluded)}});
-    counts_ = CreateChildControl(window, WC_STATICW, counts, SS_LEFT | SS_NOPREFIX, -1);
+    counts_ = ui::CreateChildControl(window, WC_STATICW, counts, SS_LEFT | SS_NOPREFIX, -1);
     std::wstring notices;
     for (const auto& notice : preview_.notices) {
         if (!notices.empty()) notices += L"\n";
         notices += DictionaryText("import.notice." + notice, language_);
     }
-    notices_ = CreateChildControl(window, WC_STATICW, notices, SS_LEFT | SS_NOPREFIX, -1);
-    help_ = CreateChildControl(window, WC_STATICW, DictionaryText("import.draft_help", language_), SS_LEFT | SS_NOPREFIX, -1);
+    notices_ = ui::CreateChildControl(window, WC_STATICW, notices, SS_LEFT | SS_NOPREFIX, -1);
+    help_ = ui::CreateChildControl(window, WC_STATICW, DictionaryText("import.draft_help", language_), SS_LEFT | SS_NOPREFIX, -1);
     list_ = CreateReportList(window, kListId,
                              {DictionaryText("import.source", language_), DictionaryText("word", language_),
                               DictionaryText("reading", language_), DictionaryText("hint", language_),
                               DictionaryText("import.outcome", language_), DictionaryText("import.reason", language_)});
-    SetAccessibleName(list_, DictionaryText("import.preview", language_));
+    ui::SetAccessibleName(list_, DictionaryText("import.preview", language_));
     for (size_t index = 0; index < preview_.rows.size(); ++index) {
         const ImportRow& row = preview_.rows[index];
         std::wstring source =
@@ -79,15 +79,15 @@ void ImportPreviewWindow::Build() {
                    reason},
                   static_cast<LPARAM>(index));
     }
-    details_ = CreateChildControl(window, WC_EDITW, L"",
+    details_ = ui::CreateChildControl(window, WC_EDITW, L"",
                                   WS_TABSTOP | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL, kDetailsId,
                                   WS_EX_CLIENTEDGE);
-    SetAccessibleName(details_, DictionaryText("import.selected_detail", language_));
-    cancel_ = CreateChildControl(window, WC_BUTTONW, DictionaryText("cancel", language_), WS_TABSTOP | BS_PUSHBUTTON, IDCANCEL);
-    apply_ = CreateChildControl(window, WC_BUTTONW, DictionaryText("import.apply", language_), WS_TABSTOP | BS_PUSHBUTTON,
+    ui::SetAccessibleName(details_, DictionaryText("import.selected_detail", language_));
+    cancel_ = ui::CreateChildControl(window, WC_BUTTONW, DictionaryText("cancel", language_), WS_TABSTOP | BS_PUSHBUTTON, IDCANCEL);
+    apply_ = ui::CreateChildControl(window, WC_BUTTONW, DictionaryText("import.apply", language_), WS_TABSTOP | BS_PUSHBUTTON,
                                 kApplyId);
     EnableWindow(apply_, preview_.additions > 0);
-    ApplyFont(window, metrics().font());
+    ui::ApplyFont(window, metrics().font());
     if (!preview_.rows.empty()) SelectRowWithData(list_, 0);
     Layout();
 }
@@ -118,13 +118,13 @@ void ImportPreviewWindow::ShowDetails() {
         details += L"\r\n" + DictionaryText("import.part_of_speech", language_) + L"：" + row.partOfSpeech;
     }
     std::wstring reason = Reason(row);
-    if (!reason.empty()) details += L"\r\n" + DictionaryText("import.reason", language_) + L"：" + ToEditLineBreaks(reason);
+    if (!reason.empty()) details += L"\r\n" + DictionaryText("import.reason", language_) + L"：" + ui::ToEditLineBreaks(reason);
     SetWindowTextW(details_, details.c_str());
 }
 
 void ImportPreviewWindow::Layout() {
     if (!apply_) return;
-    const UiMetrics& metrics = this->metrics();
+    const ui::UiMetrics& metrics = this->metrics();
     RECT client{};
     GetClientRect(window(), &client);
     const int margin = metrics.Scale(kMargin);
@@ -132,19 +132,19 @@ void ImportPreviewWindow::Layout() {
     const int width = std::max(1, static_cast<int>(client.right) - 2 * margin);
     int y = margin;
     for (HWND text : {counts_, notices_, help_}) {
-        int height = metrics.WrappedTextHeight(WindowText(text), width, metrics.font());
-        MoveControl(text, margin, y, width, height);
+        int height = metrics.WrappedTextHeight(ui::WindowText(text), width, metrics.font());
+        ui::MoveControl(text, margin, y, width, height);
         if (height > 0) y += height + gap;
     }
-    SIZE applySize = metrics.ButtonSize(WindowText(apply_));
-    SIZE cancelSize = metrics.ButtonSize(WindowText(cancel_));
+    SIZE applySize = metrics.ButtonSize(ui::WindowText(apply_));
+    SIZE cancelSize = metrics.ButtonSize(ui::WindowText(cancel_));
     int buttonTop = client.bottom - margin - applySize.cy;
-    MoveControl(apply_, client.right - margin - applySize.cx, buttonTop, applySize.cx, applySize.cy);
-    MoveControl(cancel_, client.right - margin - applySize.cx - gap - cancelSize.cx, buttonTop, cancelSize.cx, cancelSize.cy);
+    ui::MoveControl(apply_, client.right - margin - applySize.cx, buttonTop, applySize.cx, applySize.cy);
+    ui::MoveControl(cancel_, client.right - margin - applySize.cx - gap - cancelSize.cx, buttonTop, cancelSize.cx, cancelSize.cy);
     int detailsHeight = metrics.Scale(kDetailsHeight);
     int detailsTop = buttonTop - gap - detailsHeight;
-    MoveControl(details_, margin, detailsTop, width, detailsHeight);
-    MoveControl(list_, margin, y, width, std::max(metrics.FieldHeight(), detailsTop - gap - y));
+    ui::MoveControl(details_, margin, detailsTop, width, detailsHeight);
+    ui::MoveControl(list_, margin, y, width, std::max(metrics.FieldHeight(), detailsTop - gap - y));
     ResizeColumns(list_, kColumnWeights);
 }
 

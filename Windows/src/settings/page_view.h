@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-#include "ui_metrics.h"
+#include "../ui/ui_metrics.h"
 
 namespace azookey::settings {
 
@@ -44,7 +44,7 @@ public:
     HWND AddControl(const wchar_t* className, const std::wstring& text, DWORD style, int id, DWORD extendedStyle = 0);
     void AddRow(PageRow row) { rows_.push_back(std::move(row)); }
 
-    void Layout(const UiMetrics& metrics);
+    void Layout(const ui::UiMetrics& metrics);
     // Lays out again with the last metrics, after a control's text changed its height.
     void Relayout();
     // Scrolls so `control`, a child of this panel, is fully visible.
@@ -56,14 +56,14 @@ private:
     static LRESULT CALLBACK Procedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT Handle(UINT message, WPARAM wParam, LPARAM lParam);
     // Places every row with the current scroll offset; returns the content height.
-    int Place(const UiMetrics& metrics);
+    int Place(const ui::UiMetrics& metrics);
     void ScrollTo(int offset);
     void UpdateScrollBar(int clientHeight);
 
     HWND window_ = nullptr;
     HWND commandTarget_ = nullptr;
     std::vector<PageRow> rows_;
-    const UiMetrics* metrics_ = nullptr;
+    const ui::UiMetrics* metrics_ = nullptr;
     int contentHeight_ = 0;
     int scrollOffset_ = 0;
 };

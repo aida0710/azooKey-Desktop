@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace azookey::settings {
+namespace azookey::ui {
 
 int CommandMap::Register(Handler handler) {
     int id = nextId_++;
@@ -19,4 +19,4 @@ bool CommandMap::Dispatch(int id, unsigned notification) const {
     return true;
 }
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

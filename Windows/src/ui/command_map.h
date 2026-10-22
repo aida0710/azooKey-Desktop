@@ -5,7 +5,7 @@
 #include <functional>
 #include <unordered_map>
 
-namespace azookey::settings {
+namespace azookey::ui {
 
 class CommandMap {
 public:
@@ -27,4 +27,4 @@ private:
     std::unordered_map<int, Handler> handlers_;
 };
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

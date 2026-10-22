@@ -23,12 +23,12 @@
 #include <sstream>
 #include <string>
 
-#include "../src/settings/child_controls.h"
+#include "../src/ui/child_controls.h"
 #include "../src/settings/dictionary_protocol.h"
 #include "../src/settings/import_preview_window.h"
 #include "../src/settings/settings_dialogs.h"
 #include "../src/settings/settings_window.h"
-#include "../src/settings/top_level_window.h"
+#include "../src/ui/top_level_window.h"
 #include "../src/settings/window_classes.h"
 #include "../src/shared/api_key_credential.h"
 #include "../src/shared/host_channel.h"
@@ -40,6 +40,7 @@
 namespace {
 
 using namespace azookey::settings;
+namespace ui = azookey::ui;
 using azookey::json::Value;
 using azookey::messages::Language;
 
@@ -113,7 +114,7 @@ bool PumpUntil(const std::function<bool()>& done, DWORD limitMilliseconds) {
         if (GetTickCount64() > deadline) return false;
         MSG message;
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
-            if (TranslateDialogKeys(&message)) continue;
+            if (ui::TranslateDialogKeys(&message)) continue;
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
@@ -222,7 +223,7 @@ std::unique_ptr<SettingsWindow> OpenSettings(const Environment& environment, Scr
                                              const std::string& page = "") {
     SettingsWindow::Options options;
     options.language = kLanguage;
-    options.connection = BridgeWorker::ConnectionOptions(environment.pipe, L"");
+    options.connection = ui::BridgeWorker::ConnectionOptions(environment.pipe, L"");
     options.dialogs = &dialogs;
     options.apiKeyCredential = environment.credential;
     options.dataDirectory = environment.dataDirectory;
@@ -240,7 +241,7 @@ bool WaitIdle(SettingsWindow& window) {
     return PumpUntil([&] { return !window.busy(); }, kStepLimitMilliseconds);
 }
 
-std::wstring StatusOf(SettingsWindow& window) { return WindowText(window.statusText()); }
+std::wstring StatusOf(SettingsWindow& window) { return ui::WindowText(window.statusText()); }
 
 void TestPagesFollowTheDefinition(SettingsWindow& window) {
     SettingsForm& form = *window.form();
@@ -267,7 +268,7 @@ void TestSettingsWindowsCannotUseAreDisabled(SettingsWindow& window) {
     const std::wstring reason = Message("settings.unavailable.marisa_windows");
     Check(!IsWindowEnabled(form.ControlFor("typoCorrection")), "typo correction is disabled on Windows");
     Check(!IsWindowEnabled(form.ControlFor("personalization")), "the personalization model is disabled on Windows");
-    Check(form.UnavailableReasonFor("typoCorrection") && WindowText(form.UnavailableReasonFor("typoCorrection")) == reason,
+    Check(form.UnavailableReasonFor("typoCorrection") && ui::WindowText(form.UnavailableReasonFor("typoCorrection")) == reason,
           "the reason is shown beside the disabled setting");
     Check(form.ActionButton("downloadTypoWeights") && !IsWindowEnabled(form.ActionButton("downloadTypoWeights")),
           "downloading typo weights is disabled");
@@ -284,10 +285,10 @@ void TestSavingWritesTheFileAndKeepsTheKeyOut(SettingsWindow& window, const Envi
     SetText(form.ControlFor("inferenceLimit"), L"7");
     // A layout (after any status change or resize) must keep what the user typed.
     SendMessageW(window.window(), WM_SIZE, SIZE_RESTORED, 0);
-    Check(WindowText(form.ControlFor("inferenceLimit")) == L"7", "a typed number survives a layout");
+    Check(ui::WindowText(form.ControlFor("inferenceLimit")) == L"7", "a typed number survives a layout");
     SetText(form.ControlFor("profile"), L"技術文書を書くことが多い");
     PressShortcut(form.ControlFor("transformShortcut"), 'E');
-    Check(WindowText(form.ControlFor("transformShortcut")) == L"Ctrl+Alt+E", "the shortcut field shows the pressed keys");
+    Check(ui::WindowText(form.ControlFor("transformShortcut")) == L"Ctrl+Alt+E", "the shortcut field shows the pressed keys");
     const std::wstring apiKey = L"sk-settings-test-" + std::to_wstring(GetCurrentProcessId());
     SetText(form.SecretEdit(), apiKey);
     Click(window.saveButton());
@@ -305,7 +306,7 @@ void TestSavingWritesTheFileAndKeepsTheKeyOut(SettingsWindow& window, const Envi
     Check(ReadBytes(environment.settingsFile).find(Utf8(apiKey)) == std::string::npos, "the API key is not in settings.json");
     auto stored = azookey::credentials::ReadApiKey(environment.credential);
     Check(stored && *stored == apiKey, "the API key is in Credential Manager");
-    Check(WindowText(form.SecretEdit()).empty(), "the API key field is cleared after saving");
+    Check(ui::WindowText(form.SecretEdit()).empty(), "the API key field is cleared after saving");
 }
 
 void TestCoreRefusalsAreShownWithTheLabel(SettingsWindow& window, const Environment& environment) {
@@ -350,9 +351,9 @@ void TestSupportReportIsCopied(SettingsWindow& window) {
         Check(false, "the support page has its panel");
         return;
     }
-    std::wstring report = WindowText(support->reportEdit());
+    std::wstring report = ui::WindowText(support->reportEdit());
     CheckShowing(report.find(L"azooKey Tree") != std::wstring::npos && report.find(L"TSF") != std::wstring::npos,
-                 "the support page shows Core's Windows report", Utf8(report + L" / " + WindowText(support->notice())));
+                 "the support page shows Core's Windows report", Utf8(report + L" / " + ui::WindowText(support->notice())));
     Click(support->copyButton());
     WaitIdle(window);
     std::wstring copied;
@@ -363,7 +364,7 @@ void TestSupportReportIsCopied(SettingsWindow& window) {
         }
         CloseClipboard();
     }
-    Check(copied.find(L"Windows ") != std::wstring::npos && WindowText(support->notice()) == Message("support.copied"),
+    Check(copied.find(L"Windows ") != std::wstring::npos && ui::WindowText(support->notice()) == Message("support.copied"),
           "the report is copied to the clipboard");
 }
 
@@ -399,7 +400,7 @@ void TestDictionaryAddEditDeleteAndValidation(SettingsWindow& window, const Envi
                      items[0]["reading"].AsString() == "とうきょうたわー" && items[0]["hint"].AsString() == "観光地",
                  "the added entry is in settings.json", ReadBytes(environment.settingsFile));
     Check(StatusOf(window) == Message("settings.dictionary_saved"), "the settings window reports the saved dictionary");
-    Check(WindowText(window.form()->DictionaryButton()).find(L"1") != std::wstring::npos, "the dictionary button counts the entry");
+    Check(ui::WindowText(window.form()->DictionaryButton()).find(L"1") != std::wstring::npos, "the dictionary button counts the entry");
 
     dictionary = OpenDictionary(window);
     if (!dictionary) return;
@@ -417,7 +418,7 @@ void TestDictionaryAddEditDeleteAndValidation(SettingsWindow& window, const Envi
     PumpUntil([&] { return !window.busy(); }, kStepLimitMilliseconds);
     Check(window.dictionaryWindow() != nullptr && !dictionary->draft().issues().empty(),
           "Core's validation keeps the editor open with the issue");
-    Check(!WindowText(dictionary->issueText()).empty(), "the issue of the selected entry is explained");
+    Check(!ui::WindowText(dictionary->issueText()).empty(), "the issue of the selected entry is explained");
     Check(DictionaryItems(environment).size() == 1, "an invalid draft is not saved");
     Capture(environment, dictionary->window(), L"dictionary-validation");
     Click(dictionary->removeButton());
@@ -492,7 +493,7 @@ void TestADamagedFileIsRecovered(const Environment& environment, ScriptedDialogs
     WriteBytes(environment.settingsFile, damaged);
     auto window = OpenSettings(environment, dialogs);
     if (!window->form()) return;
-    Check(HasStyle(window->recoveryNotice(), WS_VISIBLE) && !WindowText(window->recoveryNotice()).empty(),
+    Check(HasStyle(window->recoveryNotice(), WS_VISIBLE) && !ui::WindowText(window->recoveryNotice()).empty(),
           "a damaged file shows the recovery notice");
     Capture(environment, window->window(), L"settings-recovery");
     Click(window->saveButton());
@@ -519,7 +520,7 @@ void CaptureEveryPage(SettingsWindow& window, const Environment& environment) {
     // Tab moves from the page list into the page.
     SetFocus(window.pageList());
     MSG tab{GetFocus(), WM_KEYDOWN, VK_TAB, 0};
-    TranslateDialogKeys(&tab);
+    ui::TranslateDialogKeys(&tab);
     Check(GetFocus() != window.pageList() && IsChild(window.window(), GetFocus()), "Tab moves focus from the page list into the page");
 }
 
@@ -550,7 +551,7 @@ std::optional<Value> Ask(azookey::channel::HostConnection& connection, const std
 // settings file. The converter keeps its preferences outside the settings
 // folder, so a run must not depend on what an earlier run left there.
 void ResetToNewInstallation(const Environment& environment) {
-    azookey::channel::HostConnection connection(BridgeWorker::ConnectionOptions(environment.pipe, L""));
+    azookey::channel::HostConnection connection(ui::BridgeWorker::ConnectionOptions(environment.pipe, L""));
     std::map<std::string, Value> defaults;
     if (auto schema = Ask(connection, SchemaRequest())) {
         for (const auto& item : (*schema)["settingsResult"]["schema"]["items"].AsArray()) {

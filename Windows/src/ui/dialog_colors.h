@@ -4,7 +4,7 @@
 
 #include <windows.h>
 
-namespace azookey::settings {
+namespace azookey::ui {
 
 inline constexpr int kDialogBackgroundColor = COLOR_BTNFACE;
 
@@ -16,4 +16,4 @@ inline LRESULT DialogControlColors(WPARAM deviceContext) {
     return reinterpret_cast<LRESULT>(GetSysColorBrush(kDialogBackgroundColor));
 }
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

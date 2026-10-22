@@ -7,7 +7,7 @@
 
 #include <string>
 
-namespace azookey::settings {
+namespace azookey::ui {
 
 class UiMetrics {
 public:
@@ -42,4 +42,4 @@ private:
 // Gives `window` and every child window `font`.
 void ApplyFont(HWND window, HFONT font);
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui
