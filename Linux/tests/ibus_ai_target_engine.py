@@ -28,17 +28,18 @@ class AITargetFixtureEngine(engine_module.Engine):
         self.target_reads_without_surrounding = 0
         self.transformation.inspect = self.inspect_target
 
-    def load_settings(self, snapshot):
+    def apply_settings(self, values):
         # Core prepares no request while AI is disabled. The provider below
         # stays offline, so enabling AI sends nothing outside this fixture.
-        if "settings" not in snapshot:
+        if values.get("aiEnabled"):
+            super().apply_settings(values)
             return
-        settings = {**snapshot["settings"], "aiEnabled": True}
+        settings = {**values, "aiEnabled": True}
+        apply = super().apply_settings
 
         def configured(reply):
             assert not reply.get("error"), reply
-            self.settings = settings
-            self.input.settings = settings
+            apply(settings)
             self.refresh_shortcuts()
 
         self.input.submit("configure", payload={"settings": settings}, completion=configured)
