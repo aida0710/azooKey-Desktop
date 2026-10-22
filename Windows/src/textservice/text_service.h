@@ -171,6 +171,7 @@ private:
     CandidateListElement* candidateElement_ = nullptr;  // COM object; the application may hold it too
     InputModeButton* inputModeButton_ = nullptr;        // COM object owned with the language bar
     std::string lastPlacementSide_;  // Core keeps the popup on this side while it still fits
+    bool listShowsTree_ = false;     // Core asked to open the tree in this candidate list
     std::optional<protocol::PresentationSettings> presentationSettings_;  // read again after a focus change
     // Core's ime-shortcuts, read again after a focus change because settings and
     // pinned instructions change in other windows.

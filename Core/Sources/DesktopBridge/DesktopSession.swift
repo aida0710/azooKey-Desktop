@@ -87,6 +87,11 @@ final class DesktopSession: SegmentManagerDelegate {
     private var language: InputLanguage = .japanese
     private var tree = CandidateTree(entries: [])
     private var treeSelection = CandidateTreeSelection(tree: CandidateTree(entries: []), candidateIndex: nil)
+    /// Whether the candidate list shows the tree in this selection. Until it
+    /// does, ↑/↓ step through the list rows on screen, as macOS's candidate
+    /// window does; once a response has asked for the tree, they move between
+    /// a word's siblings.
+    private var listShowsTree = false
     private(set) var generation = 0
     private var pageStart = 0
     private var suggestions: [Candidate] = []
@@ -331,6 +336,8 @@ final class DesktopSession: SegmentManagerDelegate {
               let index = treeSelection.select(nodeID: nodeID, in: tree) else {
             return snapshot()
         }
+        // While choosing, a node can be clicked only when the window shows the tree.
+        if state == .selecting { listShowsTree = true }
         return select(candidateIndex: index, submit: submit, expectedGeneration: expectedGeneration)
     }
 
@@ -397,6 +404,14 @@ final class DesktopSession: SegmentManagerDelegate {
         let action = UserAction.getUserAction(eventCore: event, inputLanguage: language)
         if state == .selecting, event.modifierFlags.isEmpty, Config.TreeCandidates().value,
            case .navigation(let direction) = action {
+            if !listShowsTree, direction == .up || direction == .down {
+                if direction == .up {
+                    segments.requestSelectingPrevCandidate()
+                } else {
+                    segments.requestSelectingNextCandidate()
+                }
+                return snapshot()
+            }
             let move: CandidateTreeSelection.Direction
             switch direction {
             case .left: move = .left
@@ -603,6 +618,13 @@ final class DesktopSession: SegmentManagerDelegate {
         result.showCandidateIndex = state == .selecting
         result.candidateDisplay = CandidateDisplay(result.candidateDisplayInput(previous: displayedSelection))
         displayedSelection = .init(selection: result.selection, focusedNode: result.focusedNode)
+        // The windows keep the tree open from the response that asks for it
+        // until the selection ends.
+        if state != .selecting {
+            listShowsTree = false
+        } else if result.candidateDisplay?.expandTree == true {
+            listShowsTree = true
+        }
         return result
     }
 }
