@@ -1,5 +1,6 @@
 import AppKit
 @testable import azooKeyMac
+import Core
 import XCTest
 
 @MainActor
@@ -53,9 +54,12 @@ final class CandidateThemeTests: XCTestCase {
                 let second = try luminance(background)
                 XCTAssertGreaterThanOrEqual((max(first, second) + 0.05) / (min(first, second) + 0.05), 4.5, mode)
             }
-            XCTAssertEqual(CandidateTheme.scoreColor(nil, palette: palette), palette.scoreUnknown)
-            XCTAssertEqual(CandidateTheme.scoreColor(74, palette: palette), palette.scoreLow)
-            XCTAssertEqual(CandidateTheme.scoreColor(75, palette: palette), palette.scoreHigh)
+            XCTAssertEqual(CandidateTheme.scoreColor(CandidateScorePresentation(relativeScore: nil).role, palette: palette),
+                           palette.scoreUnknown)
+            XCTAssertEqual(CandidateTheme.scoreColor(CandidateScorePresentation(relativeScore: 74).role, palette: palette),
+                           palette.scoreLow)
+            XCTAssertEqual(CandidateTheme.scoreColor(CandidateScorePresentation(relativeScore: 75).role, palette: palette),
+                           palette.scoreHigh)
         }
     }
 
