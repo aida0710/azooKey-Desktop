@@ -32,7 +32,7 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/textservice/dll_main.cpp)
         src/textservice/azookey-tsf.def
         src/textservice/azookey-tsf.rc
     )
-    target_link_libraries(azookey-tsf PRIVATE azookey_shared ole32 oleaut32 uuid user32 gdi32 shlwapi shcore imm32)
+    target_link_libraries(azookey-tsf PRIVATE azookey_shared ole32 oleaut32 uuid user32 gdi32 shlwapi shcore imm32 d2d1 dwrite dwmapi)
 endif()
 
 add_executable(azookey-windows-tests tests/shared_tests.cpp)

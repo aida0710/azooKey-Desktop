@@ -48,8 +48,8 @@ bool IsPrivateScope(InputScope scope) {
 
 }  // namespace
 
-std::optional<RECT> CompositionWriter::Apply(TfEditCookie cookie, ITfContext* context, const protocol::Snapshot& snapshot,
-                                             ITfComposition** composition) {
+std::optional<CompositionGeometry> CompositionWriter::Apply(TfEditCookie cookie, ITfContext* context,
+                                                            const protocol::Snapshot& snapshot, ITfComposition** composition) {
     std::wstring committed;
     for (const auto& text : snapshot.commits) committed += text;
     if (!committed.empty()) {
@@ -77,7 +77,36 @@ std::optional<RECT> CompositionWriter::Apply(TfEditCookie cookie, ITfContext* co
     ApplyClauseAttributes(cookie, context, range.pointer, snapshot);
     LONG caret = static_cast<LONG>(text::ScalarOffsetToUtf16(snapshot.preedit, snapshot.cursorScalars));
     PlaceCaret(cookie, context, range.pointer, caret);
-    return ScreenRectangle(cookie, context, range.pointer);
+    auto rectangle = ScreenRectangle(cookie, context, range.pointer);
+    if (!rectangle) return std::nullopt;
+    return CompositionGeometry{*rectangle, WordRectangles(cookie, context, range.pointer, snapshot)};
+}
+
+std::vector<RECT> CompositionWriter::WordRectangles(TfEditCookie cookie, ITfContext* context, ITfRange* range,
+                                                    const protocol::Snapshot& snapshot) {
+    std::vector<std::wstring> words;
+    std::wstring joined;
+    for (const auto& column : snapshot.columns) {
+        const protocol::TreeNode* node = column.empty() ? nullptr : snapshot.FindNode(column.front());
+        if (!node) return {};
+        words.push_back(node->text);
+        joined += node->text;
+    }
+    // Live conversion shows the chosen words as the preedit; any other preedit
+    // (romaji in progress, a converted clause) has no word-for-word match.
+    if (words.empty() || joined != snapshot.preedit) return {};
+    std::vector<RECT> rectangles;
+    LONG start = 0;
+    for (const auto& word : words) {
+        LONG end = start + static_cast<LONG>(word.size());
+        Releaser<ITfRange> wordRange;
+        wordRange.pointer = SubRange(cookie, range, start, end);
+        auto rectangle = wordRange ? ScreenRectangle(cookie, context, wordRange.pointer) : std::nullopt;
+        if (!rectangle) return {};
+        rectangles.push_back(*rectangle);
+        start = end;
+    }
+    return rectangles;
 }
 
 void CompositionWriter::Finish(TfEditCookie cookie, ITfContext* context, const std::wstring& text, ITfComposition** composition) {

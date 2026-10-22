@@ -101,7 +101,17 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadManager, TfClientId cli
     conversionSinkCookie_ = AdviseCompartment(GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION);
 
     converter_ = std::make_unique<ConverterClient>();
-    candidateWindow_ = std::make_unique<CandidateWindow>([this](int candidateIndex) { ChooseCandidate(candidateIndex); });
+    CandidatePanel::Actions actions;
+    actions.selectCandidate = [this](int candidateIndex) {
+        if (converter_) ApplyPointerChoice(converter_->Select(candidateIndex, snapshot_.generation, false));
+    };
+    actions.confirmCandidate = [this](int candidateIndex) {
+        if (converter_) ApplyPointerChoice(converter_->Select(candidateIndex, snapshot_.generation, true));
+    };
+    actions.selectNode = [this](int nodeId) {
+        if (converter_) ApplyPointerChoice(converter_->SelectNode(nodeId, snapshot_.generation, false));
+    };
+    candidatePanel_ = std::make_unique<CandidatePanel>(std::move(actions));
     // Choosing azooKey Tree means the user wants Japanese input now.
     SetInputOpen(true);
     return S_OK;
@@ -109,7 +119,7 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadManager, TfClientId cli
 
 STDMETHODIMP TextService::Deactivate() {
     if (IsComposing()) FinishComposition(true, kAnytimeWrite);
-    candidateWindow_.reset();
+    candidatePanel_.reset();
     converter_.reset();
     UnadviseCompartment(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, openCloseSinkCookie_);
     UnadviseCompartment(GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION, conversionSinkCookie_);
@@ -276,11 +286,14 @@ void TextService::ApplySnapshot(ITfContext* context, const protocol::Snapshot& s
     Retained keepContext(context);
     RunEditSession(context, clientId_, sessionFlags, [this, context, snapshot, keepService, keepContext](TfEditCookie cookie) {
         CompositionWriter writer(this, clauseAtoms_);
-        auto anchor = writer.Apply(cookie, context, snapshot, &composition_);
-        if (!candidateWindow_) return;
+        auto geometry = writer.Apply(cookie, context, snapshot, &composition_);
+        if (!candidatePanel_) return;
         // Typing shows only the composition; the list opens once the user converts.
-        if (anchor && snapshot.showCandidateIndex && !snapshot.candidates.empty()) candidateWindow_->Show(snapshot, *anchor);
-        else candidateWindow_->Hide();
+        if (geometry && snapshot.showCandidateIndex && !snapshot.candidatePage.items.empty()) {
+            candidatePanel_->ShowList(snapshot, geometry->composition);
+        } else {
+            candidatePanel_->Hide();
+        }
     });
 }
 
@@ -299,7 +312,7 @@ void TextService::FinishComposition(bool confirm, DWORD sessionFlags) {
         if (confirm && reset) text = JoinCommits(*reset);
     }
     snapshot_ = {};
-    if (candidateWindow_) candidateWindow_->Hide();
+    if (candidatePanel_) candidatePanel_->Hide();
     if (!composition_) return;
     // The session may run after a new composition has started elsewhere, so it
     // finishes exactly this composition object.
@@ -332,17 +345,20 @@ void TextService::ShowPage(ITfContext* context, int delta) {
     if (snapshot) ApplySnapshot(context, *snapshot, kSyncWrite);
 }
 
-void TextService::ChooseCandidate(int candidateIndex) {
-    if (!composition_ || !converter_) return;
+ITfContext* TextService::CompositionContext() const {
+    if (!composition_) return nullptr;
     ITfRange* range = nullptr;
     ITfContext* context = nullptr;
     if (SUCCEEDED(composition_->GetRange(&range))) {
         range->GetContext(&context);
         range->Release();
     }
+    return context;
+}
+
+void TextService::ApplyPointerChoice(std::optional<protocol::Snapshot> snapshot) {
+    ITfContext* context = CompositionContext();
     if (!context) return;
-    auto snapshot = converter_->Select(candidateIndex, snapshot_.generation, true);
-    // A click is not a key event, so the document may only accept the edit later.
     if (snapshot) ApplySnapshot(context, *snapshot, kAnytimeWrite);
     else FinishComposition(false, kAnytimeWrite);
     context->Release();
@@ -372,7 +388,7 @@ STDMETHODIMP TextService::OnCompositionTerminated(TfEditCookie, ITfComposition* 
     }
     if (converter_) converter_->Reset(false);
     snapshot_ = {};
-    if (candidateWindow_) candidateWindow_->Hide();
+    if (candidatePanel_) candidatePanel_->Hide();
     return S_OK;
 }
 

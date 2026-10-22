@@ -8,7 +8,7 @@
 #include <memory>
 #include <optional>
 
-#include "candidate_window.h"
+#include "candidate_panel.h"
 #include "composition_writer.h"
 #include "converter_client.h"
 #include "shared/bridge_protocol.h"
@@ -80,7 +80,10 @@ private:
     // Ends the current composition, leaving `confirm ? converter's commit : visible preedit`.
     void FinishComposition(bool confirm, DWORD sessionFlags);
     void ShowPage(ITfContext* context, int delta);
-    void ChooseCandidate(int candidateIndex);
+    // Pointer actions from the candidate panel; they are not key events, so
+    // their edits may reach the document later.
+    void ApplyPointerChoice(std::optional<protocol::Snapshot> snapshot);
+    ITfContext* CompositionContext() const;  // AddRef'd, or nullptr
 
     bool IsInputOpen();
     void SetInputOpen(bool open);
@@ -100,7 +103,7 @@ private:
     ITfComposition* composition_ = nullptr;
     ClauseAttributeAtoms clauseAtoms_;
     std::unique_ptr<ConverterClient> converter_;
-    std::unique_ptr<CandidateWindow> candidateWindow_;
+    std::unique_ptr<CandidatePanel> candidatePanel_;
     protocol::Snapshot snapshot_;  // last state written to the document
 
     // Password fields are detected once per focused context.

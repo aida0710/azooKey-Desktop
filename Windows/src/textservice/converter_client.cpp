@@ -49,6 +49,10 @@ std::optional<protocol::Snapshot> ConverterClient::Select(int candidateIndex, in
     return Send(protocol::SelectRequest(context_, candidateIndex, generation, submit));
 }
 
+std::optional<protocol::Snapshot> ConverterClient::SelectNode(int nodeId, int generation, bool submit) {
+    return Send(protocol::NodeRequest(context_, nodeId, generation, submit));
+}
+
 std::optional<protocol::Snapshot> ConverterClient::Reset(bool submit) {
     return Send(protocol::ResetRequest(context_, submit));
 }

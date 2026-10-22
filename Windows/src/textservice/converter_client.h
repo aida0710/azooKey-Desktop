@@ -19,6 +19,7 @@ public:
     // document as the user sees it and stops composing.
     std::optional<protocol::Snapshot> Key(const keys::CoreKeyEvent& event, const std::wstring& leftContext, bool privateInput);
     std::optional<protocol::Snapshot> Select(int candidateIndex, int generation, bool submit);
+    std::optional<protocol::Snapshot> SelectNode(int nodeId, int generation, bool submit);
     std::optional<protocol::Snapshot> Reset(bool submit);
 
 private:

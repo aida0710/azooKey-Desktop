@@ -1,7 +1,7 @@
 // Entry points that COM, regsvr32 and TSF call on the text service DLL.
 #include <windows.h>
 
-#include "candidate_window.h"
+#include "candidate_panel.h"
 #include "class_factory.h"
 #include "guids.h"
 #include "module.h"
@@ -18,7 +18,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
         azookey::tsf::SetModuleInstance(instance);
         DisableThreadLibraryCalls(instance);
     } else if (reason == DLL_PROCESS_DETACH) {
-        azookey::tsf::CandidateWindow::UnregisterWindowClass();
+        azookey::tsf::CandidatePanel::UnregisterWindowClass();
     }
     return TRUE;
 }

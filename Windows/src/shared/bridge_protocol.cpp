@@ -20,6 +20,11 @@ std::string CommonFields(const RequestContext& context) {
            ",\"privateInput\":" + (context.privateInput ? "true" : "false");
 }
 
+std::optional<int> OptionalInteger(const json::Value& value) {
+    if (value.kind() != json::Value::Kind::Number) return std::nullopt;
+    return static_cast<int>(value.AsInteger(0));
+}
+
 std::string AsciiLowercase(std::string text) {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
         return static_cast<char>(c < 0x80 ? std::tolower(c) : c);
@@ -40,6 +45,15 @@ std::string KeyRequest(const RequestContext& context, const keys::CoreKeyEvent& 
 std::string SelectRequest(const RequestContext& context, int candidateIndex, int generation, bool submit) {
     return "{\"operation\":\"select\"" + CommonFields(context) + ",\"index\":" + std::to_string(candidateIndex) +
            ",\"generation\":" + std::to_string(generation) + ",\"submit\":" + (submit ? "true" : "false") + "}";
+}
+
+std::string NodeRequest(const RequestContext& context, int nodeId, int generation, bool submit) {
+    return "{\"operation\":\"node\"" + CommonFields(context) + ",\"node\":" + std::to_string(nodeId) +
+           ",\"generation\":" + std::to_string(generation) + ",\"submit\":" + (submit ? "true" : "false") + "}";
+}
+
+std::string SettingsRequest(const std::string& context) {
+    return "{\"operation\":\"settings\",\"context\":" + json::Quote(context) + "}";
 }
 
 std::string ResetRequest(const RequestContext& context, bool submit) {
@@ -84,7 +98,61 @@ std::optional<Snapshot> ParseSnapshot(const std::string& line) {
     snapshot.showCandidateIndex = value["showCandidateIndex"].AsBoolean(false);
     snapshot.japanese = value["language"].AsString() != "english";
     snapshot.error = value["error"].AsString();
+    snapshot.inputState = value["inputState"].AsString();
+    for (const auto& node : value["nodes"].AsArray()) {
+        TreeNode item;
+        item.id = static_cast<int>(node["id"].AsInteger(0));
+        item.text = text::Utf8ToUtf16(node["text"].AsString());
+        item.reading = text::Utf8ToUtf16(node["reading"].AsString());
+        item.parent = OptionalInteger(node["parent"]);
+        item.previewCandidateIndex = OptionalInteger(node["preview"]["candidateIndex"]);
+        if (node["scorePresentation"].kind() == json::Value::Kind::Object) {
+            const json::Value& score = node["scorePresentation"];
+            item.score = ScorePresentation{text::Utf8ToUtf16(score["label"].AsString()),
+                                           text::Utf8ToUtf16(score["detailDescription"].AsString()),
+                                           score["role"].AsString()};
+        }
+        item.previewDescription = text::Utf8ToUtf16(node["previewDescription"].AsString());
+        snapshot.nodes.push_back(std::move(item));
+    }
+    for (const auto& column : value["columns"].AsArray()) {
+        std::vector<int> ids;
+        for (const auto& id : column.AsArray()) ids.push_back(static_cast<int>(id.AsInteger(0)));
+        snapshot.columns.push_back(std::move(ids));
+    }
+    for (const auto& id : value["selectedPath"].AsArray()) snapshot.selectedPath.push_back(static_cast<int>(id.AsInteger(0)));
+    snapshot.focusedNode = OptionalInteger(value["focusedNode"]);
+    const json::Value& page = value["candidatePage"];
+    snapshot.candidatePage.totalCount = static_cast<int>(page["totalCount"].AsInteger(0));
+    snapshot.candidatePage.position = OptionalInteger(page["position"]);
+    snapshot.candidatePage.start = static_cast<int>(page["start"].AsInteger(0));
+    for (const auto& item : page["items"].AsArray()) {
+        snapshot.candidatePage.items.push_back({static_cast<int>(item["index"].AsInteger(0)),
+                                                text::Utf8ToUtf16(item["text"].AsString()),
+                                                text::Utf8ToUtf16(item["reading"].AsString()),
+                                                text::Utf8ToUtf16(item["annotation"].AsString()),
+                                                text::Utf8ToUtf16(item["detailDescription"].AsString())});
+    }
+    snapshot.candidatePage.previousIndex = OptionalInteger(page["previousIndex"]);
+    snapshot.candidatePage.nextIndex = OptionalInteger(page["nextIndex"]);
+    snapshot.largeText = value["candidateTextSize"].AsString() == "large";
+    snapshot.showRelativeScores = value["showRelativeScores"].AsBoolean(false);
     return snapshot;
+}
+
+const TreeNode* Snapshot::FindNode(int id) const {
+    for (const auto& node : nodes) {
+        if (node.id == id) return &node;
+    }
+    return nullptr;
+}
+
+std::optional<PresentationSettings> ParsePresentationSettings(const std::string& line) {
+    auto parsed = json::Parse(line);
+    if (!parsed || (*parsed)["settings"].kind() != json::Value::Kind::Object) return std::nullopt;
+    PresentationSettings settings;
+    settings.treeCandidates = (*parsed)["settings"]["tree"].AsBoolean(true);
+    return settings;
 }
 
 }  // namespace azookey::protocol
