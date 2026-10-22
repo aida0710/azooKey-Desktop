@@ -8,15 +8,14 @@
 
 ## 保存の共通処理
 
-`settings_schema.py`が型と値を検証し、`settings_store.py`が読み込みと原子的保存を扱う。文字列のprofile上限はCoreと同じ書記素単位で数える。設定ファイルを変更していない間は解析結果を再利用する。Core側でカスタム入力表などの適用に失敗した場合も、同じ内容をキーごとに再送しない。
+設定の判断は Swift の Core（`Core/Sources/Core/Desktop/Settings/`）にある。項目の型・選択肢・既定値・検証、読み込みと原子的保存、控えと退避はすべて Core が行い、Linux の画面と IBus エンジンはブリッジの操作を呼ぶだけにした。各操作の形式は [desktop-settings.md](desktop-settings.md) にまとめてある。
 
-正常に適用できた値は、同じフォルダーの`settings.last-good.json`へ権限0600で控える。IBus側では変換処理と同じワーカーで保存し、メインループを止めない。控えの保存失敗で入力や設定本体の保存を失敗扱いにはしない。復旧の際は、控えが古くても現在の辞書やAI・学習の選択で上書きし、それらを巻き戻さない。
-
-`SettingsStore.save(values, expected_stamp=...)`は画面を開いた後のファイル変更を検出する。`update_settings(changes, defaults=...)`は最新のファイルへ変更項目だけを重ねるので、AIの周辺文送信の切り替えで別画面が更新した辞書を上書きしない。戻り値は`SettingsSave`で、保存後の値を`values`、原本の保全先を`backup_path`で返す。
-
-`save_with_backend(values, apply_staged=..., expected_stamp=..., recover=False)`は、書き手のロック内で設定の検証と競合検出を済ませてから、権限0600の一時JSONをバックエンドへ渡す。バックエンドはCoreへの適用と最終JSONの原子的な置換を担当する。Storeは保存し直さず、成功した値の控えだけを作る。明示的な復旧では`recover=True`として原本を保全し、バックエンドが失敗して新しいファイルがない場合は元のinodeと更新時刻を維持して戻す。
-
-JSONの深すぎる入れ子も破損として扱い、同じファイルを繰り返し読んでも正常値で継続する。設定の型を検証する前に再帰コピーを行わず、キャッシュとファイル識別情報は結果が揃ってから更新する。JSONの公開失敗に続いてCoreの復元も失敗した場合は、その旨を表示する。画面を開いたまま保存を再試行すると、元の値への復元を確認してから新しい設定を適用する。
+- 読み取り: `settings-load` が、Core の正常値に設定ファイルを重ねた値と、ファイルの版（stamp）、壊れていればその理由を返す。JSON は重複キー・行と列・入れ子の深さまで Core が自分で調べる。profile の上限は書記素単位で数える。同じ版は解析結果を使い回し、変換器が拒否した版は文書が変わるまで同じ問題として返す。
+- 保存: `settings-save` は書き込みのロックを待たずに取り、検証と競合の確認を済ませる。そのあと権限0600の一時ファイルを同じフォルダーに書き、変換器へ適用してから、一時ファイルで設定ファイルを置き換える。置き換えに失敗したら変換器を元の値に戻す。戻すのにも失敗したらその旨を返し、次の保存で先に元の値へ戻す。
+- 控え: 適用できた値は `settings.last-good.json` に権限0600で残す。控えを書けなくても保存は失敗にせず、画面で知らせる。
+- 一部の変更: `settings-update` は最新のファイルに変更項目だけを重ねる。AI の周辺文送信の切り替えで、別の画面が更新した辞書を上書きしない。
+- IBus: エンジンは設定ファイルの stat が変わったときだけ `settings-reload` を送る。Core は変わった版を検証し、変換器へ反映して控えを書く。同じ版は二度反映しない。
+- 辞書: `dictionary-save` は画面を開いたときの版（`expectedStamp`）を受け取る。Core が一時ファイルを作り、辞書の組み立てと設定ファイルの置き換えを一つの手続きで行う。
 
 ## 検証
 
@@ -28,8 +27,10 @@ JSONの深すぎる入れ子も破損として扱い、同じファイルを繰�
 - GTKの6件で、不正JSON、型、未知値、未知項目、実際に権限000にしたファイルでも復旧操作が表示されることを検査した。復旧取消、既定値適用、辞書とAI送信設定の保持、キーリングへの書き込みがないこと、保存失敗、他画面との競合も含む。追加の故障注入では、実Coreへ新設定を適用した後にJSON公開と復元応答を失敗させ、原本不変・警告・復元からの再試行を確認した。待機中に修復した後の古いconfigure失敗は、応答を模擬して不要な通知と例外がないことを確認した。
 - 実IBusの同じ入力欄で上記5種類の異常を順に発生させ、各状態の案内が1回、キーのアプリ側への誤転送が0回、元ファイルが不変であることを検査した。修復後にスペース設定の変更と日本語変換が再起動なしで反映された。
 
+Core へ移したあと（2026-10-22）は、保存処理の検査を Swift の試験（`Core/Tests/CoreTests/DesktopSettingsTests/`、`Core/Tests/DesktopBridgeTests/DesktopSettingsBridgeTests.swift`）へ移した。Linux 側には画面と IBus の統合試験だけを残している。
+
 ```sh
-python3 -m unittest discover -s Linux/tests -p test_settings_store.py -v
+swift test --package-path Core --filter DesktopSettings
 AZOOKEY_BRIDGE=/path/to/bridge xvfb-run -a python3 Linux/tests/test_settings_window.py -v
 AZOOKEY_BRIDGE=/path/to/bridge AZOOKEY_IBUS_TEST=Linux/tests/ibus_settings_integration.py \
   dbus-run-session -- xvfb-run -a bash Tools/tests/linux-desktop.sh

@@ -10,18 +10,6 @@ from azookey.i18n import text as message
 from azookey.support_diagnostics import component_version
 
 
-def settings_fixture():
-    defaults = dict.fromkeys(
-        ("tree", "live", "halfSpace", "backslash", "optionDirect", "aiEnabled", "includeContext",
-         "predictiveTyping", "typoCorrection", "debug"), False,
-    )
-    defaults.update(candidateTextSize="standard", showRelativeScores=True, inputStyle="default", learning="inputAndOutput",
-                    punctuation=1, personalization="off", profile="", inferenceLimit=10,
-                    userDictionary={"items": []}, customTable="", aiModel="fixture",
-                    aiEndpoint="https://example.invalid", transformShortcut=None)
-    return defaults
-
-
 class ComponentVersionTests(unittest.TestCase):
     def test_ibus_component_uses_only_a_recognized_packaged_version(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -40,32 +28,31 @@ class SupportPageTests(unittest.TestCase):
         from azookey.support_page import renderer_registered
         self.assertIsNone(renderer_registered())
 
+    @unittest.skipUnless(os.environ.get("AZOOKEY_BRIDGE"), "the window reads its pages from the Swift bridge")
     def test_learning_reset_uses_the_bridge_when_the_session_has_no_engine(self):
         from azookey.settings import SettingsWindow
         from gi.repository import Gtk
-        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": directory}), \
-                mock.patch("azookey.settings.Bridge") as factory, \
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": directory, "AZOOKEY_DATA_DIR": directory}), \
                 mock.patch.object(Gtk, "main_quit"):
-            factory.return_value.request.return_value = {"settings": settings_fixture(), "supportDiagnostics": "azooKey Tree"}
             window = SettingsWindow()
             try:
-                factory.return_value.request.reset_mock()
-                factory.return_value.request.return_value = {}
-                with mock.patch.object(Gtk.MessageDialog, "run", return_value=Gtk.ResponseType.OK):
+                with mock.patch.object(window.bridge, "request", return_value={}) as request, \
+                        mock.patch.object(Gtk.MessageDialog, "run", return_value=Gtk.ResponseType.OK):
                     window.reset_learning(None)
-                window.bridge.request.assert_called_once_with("reset-learning")
+                request.assert_called_once_with("reset-learning")
                 self.assertEqual(window.message.get_text(), message("learning.reset.completed"))
             finally:
                 window.destroy()
 
+    @unittest.skipUnless(os.environ.get("AZOOKEY_BRIDGE"), "the window reads its pages from the Swift bridge")
     def test_first_settings_visit_opens_the_guide_and_saved_settings_keep_the_input_page(self):
         from azookey.settings import SettingsWindow
         from gi.repository import Gtk
-        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": directory}), \
-                mock.patch("azookey.settings.Bridge") as bridge, \
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": directory, "AZOOKEY_DATA_DIR": directory}), \
                 mock.patch("azookey.support_page.renderer_registered", return_value=None), \
                 mock.patch.object(Gtk, "main_quit"):
-            bridge.return_value.request.return_value = {"settings": settings_fixture(), "supportDiagnostics": "azooKey Tree"}
             for existing_settings in (False, True):
                 with self.subTest(existing_settings=existing_settings):
                     if existing_settings:

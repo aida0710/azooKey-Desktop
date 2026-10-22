@@ -24,12 +24,6 @@ final class DesktopDictionaryBridgeFixture {
         try? FileManager.default.removeItem(at: rootURL)
     }
 
-    func stage(settings: [String: Any]) throws -> URL {
-        let stage = settingsURL.deletingLastPathComponent().appendingPathComponent(".settings-\(UUID().uuidString).json")
-        try JSONSerialization.data(withJSONObject: settings, options: [.sortedKeys]).write(to: stage)
-        return stage
-    }
-
     func requestsForCandidates() throws -> [[String: Any]] {
         try Array("tesuto ").map { character in
             let event = KeyEventCore(

@@ -1,3 +1,4 @@
+from contextlib import closing
 import pathlib
 import subprocess
 import threading
@@ -19,7 +20,8 @@ from .tree_panel import TreePanel
 from .candidate_announcements import CandidateAnnouncements
 from .preedit_anchor import PreeditAnchor
 from .settings import read_key
-from .settings_store import SettingsStore
+from . import settings_client
+from .settings_reload import SettingsReload
 from .i18n import text
 from .shell_surface import surface
 from .prompts import PromptHistory, matches
@@ -28,7 +30,6 @@ from .selected_text_transform import SelectedTextTransformation
 from .ai_scope import AIRequestConfiguration, AIRequestScope, MODIFIER_KEYS
 from .ai_review import AISuggestionReview
 from .i18n import text as message
-from .settings_store import update_settings
 from .reconversion import ReconversionCoordinator, reconversion_message, surrounding_context
 
 
@@ -57,9 +58,6 @@ class Engine(IBus.Engine):
         self.last_language_key = (None, 0)
         self.destroyed = False
         self.settings = {}
-        self.settings_stamp = None
-        self.pending_settings_stamp = None
-        self.settings_store = SettingsStore()
         self.settings_problem_stamp = None
         self.selected_text = ""
         self.left = ""
@@ -84,7 +82,10 @@ class Engine(IBus.Engine):
             replay=self.replay_key_event, forward=self.forward_key_event,
             schedule_timeout=GLib.timeout_add, remove_timeout=GLib.source_remove,
         )
-        self.input.submit("settings", completion=self.load_settings)
+        self.settings_reload = SettingsReload(
+            self.input, applied=self.apply_settings, problem=self.show_settings_problem,
+        )
+        self.reload_settings()
 
     def ai_review_state(self):
         return {
@@ -102,56 +103,28 @@ class Engine(IBus.Engine):
     def save_ai_context(self, value):
         try:
             # Other screens may have changed conversion or dictionary settings.
-            # Leave those for reload_settings and its Core acknowledgement.
-            update_settings({"includeContext": value}, defaults=self.settings)
+            # Core changes only this choice; the next reload applies the file.
+            with closing(Bridge()) as bridge:
+                settings_client.update(bridge, {"includeContext": value})
             self.settings = {**self.settings, "includeContext": value}
             self.input.settings = self.settings
             return True
-        except (OSError, ValueError):
+        except (OSError, RuntimeError, ValueError):
             return False
 
-    def load_settings(self, snapshot):
-        if "settings" in snapshot:
-            self.settings = snapshot["settings"]
-            self.input.settings = self.settings
-            self.reload_settings()
-
     def reload_settings(self):
-        if not self.settings:
-            if not any(pending.operation == "settings" for pending in self.input.pending):
-                self.input.submit("settings", completion=self.load_settings)
-            return
-        loaded = self.settings_store.load(self.settings)
-        if loaded.problem:
-            self.notify_settings_problem(loaded.problem)
-            return
-        self.settings_problem_stamp = None
-        if loaded.stamp is None or loaded.stamp in (self.settings_stamp, self.pending_settings_stamp):
-            return
-        self.pending_settings_stamp = loaded.stamp
+        self.settings_reload.request()
 
-        def configured(snapshot):
-            self.pending_settings_stamp = None
-            if snapshot.get("error"):
-                self.settings_store.reject(loaded)
-                self.notify_settings_problem(self.settings_store.load(self.settings).problem)
-                return
-            self.settings = loaded.values
-            self.input.settings = loaded.values
-            self.settings_stamp = loaded.stamp
+    def apply_settings(self, values):
+        self.settings = values
+        self.input.settings = values
 
-        self.input.submit(
-            "configure", payload={"settings": loaded.values}, completion=configured,
-            persist=lambda: self.settings_store.remember(loaded.values),
-        )
-
-    def notify_settings_problem(self, problem):
-        # The user may have repaired the file while Core rejected an older
-        # queued version. In that case there is no current problem to show.
+    def show_settings_problem(self, problem):
         if problem is None:
+            self.settings_problem_stamp = None
             return
-        if problem.stamp != self.settings_problem_stamp:
-            self.settings_problem_stamp = problem.stamp
+        if problem["stamp"] != self.settings_problem_stamp:
+            self.settings_problem_stamp = problem["stamp"]
             notification = text("settings.input_continues")
             self.update_auxiliary_text(IBus.Text.new_from_string(notification), True)
 
@@ -222,7 +195,6 @@ class Engine(IBus.Engine):
         self.ai_review.cancel()
         text, recovery = self.reconversion.take_recovery(text)
         try:
-            self.pending_settings_stamp = None
             self.snapshot = {}
             self.anchor.update("", 0)
             self.update_preedit_text_with_mode(IBus.Text.new_from_string(""), 0, False, IBus.PreeditFocusMode.COMMIT)
@@ -349,7 +321,6 @@ class Engine(IBus.Engine):
             self.clear_reconversion()
         if self.private:
             self.input.cancel()
-            self.pending_settings_stamp = None
             self.recover_composition()
 
     def do_set_surrounding_text(self, text, cursor, anchor):
@@ -432,7 +403,6 @@ class Engine(IBus.Engine):
         self.clear_reconversion()
         surface().hide(self)
         self.input.cancel()
-        self.pending_settings_stamp = None
         self.snapshot = {}
         self.left = self.right = self.selected_text = ""
         self.panel.dismiss()
@@ -445,7 +415,6 @@ class Engine(IBus.Engine):
         self.transformation.reset_input()
         self.clear_reconversion()
         self.input.cancel()
-        self.pending_settings_stamp = None
         self.recover_composition()
 
     def do_disable(self):

@@ -119,7 +119,8 @@ class ReconversionCoordinator:
         return True
 
     def _available_context(self):
-        pending_input = any(pending.operation not in ("settings", "configure") for pending in self.inputs.pending)
+        # Settings requests never change the composition being reconverted.
+        pending_input = any(pending.operation not in ("settings-reload", "configure") for pending in self.inputs.pending)
         if self.active or pending_input or self.inputs.snapshot.get("preedit"):
             self.status(reconversion_message("composition_active"))
             return None

@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from azookey.bridge import Bridge
 from azookey.keymap import translate
-from azookey.settings_store import SettingsStore
+from azookey import settings_client
 from azookey.user_dictionary_service import UserDictionaryService
 
 
@@ -54,16 +54,15 @@ class LearnedCandidateTests(unittest.TestCase):
             entries = [{
                 "id": DICTIONARY_ENTRY_ID, "word": fixture["text"], "reading": fixture["reading"],
             }]
-            store = SettingsStore(pathlib.Path(environment["XDG_CONFIG_HOME"]) / "azookey-tree/settings.json")
             service = UserDictionaryService(
-                store, store.load(settings), bridge_factory=lambda: Bridge(environment=environment),
+                settings_client.load(bridge), bridge_factory=lambda: Bridge(environment=environment),
             )
             # The editor's save transaction installs and verifies the file before
             # configure reloads it into this existing conversion session.
             service.save(entries)
             self.assertIsNotNone(service.last_saved)
-            settings = service.last_saved.values
-            self.assertEqual(store.load(settings).values["userDictionary"]["items"], entries)
+            settings = {**settings, "userDictionary": service.last_saved.values["userDictionary"]}
+            self.assertEqual(settings_client.load(bridge).values["userDictionary"]["items"], entries)
         self.assertNotIn("error", bridge.request("configure", settings=settings))
         saved = bridge.request("settings")["settings"]
         self.assertEqual(saved["userDictionary"], settings["userDictionary"])

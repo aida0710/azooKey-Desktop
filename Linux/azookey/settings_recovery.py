@@ -5,13 +5,13 @@ from .i18n import text
 
 
 class SettingsRecoveryBar(Gtk.InfoBar):
-    def __init__(self, problem, *, path, restore):
+    def __init__(self, reason, *, path, restore):
         super().__init__(message_type=Gtk.MessageType.WARNING)
         content = self.get_content_area()
         content.set_orientation(Gtk.Orientation.VERTICAL)
         content.set_spacing(10)
         label_text = text("settings.recovery_title") + "\n" + text(
-            "settings.recovery_detail", reason=problem.reason, path=path,
+            "settings.recovery_detail", reason=reason, path=path,
         )
         label = Gtk.Label(label=label_text, xalign=0, wrap=True, selectable=True)
         label.set_max_width_chars(48)

@@ -42,7 +42,7 @@ class ReconversionTests(ReconversionFixture, unittest.TestCase):
         self.assertFalse(any(effect[0] == "delete" for effect in self.effects))
 
     def test_first_shortcut_waits_for_initial_settings_without_being_rejected(self):
-        self.inputs.submit("settings", completion=lambda _snapshot: None)
+        self.inputs.submit("settings-reload", completion=lambda _snapshot: None)
         self.coordinator.start(undo=False)
         self.worker.respond(0, {"settings": {}})
         self.worker.respond(1, {"reconversion": self.plan})

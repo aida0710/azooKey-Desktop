@@ -9,22 +9,6 @@ from unittest.mock import patch
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 
-class RelativeScoreSettingsTests(unittest.TestCase):
-    def test_score_preference_is_validated_saved_and_reset_with_display_settings(self):
-        from azookey.settings_schema import input_defaults, validate_settings
-        from azookey.settings_store import SettingsStore
-
-        with tempfile.TemporaryDirectory() as directory:
-            store = SettingsStore(pathlib.Path(directory) / "settings.json")
-            store.save({"showRelativeScores": False})
-            saved = store.load({"showRelativeScores": True})
-            self.assertIsNone(saved.problem)
-            self.assertFalse(saved.values["showRelativeScores"])
-            self.assertTrue(input_defaults(saved.values)["showRelativeScores"])
-        with self.assertRaises(ValueError):
-            validate_settings({"showRelativeScores": "false"})
-
-
 @unittest.skipUnless(sys.platform == "linux" and os.environ.get("AZOOKEY_BRIDGE"),
                      "requires the real Swift bridge and isolated Linux preferences")
 class RelativeScoreBridgeTests(unittest.TestCase):
@@ -113,6 +97,7 @@ class RelativeScorePanelTests(unittest.TestCase):
                      "requires GTK and the real Swift bridge")
 class RelativeScoreSettingsWindowTests(unittest.TestCase):
     def test_the_settings_checkbox_saves_hidden_scores_and_reopens_with_the_same_choice(self):
+        from azookey import settings_client
         from azookey.settings import SettingsWindow
 
         with tempfile.TemporaryDirectory() as directory, patch.dict(
@@ -123,7 +108,7 @@ class RelativeScoreSettingsWindowTests(unittest.TestCase):
                 window.widgets["showRelativeScores"].set_active(False)
                 window.save(None)
                 self.assertFalse(window.bridge.request("settings")["settings"]["showRelativeScores"])
-                self.assertFalse(window.settings_store.load(window.values).values["showRelativeScores"])
+                self.assertFalse(settings_client.load(window.bridge).values["showRelativeScores"])
             finally:
                 window.destroy()
             reopened = SettingsWindow()

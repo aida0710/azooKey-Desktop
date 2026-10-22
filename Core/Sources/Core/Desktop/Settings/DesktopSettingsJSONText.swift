@@ -59,23 +59,21 @@ public enum DesktopSettingsJSONText {
             writeString("\u{FFFD}", into: &output)
         case .array(let items):
             output += "["
-            for (offset, item) in items.enumerated() {
-                if offset > 0 {
-                    output += ", "
-                }
-                write(item, into: &output)
-            }
+            output += items.map { item in
+                var text = ""
+                write(item, into: &text)
+                return text
+            }.joined(separator: ", ")
             output += "]"
         case .object(let members):
             output += "{"
-            for (offset, member) in members.enumerated() {
-                if offset > 0 {
-                    output += ", "
-                }
-                writeString(member.key, into: &output)
-                output += ": "
-                write(member.value, into: &output)
-            }
+            output += members.map { member in
+                var text = ""
+                writeString(member.key, into: &text)
+                text += ": "
+                write(member.value, into: &text)
+                return text
+            }.joined(separator: ", ")
             output += "}"
         }
     }
@@ -232,33 +230,10 @@ private struct SettingsJSONParser {
                 index += 1
                 return (String(result), isUnicode)
             case "\\":
-                index += 1
-                guard let escape = current else {
-                    throw syntaxError()
-                }
-                index += 1
-                switch escape {
-                case "\"", "\\", "/":
-                    result.append(escape)
-                case "b":
-                    result.append("\u{08}")
-                case "f":
-                    result.append("\u{0C}")
-                case "n":
-                    result.append("\n")
-                case "r":
-                    result.append("\r")
-                case "t":
-                    result.append("\t")
-                case "u":
-                    if let decoded = try parseUnicodeEscape() {
-                        result.append(decoded)
-                    } else {
-                        isUnicode = false
-                    }
-                default:
-                    index -= 2
-                    throw syntaxError()
+                if let decoded = try parseEscape() {
+                    result.append(decoded)
+                } else {
+                    isUnicode = false
                 }
             default:
                 // JSON forbids raw control characters inside strings.
@@ -270,6 +245,34 @@ private struct SettingsJSONParser {
             }
         }
         throw syntaxError()
+    }
+
+    /// Reads one backslash escape. Returns nil for an unpaired surrogate.
+    private mutating func parseEscape() throws -> Unicode.Scalar? {
+        index += 1
+        guard let escape = current else {
+            throw syntaxError()
+        }
+        index += 1
+        switch escape {
+        case "\"", "\\", "/":
+            return escape
+        case "b":
+            return "\u{08}"
+        case "f":
+            return "\u{0C}"
+        case "n":
+            return "\n"
+        case "r":
+            return "\r"
+        case "t":
+            return "\t"
+        case "u":
+            return try parseUnicodeEscape()
+        default:
+            index -= 2
+            throw syntaxError()
+        }
     }
 
     /// Returns nil for an unpaired surrogate, which Python accepts but Unicode does not.

@@ -250,11 +250,10 @@ class BridgeIntegrationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "linux", "settings integration runs in the isolated Ubuntu container")
     def test_settings_user_dictionary_and_custom_table_validation(self):
-        from azookey.settings_store import SettingsStore
+        from azookey import settings_client
         from azookey.user_dictionary_service import UserDictionaryService
         original = self.bridge.request("settings")["settings"]
-        store = SettingsStore()
-        dictionary = UserDictionaryService(store, store.load(original))
+        dictionary = UserDictionaryService(settings_client.load(self.bridge))
         try:
             settings = {**original, "live": False, "learning": "nothing",
                         "userDictionary": {"items": [{"id": "18afee1d-8174-45c6-80e2-78d315b73f81", "reading": "こでっくす", "word": "Codex検証辞書", "hint": "test"}]}}
