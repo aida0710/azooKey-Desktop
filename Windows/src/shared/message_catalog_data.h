@@ -1,6 +1,13 @@
 // Generated from Shared/Messages. Run Tools/generate-messages.py.
 #pragma once
 
+#include <algorithm>
+#include <initializer_list>
+#include <iterator>
+#include <string>
+#include <string_view>
+#include <utility>
+
 namespace azookey::messages {
 
 // Texts keep "{name}" placeholders. Entries are sorted by key for binary search.
@@ -51,6 +58,7 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"ai.scope.preview", L"AI \u3078\u9001\u4FE1\u3057\u3066\u30D7\u30EC\u30D3\u30E5\u30FC", L"Send to AI and preview"},
     {"ai.scope.processing", L"\u901A\u5E38\u306E\u304B\u306A\u6F22\u5B57\u5909\u63DB\u306F\u7AEF\u672B\u5185\u3067\u51E6\u7406\u3057\u307E\u3059\u3002\u5916\u90E8 API \u3092\u9078\u3076\u3068\u3001AI \u64CD\u4F5C\u3067\u6307\u5B9A\u3057\u305F\u672C\u6587\u3068\u6307\u793A\u6587\u3092\u9001\u4FE1\u5148\u3078\u9001\u308A\u307E\u3059\u3002\u7AEF\u672B\u5185 AI \u306F\u5BFE\u5FDC\u3059\u308B Mac \u3067\u5229\u7528\u3067\u304D\u307E\u3059\u3002", L"Ordinary kana-kanji conversion runs on this device. External API conversion sends the text and instructions selected in an AI action to the destination. On-device AI is available on supported Macs."},
     {"ai.scope.processing-linux", L"\u901A\u5E38\u306E\u304B\u306A\u6F22\u5B57\u5909\u63DB\u306F\u7AEF\u672B\u5185\u3067\u51E6\u7406\u3057\u307E\u3059\u3002AI \u64CD\u4F5C\u3067\u306F\u6307\u5B9A\u3057\u305F\u672C\u6587\u3068\u6307\u793A\u6587\u3092\u5916\u90E8 API \u3078\u9001\u4FE1\u3057\u307E\u3059\u3002Linux \u3067\u306F\u7AEF\u672B\u5185 AI \u306F\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002", L"Ordinary kana-kanji conversion runs on this device. AI actions send the specified text and instructions to the external API. On-device AI is not available on Linux."},
+    {"ai.scope.processing-windows", L"\u901A\u5E38\u306E\u304B\u306A\u6F22\u5B57\u5909\u63DB\u306F\u7AEF\u672B\u5185\u3067\u51E6\u7406\u3057\u307E\u3059\u3002AI \u64CD\u4F5C\u3067\u306F\u6307\u5B9A\u3057\u305F\u672C\u6587\u3068\u6307\u793A\u6587\u3092\u5916\u90E8 API \u3078\u9001\u4FE1\u3057\u307E\u3059\u3002Windows \u3067\u306F\u7AEF\u672B\u5185 AI \u306F\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002", L"Ordinary kana-kanji conversion runs on this device. AI actions send the specified text and instructions to the external API. On-device AI is not available on Windows."},
     {"ai.scope.send", L"AI \u3078\u9001\u4FE1", L"Send to AI"},
     {"ai.scope.target", L"\u5BFE\u8C61\u306E\u672C\u6587", L"Text to send"},
     {"ai.shortcut", L"AI\u5909\u63DB\u306E\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8", L"AI conversion shortcut"},
@@ -126,6 +134,13 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"learning.reset.title", L"\u5C65\u6B74\u5B66\u7FD2\u30C7\u30FC\u30BF\u3092\u524A\u9664\u3057\u307E\u3059\u304B\uFF1F", L"Delete learning history?"},
     {"learning.retention", L"\u300C\u5B66\u7FD2\u30C7\u30FC\u30BF\u3092\u5229\u7528\u3057\u306A\u3044\u300D\u3067\u306F\u65B0\u3057\u3044\u5B66\u7FD2\u3082\u4FDD\u5B58\u3057\u307E\u305B\u3093\u3002\u8A2D\u5B9A\u306E\u5909\u66F4\u3060\u3051\u3067\u306F\u3001\u84C4\u7A4D\u6E08\u307F\u306E\u5B66\u7FD2\u30C7\u30FC\u30BF\u306F\u524A\u9664\u3055\u308C\u307E\u305B\u3093\u3002", L"Disabling history use also stops new learning. Changing this setting does not delete existing learning history."},
     {"learning.title", L"\u5C65\u6B74\u5B66\u7FD2", L"Learning history"},
+    {"personalization.cancel", L"\u30AD\u30E3\u30F3\u30BB\u30EB", L"Cancel"},
+    {"personalization.choose", L"lm_*.marisa \u306E4\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u30D5\u30A9\u30EB\u30C0\u30FC\u3092\u9078\u629E", L"Choose the folder that contains the four lm_*.marisa files"},
+    {"personalization.failure.invalidFile", L"\u500B\u4EBA\u5316\u30E2\u30C7\u30EB\u306E {file} \u304C\u3042\u308A\u307E\u305B\u3093\u3001\u307E\u305F\u306F\u30B5\u30A4\u30BA\u304C\u4E0D\u6B63\u3067\u3059\u3002", L"The personalization model file {file} is missing or has an invalid size."},
+    {"personalization.failure.notMarisa", L"{file} \u306FMARISA\u5F62\u5F0F\u3067\u306F\u3042\u308A\u307E\u305B\u3093\u3002", L"{file} is not in MARISA format."},
+    {"personalization.failure.placement", L"\u500B\u4EBA\u5316\u30E2\u30C7\u30EB\u3092\u4FDD\u5B58\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u30C7\u30FC\u30BF\u306E\u4FDD\u5B58\u5148\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The personalization model could not be saved. Check the data folder."},
+    {"personalization.import", L"\u8AAD\u307F\u8FBC\u3080", L"Import"},
+    {"personalization.imported", L"\u500B\u4EBA\u5316\u30E2\u30C7\u30EB\u3092\u8AAD\u307F\u8FBC\u307F\u307E\u3057\u305F\u3002\u5F37\u5EA6\u3092\u9078\u3073\u300C\u4FDD\u5B58\u300D\u3067\u53CD\u6620\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The personalization model was imported. Choose its strength and select Save to apply it."},
     {"reconversion.changed_context", L"\u6587\u5B57\u3084\u5165\u529B\u4F4D\u7F6E\u304C\u5909\u308F\u3063\u305F\u305F\u3081\u518D\u5909\u63DB\u3092\u4E2D\u6B62\u3057\u307E\u3057\u305F", L"Reconversion stopped because the text or input position changed"},
     {"reconversion.composition_active", L"\u5165\u529B\u4E2D\u306E\u6587\u5B57\u3092\u78BA\u5B9A\u3057\u3066\u304B\u3089\u518D\u5909\u63DB\u3057\u3066\u304F\u3060\u3055\u3044", L"Finish the current composition before reconverting"},
     {"reconversion.confirm_selection", L"Enter\u3067\u9078\u629E\u3057\u305F\u6587\u5B57\u3092\u518D\u5909\u63DB / Esc\u3067\u53D6\u6D88", L"Enter to reconvert the selected text / Esc to cancel"},
@@ -142,19 +157,33 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"reconversion.undo_menu", L"\u76F4\u524D\u306E\u78BA\u5B9A\u3092\u53D6\u308A\u6D88\u3059\uFF08Ctrl+Shift+Backspace\uFF09", L"Undo the last commit (Ctrl+Shift+Backspace)"},
     {"reconversion.whole_selection_required", L"\u9078\u629E\u7BC4\u56F2\u5168\u4F53\u306E\u5019\u88DC\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044", L"Choose a candidate for the whole selection"},
     {"settings.backend_recovery_failed", L"\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB\u306E\u4FDD\u5B58\u3068\u3001\u5909\u63DB\u5668\u306E\u5143\u306E\u8A2D\u5B9A\u3078\u306E\u5FA9\u5143\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002\u3082\u3046\u4E00\u5EA6\u4FDD\u5B58\u3059\u308B\u3068\u3001\u5143\u306E\u8A2D\u5B9A\u306E\u5FA9\u5143\u304B\u3089\u518D\u8A66\u884C\u3057\u307E\u3059\u3002", L"Saving the settings file and restoring the converter's previous settings both failed. Saving again first retries restoring the previous settings."},
+    {"settings.backslash", L"\u5186\u8A18\u53F7\u306E\u4EE3\u308F\u308A\u306B\u30D0\u30C3\u30AF\u30B9\u30E9\u30C3\u30B7\u30E5", L"Backslash instead of the yen sign"},
     {"settings.backup_warning", L"\u8A2D\u5B9A\u306F\u4FDD\u5B58\u3057\u307E\u3057\u305F\u304C\u3001\u6B63\u5E38\u7248\u306E\u63A7\u3048\u3092\u4FDD\u5B58\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u8A2D\u5B9A\u30D5\u30A9\u30EB\u30C0\u30FC\u306E\u6A29\u9650\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The settings were saved, but a backup of the valid version could not be saved. Check the permissions of the settings folder."},
     {"settings.busy", L"\u5225\u306E\u753B\u9762\u304C\u8A2D\u5B9A\u3092\u4FDD\u5B58\u3057\u3066\u3044\u307E\u3059\u3002\u5C11\u3057\u5F85\u3063\u3066\u3082\u3046\u4E00\u5EA6\u4FDD\u5B58\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"Another window is saving the settings. Wait a moment and save again."},
     {"settings.cancel", L"\u53D6\u6D88", L"Cancel"},
     {"settings.changed", L"\u5225\u306E\u64CD\u4F5C\u3067\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB\u304C\u5909\u308F\u308A\u307E\u3057\u305F\u3002\u8A2D\u5B9A\u753B\u9762\u3092\u958B\u304D\u76F4\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"Another operation changed the settings file. Reopen the settings window."},
     {"settings.custom-table", L"\u30AB\u30B9\u30BF\u30E0\u5165\u529B\u8868\uFF08TSV\uFF09", L"Custom input table (TSV)"},
+    {"settings.debug", L"\u30C7\u30D0\u30C3\u30B0\u5019\u88DC", L"Debug candidates"},
     {"settings.dictionary_edit", L"\u30E6\u30FC\u30B6\u30FC\u8F9E\u66F8\u3092\u7DE8\u96C6\u2026\uFF08{count}\u4EF6\uFF09", L"Edit user dictionary\u2026 ({count} entries)"},
     {"settings.dictionary_saved", L"\u8F9E\u66F8\u3092\u4FDD\u5B58\u3057\u307E\u3057\u305F\u3002\u6B21\u306E\u5909\u63DB\u304B\u3089\u4F7F\u7528\u3057\u307E\u3059\u3002", L"The dictionary was saved. It will be used for the next conversion."},
     {"settings.dictionary_separate_save", L"\u8F9E\u66F8\u306F\u5C02\u7528\u306E\u753B\u9762\u3067\u7DE8\u96C6\u3057\u3001\u305D\u306E\u753B\u9762\u306E\u300C\u4FDD\u5B58\u300D\u3067\u53CD\u6620\u3057\u307E\u3059\u3002", L"The dictionary is edited in its own window and applied with that window's Save button."},
+    {"settings.downloadTypoWeights", L"\u5165\u529B\u8A02\u6B63\u30E2\u30C7\u30EB\u3092\u30C0\u30A6\u30F3\u30ED\u30FC\u30C9", L"Download the typo correction model"},
     {"settings.engine_rejected", L"\u5909\u63DB\u5668\u304C\u8A2D\u5B9A\u3092\u9069\u7528\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u30AB\u30B9\u30BF\u30E0\u5165\u529B\u8868\u306A\u3069\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The converter could not apply the settings. Check the custom input table and other settings."},
+    {"settings.halfSpace", L"\u30B9\u30DA\u30FC\u30B9\u3092\u534A\u89D2\u306B\u3059\u308B", L"Type half-width spaces"},
+    {"settings.importPersonalization", L"Tuner\u306E\u500B\u4EBA\u5316\u30E2\u30C7\u30EB\u3092\u8AAD\u307F\u8FBC\u3080\u2026", L"Import a Tuner personalization model\u2026"},
+    {"settings.inferenceLimit", L"\u63A8\u8AD6\u56DE\u6570 (1\u2013100)", L"Inference limit (1\u2013100)"},
+    {"settings.inputStyle", L"\u5165\u529B\u914D\u5217", L"Input layout"},
+    {"settings.inputStyle.custom", L"\u30AB\u30B9\u30BF\u30E0", L"Custom"},
+    {"settings.inputStyle.default", L"\u30ED\u30FC\u30DE\u5B57", L"Romaji"},
+    {"settings.inputStyle.defaultAZIK", L"AZIK", L"AZIK"},
+    {"settings.inputStyle.defaultKanaJIS", L"\u304B\u306A JIS", L"Kana (JIS)"},
+    {"settings.inputStyle.defaultKanaUS", L"\u304B\u306A US", L"Kana (US)"},
     {"settings.input_continues", L"\u8A2D\u5B9A\u3092\u8AAD\u307F\u8FBC\u3081\u306A\u3044\u305F\u3081\u3001\u6B63\u5E38\u306A\u8A2D\u5B9A\u3067\u5165\u529B\u3092\u7D9A\u3051\u307E\u3059\u3002\u8A2D\u5B9A\u753B\u9762\u3067\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The settings could not be loaded, so input continues with the last valid settings. Check them in the settings window."},
     {"settings.invalid_json", L"JSON\u306E\u69CB\u6587\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\uFF08{line}\u884C\u76EE\u3001{column}\u5217\u76EE\uFF09\u3002", L"Check the JSON syntax (line {line}, column {column})."},
     {"settings.invalid_structure", L"JSON\u306E\u5165\u308C\u5B50\u304C\u6DF1\u3059\u304E\u307E\u3059\u3002\u8A2D\u5B9A\u306E\u69CB\u9020\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The JSON is nested too deeply. Check the structure of the settings."},
     {"settings.invalid_value", L"\u8A2D\u5B9A\u9805\u76EE\u300C{field}\u300D\u306E\u578B\u307E\u305F\u306F\u5024\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"Check the type or value of the setting \u201C{field}\u201D."},
+    {"settings.live", L"\u30E9\u30A4\u30D6\u5909\u63DB", L"Live conversion"},
+    {"settings.optionDirect", L"Alt\u30AD\u30FC\u3067\u5168\u89D2\u82F1\u6570\u3092\u76F4\u63A5\u5165\u529B", L"Type full-width alphanumerics directly with Alt"},
     {"settings.page.ai", L"AI", L"AI"},
     {"settings.page.conversion", L"\u5909\u63DB\u8868\u793A", L"Conversion and display"},
     {"settings.page.dictionary", L"\u8F9E\u66F8\u3068\u5B66\u7FD2", L"Dictionaries and learning"},
@@ -162,7 +191,17 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"settings.page.support", L"\u30B5\u30DD\u30FC\u30C8", L"Support"},
     {"settings.personalization", L"\u500B\u4EBA\u5316\u30E2\u30C7\u30EB", L"Personalization model"},
     {"settings.personalization.explanation", L"\u5909\u63DB\u30D7\u30ED\u30D5\u30A3\u30FC\u30EB\u306F\u5909\u63DB\u6642\u306E\u88DC\u8DB3\u60C5\u5831\u3067\u3059\u3002\u500B\u4EBA\u5316\u30E2\u30C7\u30EB\u306F\u5225\u9014\u4F5C\u6210\u3057\u305F\u30E2\u30C7\u30EB\u3092\u4F7F\u3044\u307E\u3059\u3002\u3069\u3061\u3089\u3082\u5C65\u6B74\u5B66\u7FD2\u3068\u306F\u5225\u306E\u8A2D\u5B9A\u3067\u3059\u3002", L"The conversion profile provides context for conversion. Personalization uses a separately created model. Both are independent of learning history."},
+    {"settings.personalization.hard", L"\u5F37", L"Strong"},
+    {"settings.personalization.normal", L"\u6A19\u6E96", L"Standard"},
+    {"settings.personalization.off", L"\u30AA\u30D5", L"Off"},
+    {"settings.personalization.soft", L"\u5F31", L"Weak"},
+    {"settings.predictiveTyping", L"\u4E88\u6E2C\u5165\u529B\uFF08\u958B\u767A\u4E2D\uFF09", L"Predictive input (in development)"},
     {"settings.profile", L"\u5909\u63DB\u30D7\u30ED\u30D5\u30A3\u30FC\u30EB", L"Conversion profile"},
+    {"settings.punctuation", L"\u53E5\u8AAD\u70B9", L"Punctuation"},
+    {"settings.punctuation.kutenAndComma", L"\uFF0C\u3002", L"\uFF0C and \u3002"},
+    {"settings.punctuation.kutenAndToten", L"\u3001\u3002", L"\u3001 and \u3002"},
+    {"settings.punctuation.periodAndComma", L"\uFF0C\uFF0E", L"\uFF0C and \uFF0E"},
+    {"settings.punctuation.periodAndToten", L"\u3001\uFF0E", L"\u3001 and \uFF0E"},
     {"settings.read_failed", L"\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB\u3092\u8AAD\u307F\u53D6\u308C\u307E\u305B\u3093\u3002\u30D5\u30A1\u30A4\u30EB\u306E\u6A29\u9650\u3068\u7A2E\u985E\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The settings file cannot be read. Check the file's permissions and type."},
     {"settings.recovery_detail", L"{reason}\n\u5BFE\u8C61: {path}\n\u73FE\u5728\u306F\u6B63\u5E38\u306A\u8A2D\u5B9A\u3092\u4F7F\u3063\u3066\u3044\u307E\u3059\u3002\u5FA9\u65E7\u6642\u306F\u5143\u30D5\u30A1\u30A4\u30EB\u3092\u5225\u540D\u3067\u6B8B\u3057\u307E\u3059\u3002", L"{reason}\nFile: {path}\nThe last valid settings are in use. Recovery keeps the original file under another name."},
     {"settings.recovery_required", L"\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB\u306E\u5FA9\u65E7\u304C\u5FC5\u8981\u3067\u3059\u3002\u8A2D\u5B9A\u753B\u9762\u3067\u5143\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5168\u3057\u3066\u304B\u3089\u5FA9\u65E7\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The settings file needs recovery. Preserve the original file in the settings window, then recover it."},
@@ -174,7 +213,11 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"settings.restored", L"\u8A2D\u5B9A\u3092\u5FA9\u65E7\u3057\u307E\u3057\u305F\u3002\u5143\u30D5\u30A1\u30A4\u30EB: {backup}", L"The settings were recovered. Original file: {backup}"},
     {"settings.save", L"\u4FDD\u5B58", L"Save"},
     {"settings.saved", L"\u4FDD\u5B58\u3057\u307E\u3057\u305F\u3002\u6B21\u306E\u5165\u529B\u304B\u3089\u53CD\u6620\u3057\u307E\u3059\u3002", L"Saved. Changes apply from the next input."},
+    {"settings.tree", L"\u6728\u69CB\u9020\u306E\u5019\u88DC\u30A6\u30A3\u30F3\u30C9\u30A6", L"Tree candidate window"},
+    {"settings.typoCorrection", L"\u5165\u529B\u8A02\u6B63\uFF08\u958B\u767A\u4E2D\uFF09", L"Typo correction (in development)"},
+    {"settings.unavailable.marisa_windows", L"Windows\u7248\u306E\u5909\u63DB\u5668\u306F\u3053\u306E\u30E2\u30C7\u30EB\u306E\u5F62\u5F0F\uFF08MARISA\uFF09\u3092\u8AAD\u307F\u8FBC\u3081\u306A\u3044\u305F\u3081\u3001\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002", L"Unavailable on Windows because its converter cannot read this model format (MARISA)."},
     {"settings.unknown_key", L"\u672A\u5BFE\u5FDC\u306E\u8A2D\u5B9A\u9805\u76EE\u300C{field}\u300D\u304C\u3042\u308A\u307E\u3059\u3002", L"The setting \u201C{field}\u201D is not supported."},
+    {"settings.write_failed", L"\u8A2D\u5B9A\u30D5\u30A1\u30A4\u30EB\u3092\u4FDD\u5B58\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u30D5\u30A1\u30A4\u30EB\u3068\u30D5\u30A9\u30EB\u30C0\u30FC\u306E\u6A29\u9650\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002", L"The settings file could not be saved. Check the permissions of the file and its folder."},
     {"shortcut.conflict", L"\u6B21\u306E\u6307\u793A\u306E\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8\u3092\u7F6E\u304D\u63DB\u3048\u307E\u3059\uFF1A", L"This replaces the shortcut for:"},
     {"shortcut.enabled", L"\u30B7\u30E7\u30FC\u30C8\u30AB\u30C3\u30C8\u3092\u4F7F\u3046", L"Use shortcut"},
     {"shortcut.help", L"\u4FEE\u98FE\u30AD\u30FC\u3068\u6587\u5B57\u3092\u62BC\u3057\u3066\u767B\u9332\u3057\u307E\u3059\u3002Tab\u3067\u6B21\u306E\u9805\u76EE\u3001Shift+Tab\u3067\u524D\u306E\u9805\u76EE\u3078\u79FB\u52D5\u3057\u307E\u3059\u3002Escape\u3067\u8A18\u9332\u3092\u4E2D\u6B62\u3001Delete\u3067\u65E2\u5B9A\u306B\u623B\u3057\u307E\u3059\u3002", L"Press modifiers and a character to record. Tab and Shift+Tab move between controls. Escape cancels recording; Delete restores the default."},
@@ -371,5 +414,48 @@ inline constexpr MessageEntry kUserDictionaryMessages[] = {
     {"visibleCountFormat", L"\u8868\u793A{count}\u4EF6", L"{count} shown"},
     {"word", L"\u5358\u8A9E", L"Word"},
 };
+
+enum class Language { Japanese, English };
+enum class Table { Localizable, UserDictionary };
+
+// The display language rule shared by every C++ screen: a Japanese UI
+// language ("ja", "ja-JP", ...) shows Japanese, every other one English.
+// Pass a BCP 47 name such as the first entry of GetUserPreferredUILanguages.
+inline Language LanguageForLocaleName(std::wstring_view localeName) {
+    const bool japanese = localeName.size() >= 2 && (localeName[0] == L'j' || localeName[0] == L'J') &&
+                          (localeName[1] == L'a' || localeName[1] == L'A') &&
+                          (localeName.size() == 2 || localeName[2] == L'-' || localeName[2] == L'_');
+    return japanese ? Language::Japanese : Language::English;
+}
+
+// Returns nullptr for an unknown key.
+inline const MessageEntry* FindMessage(std::string_view key, Table table = Table::Localizable) {
+    const MessageEntry* begin = table == Table::Localizable ? std::begin(kLocalizableMessages) : std::begin(kUserDictionaryMessages);
+    const MessageEntry* end = table == Table::Localizable ? std::end(kLocalizableMessages) : std::end(kUserDictionaryMessages);
+    const MessageEntry* found = std::lower_bound(begin, end, key, [](const MessageEntry& entry, std::string_view value) {
+        return std::string_view(entry.key) < value;
+    });
+    return found != end && std::string_view(found->key) == key ? found : nullptr;
+}
+
+// The text with every "{name}" replaced by its value. An unknown key returns
+// the key itself, as Apple's NSLocalizedString does, so a gap stays visible.
+inline std::wstring Text(std::string_view key, Language language,
+                         std::initializer_list<std::pair<std::wstring_view, std::wstring_view>> values = {},
+                         Table table = Table::Localizable) {
+    const MessageEntry* entry = FindMessage(key, table);
+    if (entry == nullptr) {
+        return std::wstring(key.begin(), key.end());
+    }
+    std::wstring text = language == Language::Japanese ? entry->japanese : entry->english;
+    for (const auto& [name, value] : values) {
+        const std::wstring placeholder = L"{" + std::wstring(name) + L"}";
+        for (size_t found = text.find(placeholder); found != std::wstring::npos;
+             found = text.find(placeholder, found + value.size())) {
+            text.replace(found, placeholder.size(), value);
+        }
+    }
+    return text;
+}
 
 }  // namespace azookey::messages

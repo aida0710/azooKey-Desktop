@@ -159,6 +159,10 @@
     "ja": "通常のかな漢字変換は端末内で処理します。AI 操作では指定した本文と指示文を外部 API へ送信します。Linux では端末内 AI は利用できません。",
     "en": "Ordinary kana-kanji conversion runs on this device. AI actions send the specified text and instructions to the external API. On-device AI is not available on Linux."
   },
+  "ai.scope.processing-windows": {
+    "ja": "通常のかな漢字変換は端末内で処理します。AI 操作では指定した本文と指示文を外部 API へ送信します。Windows では端末内 AI は利用できません。",
+    "en": "Ordinary kana-kanji conversion runs on this device. AI actions send the specified text and instructions to the external API. On-device AI is not available on Windows."
+  },
   "ai.scope.send": {
     "ja": "AI へ送信",
     "en": "Send to AI"

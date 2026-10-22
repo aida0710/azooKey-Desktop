@@ -40,7 +40,23 @@
 | `Linux/gnome-extension/candidateMessages.js` | GNOME 拡張（`gjs` のある文言だけ） | 基本＋`linux` |
 | `Windows/src/shared/message_catalog_data.h` | Windows の C++（`{名前}` のまま、日本語と英語） | 基本＋`windows` |
 
-Core がブリッジ経由で返す文言は `.strings` から引くため、`macos` の言い方になる。Linux や Windows で言い方を変えたい文言は、Core で文面を組み立てず、各OSの表から引く。
+Core がブリッジ経由で返す文言は `.strings` から引くため、`macos` の言い方になる。Linux や Windows で言い方を変えたい文言は、Core で文面を組み立てず、各OSの表から引く。Core が文言を返すときは、画面の言語を要求で受け取り `Localization.text(_:language:)` で引く。
+
+## Windows（C++）での引き方
+
+`Windows/src/shared/message_catalog_data.h` は表のほかに、次の関数を含む（名前空間 `azookey::messages`）。
+
+```cpp
+Language LanguageForLocaleName(std::wstring_view localeName);
+const MessageEntry* FindMessage(std::string_view key, Table table = Table::Localizable);
+std::wstring Text(std::string_view key, Language language,
+                  std::initializer_list<std::pair<std::wstring_view, std::wstring_view>> values = {},
+                  Table table = Table::Localizable);
+```
+
+- 表示言語は、利用者の UI 言語が日本語（`ja`、`ja-JP` など）なら日本語、それ以外は英語とする。`GetUserPreferredUILanguages` の先頭などの BCP 47 の名前を `LanguageForLocaleName` に渡す。
+- `Text("candidate.position", language, {{L"position", L"2"}, {L"total", L"9"}})` のように `{名前}` を置き換える。未知のキーはキーそのものを返し、抜けが画面で分かるようにする。
+- 生成物の動作は `Tools/tests/test-message-catalog.cpp` で確かめる（CI の `generated-data`）。
 
 ## 手順と検査
 

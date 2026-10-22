@@ -35,6 +35,10 @@ jobs:
       - run: python3 Tools/tests/test-generate-messages.py
       - run: python3 Tools/generate-messages.py --check
       - run: python3 Tools/generate-candidate-palettes.py --check
+      - name: Check the generated C++ message lookup
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror Tools/tests/test-message-catalog.cpp -o "$RUNNER_TEMP/test-message-catalog"
+          "$RUNNER_TEMP/test-message-catalog"
   ubuntu:
     needs: select-checks
     if: needs.select-checks.outputs.run-checks == 'true'

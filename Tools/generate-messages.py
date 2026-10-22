@@ -201,8 +201,56 @@ def cpp_wide_literal(text):
     return 'L"' + "".join(characters) + '"'
 
 
+CPP_LOOKUP = r"""
+enum class Language { Japanese, English };
+enum class Table { Localizable, UserDictionary };
+
+// The display language rule shared by every C++ screen: a Japanese UI
+// language ("ja", "ja-JP", ...) shows Japanese, every other one English.
+// Pass a BCP 47 name such as the first entry of GetUserPreferredUILanguages.
+inline Language LanguageForLocaleName(std::wstring_view localeName) {
+    const bool japanese = localeName.size() >= 2 && (localeName[0] == L'j' || localeName[0] == L'J') &&
+                          (localeName[1] == L'a' || localeName[1] == L'A') &&
+                          (localeName.size() == 2 || localeName[2] == L'-' || localeName[2] == L'_');
+    return japanese ? Language::Japanese : Language::English;
+}
+
+// Returns nullptr for an unknown key.
+inline const MessageEntry* FindMessage(std::string_view key, Table table = Table::Localizable) {
+    const MessageEntry* begin = table == Table::Localizable ? std::begin(kLocalizableMessages) : std::begin(kUserDictionaryMessages);
+    const MessageEntry* end = table == Table::Localizable ? std::end(kLocalizableMessages) : std::end(kUserDictionaryMessages);
+    const MessageEntry* found = std::lower_bound(begin, end, key, [](const MessageEntry& entry, std::string_view value) {
+        return std::string_view(entry.key) < value;
+    });
+    return found != end && std::string_view(found->key) == key ? found : nullptr;
+}
+
+// The text with every "{name}" replaced by its value. An unknown key returns
+// the key itself, as Apple's NSLocalizedString does, so a gap stays visible.
+inline std::wstring Text(std::string_view key, Language language,
+                         std::initializer_list<std::pair<std::wstring_view, std::wstring_view>> values = {},
+                         Table table = Table::Localizable) {
+    const MessageEntry* entry = FindMessage(key, table);
+    if (entry == nullptr) {
+        return std::wstring(key.begin(), key.end());
+    }
+    std::wstring text = language == Language::Japanese ? entry->japanese : entry->english;
+    for (const auto& [name, value] : values) {
+        const std::wstring placeholder = L"{" + std::wstring(name) + L"}";
+        for (size_t found = text.find(placeholder); found != std::wstring::npos;
+             found = text.find(placeholder, found + value.size())) {
+            text.replace(found, placeholder.size(), value);
+        }
+    }
+    return text;
+}
+"""
+
+
 def cpp_header(tables):
-    lines = [f"// {GENERATED_NOTICE}", "#pragma once", "", "namespace azookey::messages {", "",
+    lines = [f"// {GENERATED_NOTICE}", "#pragma once", "", "#include <algorithm>", "#include <initializer_list>",
+             "#include <iterator>", "#include <string>", "#include <string_view>", "#include <utility>", "",
+             "namespace azookey::messages {", "",
              "// Texts keep \"{name}\" placeholders. Entries are sorted by key for binary search.",
              "struct MessageEntry {", "    const char* key;", "    const wchar_t* japanese;",
              "    const wchar_t* english;", "};"]
@@ -213,6 +261,7 @@ def cpp_header(tables):
             english = cpp_wide_literal(message.text("windows", "en"))
             lines.append(f'    {{"{message.key}", {japanese}, {english}}},')
         lines.append("};")
+    lines += CPP_LOOKUP.rstrip("\n").split("\n")
     lines += ["", "}  // namespace azookey::messages", ""]
     return "\n".join(lines)
 
