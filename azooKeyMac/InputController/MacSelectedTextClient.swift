@@ -35,4 +35,18 @@ final class MacSelectedTextClient: SelectedTextClient {
     func replaceText(in range: NSRange, with text: String) {
         client.insertText(text, replacementRange: range)
     }
+
+    /// Password fields never reach an input method on macOS: secure event
+    /// input bypasses it, so no field is reported as sensitive.
+    func aiTextField() -> AITextField {
+        aiTextField(identity: aiIdentity, isSensitive: false)
+    }
+
+    func aiSelectionWitness() -> AISelectionWitness? {
+        aiSelectionWitness(identity: aiIdentity, window: [client.bundleIdentifier() ?? ""])
+    }
+
+    /// IMK names no input target, so the client object stands for it. The
+    /// checked replacement keeps that object alive, so the name is not reused.
+    private var aiIdentity: [String] { [String(describing: identity)] }
 }

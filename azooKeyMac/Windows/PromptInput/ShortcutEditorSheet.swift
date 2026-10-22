@@ -1,43 +1,30 @@
 import Core
 import SwiftUI
 
+/// The pinned instruction whose shortcut is being edited.
+struct ShortcutEditorTarget: Identifiable {
+    let item: AIPromptHistory.Item
+    var id: String { item.prompt }
+}
+
 struct ShortcutEditorSheet: View {
-    @State private var item: PromptHistoryItem
     @State private var shortcut: Core.KeyboardShortcut
     @State private var hasShortcut: Bool
-    let allItems: [PromptHistoryItem]
-    let onSave: (PromptHistoryItem) -> Void
+    @State private var refusal: String?
+    let item: AIPromptHistory.Item
+    /// Saves the shortcut (nil removes it). Returns why Core refused it, or nil once saved.
+    let onSave: (Core.KeyboardShortcut?) -> String?
     let onCancel: () -> Void
 
-    // Reserved system shortcuts
-    private var reservedShortcuts: [Core.KeyboardShortcut] {
-        [
-            Config.TransformShortcut().value
-        ]
-    }
-
-    private var conflictingPrompt: String? {
-        guard hasShortcut else {
-            return nil
-        }
-        return allItems.first(where: { otherItem in
-            otherItem.id != item.id &&
-                otherItem.shortcut == shortcut
-        })?.prompt
-    }
-
+    // The transform shortcut stays free for opening the prompt without an instruction.
     private var isSystemShortcut: Bool {
-        guard hasShortcut else {
-            return false
-        }
-        return reservedShortcuts.contains(shortcut)
+        hasShortcut && shortcut == Config.TransformShortcut().value
     }
 
-    init(item: PromptHistoryItem, allItems: [PromptHistoryItem], onSave: @escaping (PromptHistoryItem) -> Void, onCancel: @escaping () -> Void) {
-        self._item = State(initialValue: item)
+    init(item: AIPromptHistory.Item, onSave: @escaping (Core.KeyboardShortcut?) -> String?, onCancel: @escaping () -> Void) {
+        self.item = item
         self._shortcut = State(initialValue: item.shortcut ?? Core.KeyboardShortcut(key: "a", modifiers: .control))
         self._hasShortcut = State(initialValue: item.shortcut != nil)
-        self.allItems = allItems
         self.onSave = onSave
         self.onCancel = onCancel
     }
@@ -61,19 +48,21 @@ struct ShortcutEditorSheet: View {
                         KeyboardShortcutRecorder(shortcut: $shortcut, accessibilityName: Localization.text("ai.shortcut.prompt"))
                             .frame(height: 40)
 
-                        // Conflict warnings
                         if isSystemShortcut {
                             AccessibleStatusMessage(text: Localization.text("shortcut.reserved"))
                                 .font(.callout)
                                 .foregroundColor(.red)
-                        } else if let conflicting = conflictingPrompt {
-                            AccessibleStatusMessage(text: Localization.text("shortcut.conflict") + " " + conflicting)
-                                .font(.callout)
-                                .foregroundColor(.orange)
                         }
+                    }
+                    if let refusal {
+                        AccessibleStatusMessage(text: refusal)
+                            .font(.callout)
+                            .foregroundColor(.red)
                     }
                 }
             }
+            .onChange(of: shortcut) { _ in refusal = nil }
+            .onChange(of: hasShortcut) { _ in refusal = nil }
 
             HStack {
                 Button(Localization.text("settings.cancel")) {
@@ -85,16 +74,12 @@ struct ShortcutEditorSheet: View {
 
                 if hasShortcut {
                     Button(Localization.text("shortcut.remove")) {
-                        var updatedItem = item
-                        updatedItem.shortcut = nil
-                        onSave(updatedItem)
+                        refusal = onSave(nil)
                     }
                 }
 
                 Button(Localization.text("settings.save")) {
-                    var updatedItem = item
-                    updatedItem.shortcut = hasShortcut ? shortcut : nil
-                    onSave(updatedItem)
+                    refusal = onSave(hasShortcut ? shortcut : nil)
                 }
                 .disabled(isSystemShortcut)
                 .keyboardShortcut(.return)

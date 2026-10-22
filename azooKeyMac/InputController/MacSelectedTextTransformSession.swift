@@ -2,7 +2,8 @@ import Core
 import Foundation
 import InputMethodKit
 
-/// Waits for an IMK activation before applying a captured selection.
+/// Waits for an IMK activation before applying a confirmed transformation to
+/// the captured selection.
 @MainActor
 final class MacSelectedTextTransformSession {
     struct Application {
@@ -13,7 +14,7 @@ final class MacSelectedTextTransformSession {
     private struct Pending {
         let id = UUID()
         let target: SelectedTextReplacement
-        let text: String
+        let transformation: AISelectedTextTransformation
         let application: Application
         let completion: (Bool) -> Void
     }
@@ -54,9 +55,10 @@ final class MacSelectedTextTransformSession {
         deadline = nil
     }
 
-    func apply(target: SelectedTextReplacement, text: String, application: Application, completion: @escaping (Bool) -> Void) {
+    func apply(target: SelectedTextReplacement, transformation: AISelectedTextTransformation, application: Application,
+               completion: @escaping (Bool) -> Void) {
         if let previous = pending { cancel(target: previous.target) }
-        let request = Pending(target: target, text: text, application: application, completion: completion)
+        let request = Pending(target: target, transformation: transformation, application: application, completion: completion)
         pending = request
         deadline = Task { @MainActor [weak self] in
             do {
@@ -96,12 +98,28 @@ final class MacSelectedTextTransformSession {
         deadline?.cancel()
         deadline = nil
         let client = MacSelectedTextClient(client: activeClient, focus: self, applicationIsActive: request.application.isActive)
+        guard let replacement = Self.confirmedReplacement(request.transformation, client: client) else {
+            request.target.cancel()
+            request.completion(false)
+            return
+        }
         do {
-            try request.target.apply(request.text, to: client)
+            try request.target.apply(replacement, to: client)
             request.completion(true)
         } catch {
             request.completion(false)
         }
+    }
+
+    /// Core decides from fresh reads of the focused client whether the
+    /// confirmed result may replace the original selection.
+    private static func confirmedReplacement(_ confirmed: AISelectedTextTransformation, client: MacSelectedTextClient) -> String? {
+        var transformation = confirmed
+        let field = client.aiTextField()
+        guard transformation.checkReturn(to: field) else {
+            return nil
+        }
+        return transformation.takeReplacement(for: field, witness: client.aiSelectionWitness())
     }
 
     private func reject(requestID: UUID) {

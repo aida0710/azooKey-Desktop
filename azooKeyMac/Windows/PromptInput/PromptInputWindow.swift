@@ -12,8 +12,8 @@ extension Notification.Name {
 
 final class PromptInputWindow: NSWindow {
     private var completion: ((String?) -> Void)?
-    private var previewCallback: ((String, Bool, @escaping (Result<String, TransformationPreviewError>) -> Void) -> Void)?
-    private var applyCallback: ((String) -> Void)?
+    private var previewCallback: PromptInputView.PreviewSender?
+    private var applyCallback: ((AISelectedTextTransformation) -> Void)?
     private var isTextFieldCurrentlyFocused: Bool = false
     private var request: PromptInputRequest?
     private var requestIdentifier = UUID()
@@ -61,18 +61,16 @@ final class PromptInputWindow: NSWindow {
         }
         let requestIdentifier = self.requestIdentifier
         let contentView = PromptInputView(
-            initialPrompt: request.initialPrompt,
-            requestConfiguration: request.configuration,
-            targetText: request.targetText,
-            onPreview: { [weak self] prompt, includeContext, callback in
+            request: request,
+            onPreview: { [weak self] arguments, callback in
                 guard let self, self.isCurrentRequest(requestIdentifier) else {
                     callback(.failure(.targetChanged))
                     return
                 }
-                self.previewCallback?(prompt, includeContext, callback)
+                self.previewCallback?(arguments, callback)
             },
-            onApply: { [weak self] text, prompt in
-                self?.finish(prompt: prompt, textToApply: text, requestIdentifier: requestIdentifier)
+            onApply: { [weak self] confirmed, prompt in
+                self?.finish(prompt: prompt, confirmed: confirmed, requestIdentifier: requestIdentifier)
             },
             onCancel: { [weak self] in
                 self?.finish(prompt: nil, requestIdentifier: requestIdentifier)
@@ -94,8 +92,8 @@ final class PromptInputWindow: NSWindow {
     func showPromptInput(
         at cursorLocation: NSPoint,
         request: PromptInputRequest,
-        onPreview: @escaping (String, Bool, @escaping (Result<String, TransformationPreviewError>) -> Void) -> Void,
-        onApply: @escaping (String) -> Void,
+        onPreview: @escaping PromptInputView.PreviewSender,
+        onApply: @escaping (AISelectedTextTransformation) -> Void,
         completion: @escaping (String?) -> Void
     ) {
         self.previewCallback = onPreview
@@ -187,7 +185,7 @@ final class PromptInputWindow: NSWindow {
         request != nil && requestIdentifier == identifier
     }
 
-    private func finish(prompt: String?, textToApply: String? = nil, requestIdentifier: UUID? = nil) {
+    private func finish(prompt: String?, confirmed: AISelectedTextTransformation? = nil, requestIdentifier: UUID? = nil) {
         guard requestIdentifier.map(isCurrentRequest) ?? true else {
             return
         }
@@ -203,8 +201,8 @@ final class PromptInputWindow: NSWindow {
         super.close()
         self.contentView = nil
         completion?(prompt)
-        if let textToApply {
-            apply?(textToApply)
+        if let confirmed {
+            apply?(confirmed)
         } else if let previousApp {
             previousApp.activate(options: [])
         }

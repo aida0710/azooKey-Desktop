@@ -225,7 +225,6 @@
 "settings.unknown_key" = "未対応の設定項目「%@」があります。";
 "settings.window_title" = "azooKey Tree の設定";
 "settings.write_failed" = "設定ファイルを保存できませんでした。ファイルとフォルダーの権限を確認してください。";
-"shortcut.conflict" = "次の指示のショートカットを置き換えます：";
 "shortcut.enabled" = "ショートカットを使う";
 "shortcut.help" = "修飾キーと文字を押して登録します。Tabで次の項目、Shift+Tabで前の項目へ移動します。Escapeで記録を中止、Deleteで既定に戻します。";
 "shortcut.recording" = "キーを入力…";

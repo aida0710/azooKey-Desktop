@@ -3,22 +3,27 @@ import Foundation
 import SwiftUI
 
 struct PromptInputView: View {
+    /// Sends the arguments Core prepared and reports the reply or why it failed.
+    typealias PreviewSender = (AIRequestArguments, @escaping (Result<String, TransformationPreviewError>) -> Void) -> Void
+
     @State private var promptText: String = ""
-    @State private var preview = AITransformationPreview()
+    /// Core decides what is sent, which preview is current and what may be applied.
+    @State private var transformation: AISelectedTextTransformation
     @State private var showPreview: Bool = false
     @State private var previewError: String?
-    @State private var promptHistory: [PromptHistoryItem] = []
+    @State private var historyError: String?
+    @State private var promptHistory: [AIPromptHistory.Item] = []
     @State private var hoveredHistoryIndex: Int?
     @State private var isNavigatingHistory: Bool = false
-    @State private var includeContext: Bool = Config.IncludeContextInAITransform().value
-    @State private var editingShortcutFor: PromptHistoryItem?
+    @State private var includeContext: Bool
+    @State private var editingShortcut: ShortcutEditorTarget?
     @FocusState private var isTextFieldFocused: Bool
 
-    let initialPrompt: String?
-    let requestConfiguration: AIRequestConfiguration
-    let targetText: String
-    private var previewText: String { preview.applicableText ?? "" }
-    private var isLoading: Bool { preview.isLoading }
+    let request: PromptInputRequest
+    private let history = MacPromptHistory.open()
+    private var requestConfiguration: AIRequestConfiguration { request.configuration }
+    private var previewText: String { transformation.applicableText ?? "" }
+    private var isLoading: Bool { transformation.isLoading }
     private var modelDisplayName: String {
         switch requestConfiguration.backend {
         case .foundationModels:
@@ -28,10 +33,22 @@ struct PromptInputView: View {
         }
     }
 
-    let onPreview: (String, Bool, @escaping (Result<String, TransformationPreviewError>) -> Void) -> Void
-    let onApply: (_ text: String, _ prompt: String) -> Void
+    let onPreview: PreviewSender
+    let onApply: (_ confirmed: AISelectedTextTransformation, _ prompt: String) -> Void
     let onCancel: () -> Void
     let onPreviewModeChanged: (Bool) -> Void
+
+    init(request: PromptInputRequest, onPreview: @escaping PreviewSender,
+         onApply: @escaping (_ confirmed: AISelectedTextTransformation, _ prompt: String) -> Void,
+         onCancel: @escaping () -> Void, onPreviewModeChanged: @escaping (Bool) -> Void) {
+        self.request = request
+        self._transformation = State(initialValue: request.transformation)
+        self._includeContext = State(initialValue: request.transformation.content.includesContextByDefault)
+        self.onPreview = onPreview
+        self.onApply = onApply
+        self.onCancel = onCancel
+        self.onPreviewModeChanged = onPreviewModeChanged
+    }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -86,10 +103,10 @@ struct PromptInputView: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
 
-            AIRequestScopeView(configuration: requestConfiguration, targetText: targetText)
+            AIRequestScopeView(configuration: requestConfiguration, targetText: transformation.content.target)
                 .padding(.horizontal, 12)
-            if let previewError {
-                AccessibleStatusMessage(text: previewError)
+            if let message = historyError ?? previewError {
+                AccessibleStatusMessage(text: message)
                     .font(.callout)
                     .foregroundStyle(.red)
                     .padding(.horizontal, 12)
@@ -106,7 +123,7 @@ struct PromptInputView: View {
                         return
                     }
                     if let index = hoveredHistoryIndex {
-                        selectHistory(getVisibleHistory()[index])
+                        selectHistory(promptHistory[index])
                     } else if showPreview {
                         // Apply when Enter is pressed in preview mode
                         applyPreview()
@@ -159,25 +176,25 @@ struct PromptInputView: View {
 
                     ScrollView(.vertical, showsIndicators: true) {
                         VStack(spacing: 1) {
-                            ForEach(Array(getVisibleHistory().enumerated()), id: \.offset) { index, item in
+                            ForEach(Array(promptHistory.enumerated()), id: \.offset) { index, item in
                                 HStack(spacing: 4) {
                                     // Pin button
                                     Button {
                                         togglePin(for: item)
                                     } label: {
-                                        Image(systemName: item.isPinned ? "pin.fill" : "pin")
+                                        Image(systemName: item.pinned ? "pin.fill" : "pin")
                                             .font(.system(size: 9))
-                                            .foregroundColor(item.isPinned ? .accentColor : .secondary.opacity(0.4))
+                                            .foregroundColor(item.pinned ? .accentColor : .secondary.opacity(0.4))
                                     }
                                     .buttonStyle(PlainButtonStyle())
-                                    .help(Localization.text(item.isPinned ? "ai.unpin" : "ai.pin"))
-                                    .accessibilityLabel(Localization.text(item.isPinned ? "ai.unpin" : "ai.pin"))
+                                    .help(Localization.text(item.pinned ? "ai.unpin" : "ai.pin"))
+                                    .accessibilityLabel(Localization.text(item.pinned ? "ai.unpin" : "ai.pin"))
                                     .accessibilityValue(item.prompt)
 
                                     // Shortcut button (only for pinned items)
-                                    if item.isPinned {
+                                    if item.pinned {
                                         Button {
-                                            editingShortcutFor = item
+                                            editingShortcut = ShortcutEditorTarget(item: item)
                                         } label: {
                                             if let shortcut = item.shortcut {
                                                 Text(shortcut.displayString)
@@ -305,7 +322,7 @@ struct PromptInputView: View {
                         applyPreview()
                     }
                     .buttonStyle(ModernPrimaryButtonStyle())
-                    .disabled(preview.applicableText == nil)
+                    .disabled(transformation.applicableText == nil)
                 } else {
                     // Include context checkbox
                     Toggle(isOn: $includeContext) {
@@ -326,7 +343,7 @@ struct PromptInputView: View {
                         requestPreview()
                     }
                     .buttonStyle(ModernPrimaryButtonStyle())
-                    .disabled(promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
+                    .disabled(transformation.refusal(forPrompt: promptText) != nil)
                 }
             }
             .padding(.horizontal, 12)
@@ -339,10 +356,10 @@ struct PromptInputView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .onAppear {
             // Reset all state variables when the view appears
-            let trimmedInitialPrompt = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines)
-            promptText = trimmedInitialPrompt ?? ""
-            preview.invalidate()
+            promptText = request.initialPrompt.map(AISelectedTextTransformation.instruction) ?? ""
+            transformation.invalidatePreview()
             previewError = nil
+            historyError = nil
             showPreview = false
             hoveredHistoryIndex = nil
             isNavigatingHistory = false
@@ -355,7 +372,7 @@ struct PromptInputView: View {
 
             isTextFieldFocused = true
         }
-        .onDisappear { preview.invalidate() }
+        .onDisappear { transformation.invalidatePreview() }
         .onReceive(NotificationCenter.default.publisher(for: .navigateHistoryUp)) { _ in
             navigateHistory(direction: .up)
         }
@@ -367,202 +384,133 @@ struct PromptInputView: View {
             hoveredHistoryIndex = nil
             isTextFieldFocused = true
         }
-        .sheet(item: $editingShortcutFor) { item in
+        .sheet(item: $editingShortcut) { target in
             ShortcutEditorSheet(
-                item: item,
-                allItems: promptHistory,
-                onSave: { updatedItem in
-                    updateShortcut(for: updatedItem)
-                    editingShortcutFor = nil
+                item: target.item,
+                onSave: { shortcut in
+                    let refusal = changeHistory {
+                        try history.save(target.item.prompt, pinned: target.item.pinned, shortcut: shortcut)
+                    }
+                    if refusal == nil {
+                        editingShortcut = nil
+                    }
+                    return refusal
                 },
                 onCancel: {
-                    editingShortcutFor = nil
+                    editingShortcut = nil
                 }
             )
         }
     }
 
     private func requestPreview() {
-        let trimmedPrompt = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPrompt.isEmpty, !isLoading else {
+        guard transformation.refusal(forPrompt: promptText) == nil else {
             return
         }
-
-        // Save prompt to history
-        savePromptToHistory(trimmedPrompt)
+        // The instruction is kept before anything is sent; a history that
+        // cannot be saved stops the request, as on the other desktops.
+        historyError = changeHistory { try history.recordUse(AISelectedTextTransformation.instruction(promptText)) }
+        guard historyError == nil else {
+            return
+        }
 
         // Reset hover when requesting preview
         hoveredHistoryIndex = nil
 
-        performPreview(trimmedPrompt)
+        performPreview()
     }
 
     private func reloadPreview() {
-        let trimmedPrompt = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPrompt.isEmpty, !isLoading else {
+        guard transformation.refusal(forPrompt: promptText) == nil else {
             return
         }
 
         // Don't save to history again since this is a reload
         hoveredHistoryIndex = nil
 
-        performPreview(trimmedPrompt)
+        performPreview()
     }
 
-    private func performPreview(_ prompt: String) {
+    private func performPreview() {
         previewError = nil
-        let request = preview.begin()
-        onPreview(prompt, includeContext) { outcome in
+        guard let started = try? transformation.beginPreview(
+            prompt: promptText, includeContext: includeContext, field: request.openedField
+        ) else {
+            return
+        }
+        guard let arguments = started.arguments else {
+            // Core ended this preview without sending anything.
+            previewError = TransformationPreviewError.requestFailed.message
+            return
+        }
+        onPreview(arguments) { outcome in
             DispatchQueue.main.async {
                 withAnimation(.easeInOut(duration: 0.3)) {
-                    switch outcome {
-                    case .success(let text):
-                        guard self.preview.complete(text, for: request) else {
-                            return
-                        }
-                        self.showPreview = self.preview.applicableText != nil
-                    case .failure(let error):
-                        guard self.preview.complete(nil, for: request) else {
-                            return
-                        }
-                        self.previewError = error.message
-                        self.showPreview = false
+                    let text = try? outcome.get()
+                    // The prompt window holds the focus, so the original field's
+                    // input context is judged again when the result is applied.
+                    guard self.transformation.completePreview(
+                        revision: started.revision, text: text, inputContextChanged: false
+                    ) else {
+                        return
                     }
+                    if case .failure(let error) = outcome {
+                        self.previewError = error.message
+                    }
+                    self.showPreview = self.transformation.applicableText != nil
                     self.onPreviewModeChanged(self.showPreview)
                 }
             }
         }
     }
 
+    /// The result reaches the document only if Core still finds the original
+    /// selection when focus returns; otherwise it is offered for copying.
     private func applyPreview() {
-        guard let text = preview.applicableText else {
+        guard transformation.applicableText != nil else {
             return
         }
-        onApply(text, promptText)
+        transformation.confirm()
+        onApply(transformation, promptText)
     }
 
     private func invalidatePreview() {
-        preview.invalidate()
+        transformation.invalidatePreview()
         previewError = nil
         showPreview = false
         onPreviewModeChanged(false)
     }
 
     private func loadPromptHistory() {
-        // Try to load as Data first (new format)
-        if let data = Config.data(forKey: Config.PromptHistory.key) {
-            if let history = try? JSONDecoder().decode([PromptHistoryItem].self, from: data) {
-                promptHistory = history
-                return
-            } else if let oldHistory = try? JSONDecoder().decode([String].self, from: data) {
-                // Convert old format to new format
-                promptHistory = oldHistory.map { PromptHistoryItem(prompt: $0, isPinned: false) }
-                savePinnedHistory() // Save in new format
-                return
-            }
-        }
-
-        // Fallback to string format (legacy)
-        let historyString = Config.string(forKey: Config.PromptHistory.key) ?? ""
-        if !historyString.isEmpty,
-           let data = historyString.data(using: .utf8) {
-            if let history = try? JSONDecoder().decode([PromptHistoryItem].self, from: data) {
-                promptHistory = history
-                savePinnedHistory() // Migrate to new format
-            } else if let oldHistory = try? JSONDecoder().decode([String].self, from: data) {
-                // Convert old format to new format
-                promptHistory = oldHistory.map { PromptHistoryItem(prompt: $0, isPinned: false) }
-                savePinnedHistory() // Save in new format
-            }
-        }
-
-        // Add default pinned prompts if history is empty
-        if promptHistory.isEmpty {
-            promptHistory = [
-                PromptHistoryItem(prompt: Localization.text("ai.example.elaborate"), isPinned: true),
-                PromptHistoryItem(prompt: Localization.text("ai.example.rewrite"), isPinned: true),
-                PromptHistoryItem(prompt: Localization.text("ai.example.formal"), isPinned: true),
-                PromptHistoryItem(prompt: Localization.text("ai.example.english"), isPinned: true)
-            ]
-            savePinnedHistory()
-        }
+        promptHistory = history.load()
     }
 
-    private func selectHistory(_ item: PromptHistoryItem) {
+    private func selectHistory(_ item: AIPromptHistory.Item) {
         invalidatePreview()
         promptText = item.prompt
         hoveredHistoryIndex = nil
         isTextFieldFocused = true
     }
 
-    private func getVisibleHistory() -> [PromptHistoryItem] {
-        // Sort pinned items by lastUsed date (most recent first)
-        let pinnedItems = promptHistory.filter { $0.isPinned }.sorted { $0.lastUsed > $1.lastUsed }
-        let recentItems = promptHistory.filter { !$0.isPinned }.prefix(max(0, 10 - pinnedItems.count))
-        return Array(pinnedItems + recentItems)
+    private func togglePin(for item: AIPromptHistory.Item) {
+        historyError = changeHistory { try history.save(item.prompt, pinned: !item.pinned, shortcut: item.shortcut) }
     }
 
-    private func togglePin(for item: PromptHistoryItem) {
-        if let index = promptHistory.firstIndex(where: { $0.id == item.id }) {
-            promptHistory[index].isPinned.toggle()
-            savePinnedHistory()
+    /// Applies one change to the history file and shows the history again.
+    /// Returns the message that explains a refused change, or nil.
+    private func changeHistory(_ change: () throws -> Void) -> String? {
+        defer { loadPromptHistory() }
+        do {
+            try change()
+            return nil
+        } catch {
+            return Self.historyErrorMessage(error)
         }
     }
 
-    private func updateShortcut(for item: PromptHistoryItem) {
-        if let index = promptHistory.firstIndex(where: { $0.id == item.id }) {
-            // Clear conflicting keyboard shortcuts from other items
-            if let newShortcut = item.shortcut {
-                for i in promptHistory.indices where i != index {
-                    if promptHistory[i].shortcut == newShortcut {
-                        promptHistory[i].shortcut = nil
-                    }
-                }
-            }
-
-            // Update the item
-            promptHistory[index].shortcut = item.shortcut
-            savePinnedHistory()
-        }
-    }
-
-    private func savePromptToHistory(_ prompt: String) {
-        // Check if prompt already exists and preserve its pinned status
-        if let existingIndex = promptHistory.firstIndex(where: { $0.prompt == prompt }) {
-            // Update lastUsed time and move to appropriate position
-            let existingItem = promptHistory[existingIndex]
-            promptHistory.remove(at: existingIndex)
-
-            // Create updated item with new lastUsed time but preserve pinned status and shortcut
-            var updatedItem = PromptHistoryItem(prompt: prompt, isPinned: existingItem.isPinned, shortcut: existingItem.shortcut)
-            updatedItem.id = existingItem.id
-
-            if existingItem.isPinned {
-                // For pinned items, just update in place (sorting will handle position)
-                promptHistory.append(updatedItem)
-            } else {
-                // For non-pinned items, add to front
-                promptHistory.insert(updatedItem, at: 0)
-            }
-        } else {
-            // Add new item to front (non-pinned)
-            let newItem = PromptHistoryItem(prompt: prompt, isPinned: false)
-            promptHistory.insert(newItem, at: 0)
-        }
-
-        // Keep only last 10 non-pinned prompts
-        let pinnedItems = promptHistory.filter { $0.isPinned }
-        let recentItems = promptHistory.filter { !$0.isPinned }.prefix(10)
-        promptHistory = Array(pinnedItems + recentItems)
-
-        // Save to UserDefaults
-        savePinnedHistory()
-    }
-
-    private func savePinnedHistory() {
-        if let data = try? JSONEncoder().encode(promptHistory) {
-            Config.set(data, forKey: Config.PromptHistory.key)
-        }
+    private static func historyErrorMessage(_ error: any Error) -> String {
+        let failure = error as? AIPromptHistory.Failure
+        return Localization.text(failure == .duplicateShortcut ? "ai.shortcut.error.duplicate" : "ai.history.error.save")
     }
 
     private enum NavigationDirection {
@@ -570,7 +518,7 @@ struct PromptInputView: View {
     }
 
     private func navigateHistory(direction: NavigationDirection) {
-        let visibleHistory = getVisibleHistory()
+        let visibleHistory = promptHistory
         guard !visibleHistory.isEmpty else {
             hoveredHistoryIndex = nil
             return
@@ -615,15 +563,22 @@ struct PromptInputView: View {
 }
 
 #Preview {
+    let field = AITextField(
+        identity: ["preview"], surrounding: .init(text: "確認する本文", cursorUTF16: 6, anchorUTF16: 0),
+        hasSurroundingUpdate: true, isSensitive: false
+    )
+    let configuration = AIRequestConfiguration(
+        backend: .openAI, modelName: "preview", apiKey: "", apiEndpoint: "https://example.invalid"
+    )
     PromptInputView(
-        initialPrompt: nil,
-        requestConfiguration: AIRequestConfiguration(
-            backend: .openAI, modelName: "preview", apiKey: "", apiEndpoint: "https://example.invalid"
+        request: PromptInputRequest(
+            initialPrompt: nil, configuration: configuration,
+            transformation: AISelectedTextTransformation(id: 0, field: field, configuration: configuration.desktopConfiguration())!,
+            openedField: field
         ),
-        targetText: "確認する本文",
-        onPreview: { prompt, _, callback in
+        onPreview: { arguments, callback in
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                callback(.success("Transformed: \(prompt)"))
+                callback(.success("Transformed: \(arguments.prompt ?? "")"))
             }
         },
         onApply: { _, _ in
