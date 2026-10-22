@@ -9,10 +9,12 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "candidate_accessibility.h"
 #include "candidate_theme.h"
 #include "shared/bridge_protocol.h"
 
@@ -99,8 +101,11 @@ private:
     Hit HitTest(POINT clientPixels) const;
     void Activate(const Hit& hit, bool doubleClick);
 
+    void UpdateAccessibility();
+
     Actions actions_;
     HWND window_ = nullptr;
+    std::unique_ptr<CandidateAccessibility> accessibility_;
     Mode mode_ = Mode::Hidden;
     UINT dpi_ = 96;
     CandidateAppearance appearance_ = CandidateAppearance::Light;

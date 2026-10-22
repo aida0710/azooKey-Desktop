@@ -62,6 +62,8 @@ bool EnsureFactories() {
 CandidatePanel::CandidatePanel(Actions actions) : actions_(std::move(actions)) {}
 
 CandidatePanel::~CandidatePanel() {
+    // UIA providers refer to the window, so they go first.
+    accessibility_.reset();
     ReleaseDeviceResources();
     SafeRelease(&textFormat_);
     SafeRelease(&smallFormat_);
@@ -96,6 +98,14 @@ bool CandidatePanel::EnsureWindow() {
     if (!window_) return false;
     DWM_WINDOW_CORNER_PREFERENCE corners = DWMWCP_ROUNDSMALL;
     DwmSetWindowAttribute(window_, DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof(corners));
+    CandidateAccessibility::Actions accessibilityActions;
+    accessibilityActions.select = [this](int candidateIndex) {
+        if (actions_.selectCandidate) actions_.selectCandidate(candidateIndex);
+    };
+    accessibilityActions.confirm = [this](int candidateIndex) {
+        if (actions_.confirmCandidate) actions_.confirmCandidate(candidateIndex);
+    };
+    accessibility_ = std::make_unique<CandidateAccessibility>(window_, std::move(accessibilityActions));
     return true;
 }
 
@@ -239,6 +249,27 @@ void CandidatePanel::ShowList(const protocol::Snapshot& snapshot, const RECT& an
     // Above the line when there is no room below, never covering the caret.
     if (y + height > work.bottom) y = std::max<int>(work.top, anchor.top - gap - height);
     PlaceWindow(x, y, panelWidth_, panelHeight_);
+    UpdateAccessibility();
+}
+
+void CandidatePanel::UpdateAccessibility() {
+    if (!accessibility_) return;
+    RECT window{};
+    GetWindowRect(window_, &window);
+    float scale = dpi_ / 96.0f;
+    std::vector<AccessibleCandidate> items;
+    std::wstring announcement;
+    for (const auto& row : rows_) {
+        AccessibleCandidate item;
+        item.candidateIndex = row.candidateIndex;
+        item.name = row.text;
+        item.bounds = {window.left + static_cast<LONG>(row.frame.left * scale), window.top + static_cast<LONG>(row.frame.top * scale),
+                       window.left + static_cast<LONG>(row.frame.right * scale), window.top + static_cast<LONG>(row.frame.bottom * scale)};
+        item.selected = row.selected;
+        if (row.selected) announcement = row.text;
+        items.push_back(std::move(item));
+    }
+    accessibility_->Update(std::move(items), announcement);
 }
 
 void CandidatePanel::ShowTree(const protocol::Snapshot& snapshot, const TreePresentation& tree, POINT origin) {
@@ -259,6 +290,7 @@ void CandidatePanel::ShowTree(const protocol::Snapshot& snapshot, const TreePres
 
 void CandidatePanel::Hide() {
     mode_ = Mode::Hidden;
+    if (accessibility_) accessibility_->Clear();
     if (window_) ShowWindow(window_, SW_HIDE);
 }
 
@@ -453,6 +485,11 @@ LRESULT CALLBACK CandidatePanel::WindowProcedure(HWND window, UINT message, WPAR
     case WM_MOUSEACTIVATE:
         // Clicking the panel must not move focus away from the text being edited.
         return MA_NOACTIVATE;
+    case WM_GETOBJECT:
+        if (self && self->accessibility_) {
+            if (LRESULT result = self->accessibility_->HandleGetObject(wParam, lParam)) return result;
+        }
+        break;
     case WM_PAINT: {
         PAINTSTRUCT paint;
         BeginPaint(window, &paint);
@@ -473,6 +510,7 @@ LRESULT CALLBACK CandidatePanel::WindowProcedure(HWND window, UINT message, WPAR
         break;
     case WM_NCDESTROY:
         if (self) {
+            self->accessibility_.reset();
             self->ReleaseDeviceResources();
             self->window_ = nullptr;
         }
