@@ -5,7 +5,7 @@
 
 #include <string>
 
-namespace azookey::settings {
+namespace azookey::ui {
 
 // A visible child control. Edits that take text get WS_TABSTOP from `style`.
 HWND CreateChildControl(HWND parent, const wchar_t* className, const std::wstring& text, DWORD style, int id,
@@ -17,4 +17,4 @@ std::wstring ToEditLineBreaks(const std::wstring& text);
 std::wstring FromEditLineBreaks(const std::wstring& text);
 void MoveControl(HWND control, int x, int y, int width, int height);
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

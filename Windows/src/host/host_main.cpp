@@ -3,6 +3,7 @@
 // single converter so the dictionary and learning data load once.
 //
 // Options (for tests): --pipe <name> --bridge <exe> --data <directory> --resources <directory>
+//                      --api-key-credential <target> --ai-transform-window <exe>
 #include <windows.h>
 #include <sddl.h>
 #include <shellapi.h>
@@ -15,15 +16,22 @@
 #include <string>
 #include <thread>
 
+#include "../shared/api_key_credential.h"
 #include "../shared/data_directory.h"
 #include "../shared/host_channel.h"
 #include "../shared/json.h"
+#include "ai_service.h"
+#include "ai_transform_handoff.h"
 #include "bridge_process.h"
+#include "request_route.h"
 #include "settings_reload.h"
 
 namespace {
 
+using azookey::host::AIService;
+using azookey::host::AITransformHandoff;
 using azookey::host::BridgeProcess;
+using azookey::host::RequestRoute;
 using azookey::host::SettingsReload;
 
 constexpr DWORD kPipeBufferBytes = 64 * 1024;
@@ -41,6 +49,8 @@ struct Options {
     std::wstring bridge;
     std::wstring dataDirectory;
     std::wstring resourcesDirectory;
+    std::wstring apiKeyCredential = azookey::credentials::kApiKeyTarget;
+    std::wstring aiTransformWindow;
 };
 
 std::wstring ModuleDirectory() {
@@ -55,6 +65,7 @@ Options ParseOptions() {
     options.bridge = ModuleDirectory() + L"\\bridge\\azookey-desktop-bridge.exe";
     options.dataDirectory = azookey::storage::DefaultDataDirectory();
     options.resourcesDirectory = ModuleDirectory() + L"\\models";
+    options.aiTransformWindow = ModuleDirectory() + L"\\azookey-ai-transform.exe";
     int count = 0;
     wchar_t** arguments = CommandLineToArgvW(GetCommandLineW(), &count);
     for (int i = 1; arguments && i + 1 < count; i += 2) {
@@ -63,6 +74,8 @@ Options ParseOptions() {
         else if (name == L"--bridge") options.bridge = arguments[i + 1];
         else if (name == L"--data") options.dataDirectory = arguments[i + 1];
         else if (name == L"--resources") options.resourcesDirectory = arguments[i + 1];
+        else if (name == L"--api-key-credential") options.apiKeyCredential = arguments[i + 1];
+        else if (name == L"--ai-transform-window") options.aiTransformWindow = arguments[i + 1];
     }
     LocalFree(arguments);
     return options;
@@ -95,7 +108,10 @@ bool CreatePipeSecurity(SECURITY_ATTRIBUTES* attributes, PSECURITY_DESCRIPTOR* d
 class Host {
 public:
     explicit Host(const Options& options)
-        : options_(options), bridge_({options.bridge, options.dataDirectory, options.resourcesDirectory}) {}
+        : options_(options),
+          bridge_({options.bridge, options.dataDirectory, options.resourcesDirectory}),
+          aiService_({options.bridge, options.dataDirectory + L"\\ai", options.apiKeyCredential}),
+          aiTransformHandoff_({options.aiTransformWindow, options.pipeName}) {}
 
     int Run() {
         SECURITY_ATTRIBUTES security{};
@@ -142,16 +158,23 @@ private:
         for (;;) {
             auto line = reader.ReadLine(pipe, kClientReadTimeoutMilliseconds);
             if (!line) break;
-            if (auto request = azookey::json::Parse(*line)) {
-                const std::string& context = (*request)["context"].AsString();
-                if (!context.empty()) contexts.insert(context);
-            }
+            // A line that is not JSON goes to the converter, which answers invalid_request.
+            auto request = azookey::json::Parse(*line);
             std::string reply;
-            {
-                std::lock_guard<std::mutex> lock(bridgeMutex_);
-                settingsReload_.BeforeRequest([this](const std::string& request) { return bridge_.Request(request); },
-                                              bridge_.restarts());
-                reply = bridge_.Request(*line).value_or(kUnavailableReply);
+            switch (request ? azookey::host::RouteFor(*request) : RequestRoute::Conversion) {
+            case RequestRoute::Conversion:
+                if (request && azookey::host::OwnsContext(*request)) contexts.insert((*request)["context"].AsString());
+                reply = Convert(*line);
+                break;
+            case RequestRoute::AIService:
+                reply = aiService_.Handle(*request);
+                break;
+            case RequestRoute::OpenAITransformWindow:
+                reply = aiTransformHandoff_.Open(*request);
+                break;
+            case RequestRoute::TakeAITransform:
+                reply = aiTransformHandoff_.Take(*request);
+                break;
             }
             if (!azookey::channel::WriteAll(pipe, reply + "\n", kClientWriteTimeoutMilliseconds)) break;
         }
@@ -165,10 +188,19 @@ private:
         CloseHandle(pipe);
     }
 
+    std::string Convert(const std::string& line) {
+        std::lock_guard<std::mutex> lock(bridgeMutex_);
+        settingsReload_.BeforeRequest([this](const std::string& request) { return bridge_.Request(request); },
+                                      bridge_.restarts());
+        return bridge_.Request(line).value_or(kUnavailableReply);
+    }
+
     Options options_;
     std::mutex bridgeMutex_;
     BridgeProcess bridge_;
     SettingsReload settingsReload_;  // guarded by bridgeMutex_
+    AIService aiService_;
+    AITransformHandoff aiTransformHandoff_;
 };
 
 }  // namespace

@@ -11,6 +11,10 @@
     "ja": "OpenAI互換API",
     "en": "OpenAI-compatible API"
   },
+  "ai.close": {
+    "ja": "閉じる",
+    "en": "Close"
+  },
   "ai.destination.invalid": {
     "ja": "送信先を確認できません",
     "en": "Unable to identify the destination"
@@ -58,6 +62,14 @@
   "ai.history.choose": {
     "ja": "履歴から指示を選択",
     "en": "Select an instruction from history"
+  },
+  "ai.history.error.save": {
+    "ja": "指示の履歴を保存できませんでした。",
+    "en": "The instruction history could not be saved."
+  },
+  "ai.history.item-with-shortcut": {
+    "ja": "{prompt}（{shortcut}）",
+    "en": "{prompt} ({shortcut})"
   },
   "ai.instruction": {
     "ja": "AIへの指示",
@@ -188,6 +200,22 @@
   "ai.shortcut.edit": {
     "ja": "ショートカットを編集",
     "en": "Edit shortcut"
+  },
+  "ai.shortcut.error.duplicate": {
+    "ja": "このショートカットは別のプロンプトに割り当てられています。",
+    "en": "This shortcut is already assigned to another instruction."
+  },
+  "ai.shortcut.error.format": {
+    "ja": "ショートカットは Ctrl+Alt+e の形式で入力してください。",
+    "en": "Enter the shortcut in the form Ctrl+Alt+e."
+  },
+  "ai.shortcut.error.modifier-required": {
+    "ja": "Ctrl・Alt・Shift・Superのいずれかを指定してください。",
+    "en": "Include Ctrl, Alt, Shift or Super.",
+    "windows": {
+      "ja": "Ctrl・Alt・Shift・Windows キーのいずれかを指定してください。",
+      "en": "Include Ctrl, Alt, Shift or the Windows key."
+    }
   },
   "ai.shortcut.placeholder": {
     "ja": "例：Ctrl+Alt+e",

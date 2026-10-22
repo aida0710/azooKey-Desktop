@@ -6,7 +6,7 @@
 
 #include <string>
 
-namespace azookey::settings {
+namespace azookey::ui {
 
 void SetAccessibleName(HWND control, const std::wstring& name);
 void SetAccessibleDescription(HWND control, const std::wstring& description);
@@ -15,4 +15,4 @@ void MakeLiveRegion(HWND control);
 // Sets the status line's text and announces it.
 void AnnounceText(HWND liveRegion, const std::wstring& text);
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

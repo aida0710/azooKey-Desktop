@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace azookey::settings {
+namespace azookey::ui {
 namespace {
 
 constexpr DWORD kRequestTimeoutMilliseconds = 20000;
@@ -77,4 +77,4 @@ void BridgeWorker::Run() {
     }
 }
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

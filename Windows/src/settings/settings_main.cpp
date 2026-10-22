@@ -17,12 +17,13 @@
 #include "../shared/ui_language.h"
 #include "settings_window.h"
 #include "system_dialogs.h"
-#include "top_level_window.h"
+#include "../ui/top_level_window.h"
 #include "window_classes.h"
 
 namespace {
 
 using namespace azookey::settings;
+namespace ui = azookey::ui;
 
 constexpr wchar_t kSingleInstanceMutex[] = L"Local\\azooKeyTreeSettings";
 // Set once the first start's window exists, so a second start can hand over its page.
@@ -90,7 +91,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     SystemDialogs dialogs(language);
     SettingsWindow::Options options;
     options.language = language;
-    options.connection = BridgeWorker::ConnectionOptions(azookey::channel::HostPipeName(),
+    options.connection = ui::BridgeWorker::ConnectionOptions(azookey::channel::HostPipeName(),
                                                          ModuleDirectory() + L"\\azookey-windows-host.exe");
     options.dialogs = &dialogs;
     options.apiKeyCredential = azookey::credentials::kApiKeyTarget;
@@ -106,7 +107,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         if (ready) SetEvent(ready);
         MSG message;
         while (GetMessageW(&message, nullptr, 0, 0) > 0) {
-            if (TranslateDialogKeys(&message)) continue;
+            if (ui::TranslateDialogKeys(&message)) continue;
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }

@@ -1,6 +1,6 @@
 #include "access_key_label.h"
 
-namespace azookey::settings {
+namespace azookey::ui {
 
 std::wstring EscapeAccessKeyMarkers(const std::wstring& label) {
     std::wstring escaped;
@@ -18,4 +18,4 @@ std::wstring LabelWithAccessKey(const std::wstring& label, const std::string& ac
     return escaped + L" (&" + std::wstring(accessKey.begin(), accessKey.end()) + L")";
 }
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

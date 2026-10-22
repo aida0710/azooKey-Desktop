@@ -10,7 +10,7 @@
 
 #include "ui_metrics.h"
 
-namespace azookey::settings {
+namespace azookey::ui {
 
 class TopLevelWindow {
 public:
@@ -58,4 +58,4 @@ bool TranslateDialogKeys(MSG* message);
 // Runs a message loop with `owner` disabled until `finished` becomes true.
 void RunModalLoop(HWND owner, const bool& finished);
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

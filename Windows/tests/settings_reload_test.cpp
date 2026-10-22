@@ -45,7 +45,7 @@ std::wstring Type(HostConnection& connection, const RequestContext& context, con
     std::optional<azookey::protocol::Snapshot> last;
     for (wchar_t character : romaji) {
         auto event = azookey::keys::Translate(towupper(character), {}, std::wstring(1, character));
-        auto reply = connection.Request(azookey::protocol::KeyRequest(context, event));
+        auto reply = connection.Request(azookey::protocol::KeyRequest(context, event, {}));
         last = reply ? azookey::protocol::ParseSnapshot(*reply) : std::nullopt;
         if (!last) return L"(no reply)";
     }

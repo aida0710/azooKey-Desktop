@@ -4,7 +4,7 @@
 #include <oleacc.h>
 #include <uiautomation.h>
 
-namespace azookey::settings {
+namespace azookey::ui {
 namespace {
 
 // IAccPropServices annotates standard controls without subclassing them.
@@ -45,4 +45,4 @@ void AnnounceText(HWND liveRegion, const std::wstring& text) {
     NotifyWinEvent(EVENT_OBJECT_LIVEREGIONCHANGED, liveRegion, OBJID_CLIENT, CHILDID_SELF);
 }
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

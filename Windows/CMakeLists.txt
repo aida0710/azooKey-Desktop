@@ -37,12 +37,14 @@ if(NOT AZOOKEY_X86)
         src/host/host_main.cpp
         src/host/bridge_process.cpp
         src/host/settings_reload.cpp
+        src/host/request_route.cpp
+        src/host/ai_service.cpp
+        src/host/ai_transform_handoff.cpp
     )
-    target_link_libraries(azookey-windows-host PRIVATE azookey_shared shell32 ole32)
+    target_link_libraries(azookey-windows-host PRIVATE azookey_shared shell32 ole32 bcrypt)
 
     # The settings app's logic without windows, tested by azookey-settings-tests.
     add_library(azookey_settings_model STATIC
-        src/settings/access_key_label.cpp
         src/settings/dictionary_draft.cpp
         src/settings/dictionary_protocol.cpp
         src/settings/dictionary_text.cpp
@@ -55,12 +57,23 @@ if(NOT AZOOKEY_X86)
     )
     target_link_libraries(azookey_settings_model PUBLIC azookey_shared)
 
+    # Win32 window parts shared by the settings app and the AI instruction window:
+    # DPI and fonts, dialog colors, keyboard navigation, accessibility, and the
+    # thread that talks to the host.
+    add_library(azookey_ui STATIC
+        src/ui/access_key_label.cpp
+        src/ui/bridge_worker.cpp
+        src/ui/child_controls.cpp
+        src/ui/clipboard.cpp
+        src/ui/command_map.cpp
+        src/ui/control_accessibility.cpp
+        src/ui/top_level_window.cpp
+        src/ui/ui_metrics.cpp
+    )
+    target_link_libraries(azookey_ui PUBLIC azookey_shared user32 gdi32 comctl32 oleacc ole32)
+
     # The settings windows, shared by the app and its screen test.
     add_library(azookey_settings_screens STATIC
-        src/settings/bridge_worker.cpp
-        src/settings/child_controls.cpp
-        src/settings/command_map.cpp
-        src/settings/control_accessibility.cpp
         src/settings/dictionary_window.cpp
         src/settings/file_replace.cpp
         src/settings/import_preview_window.cpp
@@ -71,19 +84,30 @@ if(NOT AZOOKEY_X86)
         src/settings/shortcut_field.cpp
         src/settings/support_panel.cpp
         src/settings/system_dialogs.cpp
-        src/settings/top_level_window.cpp
-        src/settings/ui_metrics.cpp
         src/settings/window_classes.cpp
     )
-    target_link_libraries(azookey_settings_screens PUBLIC azookey_settings_model user32 gdi32 comctl32 oleacc ole32 shell32 uuid)
+    target_link_libraries(azookey_settings_screens PUBLIC azookey_settings_model azookey_ui shell32 uuid)
 
     # The manifest selects common controls 6 and Per-Monitor V2 DPI awareness.
     add_executable(azookey-settings WIN32
         src/settings/settings_main.cpp
         src/settings/azookey-settings.rc
-        src/settings/azookey-settings.manifest
+        src/ui/azookey-ui.manifest
     )
     target_link_libraries(azookey-settings PRIVATE azookey_settings_screens)
+
+    # The AI instruction window; the host starts it for a text service.
+    add_library(azookey_ai_transform STATIC
+        src/ai_transform/ai_transform_protocol.cpp
+        src/ai_transform/ai_transform_window.cpp
+    )
+    target_link_libraries(azookey_ai_transform PUBLIC azookey_ui)
+    add_executable(azookey-ai-transform WIN32
+        src/ai_transform/ai_transform_main.cpp
+        src/ai_transform/azookey-ai-transform.rc
+        src/ui/azookey-ui.manifest
+    )
+    target_link_libraries(azookey-ai-transform PRIVATE azookey_ai_transform shell32)
 endif()
 
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/textservice/dll_main.cpp)
@@ -110,12 +134,26 @@ if(NOT AZOOKEY_X86)
     add_executable(azookey-settings-ui-test
         tests/settings_ui_test.cpp
         tests/screen_capture.cpp
-        src/settings/azookey-settings.manifest
+        src/ui/azookey-ui.manifest
     )
     target_link_libraries(azookey-settings-ui-test PRIVATE azookey_settings_screens dwmapi windowscodecs)
 
     add_executable(azookey-settings-reload-test tests/settings_reload_test.cpp)
     target_link_libraries(azookey-settings-reload-test PRIVATE azookey_shared)
+
+    # The host's AI path against a stub AI API on 127.0.0.1; the probe stands in for the instruction window.
+    add_executable(azookey-ai-host-test tests/ai_host_test.cpp tests/chat_completions_stub.cpp)
+    target_link_libraries(azookey-ai-host-test PRIVATE azookey_shared ws2_32)
+    add_executable(azookey-ai-transform-probe WIN32 tests/ai_transform_probe.cpp)
+    target_link_libraries(azookey-ai-transform-probe PRIVATE azookey_shared shell32)
+
+    # Drives the AI instruction window against a stand-in host.
+    add_executable(azookey-ai-transform-window-test
+        tests/ai_transform_window_test.cpp
+        tests/screen_capture.cpp
+        src/ui/azookey-ui.manifest
+    )
+    target_link_libraries(azookey-ai-transform-window-test PRIVATE azookey_ai_transform dwmapi windowscodecs)
 endif()
 
 add_executable(tsf-harness tests/tsf_harness.cpp tests/screen_capture.cpp)

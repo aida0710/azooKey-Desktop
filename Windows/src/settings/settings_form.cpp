@@ -6,9 +6,9 @@
 #include <cwchar>
 
 #include "../shared/text_encoding.h"
-#include "child_controls.h"
+#include "../ui/child_controls.h"
 #include "settings_protocol.h"
-#include "control_accessibility.h"
+#include "../ui/control_accessibility.h"
 #include "shortcut.h"
 
 namespace azookey::settings {
@@ -41,7 +41,7 @@ std::optional<long long> ParseInteger(const std::wstring& text) {
 }  // namespace
 
 SettingsForm::SettingsForm(const Schema& schema, messages::Language language, HWND pageParent, HWND commandTarget,
-                           CommandMap& commands, Actions actions)
+                           ui::CommandMap& commands, Actions actions)
     : schema_(schema), language_(language), commandTarget_(commandTarget), commands_(commands), actions_(std::move(actions)) {
     for (const auto& page : schema_.pages) {
         pages_.push_back(std::make_unique<PageView>(pageParent, commandTarget_));
@@ -77,7 +77,7 @@ HWND SettingsForm::AddText(const std::wstring& text, PageView& view, int gapBefo
 
 void SettingsForm::AddLabel(const std::wstring& text, const std::string& accessKey, PageView& view) {
     // Without SS_NOPREFIX the label's access key moves focus to the next control.
-    HWND label = view.AddControl(WC_STATICW, LabelWithAccessKey(text, accessKey), SS_LEFT, commands_.Reserve());
+    HWND label = view.AddControl(WC_STATICW, ui::LabelWithAccessKey(text, accessKey), SS_LEFT, commands_.Reserve());
     view.AddRow({{label}, RowSizing::WrappedText, kSettingGap});
 }
 
@@ -90,7 +90,7 @@ void SettingsForm::AddSetting(const SettingItem& item, WidgetKind kind, PageView
     int gapAfterLabel = kLabelGap;
     switch (kind) {
     case WidgetKind::CheckBox:
-        setting.control = view.AddControl(WC_BUTTONW, LabelWithAccessKey(label, item.accessKey),
+        setting.control = view.AddControl(WC_BUTTONW, ui::LabelWithAccessKey(label, item.accessKey),
                                           WS_TABSTOP | BS_AUTOCHECKBOX | BS_MULTILINE | BS_NOTIFY, commands_.Reserve());
         view.AddRow({{setting.control}, RowSizing::CheckBox, kSettingGap});
         break;
@@ -149,7 +149,7 @@ void SettingsForm::AddSetting(const SettingItem& item, WidgetKind kind, PageView
         return;
     }
     // Check boxes and buttons are named by their own text.
-    if (kind != WidgetKind::CheckBox && kind != WidgetKind::DictionaryButton) SetAccessibleName(setting.control, label);
+    if (kind != WidgetKind::CheckBox && kind != WidgetKind::DictionaryButton) ui::SetAccessibleName(setting.control, label);
     std::wstring accessibleDescription = description;
     if (!description.empty()) AddText(description, view, kExplanationGap);
     if (!item.available) {
@@ -158,12 +158,12 @@ void SettingsForm::AddSetting(const SettingItem& item, WidgetKind kind, PageView
         setting.unavailableReason = AddText(reason, view, kExplanationGap);
         accessibleDescription += accessibleDescription.empty() ? reason : L"\n" + reason;
     }
-    if (!accessibleDescription.empty()) SetAccessibleDescription(setting.control, accessibleDescription);
+    if (!accessibleDescription.empty()) ui::SetAccessibleDescription(setting.control, accessibleDescription);
     settings_.push_back(std::move(setting));
 }
 
 void SettingsForm::AddAction(const Action& action, PageView& view) {
-    HWND button = view.AddControl(WC_BUTTONW, EscapeAccessKeyMarkers(Text(action.labelKey)), kButtonStyle,
+    HWND button = view.AddControl(WC_BUTTONW, ui::EscapeAccessKeyMarkers(Text(action.labelKey)), kButtonStyle,
                                   commands_.Register([this, action](unsigned notification) {
                                       if (notification == BN_CLICKED && actions_.runAction) actions_.runAction(action);
                                   }));
@@ -173,7 +173,7 @@ void SettingsForm::AddAction(const Action& action, PageView& view) {
         EnableWindow(button, FALSE);
         std::wstring reason = Text(action.unavailableReasonKey);
         AddText(reason, view, kExplanationGap);
-        SetAccessibleDescription(button, reason);
+        ui::SetAccessibleDescription(button, reason);
     }
 }
 
@@ -185,10 +185,10 @@ void SettingsForm::AddSecret(const Secret& secret, PageView& view) {
     std::wstring placeholder = Text(secret.placeholderKey);
     SendMessageW(secretEdit_, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(placeholder.c_str()));
     view.AddRow({{secretEdit_}, RowSizing::Field, kLabelGap});
-    SetAccessibleName(secretEdit_, label);
+    ui::SetAccessibleName(secretEdit_, label);
     std::wstring description = Text(secret.descriptionKey);
     AddText(description, view, kExplanationGap);
-    SetAccessibleDescription(secretEdit_, placeholder + L"\n" + description);
+    ui::SetAccessibleDescription(secretEdit_, placeholder + L"\n" + description);
 }
 
 void SettingsForm::Show(const json::Value& values) {
@@ -211,7 +211,7 @@ void SettingsForm::Show(const json::Value& values) {
             break;
         case WidgetKind::SingleLineEdit:
         case WidgetKind::MultiLineEdit:
-            SetWindowTextW(setting.control, ToEditLineBreaks(text::Utf8ToUtf16(value.AsString())).c_str());
+            SetWindowTextW(setting.control, ui::ToEditLineBreaks(text::Utf8ToUtf16(value.AsString())).c_str());
             break;
         case WidgetKind::ShortcutField:
             setting.shortcut->SetValue(ShortcutFromJson(value));
@@ -242,7 +242,7 @@ json::Value SettingsForm::Collect(const json::Value& values) const {
             break;
         }
         case WidgetKind::NumberEdit: {
-            std::wstring text = WindowText(setting.control);
+            std::wstring text = ui::WindowText(setting.control);
             auto number = ParseInteger(text);
             collected = WithValue(collected, key,
                                   number ? Value::MakeNumber(static_cast<double>(*number))
@@ -252,7 +252,7 @@ json::Value SettingsForm::Collect(const json::Value& values) const {
         case WidgetKind::SingleLineEdit:
         case WidgetKind::MultiLineEdit:
             collected = WithValue(collected, key,
-                                  Value::MakeString(text::Utf16ToUtf8(FromEditLineBreaks(WindowText(setting.control)))));
+                                  Value::MakeString(text::Utf16ToUtf8(ui::FromEditLineBreaks(ui::WindowText(setting.control)))));
             break;
         case WidgetKind::ShortcutField:
             if (setting.shortcut->value()) collected = WithValue(collected, key, ShortcutToJson(*setting.shortcut->value()));
@@ -269,17 +269,17 @@ void SettingsForm::SetDictionaryCount(size_t count) {
     for (const auto& setting : settings_) {
         if (setting.control != dictionaryButton_) continue;
         std::wstring label = messages::Text(setting.item->labelKey, language_, {{L"count", std::to_wstring(count)}});
-        SetWindowTextW(dictionaryButton_, EscapeAccessKeyMarkers(label).c_str());
+        SetWindowTextW(dictionaryButton_, ui::EscapeAccessKeyMarkers(label).c_str());
     }
 }
 
-std::wstring SettingsForm::ApiKeyText() const { return secretEdit_ ? WindowText(secretEdit_) : L""; }
+std::wstring SettingsForm::ApiKeyText() const { return secretEdit_ ? ui::WindowText(secretEdit_) : L""; }
 
 void SettingsForm::ClearApiKey() {
     if (secretEdit_) SetWindowTextW(secretEdit_, L"");
 }
 
-void SettingsForm::Layout(const UiMetrics& metrics) {
+void SettingsForm::Layout(const ui::UiMetrics& metrics) {
     for (auto& page : pages_) page->Layout(metrics);
 }
 

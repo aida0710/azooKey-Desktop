@@ -3,12 +3,12 @@
 #include <commctrl.h>
 #include <shellapi.h>
 
-#include <cstring>
 #include <utility>
 
 #include "../shared/text_encoding.h"
-#include "child_controls.h"
-#include "control_accessibility.h"
+#include "../ui/child_controls.h"
+#include "../ui/clipboard.h"
+#include "../ui/control_accessibility.h"
 #include "support_environment.h"
 
 namespace azookey::settings {
@@ -24,22 +24,6 @@ constexpr int kSectionGap = 14;
 constexpr int kLabelGap = 4;
 constexpr DWORD kTextStyle = SS_LEFT | SS_NOPREFIX;
 
-bool CopyToClipboard(HWND owner, const std::wstring& text) {
-    if (!OpenClipboard(owner)) return false;
-    EmptyClipboard();
-    size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    bool copied = false;
-    if (memory) {
-        std::memcpy(GlobalLock(memory), text.c_str(), bytes);
-        GlobalUnlock(memory);
-        copied = SetClipboardData(CF_UNICODETEXT, memory) != nullptr;
-        if (!copied) GlobalFree(memory);
-    }
-    CloseClipboard();
-    return copied;
-}
-
 // SysLink markup: the label is plain text inside the anchor.
 std::wstring LinkMarkup(const std::wstring& label, const wchar_t* url) {
     std::wstring escaped;
@@ -54,7 +38,7 @@ std::wstring LinkMarkup(const std::wstring& label, const wchar_t* url) {
 
 }  // namespace
 
-SupportPanel::SupportPanel(PageView& page, CommandMap& commands, Context context)
+SupportPanel::SupportPanel(PageView& page, ui::CommandMap& commands, Context context)
     : context_(std::move(context)), page_(page) {
     auto text = [this](const char* key) { return messages::Text(key, context_.language); };
     auto addText = [&](const std::wstring& value, int gap) {
@@ -84,7 +68,7 @@ SupportPanel::SupportPanel(PageView& page, CommandMap& commands, Context context
     page.AddRow({{reportLabel}, RowSizing::WrappedText, kSectionGap});
     report_ = page.AddControl(WC_EDITW, L"", WS_TABSTOP | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
                               commands.Reserve(), WS_EX_CLIENTEDGE);
-    SetAccessibleName(report_, text("support.title"));
+    ui::SetAccessibleName(report_, text("support.title"));
     page.AddRow({{report_}, RowSizing::MultiLineField, kLabelGap});
     addText(text("support.privacy"), kLabelGap);
     HWND refresh = page.AddControl(WC_BUTTONW, text("support.refresh"), WS_TABSTOP | BS_PUSHBUTTON | BS_NOTIFY,
@@ -97,18 +81,18 @@ SupportPanel::SupportPanel(PageView& page, CommandMap& commands, Context context
                             }));
     page.AddRow({{refresh, copy_}, RowSizing::Buttons, kSectionGap});
     notice_ = page.AddControl(WC_STATICW, L"", kTextStyle, commands.Reserve());
-    MakeLiveRegion(notice_);
+    ui::MakeLiveRegion(notice_);
     page.AddRow({{notice_}, RowSizing::WrappedText, kLabelGap});
 }
 
-HWND SupportPanel::AddPath(PageView& page, CommandMap& commands, const std::string& labelKey, const std::wstring& path) {
+HWND SupportPanel::AddPath(PageView& page, ui::CommandMap& commands, const std::string& labelKey, const std::wstring& path) {
     std::wstring label = messages::Text(labelKey, context_.language);
     HWND caption = page.AddControl(WC_STATICW, label, kTextStyle, commands.Reserve());
     page.AddRow({{caption}, RowSizing::WrappedText, kSectionGap});
     // A read-only edit lets the path be selected and copied.
     HWND field = page.AddControl(WC_EDITW, path, WS_TABSTOP | ES_AUTOHSCROLL | ES_READONLY, commands.Reserve(),
                                  WS_EX_CLIENTEDGE);
-    SetAccessibleName(field, label);
+    ui::SetAccessibleName(field, label);
     page.AddRow({{field}, RowSizing::Field, kLabelGap});
     return field;
 }
@@ -125,8 +109,8 @@ void SupportPanel::Refresh() {
 void SupportPanel::Copy() {
     RequestReport([this](const std::wstring& report) {
         if (!report.empty()) {
-            bool copied = CopyToClipboard(GetParent(report_), ToEditLineBreaks(report));
-            AnnounceText(notice_, copied ? messages::Text("support.copied", context_.language) : L"");
+            bool copied = ui::CopyTextToClipboard(GetParent(report_), ui::ToEditLineBreaks(report));
+            ui::AnnounceText(notice_, copied ? messages::Text("support.copied", context_.language) : L"");
         }
         page_.Relayout();
     });
@@ -139,11 +123,11 @@ void SupportPanel::RequestReport(std::function<void(const std::wstring& report)>
                               std::wstring report;
                               if (reply) report = text::Utf8ToUtf16((*reply)["supportDiagnostics"].AsString());
                               if (report.empty()) {
-                                  AnnounceText(notice_, messages::Text(reply ? "settings.request_failed"
+                                  ui::AnnounceText(notice_, messages::Text(reply ? "settings.request_failed"
                                                                              : "settings.host_unavailable",
                                                                        context_.language));
                               }
-                              SetWindowTextW(report_, ToEditLineBreaks(report).c_str());
+                              SetWindowTextW(report_, ui::ToEditLineBreaks(report).c_str());
                               then(report);
                           });
 }

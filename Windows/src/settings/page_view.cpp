@@ -5,8 +5,8 @@
 #include <algorithm>
 #include <iterator>
 
-#include "child_controls.h"
-#include "dialog_colors.h"
+#include "../ui/child_controls.h"
+#include "../ui/dialog_colors.h"
 
 namespace azookey::settings {
 namespace {
@@ -43,7 +43,7 @@ void PageView::RegisterWindowClass(HINSTANCE instance) {
     windowClass.lpfnWndProc = Procedure;
     windowClass.hInstance = instance;
     windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    windowClass.hbrBackground = reinterpret_cast<HBRUSH>(static_cast<INT_PTR>(kDialogBackgroundColor + 1));
+    windowClass.hbrBackground = reinterpret_cast<HBRUSH>(static_cast<INT_PTR>(ui::kDialogBackgroundColor + 1));
     windowClass.lpszClassName = kClassName;
     RegisterClassExW(&windowClass);
 }
@@ -58,10 +58,10 @@ PageView::~PageView() {
 }
 
 HWND PageView::AddControl(const wchar_t* className, const std::wstring& text, DWORD style, int id, DWORD extendedStyle) {
-    return CreateChildControl(window_, className, text, style, id, extendedStyle);
+    return ui::CreateChildControl(window_, className, text, style, id, extendedStyle);
 }
 
-void PageView::Layout(const UiMetrics& metrics) {
+void PageView::Layout(const ui::UiMetrics& metrics) {
     metrics_ = &metrics;
     RECT client{};
     GetClientRect(window_, &client);
@@ -80,7 +80,7 @@ void PageView::Relayout() {
     if (metrics_) Layout(*metrics_);
 }
 
-int PageView::Place(const UiMetrics& metrics) {
+int PageView::Place(const ui::UiMetrics& metrics) {
     RECT client{};
     GetClientRect(window_, &client);
     const int margin = metrics.Scale(kMargin);
@@ -90,7 +90,7 @@ int PageView::Place(const UiMetrics& metrics) {
     for (const auto& row : rows_) {
         if (row.controls.empty()) continue;
         HWND control = row.controls.front();
-        std::wstring text = WindowText(control);
+        std::wstring text = ui::WindowText(control);
         bool textRow = row.sizing == RowSizing::WrappedText || row.sizing == RowSizing::Heading;
         // An empty explanation takes no space and is skipped by keyboard focus.
         if (textRow && text.empty()) {
@@ -106,17 +106,17 @@ int PageView::Place(const UiMetrics& metrics) {
         case RowSizing::Heading: {
             HFONT font = row.sizing == RowSizing::Heading ? metrics.headingFont() : metrics.font();
             height = metrics.WrappedTextHeight(text, width, font);
-            MoveControl(control, margin, y, width, height);
+            ui::MoveControl(control, margin, y, width, height);
             break;
         }
         case RowSizing::CheckBox:
             height = std::max(metrics.WrappedTextHeight(text, width - metrics.Scale(kCheckBoxGlyphWidth), metrics.font()),
                               metrics.LineHeight()) + metrics.Scale(4);
-            MoveControl(control, margin, y, width, height);
+            ui::MoveControl(control, margin, y, width, height);
             break;
         case RowSizing::Field:
             height = metrics.FieldHeight();
-            MoveControl(control, margin, y, std::min(width, metrics.Scale(kMaximumFieldWidth)), height);
+            ui::MoveControl(control, margin, y, std::min(width, metrics.Scale(kMaximumFieldWidth)), height);
             break;
         case RowSizing::NarrowField: {
             height = metrics.FieldHeight();
@@ -124,31 +124,31 @@ int PageView::Place(const UiMetrics& metrics) {
             // could rewrite the edit's text from their own position.
             int arrowsWidth = row.controls.size() > 1 ? GetSystemMetricsForDpi(SM_CXVSCROLL, metrics.dpi()) : 0;
             int editWidth = metrics.Scale(kNumberFieldWidth) - arrowsWidth;
-            MoveControl(control, margin, y, editWidth, height);
-            if (row.controls.size() > 1) MoveControl(row.controls[1], margin + editWidth, y, arrowsWidth, height);
+            ui::MoveControl(control, margin, y, editWidth, height);
+            if (row.controls.size() > 1) ui::MoveControl(row.controls[1], margin + editWidth, y, arrowsWidth, height);
             break;
         }
         case RowSizing::DropDown:
             height = metrics.FieldHeight();
             // A drop-down list's window height includes the list it opens.
-            MoveControl(control, margin, y, std::min(width, metrics.Scale(kDropDownWidth)),
+            ui::MoveControl(control, margin, y, std::min(width, metrics.Scale(kDropDownWidth)),
                   height + metrics.Scale(kDropDownListHeight));
             break;
         case RowSizing::MultiLineField:
             height = metrics.Scale(kMultiLineFieldHeight);
-            MoveControl(control, margin, y, std::min(width, metrics.Scale(kMaximumFieldWidth)), height);
+            ui::MoveControl(control, margin, y, std::min(width, metrics.Scale(kMaximumFieldWidth)), height);
             break;
         case RowSizing::Buttons: {
             int x = margin;
             int rowHeight = 0;
             for (HWND button : row.controls) {
-                SIZE size = metrics.ButtonSize(WindowText(button));
+                SIZE size = metrics.ButtonSize(ui::WindowText(button));
                 if (x > margin && x + size.cx > margin + width) {
                     x = margin;
                     y += rowHeight + metrics.Scale(kButtonGap);
                     rowHeight = 0;
                 }
-                MoveControl(button, x, y, size.cx, size.cy);
+                ui::MoveControl(button, x, y, size.cx, size.cy);
                 x += size.cx + metrics.Scale(kButtonGap);
                 rowHeight = std::max(rowHeight, static_cast<int>(size.cy));
             }
@@ -159,7 +159,7 @@ int PageView::Place(const UiMetrics& metrics) {
             SIZE ideal{};
             SendMessageW(control, LM_GETIDEALSIZE, static_cast<WPARAM>(width), reinterpret_cast<LPARAM>(&ideal));
             height = std::max(static_cast<int>(ideal.cy), metrics.LineHeight());
-            MoveControl(control, margin, y, width, height);
+            ui::MoveControl(control, margin, y, width, height);
             break;
         }
         }
@@ -228,7 +228,7 @@ LRESULT PageView::Handle(UINT message, WPARAM wParam, LPARAM lParam) {
         return SendMessageW(commandTarget_, message, wParam, lParam);
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLORBTN:
-        return DialogControlColors(wParam);
+        return ui::DialogControlColors(wParam);
     case WM_SIZE:
         if (metrics_) Layout(*metrics_);
         return 0;

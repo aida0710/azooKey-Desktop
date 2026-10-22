@@ -1,6 +1,6 @@
 #include "child_controls.h"
 
-namespace azookey::settings {
+namespace azookey::ui {
 
 HWND CreateChildControl(HWND parent, const wchar_t* className, const std::wstring& text, DWORD style, int id,
                         DWORD extendedStyle) {
@@ -41,4 +41,4 @@ void MoveControl(HWND control, int x, int y, int width, int height) {
     SetWindowPos(control, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui

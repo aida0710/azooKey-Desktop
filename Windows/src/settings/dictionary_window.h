@@ -12,22 +12,22 @@
 #include <vector>
 
 #include "../shared/message_catalog_data.h"
-#include "bridge_worker.h"
-#include "command_map.h"
+#include "../ui/bridge_worker.h"
+#include "../ui/command_map.h"
 #include "dictionary_draft.h"
 #include "settings_dialogs.h"
-#include "top_level_window.h"
+#include "../ui/top_level_window.h"
 
 namespace azookey::settings {
 
-class DictionaryWindow final : public TopLevelWindow {
+class DictionaryWindow final : public ui::TopLevelWindow {
 public:
     static constexpr wchar_t kClassName[] = L"azooKeyTreeUserDictionary";
 
     struct Options {
         HWND owner = nullptr;  // disabled while the editor is open
         messages::Language language = messages::Language::English;
-        BridgeWorker* worker = nullptr;
+        ui::BridgeWorker* worker = nullptr;
         SettingsDialogs* dialogs = nullptr;
         std::vector<DictionaryEntry> entries;
         std::string stamp;  // the settings file the entries came from
@@ -87,7 +87,7 @@ private:
 
     Options options_;
     DictionaryDraft draft_;
-    CommandMap commands_;
+    ui::CommandMap commands_;
     std::wstring selectedId_;
     std::wstring query_;
     DictionaryOrder order_ = DictionaryOrder::Registration;

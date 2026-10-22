@@ -15,19 +15,19 @@
 #include "../shared/host_channel.h"
 #include "../shared/json.h"
 #include "../shared/message_catalog_data.h"
-#include "bridge_worker.h"
-#include "command_map.h"
+#include "../ui/bridge_worker.h"
+#include "../ui/command_map.h"
 #include "dictionary_window.h"
 #include "settings_dialogs.h"
 #include "settings_form.h"
 #include "settings_protocol.h"
 #include "settings_schema.h"
 #include "support_panel.h"
-#include "top_level_window.h"
+#include "../ui/top_level_window.h"
 
 namespace azookey::settings {
 
-class SettingsWindow final : public TopLevelWindow {
+class SettingsWindow final : public ui::TopLevelWindow {
 public:
     static constexpr wchar_t kClassName[] = L"azooKeyTreeSettings";
     // WM_COPYDATA from a second start of the app: the page to show (UTF-8 page id).
@@ -94,8 +94,8 @@ private:
     void DictionarySaved(const SettingsReply& saved);
 
     Options options_;
-    CommandMap commands_;
-    std::unique_ptr<BridgeWorker> worker_;
+    ui::CommandMap commands_;
+    std::unique_ptr<ui::BridgeWorker> worker_;
     std::optional<Schema> schema_;
     std::unique_ptr<SettingsForm> form_;
     std::unique_ptr<SupportPanel> support_;

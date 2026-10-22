@@ -6,11 +6,11 @@
 
 #include "../shared/message_catalog_data.h"
 #include "dictionary_protocol.h"
-#include "top_level_window.h"
+#include "../ui/top_level_window.h"
 
 namespace azookey::settings {
 
-class ImportPreviewWindow final : public TopLevelWindow {
+class ImportPreviewWindow final : public ui::TopLevelWindow {
 public:
     static constexpr wchar_t kClassName[] = L"azooKeyTreeImportPreview";
 

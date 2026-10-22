@@ -4,10 +4,10 @@
 
 #include <string>
 
-namespace azookey::settings {
+namespace azookey::ui {
 
 std::wstring LabelWithAccessKey(const std::wstring& label, const std::string& accessKey);
 // A label shown by a control that treats "&" as an access key marker, without one.
 std::wstring EscapeAccessKeyMarkers(const std::wstring& label);
 
-}  // namespace azookey::settings
+}  // namespace azookey::ui
