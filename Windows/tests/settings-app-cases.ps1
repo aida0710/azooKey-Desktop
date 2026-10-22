@@ -38,21 +38,12 @@ Remove-Item $readableCopy
 Check ($target -eq (Join-Path $Destination 'azookey-settings.exe')) 'the entry starts the installed settings app'
 Check (Test-Path (Join-Path $Destination 'build-info.txt')) 'the package records its build for the support report'
 
-# Returns the settings window once it exists, or zero after the start limit.
-# WaitForInputIdle is not enough: the app can be idle while it is still starting
-# (CI run 39785837868 found no window right after it returned).
-function Wait-SettingsWindow {
-    $deadline = [DateTime]::UtcNow.AddMilliseconds($startLimitMilliseconds)
-    do {
-        $found = [SettingsAppWindows]::FindWindow($settingsWindowClass, $null)
-        if ($found -ne [IntPtr]::Zero) { return $found }
-        Start-Sleep -Milliseconds 100
-    } while ([DateTime]::UtcNow -lt $deadline)
-    return [IntPtr]::Zero
-}
-
+# The app sets this event once its window exists (settings_main.cpp); a second
+# start waits for it too. Creating it here first means the signal cannot be missed.
+$windowReady = [System.Threading.EventWaitHandle]::new($false, [System.Threading.EventResetMode]::ManualReset, 'Local\azooKeyTreeSettingsWindowReady')
 $first = Start-Process -FilePath $target -ArgumentList '--page', 'ai' -PassThru
-$window = Wait-SettingsWindow
+Check ($windowReady.WaitOne($startLimitMilliseconds)) 'the settings app reports its window'
+$window = [SettingsAppWindows]::FindWindow($settingsWindowClass, $null)
 Check ($window -ne [IntPtr]::Zero -and -not $first.HasExited) 'the settings window opens'
 
 $second = Start-Process -FilePath $target -ArgumentList '--page', 'dictionary' -PassThru
