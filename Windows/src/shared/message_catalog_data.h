@@ -53,6 +53,8 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"ai.scope.generating", L"\u751F\u6210\u4E2D\u2026", L"Generating\u2026"},
     {"ai.scope.history", L"\u5C65\u6B74\u306B\u4FDD\u5B58\u3059\u308B\u306E\u306F\u6307\u793A\u6587\u3060\u3051\u3067\u3059\uFF08\u672C\u6587\u30FB\u5468\u8FBA\u30C6\u30AD\u30B9\u30C8\u306F\u542B\u307F\u307E\u305B\u3093\uFF09\u3002", L"History saves instructions only. It does not save document or surrounding text."},
     {"ai.scope.include-context", L"\u5468\u8FBA\u30C6\u30AD\u30B9\u30C8\u3092\u542B\u3081\u308B\uFF08\u524D\u5F8C\u6700\u5927100\u6587\u5B57\uFF09", L"Include surrounding text (up to 100 characters on each side)"},
+    {"ai.scope.include-context.off", L"\u5468\u8FBA\u30C6\u30AD\u30B9\u30C8\u306F\u542B\u3081\u307E\u305B\u3093", L"Surrounding text is not included"},
+    {"ai.scope.include-context.on", L"\u5468\u8FBA\u30C6\u30AD\u30B9\u30C8\u3092\u542B\u3081\u307E\u3059", L"Surrounding text is included"},
     {"ai.scope.include-error", L"\u5468\u8FBA\u30C6\u30AD\u30B9\u30C8\u306E\u8A2D\u5B9A\u3092\u4FDD\u5B58\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u4ECA\u56DE\u306E\u9078\u629E\u306F\u8868\u793A\u306E\u3068\u304A\u308A\u3067\u3059\u3002", L"The surrounding-text setting could not be saved. This request uses the selection shown."},
     {"ai.scope.keyboard", L"Control+S: \u9001\u4FE1 / Control+Shift+S: \u5468\u8FBA\u8A2D\u5B9A / Escape: \u53D6\u6D88", L"Control+S: send / Control+Shift+S: context / Escape: cancel"},
     {"ai.scope.preview", L"AI \u3078\u9001\u4FE1\u3057\u3066\u30D7\u30EC\u30D3\u30E5\u30FC", L"Send to AI and preview"},

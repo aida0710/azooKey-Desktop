@@ -6,10 +6,14 @@
 #include <string>
 #include <vector>
 
+#include "shared/ai_protocol.h"
 #include "shared/bridge_protocol.h"
 #include "shared/host_channel.h"
 
 namespace azookey::tsf {
+
+// How the text service reaches the per-user host; starts it when it is not running.
+channel::HostConnection::Options TextServiceHostOptions();
 
 class ConverterClient {
 public:
@@ -36,6 +40,11 @@ public:
     std::optional<protocol::PresentationSettings> PresentationSettings();
     // The chords Core acts on outside a composition; nullopt when Core did not answer with a list.
     std::optional<std::vector<keys::KeyBinding>> ImeShortcuts();
+    // What Core allows to be sent for a confirmed review; nullopt when the review no longer applies.
+    std::optional<protocol::AISuggestionRequest> AIReviewSend(int review, bool includeContext);
+    bool SaveIncludeContext(bool includeContext);
+    // Offers AI suggestions to the composition they were asked for.
+    std::optional<protocol::Snapshot> Suggestions(const std::vector<std::wstring>& texts, int generation, const std::wstring& reading);
 
 private:
     std::optional<protocol::Snapshot> Send(const std::string& request);

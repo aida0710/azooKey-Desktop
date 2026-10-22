@@ -3,7 +3,6 @@
 #include <objbase.h>
 
 #include "module.h"
-#include "shared/ai_protocol.h"
 #include "shared/text_encoding.h"
 
 namespace azookey::tsf {
@@ -17,11 +16,6 @@ constexpr wchar_t kHostRelativePath[] = L"\\..\\azookey-windows-host.exe";
 constexpr wchar_t kHostRelativePath[] = L"\\azookey-windows-host.exe";
 #endif
 
-channel::HostConnection::Options ConnectionOptions() {
-    channel::HostConnection::Options options;
-    options.hostExecutable = ModuleDirectory() + kHostRelativePath;
-    return options;
-}
 
 std::string NewContextIdentifier() {
     GUID guid{};
@@ -33,7 +27,13 @@ std::string NewContextIdentifier() {
 
 }  // namespace
 
-ConverterClient::ConverterClient() : connection_(ConnectionOptions()) { context_.context = NewContextIdentifier(); }
+channel::HostConnection::Options TextServiceHostOptions() {
+    channel::HostConnection::Options options;
+    options.hostExecutable = ModuleDirectory() + kHostRelativePath;
+    return options;
+}
+
+ConverterClient::ConverterClient() : connection_(TextServiceHostOptions()) { context_.context = NewContextIdentifier(); }
 
 ConverterClient::~ConverterClient() {
     if (connection_.connected()) connection_.Request(protocol::CloseRequest(context_.context));
@@ -86,6 +86,21 @@ std::optional<display::LayoutResult> ConverterClient::Layout(const display::Layo
 std::optional<std::vector<keys::KeyBinding>> ConverterClient::ImeShortcuts() {
     auto reply = connection_.Request(protocol::ImeShortcutsRequest());
     return reply ? protocol::ParseImeShortcuts(*reply) : std::nullopt;
+}
+
+std::optional<protocol::AISuggestionRequest> ConverterClient::AIReviewSend(int review, bool includeContext) {
+    auto reply = connection_.Request(protocol::AIReviewSendRequest(context_, review, includeContext));
+    return reply ? protocol::ParseAIReviewSend(*reply) : std::nullopt;
+}
+
+bool ConverterClient::SaveIncludeContext(bool includeContext) {
+    auto reply = connection_.Request(protocol::IncludeContextUpdateRequest(includeContext));
+    return reply && protocol::IsSettingsUpdateSaved(*reply);
+}
+
+std::optional<protocol::Snapshot> ConverterClient::Suggestions(const std::vector<std::wstring>& texts, int generation,
+                                                               const std::wstring& reading) {
+    return Send(protocol::SuggestionsRequest(context_, texts, generation, reading));
 }
 
 std::optional<protocol::PresentationSettings> ConverterClient::PresentationSettings() {

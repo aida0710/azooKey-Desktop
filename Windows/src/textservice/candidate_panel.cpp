@@ -1,11 +1,11 @@
 #include "candidate_panel.h"
 
-#include <dwmapi.h>
 #include <windowsx.h>
 
 #include <algorithm>
 #include <map>
 
+#include "ime_windows.h"
 #include "module.h"
 
 namespace azookey::tsf {
@@ -22,7 +22,6 @@ constexpr float kNodeRadius = 4;
 // A kanji reaches as high and low as Japanese candidate text does.
 constexpr wchar_t kLineSample[] = L"漢";
 
-bool windowClassRegistered = false;
 ID2D1Factory* direct2D = nullptr;
 IDWriteFactory* directWrite = nullptr;
 
@@ -74,34 +73,11 @@ CandidatePanel::~CandidatePanel() {
     if (window_) DestroyWindow(window_);
 }
 
-void CandidatePanel::UnregisterWindowClass() {
-    if (windowClassRegistered) {
-        UnregisterClassW(kWindowClassName, ModuleInstance());
-        windowClassRegistered = false;
-    }
-}
-
 bool CandidatePanel::EnsureWindow() {
     if (window_) return true;
     if (!EnsureFactories()) return false;
-    if (!windowClassRegistered) {
-        WNDCLASSEXW windowClass{sizeof(windowClass)};
-        windowClass.style = CS_IME | CS_DBLCLKS;
-        windowClass.lpfnWndProc = WindowProcedure;
-        windowClass.hInstance = ModuleInstance();
-        windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        windowClass.lpszClassName = kWindowClassName;
-        windowClassRegistered = RegisterClassExW(&windowClass) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
-        if (!windowClassRegistered) return false;
-    }
-    // Our window is per-monitor DPI aware whatever the host application declares.
-    DPI_AWARENESS_CONTEXT previous = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    window_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kWindowClassName, L"azooKey Tree",
-                              WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, ModuleInstance(), this);
-    if (previous) SetThreadDpiAwarenessContext(previous);
+    window_ = CreateImePopup({kWindowClassName, WindowProcedure, CS_DBLCLKS}, this);
     if (!window_) return false;
-    DWM_WINDOW_CORNER_PREFERENCE corners = DWMWCP_ROUNDSMALL;
-    DwmSetWindowAttribute(window_, DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof(corners));
     CandidateAccessibility::Actions accessibilityActions;
     accessibilityActions.select = [this](int candidateIndex) {
         if (actions_.selectCandidate) actions_.selectCandidate(candidateIndex);

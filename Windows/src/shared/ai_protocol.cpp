@@ -85,6 +85,16 @@ std::optional<std::vector<std::wstring>> ParseAISuggestions(const std::string& l
     return texts;
 }
 
+std::string IncludeContextUpdateRequest(bool includeContext) {
+    return std::string("{\"operation\":\"settings-update\",\"settings\":{\"includeContext\":") + (includeContext ? "true" : "false") +
+           "}}";
+}
+
+bool IsSettingsUpdateSaved(const std::string& line) {
+    auto parsed = json::Parse(line);
+    return parsed && (*parsed)["settings"].kind() == json::Value::Kind::Object && !(*parsed)["settingsResult"].Has("error");
+}
+
 std::string SuggestionsRequest(const RequestContext& context, const std::vector<std::wstring>& texts, int generation,
                                const std::wstring& reading) {
     std::vector<json::Value> items;

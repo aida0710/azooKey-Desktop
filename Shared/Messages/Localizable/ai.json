@@ -139,6 +139,16 @@
     "ja": "周辺テキストを含める（前後最大100文字）",
     "en": "Include surrounding text (up to 100 characters on each side)"
   },
+  "ai.scope.include-context.off": {
+    "ja": "周辺テキストは含めません",
+    "en": "Surrounding text is not included",
+    "note": "Spoken with the review: the state of the include-context check box."
+  },
+  "ai.scope.include-context.on": {
+    "ja": "周辺テキストを含めます",
+    "en": "Surrounding text is included",
+    "note": "Spoken with the review: the state of the include-context check box."
+  },
   "ai.scope.include-error": {
     "ja": "周辺テキストの設定を保存できませんでした。今回の選択は表示のとおりです。",
     "en": "The surrounding-text setting could not be saved. This request uses the selection shown."

@@ -38,6 +38,11 @@ std::string AISuggestionsLine(const AISuggestionRequest& request);
 // The texts the AI returned, or nullopt when the request failed.
 std::optional<std::vector<std::wstring>> ParseAISuggestions(const std::string& line);
 
+// The review's "include surrounding text" choice is also the setting's new value
+// (settings-update); false when Core could not save it.
+std::string IncludeContextUpdateRequest(bool includeContext);
+bool IsSettingsUpdateSaved(const std::string& line);
+
 std::string SuggestionsRequest(const RequestContext& context, const std::vector<std::wstring>& texts, int generation,
                                const std::wstring& reading);
 

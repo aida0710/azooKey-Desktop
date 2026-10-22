@@ -8,6 +8,8 @@
 #include <memory>
 #include <optional>
 
+#include "ai_review_window.h"
+#include "background_requests.h"
 #include "candidate_list_element.h"
 #include "candidate_panel.h"
 #include "input_mode_button.h"
@@ -113,6 +115,18 @@ private:
     void EndReconversionReading();
     void ShowNotice(const std::wstring& text);
     void HideNotice();
+    // Popups other than the candidate panel go on the side it leaves free.
+    PopupSide SideAwayFromCandidates() const;
+
+    // AI suggestions (text_service_ai.cpp): Core reviews the request, the user
+    // confirms it, and the host makes the call on its own AI bridge.
+    void ShowAIReview(const protocol::AIReview& review, const std::optional<RECT>& caret);
+    void CloseAIReview();
+    // True when `event` is one of the review's keys and has been acted on.
+    bool HandleAIReviewKey(const keys::CoreKeyEvent& event);
+    void SendAIReview();
+    void ToggleAIReviewContext();
+    void FinishAISuggestions(const protocol::AISuggestionRequest& request, std::optional<std::string> reply);
 
     bool IsInputOpen();
     void SetInputOpen(bool open);
@@ -135,6 +149,10 @@ private:
     std::unique_ptr<CandidatePanel> candidatePanel_;
     std::unique_ptr<NoticeWindow> notice_;
     std::optional<RECT> noticeCaret_;  // where the latest notice belongs
+    std::unique_ptr<AIReviewWindow> aiReviewWindow_;
+    std::unique_ptr<BackgroundRequests> backgroundRequests_;
+    std::optional<protocol::AIReview> aiReview_;  // set while the review is shown
+    bool aiReviewIncludeContext_ = false;         // the user's choice in the open review
     CandidateListElement* candidateElement_ = nullptr;  // COM object; the application may hold it too
     InputModeButton* inputModeButton_ = nullptr;        // COM object owned with the language bar
     std::string lastPlacementSide_;  // Core keeps the popup on this side while it still fits

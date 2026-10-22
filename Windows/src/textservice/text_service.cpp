@@ -105,6 +105,12 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadManager, TfClientId cli
     };
     candidatePanel_ = std::make_unique<CandidatePanel>(std::move(actions));
     notice_ = std::make_unique<NoticeWindow>();
+    AIReviewWindow::Actions reviewActions;
+    reviewActions.send = [this]() { SendAIReview(); };
+    reviewActions.toggleContext = [this]() { ToggleAIReviewContext(); };
+    reviewActions.cancel = [this]() { CloseAIReview(); };
+    aiReviewWindow_ = std::make_unique<AIReviewWindow>(std::move(reviewActions));
+    backgroundRequests_ = std::make_unique<BackgroundRequests>(TextServiceHostOptions());
     coreShortcuts_ = converter_->ImeShortcuts();
     CreateCandidateElement();
     AddInputModeButton();
@@ -123,6 +129,9 @@ STDMETHODIMP TextService::Deactivate() {
     RemoveInputModeButton();
     candidatePanel_.reset();
     notice_.reset();
+    aiReview_.reset();
+    aiReviewWindow_.reset();
+    backgroundRequests_.reset();
     converter_.reset();
     UnadviseCompartment(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, openCloseSinkCookie_);
     UnadviseCompartment(GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION, conversionSinkCookie_);
@@ -169,6 +178,7 @@ STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) {
     // Moving to another field must not carry the composition along with it.
     if (IsComposing()) FinishComposition(true, kAnytimeWrite);
     HideNotice();
+    CloseAIReview();
     privacyCheckedContext_ = nullptr;
     // Settings may have changed while another window had focus.
     presentationSettings_.reset();
@@ -227,6 +237,7 @@ TextService::KeyInput TextService::ReadKey(ITfContext* context, WPARAM virtualKe
     state.composing = IsComposing();
     state.privateInput = !state.composing && state.inputOpen && IsFieldPrivate(context);
     state.coreShortcuts = coreShortcuts_ ? &*coreShortcuts_ : nullptr;
+    state.aiReviewOpen = aiReview_.has_value();
     // Reading the field is a round trip into the application; only chords need it.
     if (IsChord(input.modifiers) && state.inputOpen && !state.composing && !state.privateInput) {
         state.hasSelection = ReadInputField(context).hasSelection;
@@ -244,6 +255,15 @@ STDMETHODIMP TextService::OnTestKeyDown(ITfContext* context, WPARAM wParam, LPAR
 STDMETHODIMP TextService::OnKeyDown(ITfContext* context, WPARAM wParam, LPARAM lParam, BOOL* eaten) {
     if (!eaten) return E_INVALIDARG;
     KeyInput input = ReadKey(context, wParam, lParam);
+    if (aiReview_ && input.action == KeyAction::SendToConverter) {
+        if (HandleAIReviewKey(keys::Translate(static_cast<uint32_t>(wParam), input.modifiers, input.typedText))) {
+            *eaten = TRUE;
+            return S_OK;
+        }
+        // Any other key closes the review and then means what it always does.
+        CloseAIReview();
+        input = ReadKey(context, wParam, lParam);
+    }
     *eaten = input.action != KeyAction::PassThrough;
     if (*eaten) HandleKey(context, wParam, input, eaten);
     return S_OK;
@@ -296,6 +316,11 @@ void TextService::HandleKey(ITfContext* context, WPARAM virtualKey, const KeyInp
         return;
     }
     if (!wasComposing && HandleReconversionReply(context, *snapshot, field)) return;
+    // Ctrl+S with nothing composed reviews a request for the continuation.
+    if (snapshot->aiReview && snapshot->preedit.empty()) {
+        ShowAIReview(*snapshot->aiReview, field.caret);
+        return;
+    }
     if (!snapshot->consumed && !wasComposing && snapshot->preedit.empty() && snapshot->commits.empty()) {
         // Core declined the key; behave as if the IME had not taken it.
         if (event.characters && !IsChord(input.modifiers)) InsertText(context, input.typedText, kSyncWrite);
@@ -317,6 +342,7 @@ void TextService::ApplySnapshot(ITfContext* context, const protocol::Snapshot& s
         ShowCandidates(snapshot, geometry);
         // For example a candidate that covers only part of a reconverted selection.
         if (geometry) ShowReconversionNotice(snapshot, geometry->composition);
+        if (snapshot.aiReview && geometry) ShowAIReview(*snapshot.aiReview, geometry->composition);
     });
 }
 
@@ -337,6 +363,7 @@ void TextService::FinishComposition(bool confirm, DWORD sessionFlags) {
     snapshot_ = {};
     HideCandidates();
     EndReconversionReading();
+    CloseAIReview();
     if (!composition_) return;
     // The session may run after a new composition has started elsewhere, so it
     // finishes exactly this composition object.

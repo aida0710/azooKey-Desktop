@@ -34,6 +34,8 @@
 "ai.scope.generating" = "Generating…";
 "ai.scope.history" = "History saves instructions only. It does not save document or surrounding text.";
 "ai.scope.include-context" = "Include surrounding text (up to 100 characters on each side)";
+"ai.scope.include-context.off" = "Surrounding text is not included";
+"ai.scope.include-context.on" = "Surrounding text is included";
 "ai.scope.include-error" = "The surrounding-text setting could not be saved. This request uses the selection shown.";
 "ai.scope.keyboard" = "Control+S: send / Control+Shift+S: context / Escape: cancel";
 "ai.scope.preview" = "Send to AI and preview";
