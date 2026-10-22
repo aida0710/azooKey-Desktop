@@ -140,14 +140,18 @@ bool SaveScreenshot(const std::wstring& path) {
     IWICStream* stream = nullptr;
     IWICBitmapEncoder* encoder = nullptr;
     IWICBitmapFrameEncode* frame = nullptr;
+    // GDI leaves the alpha byte 0; PNG keeps BGRA as is, so make every pixel opaque.
+    auto* bytes = static_cast<BYTE*>(pixels);
+    for (int i = 0; i < width * height; ++i) bytes[i * 4 + 3] = 0xFF;
     if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) &&
         SUCCEEDED(factory->CreateStream(&stream)) && SUCCEEDED(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE)) &&
         SUCCEEDED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) &&
         SUCCEEDED(encoder->Initialize(stream, WICBitmapEncoderNoCache)) &&
         SUCCEEDED(encoder->CreateNewFrame(&frame, nullptr)) && SUCCEEDED(frame->Initialize(nullptr)) &&
         SUCCEEDED(frame->SetSize(width, height))) {
-        WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGR;
-        saved = SUCCEEDED(frame->SetPixelFormat(&format)) &&
+        // The encoder may answer with a different format; only write when it kept ours.
+        WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+        saved = SUCCEEDED(frame->SetPixelFormat(&format)) && IsEqualGUID(format, GUID_WICPixelFormat32bppBGRA) &&
                 SUCCEEDED(frame->WritePixels(height, width * 4, width * height * 4, static_cast<BYTE*>(pixels))) &&
                 SUCCEEDED(frame->Commit()) && SUCCEEDED(encoder->Commit());
     }
