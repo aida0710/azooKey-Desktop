@@ -71,19 +71,20 @@ class RelativeScoreBridgeTests(unittest.TestCase):
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires a GTK display")
 class RelativeScorePanelTests(unittest.TestCase):
     def test_hiding_scores_removes_their_space_and_explanation_without_replacing_the_focused_action(self):
-        from azookey.tree_panel import TreePanel
+        from candidate_core import core_tree_panel
 
         commits = []
-        panel = TreePanel(lambda *selection: commits.append(selection))
-        description = "100はこの分岐内の相対値です。正解を保証しません。"
+        panel = core_tree_panel(lambda *selection: commits.append(selection))
+        # Core's explanation of a conditional 100.
+        description = "100はこの分岐内の相対値です。子候補が一つでも100になり、正解を保証しません。"
         nodes = [
-            {"id": 0, "text": "選択", "reading": "センタク", "parent": None, "terminals": [0],
-             "relativeScore": 100, "scorePresentation": {"label": "100", "detailDescription": description}},
+            {"id": 0, "text": "選択", "reading": "センタク", "parent": None, "terminals": [0], "relativeScore": 100,
+             "scorePresentation": {"label": "100", "role": "scoreHigh", "detailDescription": description}},
             {"id": 1, "text": "洗濯", "reading": "センタク", "parent": None, "terminals": [1],
-             "scorePresentation": {"label": "—", "detailDescription": "未評価"}},
+             "scorePresentation": {"label": "—", "role": "scoreUnknown", "detailDescription": "未評価"}},
         ]
         snapshot = {
-            "nodes": nodes, "columns": [[0, 1]], "selectedPath": [0], "selection": 0,
+            "nodes": nodes, "columns": [[0, 1]], "selectedPath": [0], "selection": 0, "inputState": "selecting",
             "focusedNode": 0, "generation": 1, "showRelativeScores": True,
         }
         try:

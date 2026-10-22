@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
 class CandidatePresentationTests(unittest.TestCase):
     def setUp(self):
-        from azookey.tree_panel import TreePanel
+        from candidate_core import core_tree_panel
         from gi.repository import Gtk
 
         self.actions = []
@@ -20,7 +20,7 @@ class CandidatePresentationTests(unittest.TestCase):
         self.document.add(self.entry)
         self.document.show_all()
         self.entry.grab_focus()
-        self.panel = TreePanel(self.choose)
+        self.panel = core_tree_panel(self.choose)
         self.snapshot = self.make_snapshot()
         self.panel.update(self.snapshot)
         self.flush()
@@ -108,7 +108,7 @@ class CandidatePresentationTests(unittest.TestCase):
                 self.panel.update({**self.snapshot, "inputState": state})
                 self.assertEqual(self.panel.composition_title.get_text(), "確定する文章")
                 self.assertEqual(self.panel.composition.get_accessible().get_name(), "確定する文章")
-                self.assertEqual(self.panel.navigation.confirm.get_label(), "確定  ↵")
+                self.assertEqual(self.panel.navigation.confirm.get_label(), "確定 ↵")
                 old_confirm.clicked()
                 self.assertEqual(self.actions, [])
         self.panel.update({**self.snapshot, "inputState": "composing"})
@@ -247,7 +247,7 @@ class CandidatePresentationTests(unittest.TestCase):
 
     def test_hover_changes_details_without_changing_selection_or_commit_preview(self):
         navigation = self.panel.navigation
-        navigation.preview_current(self.snapshot["candidatePage"]["items"][1], navigation.row_buttons[1])
+        navigation.preview_current(navigation.listing["items"][1], navigation.row_buttons[1])
         self.assertIn(self.snapshot["candidates"][1]["text"], self.panel.details.displayed_text)
         self.assertEqual(self.panel.composition.displayed_text, self.snapshot["candidates"][0]["text"])
         self.assertTrue(navigation.row_buttons[0].selected)
@@ -294,7 +294,7 @@ class CandidatePresentationTests(unittest.TestCase):
         old_row = navigation.row_buttons[1]
         old_word = self.panel.actions[("node", 1)]
         old_confirm = navigation.confirm
-        navigation.preview_current(self.snapshot["candidatePage"]["items"][1], old_row)
+        navigation.preview_current(navigation.listing["items"][1], old_row)
         for button in (old_row, old_word, old_confirm):
             accessible = button.get_accessible()
             GLib.idle_add(lambda accessible=accessible: accessible.do_action(0) and GLib.SOURCE_REMOVE)
@@ -321,7 +321,7 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertFalse(navigation.expanded)
         self.panel.suspend()
         self.panel.hide()
-        self.assertEqual(navigation.page, {})
+        self.assertEqual(navigation.listing, {})
         self.assertIsNone(navigation.token)
         self.panel.update(self.snapshot)
         self.flush()
@@ -399,7 +399,7 @@ class CandidatePresentationTests(unittest.TestCase):
         self.panel.update(snapshot)
         CandidateThemeTests.wait_for_paint(self.panel, GLib)
         self.flush()
-        self.assertEqual(navigation.page["start"], 9)
+        self.assertEqual(navigation.listing["items"][0]["index"], 9)
         self.assertEqual(adjustment.get_value(), 60)
         self.assertEqual(navigation.row_buttons[0].number_label.get_text(), "1")
         self.assertEqual(self.actions, [])
@@ -440,7 +440,8 @@ class CandidatePresentationTests(unittest.TestCase):
     def test_enabled_scores_remain_available_without_opening_details_by_default(self):
         snapshot = copy.deepcopy(self.snapshot)
         snapshot["showRelativeScores"] = True
-        snapshot["nodes"][0]["scorePresentation"] = {"label": "100", "detailDescription": "相対スコア 100"}
+        snapshot["nodes"][0]["relativeScore"] = 100
+        snapshot["nodes"][0]["scorePresentation"] = {"label": "100", "role": "scoreHigh", "detailDescription": "相対スコア 100"}
         self.panel.update(snapshot)
         self.assertFalse(self.panel.details.get_visible())
         self.assertFalse(self.panel.scroll.get_visible())

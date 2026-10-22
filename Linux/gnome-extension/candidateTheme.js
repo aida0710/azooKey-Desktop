@@ -1,21 +1,12 @@
 import Gio from 'gi://Gio';
 import {PALETTES} from './candidatePaletteData.js';
 
-// Retain the existing visual split without changing the conditional score.
-const RELATIVE_SCORE_COLOR_SPLIT = 75;
-
 export function appearanceName({colorScheme, themeName, highContrast}) {
     const theme = themeName.toLowerCase();
     const dark = colorScheme === 'prefer-dark' ||
         (colorScheme !== 'prefer-light' && (theme.includes('dark') || theme.includes('inverse')));
     const contrast = highContrast || theme.replaceAll('-', '').includes('highcontrast');
     return contrast ? (dark ? 'highContrastDark' : 'highContrastLight') : (dark ? 'dark' : 'light');
-}
-
-export function scoreRole(score) {
-    if (!Number.isFinite(score)) return 'scoreUnknown';
-    // The score remains conditional and relative; retain the existing threshold.
-    return score < RELATIVE_SCORE_COLOR_SPLIT ? 'scoreLow' : 'scoreHigh';
 }
 
 export class CandidateTheme {
