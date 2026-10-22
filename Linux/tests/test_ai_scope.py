@@ -15,6 +15,12 @@ from ai_core_fixture import FIXTURE_ENDPOINT, CoreAITestCase, CoreWorker
 from azookey.keymap import translate
 
 
+def wording_without_placeholders(text):
+    """Each platform writes placeholders its own way (`%@`, `%1$@`, `%d` / `{name}`); the wording is what must match."""
+    text = re.sub(r"%(?:\d+\$)?[@d]", "{}", text).replace("%%", "%")
+    return re.sub(r"\{[A-Za-z][A-Za-z0-9_]*\}", "{}", text)
+
+
 class AILabelTests(unittest.TestCase):
     def test_common_ai_labels_match_macos(self):
         root = pathlib.Path(__file__).resolve().parents[2]
@@ -22,7 +28,7 @@ class AILabelTests(unittest.TestCase):
         macos = dict(re.findall(r'^"(ai\.[^"]+)" = "([^"]*)";', source, re.MULTILINE))
         linux = json.loads((root / "Linux/azookey/locales/ja.json").read_text())
         for key in macos:
-            self.assertEqual(linux[key], macos[key], key)
+            self.assertEqual(wording_without_placeholders(linux[key]), wording_without_placeholders(macos[key]), key)
 
 
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
