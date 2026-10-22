@@ -10,7 +10,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from azookey.bridge import Bridge
 from azookey.keymap import translate
-from azookey.personalization import import_model
 from unittest.mock import patch
 
 
@@ -234,7 +233,8 @@ class BridgeIntegrationTests(unittest.TestCase):
             self.assertFalse(self.bridge.request("snapshot")["personalizationConfigured"])
             # The verified base model is a structurally valid personal-model
             # fixture; this exercises loading, not a claimed quality improvement.
-            import_model(os.environ["AZOOKEY_RESOURCES"])
+            imported = self.bridge.request("import-personalization", importPath=os.environ["AZOOKEY_RESOURCES"])
+            self.assertTrue(imported["personalizationImported"])
             enabled = self.bridge.request("configure", settings={**original, "personalization": "normal"})
             self.assertTrue(enabled["personalizationConfigured"])
             for char in "nihongo":

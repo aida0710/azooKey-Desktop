@@ -1,0 +1,82 @@
+@testable import Core
+import Testing
+
+private func japanese(_ key: String) -> String {
+    Localization.text(key, language: .japanese)
+}
+
+private func linuxEnvironment(
+    treeEnabled: Bool = true, rendererRegistered: Bool? = false, sessionType: String? = "wayland",
+    osReleaseID: String? = "ubuntu", osReleaseVersionID: String? = "24.04", machine: String? = "x86_64",
+    buildInfo: String? = nil
+) -> SupportDiagnostics.LinuxEnvironment {
+    .init(treeEnabled: treeEnabled, rendererRegistered: rendererRegistered, sessionType: sessionType,
+          osReleaseID: osReleaseID, osReleaseVersionID: osReleaseVersionID, machine: machine, buildInfo: buildInfo)
+}
+
+@Test func buildInfoKeepsOnlyRecognizedFieldsAndValues() {
+    let valid = SupportDiagnostics.LinuxBuildInfo(parsing: "version=0.1.2\narchitecture=amd64\nsource=0123456789abcdef\napiKey=PRIVATE_KEY\n")
+    #expect(valid.version == "0.1.2")
+    #expect(valid.architecture == "amd64")
+    #expect(valid.source == "0123456789abcdef")
+    let invalid = SupportDiagnostics.LinuxBuildInfo(parsing: "version=PRIVATE_TEXT\narchitecture=PRIVATE_CPU\nsource=PRIVATE_DOCUMENT\nsource=ABCDEF0\n")
+    #expect(invalid == .init(parsing: ""))
+}
+
+@Test func linuxReportExcludesUnrecognizedEnvironmentText() {
+    let report = SupportDiagnostics.linux(linuxEnvironment(
+        rendererRegistered: false, sessionType: "Wayland", osReleaseVersionID: "24.04", machine: "aarch64",
+        buildInfo: "version=0.1.2\narchitecture=arm64\nsource=0123456789abcdef\ndictionary=PRIVATE_DICTIONARY\n"
+    )).report(language: .japanese)
+    #expect(!report.contains("PRIVATE_"))
+    for value in ["0.1.2", "ubuntu 24.04", "aarch64", "arm64", "0123456789abcdef", "wayland"] {
+        #expect(report.contains(value))
+    }
+    #expect(report.contains("\(japanese("support.renderer")): \(japanese("support.renderer.ibus-list"))"))
+    #expect(report.contains("\(japanese("support.fallback")): \(japanese("support.fallback.extension"))"))
+}
+
+@Test func unknownLinuxEnvironmentDoesNotClaimAWorkingRenderer() {
+    let report = SupportDiagnostics.linux(linuxEnvironment(
+        rendererRegistered: nil, sessionType: "PRIVATE_SESSION", osReleaseID: "PRIVATE OS", osReleaseVersionID: nil,
+        machine: "PRIVATE MACHINE", buildInfo: "version=PRIVATE_VERSION"
+    )).report(language: .japanese)
+    #expect(!report.contains("PRIVATE"))
+    #expect(report.contains("\(japanese("support.os")): \(japanese("support.unknown"))"))
+    #expect(report.contains("\(japanese("support.backend")): \(japanese("support.unknown"))"))
+    #expect(report.contains(japanese("support.fallback.unavailable")))
+}
+
+@Test(arguments: [
+    (false, "wayland", nil, SupportDiagnostics.Renderer.ibusList, SupportDiagnostics.Fallback.setting),
+    (false, "x11", true, .ibusList, .setting),
+    (false, "wayland", true, .ibusList, .setting),
+    (true, "x11", false, .gtkTree, nil),
+    (true, "x11", true, .shellTree, nil),
+    (true, "wayland", true, .shellTree, nil),
+    (true, "wayland", false, .ibusList, .gnomeExtension),
+    (true, "x11", nil, nil, .unavailable),
+    (true, "wayland", nil, nil, .unavailable),
+    (true, "tty", true, nil, .unavailable),
+    (true, nil, true, nil, .unavailable)
+] as [(Bool, String?, Bool?, SupportDiagnostics.Renderer?, SupportDiagnostics.Fallback?)])
+func linuxRendererDistinguishesSettingExtensionAndMissingEngine(
+    treeEnabled: Bool, session: String?, rendererRegistered: Bool?,
+    renderer: SupportDiagnostics.Renderer?, fallback: SupportDiagnostics.Fallback?
+) {
+    let decision = SupportDiagnostics.linuxRenderer(treeEnabled: treeEnabled, session: session, rendererRegistered: rendererRegistered)
+    #expect(decision.0 == renderer)
+    #expect(decision.1 == fallback)
+}
+
+@Test func macOSReportExplainsWhyTheListIsShown() {
+    let report = SupportDiagnostics.macOS(version: nil, source: "abc1234", operatingSystem: "Version 26.0",
+                                          cpu: "arm64", backend: nil, treeEnabled: false).report(language: .english)
+    let lines = report.split(separator: "\n").map(String.init)
+    #expect(lines.first == "azooKey Tree")
+    #expect(lines.contains("\(Localization.text("support.version", language: .english)): \(Localization.text("support.unknown", language: .english))"))
+    #expect(lines.contains("\(Localization.text("support.session", language: .english)): AppKit"))
+    #expect(lines.contains("\(Localization.text("support.renderer", language: .english)): \(Localization.text("support.renderer.mac-list", language: .english))"))
+    #expect(lines.contains("\(Localization.text("support.fallback", language: .english)): \(Localization.text("support.fallback.setting", language: .english))"))
+    #expect(!report.contains(Localization.text("support.package-cpu", language: .english)))
+}

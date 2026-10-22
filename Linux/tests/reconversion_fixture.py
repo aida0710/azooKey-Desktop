@@ -4,7 +4,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from azookey.input_coordinator import InputCoordinator
 from azookey.keymap import translate
-from azookey.reconversion import ReconversionCoordinator, removed_context, surrounding_context
+from azookey.reconversion import ReconversionCoordinator, surrounding_context
 from test_input_coordinator import ManualWorker
 
 
@@ -27,7 +27,10 @@ class ReconversionFixture:
             forward=lambda *key: self.effects.append(("forward", key)),
             schedule_timeout=self.schedule, remove_timeout=self.timers.pop,
         )
-        self.plan = {"token": "one-use", "offset": -3, "count": 3, "text": "日本語", "reading": "にほんご"}
+        self.plan = {
+            "token": "one-use", "offset": -3, "count": 3, "text": "日本語", "reading": "にほんご",
+            "removedContext": surrounding_context("前後", 1, 1, can_replace=True, sensitive=False),
+        }
 
     def schedule(self, milliseconds, callback):
         self.timers[1] = callback

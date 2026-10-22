@@ -58,31 +58,18 @@ def same_document(expected, current):
     )
 
 
-def removed_context(context, replacement):
-    """Reject any plan that does not describe the exact captured text."""
+def removed_context(replacement):
+    """Core's expected document after the deletion, or None for a malformed reply."""
     if not isinstance(replacement, dict):
         return None
-    text, count, offset = (replacement.get(key) for key in ("text", "count", "offset"))
+    text, count, offset, token, removed = (
+        replacement.get(key) for key in ("text", "count", "offset", "token", "removedContext"))
     if (
-        not isinstance(text, str) or not text
-        or type(count) is not int or type(offset) is not int
-        or not isinstance(replacement.get("token"), str) or not replacement["token"]
+        not isinstance(text, str) or not text or type(count) is not int or type(offset) is not int
+        or not isinstance(token, str) or not token or not isinstance(removed, dict)
     ):
         return None
-    before, selected = context["before"], context["selected"]
-    if count != len(text):
-        return None
-    if selected:
-        expected_offset = -len(selected) if context["cursorUTF16"] > context["anchorUTF16"] else 0
-        if selected != text or offset != expected_offset:
-            return None
-        cursor = min(context["cursorUTF16"], context["anchorUTF16"])
-    else:
-        if not before.endswith(text) or offset != -count:
-            return None
-        before = before[:-count]
-        cursor = context["cursorUTF16"] - utf16_count(text)
-    return {**context, "before": before, "selected": "", "cursorUTF16": cursor, "anchorUTF16": cursor}
+    return removed
 
 
 class ReconversionCoordinator:
@@ -210,7 +197,7 @@ class ReconversionCoordinator:
             self._finish()
 
     def _replace(self, replacement):
-        expected = removed_context(self.source, replacement)
+        expected = removed_context(replacement)
         if expected is None:
             self._fail("changed_context")
             return

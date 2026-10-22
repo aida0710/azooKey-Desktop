@@ -4,7 +4,6 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, GLib, Gio
 from .bridge import Bridge
 from .prompts import parse_shortcut, shortcut_text
-from .personalization import import_model
 from .i18n import text as message
 from .labeled_controls import label_control, StatusMessage
 from .settings_pages import populate_settings_pages
@@ -205,18 +204,25 @@ class SettingsWindow(Gtk.Window):
             self.message.set_text(message("learning.reset.completed" if success else "learning.reset.failed"))
 
     def import_personalization(self, _button):
-        dialog = Gtk.FileChooserDialog(title="lm_*.marisa の4ファイルがあるフォルダーを選択", transient_for=self,
+        dialog = Gtk.FileChooserDialog(title=message("personalization.choose"), transient_for=self,
                                        action=Gtk.FileChooserAction.SELECT_FOLDER)
-        dialog.add_buttons("キャンセル", Gtk.ResponseType.CANCEL, "読み込む", Gtk.ResponseType.OK)
+        dialog.add_buttons(message("personalization.cancel"), Gtk.ResponseType.CANCEL,
+                           message("personalization.import"), Gtk.ResponseType.OK)
         response = dialog.run()
         source = dialog.get_filename()
         dialog.destroy()
-        if response == Gtk.ResponseType.OK:
-            try:
-                import_model(source)
-                self.message.set_text("個人化モデルを読み込みました。強度を選び「保存」で反映してください。")
-            except (OSError, ValueError) as error:
-                self.message.set_text(str(error))
+        if response != Gtk.ResponseType.OK or source is None:
+            return
+        try:
+            reply = self.bridge.request("import-personalization", importPath=source)
+        except (OSError, RuntimeError, ValueError):
+            reply = {}
+        if reply.get("personalizationImported"):
+            self.message.set_text(message("personalization.imported"))
+            return
+        # Core replaces "current" only after all four files are copied and checked.
+        failure = reply.get("personalizationFailure") or {"reason": "placement"}
+        self.message.set_text(message(f"personalization.failure.{failure['reason']}", file=failure.get("file")))
 
     def download_weights(self, button):
         button.set_sensitive(False)
