@@ -27,6 +27,12 @@
 "candidate.focusedSelect" = "Current navigation target. Select this candidate";
 "candidate.numberSelect" = "Select candidate %@";
 "candidate.numberBadge" = "Candidate number %@";
+"candidate.withReading" = "%@ (%@)";
+"candidate.confirm" = "Confirm this candidate";
+"candidate.announceReading" = "Reading %@";
+"candidate.wordPosition" = "Word %@ / %@";
+"candidate.announceCommit" = "Will commit %@";
+"candidate.announceRemaining" = "Reading left %@";
 "candidate.preview.scope" = "Reading to commit: %@";
 "candidate.preview.remaining" = "Reading left to edit: %@";
 "candidate.preview.following" = "Following text: %@";

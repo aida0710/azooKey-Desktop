@@ -35,6 +35,8 @@ struct BridgeRequest: Decodable {
     var importPath: String?
     var importFormat: UserDictionaryExchange.Format?
     var importEncoding: UserDictionaryExchange.TextEncoding?
+    var layout: CandidateLayoutRequest?
+    var snapshot: CandidateDisplayInput?
 }
 
 @main
@@ -75,6 +77,10 @@ struct BridgeMain {
                 // preference can turn the shared converter's learning off.
                 if request.privateInput == true || request.operation == "configure" {
                     converter.commitUpdateLearningData()
+                }
+                if let response = try DesktopCandidateController.response(to: request) {
+                    try Self.write(response, to: output)
+                    continue
                 }
                 if let response = try await DesktopDictionaryController.response(
                     to: request, memoryDirectoryURL: memoryDirectoryURL, converter: converter
