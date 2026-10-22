@@ -42,8 +42,8 @@ extension SupportDiagnostics {
             Field(labelKey: "support.os", value: .text(recognizedWindowsVersion(environment.osVersion).map { "Windows \($0)" })),
             Field(labelKey: "support.cpu", value: .text(environment.machine.flatMap { windowsMachines.contains($0) ? $0 : nil })),
             Field(labelKey: "support.package-cpu", value: .text(build.architecture)),
-            // The Windows package does not record its inference backend yet.
-            Field(labelKey: "support.backend", value: .text(nil)),
+            // Windows packages build llama.cpp for the CPU only (build-llama.ps1), as Ubuntu packages do.
+            Field(labelKey: "support.backend", value: .text(build.architecture == nil ? nil : "CPU")),
             Field(labelKey: "support.session", value: .text("TSF"))
         ]
         // The text service draws both forms in its own candidate panel; only the setting chooses.

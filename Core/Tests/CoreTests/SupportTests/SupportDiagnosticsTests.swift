@@ -103,6 +103,7 @@ func linuxRendererDistinguishesSettingExtensionAndMissingEngine(_ rendererCase: 
     }
     #expect(report.contains("\(japanese("support.renderer")): \(japanese("support.renderer.windows-tree"))"))
     #expect(report.contains("\(japanese("support.fallback")): \(japanese("support.none"))"))
+    #expect(report.contains("\(japanese("support.backend")): CPU"))
 }
 
 @Test func windowsReportDropsUnrecognizedVersionAndCPU() {
