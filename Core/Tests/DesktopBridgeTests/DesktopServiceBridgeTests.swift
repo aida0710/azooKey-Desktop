@@ -35,8 +35,9 @@ struct DesktopServiceBridgeTests {
         }
         let valid = try fixture.run([["operation": "import-personalization", "importPath": source.path]])
         #expect(valid[0]["personalizationImported"] as? Bool == true)
-        let current = fixture.dataURL.appendingPathComponent("personalization/current/lm_c_abc.marisa")
-        #expect(FileManager.default.fileExists(atPath: current.path))
+        let root = fixture.dataURL.appendingPathComponent(PersonalizationModelImport.directoryName)
+        let current = try #require(PersonalizationModelImport.currentModelDirectory(in: root))
+        #expect(FileManager.default.fileExists(atPath: current.appendingPathComponent("lm_c_abc.marisa").path))
 
         try Data("plain text, not a MARISA trie file".utf8).write(to: source.appendingPathComponent("lm_u_abx.marisa"))
         let invalid = try fixture.run([["operation": "import-personalization", "importPath": source.path]])
