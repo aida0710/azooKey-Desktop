@@ -5,7 +5,6 @@ from gi.repository import Gtk
 from .i18n import text as message
 from .labeled_controls import label_control
 from .learning_settings import learning_choices
-from .prompts import shortcut_text
 from .support_page import SupportPage
 
 
@@ -76,7 +75,7 @@ def populate_ai_page(window, parent):
     parent.pack_start(Gtk.Label(label=message("ai.scope.processing-linux"), xalign=0, wrap=True), False, False, 0)
     window.entry(parent, "aiModel", message("ai.model"))
     window.entry(parent, "aiEndpoint", message("ai.endpoint"))
-    window.transform_shortcut = Gtk.Entry(text=shortcut_text(window.values["transformShortcut"]))
+    window.transform_shortcut = Gtk.Entry(text=window.shortcut_text(window.values["transformShortcut"]))
     label_control(parent, window.transform_shortcut, message("ai.shortcut"), mnemonic="S")
     parent.pack_start(window.transform_shortcut, False, False, 0)
     window.api_key = Gtk.Entry(visibility=False, placeholder_text=message("ai.api-key-placeholder"))

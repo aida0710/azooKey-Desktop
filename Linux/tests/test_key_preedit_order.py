@@ -8,6 +8,12 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from azookey.input_coordinator import InputCoordinator
 from test_input_coordinator import ManualWorker
+from ai_core_fixture import publish_core_shortcuts
+
+
+def setUpModule():
+    # Idle Control chords are routed by the bindings Core publishes.
+    publish_core_shortcuts()
 
 
 class KeyPreeditOrderTests(unittest.TestCase):

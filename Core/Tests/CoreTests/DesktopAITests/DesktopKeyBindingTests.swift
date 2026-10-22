@@ -48,7 +48,7 @@ struct DesktopKeyBindingTests {
         #expect(shortcuts.initialPrompt(for: Self.event("e", [.control, .option]), doubleTap: false) == "敬語")
         #expect(shortcuts.initialPrompt(for: Self.event("s", [.control]), doubleTap: false) == "丁寧に")
         #expect(AIPromptShortcuts(pinned: [], transformShortcut: .defaultTransformShortcut)
-            .initialPrompt(for: Self.event("s", [.control]), doubleTap: false) == "")
+            .initialPrompt(for: Self.event("s", [.control]), doubleTap: false)?.isEmpty == true)
         #expect(shortcuts.initialPrompt(for: Self.event(nil, keyCode: 102), doubleTap: true) == "english")
         #expect(shortcuts.initialPrompt(for: Self.event(nil, keyCode: 104), doubleTap: true) == "japanese")
         #expect(shortcuts.initialPrompt(for: Self.event(nil, keyCode: 102), doubleTap: false) == nil)

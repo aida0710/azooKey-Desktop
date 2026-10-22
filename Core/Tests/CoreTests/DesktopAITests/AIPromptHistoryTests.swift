@@ -27,7 +27,7 @@ struct AIPromptHistoryTests {
             }
             let items = history.load()
             #expect(items.filter { !$0.pinned }.count == AIPromptHistory.recentLimit)
-            #expect(items.filter { !$0.pinned }.first?.prompt == "指示14", "most recent first")
+            #expect(items.first { !$0.pinned }?.prompt == "指示14", "most recent first")
             #expect(items.first?.prompt == "敬語", "pinned first, then the defaults saved with the first instruction")
             #expect(items.contains { $0.prompt == "敬語" && $0.shortcut == shortcut })
             #expect(throws: AIPromptHistory.Failure.duplicateShortcut) {

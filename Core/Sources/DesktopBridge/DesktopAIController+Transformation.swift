@@ -7,43 +7,28 @@ import Foundation
 extension DesktopAIController {
     func transformationResponse(to operation: String, ai: DesktopAIRequest, context: String) throws -> DesktopAITransformationResponse {
         if operation == "ai-transform-open" {
-            guard let field = ai.field else {
-                throw BridgeMain.ProtocolError.invalidRequest
-            }
-            return open(field: field, context: context)
+            return open(field: try Self.required(ai.field), context: context)
         }
-        guard let identifier = ai.transformation else {
-            throw BridgeMain.ProtocolError.invalidRequest
-        }
+        let identifier = try Self.required(ai.transformation)
         guard var transformation = transformations[context], transformation.id == identifier else {
             return DesktopAITransformationResponse(transformation: identifier, stale: true)
         }
-        defer {
-            if operation == "ai-transform-close" {
-                transformations[context] = nil
-            } else {
-                transformations[context] = transformation
-            }
-        }
         var response = DesktopAITransformationResponse(transformation: identifier)
+        try apply(operation, ai: ai, to: &transformation, response: &response)
+        transformations[context] = operation == "ai-transform-close" ? nil : transformation
+        return response
+    }
+
+    private func apply(_ operation: String, ai: DesktopAIRequest, to transformation: inout AISelectedTextTransformation,
+                       response: inout DesktopAITransformationResponse) throws {
         switch operation {
         case "ai-transform-target":
-            guard let field = ai.field else {
-                throw BridgeMain.ProtocolError.invalidRequest
-            }
-            response.targetAvailable = transformation.attachWitness(ai.witness, current: field)
+            response.targetAvailable = transformation.attachWitness(ai.witness, current: try Self.required(ai.field))
         case "ai-transform-preview":
-            guard let prompt = ai.prompt, let includeContext = ai.includeContext, let field = ai.field else {
-                throw BridgeMain.ProtocolError.invalidRequest
-            }
-            beginPreview(&transformation, prompt: prompt, includeContext: includeContext, field: field,
-                         pinned: ai.pinned ?? false, shortcutText: ai.shortcutText ?? "", response: &response)
+            try beginPreview(&transformation, ai: ai, response: &response)
         case "ai-transform-result":
-            guard let revision = ai.revision else {
-                throw BridgeMain.ProtocolError.invalidRequest
-            }
             response.accepted = transformation.completePreview(
-                revision: revision, text: ai.text, inputContextChanged: ai.inputContextChanged ?? false
+                revision: try Self.required(ai.revision), text: ai.text, inputContextChanged: ai.inputContextChanged ?? false
             )
             response.text = transformation.applicableText
             response.targetAvailable = transformation.isTargetAvailable
@@ -52,15 +37,9 @@ extension DesktopAIController {
         case "ai-transform-confirm":
             response.confirmed = transformation.confirm()
         case "ai-transform-check":
-            guard let field = ai.field else {
-                throw BridgeMain.ProtocolError.invalidRequest
-            }
-            response.matches = transformation.checkReturn(to: field)
+            response.matches = transformation.checkReturn(to: try Self.required(ai.field))
         case "ai-transform-take":
-            guard let field = ai.field else {
-                throw BridgeMain.ProtocolError.invalidRequest
-            }
-            response.replacement = transformation.takeReplacement(for: field, witness: ai.witness)
+            response.replacement = transformation.takeReplacement(for: try Self.required(ai.field), witness: ai.witness)
         case "ai-transform-reject":
             transformation.discardTarget()
             response.targetAvailable = false
@@ -69,7 +48,6 @@ extension DesktopAIController {
         default:
             throw BridgeMain.ProtocolError.invalidRequest
         }
-        return response
     }
 
     private func open(field: AITextField, context: String) -> DesktopAITransformationResponse {
@@ -93,16 +71,18 @@ extension DesktopAIController {
 
     /// The instruction is kept in the history before the request starts, as
     /// it was typed even if the request later fails.
-    private func beginPreview(_ transformation: inout AISelectedTextTransformation, prompt: String, includeContext: Bool,
-                              field: AITextField, pinned: Bool, shortcutText: String,
-                              response: inout DesktopAITransformationResponse) {
+    private func beginPreview(_ transformation: inout AISelectedTextTransformation, ai: DesktopAIRequest,
+                              response: inout DesktopAITransformationResponse) throws {
+        let prompt = try Self.required(ai.prompt)
+        let includeContext = try Self.required(ai.includeContext)
+        let field = try Self.required(ai.field)
         if let refusal = transformation.refusal(forPrompt: prompt) {
             response.previewRefusal = refusal
             return
         }
         do {
-            let shortcut = try DesktopShortcutText.parse(shortcutText)
-            try promptHistory.save(AISelectedTextTransformation.instruction(prompt), pinned: pinned, shortcut: shortcut)
+            let shortcut = try DesktopShortcutText.parse(ai.shortcutText ?? "")
+            try promptHistory.save(AISelectedTextTransformation.instruction(prompt), pinned: ai.pinned ?? false, shortcut: shortcut)
         } catch let failure as DesktopShortcutText.Failure {
             response.historyError = failure.rawValue
             return
@@ -113,10 +93,15 @@ extension DesktopAIController {
             response.historyError = AIPromptHistory.Failure.saveFailed.rawValue
             return
         }
-        guard let started = try? transformation.beginPreview(prompt: prompt, includeContext: includeContext, field: field) else {
-            return
-        }
+        let started = try transformation.beginPreview(prompt: prompt, includeContext: includeContext, field: field)
         response.revision = started.revision
         response.request = started.arguments
+    }
+
+    private static func required<Value>(_ value: Value?) throws -> Value {
+        guard let value else {
+            throw BridgeMain.ProtocolError.invalidRequest
+        }
+        return value
     }
 }

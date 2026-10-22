@@ -1,52 +1,53 @@
-"""The prompt retains generated text when its original target cannot be verified."""
-from dataclasses import replace
+"""The prompt retains generated text when Core cannot verify its original target."""
 import os
 import pathlib
 import sys
-import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest import mock
+import uuid
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from test_ai_scope import scope_fixture
-from test_ai_transform_target import accessible_fixture, selection_fixture
+from ai_core_fixture import CoreAITestCase, CoreWorker, field_fixture, witness_fixture
 
 
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
-class SelectedTextTransformationFixture(unittest.TestCase):
+class SelectedTextTransformationFixture(CoreAITestCase):
+    """The real Core decides; the engine, provider and AT-SPI reads are fixtures."""
+
     def setUp(self):
-        from azookey.ai_transform_target import FocusedInputContext
+        from azookey.ai_bridge import AIBridge
         from azookey.selected_text_transform import SelectedTextTransformation
-        self.directory = tempfile.TemporaryDirectory()
-        self.config = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.directory.name})
-        self.config.start()
-        self.selection = selection_fixture()
+        self.field = field_fixture()
         self.commits, self.inspections, self.requests = [], [], []
+        self.worker = CoreWorker(self.bridge)
         self.engine = SimpleNamespace(
-            selected_text=self.selection.selected, sensitive=False, snapshot={},
-            focus_revision=object(),
-            input=SimpleNamespace(cancelled=object()),
-            current_transform_selection=lambda: None if self.engine.sensitive else self.selection,
-            current_transform_context=lambda: None if self.engine.sensitive or self.selection is None else
-                FocusedInputContext(context_id=self.selection.context_id, selection=self.selection,
-                                    has_surrounding_update=True),
-            make_ai_scope=lambda _: scope_fixture(), save_ai_context=lambda _: True,
-            start_ai=lambda snapshot, scope, **values: self.requests.append(values),
+            sensitive=False, snapshot={}, focus_revision=object(), selected_text="原文",
+            input=SimpleNamespace(cancelled=object(), generation=0),
+            ai=AIBridge(self.worker, f"fixture-{uuid.uuid4()}"),
+            ai_field=self.current_field, has_fresh_selection=self.has_fresh_selection,
+            save_ai_context=lambda _: True,
+            start_ai=lambda snapshot, request, **values: self.requests.append({"request": request, **values}),
             get_surrounding_text=lambda: None,
             commit_text=lambda text: self.commits.append(text.get_text()),
         )
         self.session = SelectedTextTransformation(self.engine)
-        self.session.inspect = lambda selection, completion: self.inspections.append(completion)
+        self.session.inspect = lambda _context_characters, completion: self.inspections.append(completion)
 
     def tearDown(self):
         self.session.close()
-        self.config.stop()
-        self.directory.cleanup()
+
+    def current_field(self):
+        if self.field is None:
+            return {"identity": None, "surrounding": None, "hasSurroundingUpdate": False, "isSensitive": self.engine.sensitive}
+        return {**self.field, "isSensitive": self.engine.sensitive}
+
+    def has_fresh_selection(self):
+        field = self.current_field()
+        return bool(field["identity"] and field["hasSurroundingUpdate"] and not field["isSensitive"])
 
     def generated_preview(self, captured=None):
         self.session.show("敬語に直す")
-        self.inspections.pop(0)(captured or accessible_fixture())
+        self.inspections.pop(0)(captured or witness_fixture())
         self.session.dialog.entry.emit("activate")
         self.requests.pop()["completion"]("新しい本文")
         # The prompt has its own focus-out/in notifications.
@@ -87,8 +88,8 @@ class SelectedTextTransformationTests(SelectedTextTransformationFixture):
         self.generated_preview()
         self.begin_apply()
         verified = self.inspections.pop()
-        verified(accessible_fixture())
-        verified(accessible_fixture())
+        verified(witness_fixture())
+        verified(witness_fixture())
         self.assertEqual(self.commits, ["新しい本文"])
         self.assertFalse(self.session.active)
         self.assertIsNone(self.session.dialog)
@@ -96,18 +97,18 @@ class SelectedTextTransformationTests(SelectedTextTransformationFixture):
     def test_identical_text_in_another_field_of_a_shared_ibus_context_does_not_apply(self):
         self.generated_preview()
         self.begin_apply()
-        self.inspections.pop()(replace(accessible_fixture(), identity=(":1.4", "/field/2")))
+        self.inspections.pop()(witness_fixture(object=["fixture-bus", ":1.4", "/field/2"]))
         self.assert_preview_preserved_without_apply()
 
     def test_selection_moved_inside_the_same_object_does_not_apply(self):
         self.generated_preview()
         self.begin_apply()
-        self.inspections.pop()(replace(accessible_fixture(), start=8, end=10))
+        self.inspections.pop()(witness_fixture(start=8, end=10))
         self.assert_preview_preserved_without_apply()
 
     def test_changed_ibus_context_is_rejected_before_an_accessibility_read(self):
         self.generated_preview()
-        self.selection = replace(self.selection, context_id=("/input/2", "gtk3-im:fixture"))
+        self.field = field_fixture(identity=("/input/2", "gtk3-im:fixture"))
         self.begin_apply()
         self.assertEqual(self.inspections, [])
         self.assert_preview_preserved_without_apply()
@@ -116,7 +117,7 @@ class SelectedTextTransformationTests(SelectedTextTransformationFixture):
         self.generated_preview()
         self.begin_apply()
         self.engine.focus_revision = object()
-        self.inspections.pop()(accessible_fixture())
+        self.inspections.pop()(witness_fixture())
         self.assert_preview_preserved_without_apply()
 
     def test_private_input_or_new_typing_cancels_an_inflight_application(self):
@@ -130,7 +131,7 @@ class SelectedTextTransformationTests(SelectedTextTransformationFixture):
                     self.session.invalidate_target()
                 else:
                     self.session.input_changed()
-                callback(accessible_fixture())
+                callback(witness_fixture())
                 self.assert_preview_preserved_without_apply()
                 self.session.close()
                 self.engine.sensitive = False
@@ -139,10 +140,10 @@ class SelectedTextTransformationTests(SelectedTextTransformationFixture):
         from gi.repository import Gtk
         self.generated_preview()
         self.session.respond(self.session.dialog, Gtk.ResponseType.OK)
-        self.selection = None
+        self.field = None
         self.engine.focus_revision = object()
         self.reset_input()
-        self.selection = selection_fixture()
+        self.field = field_fixture()
         self.session.context_changed()
         self.assertEqual(self.inspections, [])
         self.assert_preview_preserved_without_apply()
@@ -151,19 +152,20 @@ class SelectedTextTransformationTests(SelectedTextTransformationFixture):
         from azookey.engine import Engine
         from gi.repository import IBus
         engine = SimpleNamespace(
-            focused=False, sensitive=False, focus_revision=object(),
-            transform_selection=selection_fixture(),
-            focus_identity=selection_fixture().context_id, has_transform_surrounding_update=True,
+            focused=False, sensitive=False, focus_revision=object(), selected_text="原文",
+            surrounding=field_fixture()["surrounding"],
+            focus_identity=("/input/1", "gnome-shell"), has_transform_surrounding_update=True,
             client_capabilities=IBus.Capabilite.SURROUNDING_TEXT,
             anchor=SimpleNamespace(update=lambda *_: None),
             reload_settings=lambda: None, get_surrounding_text=lambda: None,
             register_properties=lambda _: None,
             transformation=SimpleNamespace(focus_entered=lambda: None),
         )
-        engine.current_transform_context = lambda: Engine.current_transform_context(engine)
+        engine.ai_field = lambda: Engine.ai_field(engine)
         Engine.activate_input_context(engine)
         self.assertTrue(engine.focused)
-        self.assertIsNone(Engine.current_transform_selection(engine))
+        self.assertFalse(Engine.ai_field(engine)["hasSurroundingUpdate"])
+        self.assertFalse(Engine.has_fresh_selection(engine))
 
     def test_missing_accessibility_keeps_results_and_copies_only_on_explicit_action(self):
         from gi.repository import Gdk, Gtk
@@ -179,7 +181,7 @@ class SelectedTextTransformationTests(SelectedTextTransformationFixture):
         self.assertEqual(clipboard.wait_for_text(), "新しい本文")
 
     def test_missing_context_identity_still_offers_a_copyable_preview(self):
-        self.selection = None
+        self.field = field_fixture(identity=None)
         self.session.show("敬語に直す")
         self.assertEqual(self.inspections, [])
         self.session.dialog.entry.emit("activate")
@@ -205,10 +207,19 @@ class SelectedTextTransformationTests(SelectedTextTransformationFixture):
                     self.session.invalidate_target()
                 else:
                     self.engine.focus_revision = object()
-                callback(accessible_fixture())
+                callback(witness_fixture())
                 self.assertIsNone(self.session.dialog)
                 self.assertFalse(self.session.active)
                 self.assertEqual(self.commits, [])
+
+    def test_sensitive_or_empty_selection_opens_no_prompt(self):
+        for sensitive, field in ((True, field_fixture()), (False, field_fixture(cursor=4, anchor=4))):
+            with self.subTest(sensitive=sensitive):
+                self.engine.sensitive, self.field = sensitive, field
+                self.session.show("敬語に直す")
+                self.assertIsNone(self.session.dialog)
+                self.assertFalse(self.session.active)
+                self.assertEqual(self.inspections, [])
 
 
 if __name__ == "__main__":

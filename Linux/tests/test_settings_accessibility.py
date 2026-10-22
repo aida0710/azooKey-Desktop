@@ -99,15 +99,13 @@ class SettingsAccessibilityTests(unittest.TestCase):
         self.assertEqual(self.store.path.read_bytes(), original)
 
     def test_prompt_entry_and_preview_have_labels_and_wait_for_explicit_submit(self):
-        from azookey.ai_scope import AIRequestConfiguration, AIRequestScope
         from azookey.i18n import text
         from azookey.prompt_dialog import PromptDialog
         from gi.repository import Gtk
-        scope = AIRequestScope(configuration=AIRequestConfiguration(model="fixture", endpoint="https://example.invalid"),
-                               target="対象", before="", after="")
+        opened = {"target": "対象", "destination": "example.invalid", "includeContext": False, "history": []}
         requests = []
-        dialog = PromptDialog(lambda *arguments: requests.append(arguments), "敬語に直す", scope=scope,
-                              on_context_changed=lambda _: True)
+        dialog = PromptDialog(opened, "敬語に直す", request_preview=lambda *values: requests.append(values),
+                              invalidate_preview=lambda: None, on_context_changed=lambda _: True)
         self.addCleanup(dialog.destroy)
         dialog.show_all()
         self.assertEqual(requests, [])
@@ -115,8 +113,9 @@ class SettingsAccessibilityTests(unittest.TestCase):
         self.assertEqual(dialog.text.get_accessible().get_name(), text("ai.preview"))
         dialog.entry.emit("activate")
         self.assertEqual(len(requests), 1)
+        dialog.preview_started()
         self.assertFalse(dialog.get_widget_for_response(Gtk.ResponseType.OK).get_sensitive())
-        requests[0][2]("生成した本文")
+        dialog.preview_finished("生成した本文")
         self.assertTrue(dialog.get_widget_for_response(Gtk.ResponseType.OK).get_sensitive())
 
 

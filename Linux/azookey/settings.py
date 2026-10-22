@@ -3,7 +3,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, GLib, Gio
 from .bridge import Bridge
-from .prompts import parse_shortcut, shortcut_text
+from .ai_error_messages import ai_error_message
 from .personalization import import_model
 from .i18n import text as message
 from .labeled_controls import label_control, StatusMessage
@@ -143,7 +143,7 @@ class SettingsWindow(Gtk.Window):
                 widget.set_text(str(values[key]))
         self.refresh_dictionary_button()
         self.custom_table.get_buffer().set_text(values["customTable"])
-        self.transform_shortcut.set_text(shortcut_text(values["transformShortcut"]))
+        self.transform_shortcut.set_text(self.shortcut_text(values["transformShortcut"]))
 
     def apply_settings(self, values, *, recover=False):
         values = validate_settings(values)
@@ -256,6 +256,17 @@ class SettingsWindow(Gtk.Window):
         parent.pack_start(combo, False, False, 0)
         self.widgets[key] = combo
 
+    def shortcut_text(self, shortcut):
+        """Core's notation for a stored shortcut, such as Ctrl+Alt+e."""
+        return self.bridge.request("ai-shortcut", ai={"shortcut": shortcut}).get("shortcutText", "")
+
+    def parse_shortcut(self, text):
+        """Core reads the notation; a rejected one raises ValueError with its message."""
+        reply = self.bridge.request("ai-shortcut", ai={"shortcutText": text})
+        if reply.get("shortcutError"):
+            raise ValueError(ai_error_message(reply["shortcutError"]))
+        return reply.get("shortcut")
+
     def entry(self, parent, key, label):
         entry = Gtk.Entry(text=str(self.values[key]))
         label_control(parent, entry, label)
@@ -290,7 +301,7 @@ class SettingsWindow(Gtk.Window):
             for key in ("punctuation", "inferenceLimit"):
                 values[key] = int(values[key])
             values["customTable"] = self.text(self.custom_table)
-            values["transformShortcut"] = parse_shortcut(self.transform_shortcut.get_text())
+            values["transformShortcut"] = self.parse_shortcut(self.transform_shortcut.get_text())
             if values["transformShortcut"] is None:
                 raise ValueError(message("ai.shortcut.required"))
             saved = self.apply_settings(values)

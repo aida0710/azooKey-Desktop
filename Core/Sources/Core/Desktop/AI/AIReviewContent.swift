@@ -45,4 +45,15 @@ public struct AIRequestArguments: Codable, Equatable, Sendable {
     public let aiEndpoint: String
     /// The user's instruction for a selected-text transformation; nil for suggestions.
     public let prompt: String?
+
+    public init(target: String, leftContext: String, rightContext: String, includeContext: Bool,
+                aiModel: String, aiEndpoint: String, prompt: String?) {
+        self.target = target
+        self.leftContext = leftContext
+        self.rightContext = rightContext
+        self.includeContext = includeContext
+        self.aiModel = aiModel
+        self.aiEndpoint = aiEndpoint
+        self.prompt = prompt
+    }
 }

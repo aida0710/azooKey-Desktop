@@ -97,7 +97,7 @@ import Testing
             let sent = try send(controller, session, review: review.id, includeContext: false)
             let arguments = try #require(sent["request"] as? [String: Any])
             #expect(arguments["aiEndpoint"] as? String == Self.endpoint && arguments["aiModel"] as? String == "reviewed-model")
-            #expect(arguments["leftContext"] as? String == "" && arguments["rightContext"] as? String == "")
+            #expect((arguments["leftContext"] as? String)?.isEmpty == true && (arguments["rightContext"] as? String)?.isEmpty == true)
             #expect(sent["generation"] as? Int == pending.generation && sent["reading"] as? String == pending.reading)
             #expect(try send(controller, session, review: review.id, includeContext: false)["request"] == nil, "sent once")
         }
@@ -163,7 +163,7 @@ import Testing
             #expect(pinned.ai?.prompt?.initialPrompt == "敬語に直す" && pinned.consumed)
             #expect(pinned.generation == before.generation)
             let transform = try key(controller, session, keyEvent("s", .control), extra: ["ai": ["hasSelection": true]])
-            #expect(transform.ai?.prompt?.initialPrompt == "")
+            #expect(transform.ai?.prompt?.initialPrompt.isEmpty == true)
             let doubleTap = try key(controller, session, ["modifierFlags": 0, "keyCode": 104], extra: ["doubleTap": true, "ai": ["hasSelection": true]])
             #expect(doubleTap.ai?.prompt?.initialPrompt == "japanese")
             let withoutSelection = try key(controller, session, keyEvent("e", [.control, .option]))

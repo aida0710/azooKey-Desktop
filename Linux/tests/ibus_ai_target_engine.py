@@ -28,7 +28,22 @@ class AITargetFixtureEngine(engine_module.Engine):
         self.target_reads_without_surrounding = 0
         self.transformation.inspect = self.inspect_target
 
-    def inspect_target(self, selection, completion):
+    def load_settings(self, snapshot):
+        # Core prepares no request while AI is disabled. The provider below
+        # stays offline, so enabling AI sends nothing outside this fixture.
+        if "settings" not in snapshot:
+            return
+        settings = {**snapshot["settings"], "aiEnabled": True}
+
+        def configured(reply):
+            assert not reply.get("error"), reply
+            self.settings = settings
+            self.input.settings = settings
+            self.refresh_shortcuts()
+
+        self.input.submit("configure", payload={"settings": settings}, completion=configured)
+
+    def inspect_target(self, context_characters, completion):
         from azookey.selected_text_transform import SelectedTextTransformation
         if self.transformation.pending and not self.has_transform_surrounding_update:
             self.target_reads_without_surrounding += 1
@@ -40,7 +55,7 @@ class AITargetFixtureEngine(engine_module.Engine):
                 self.held_target_reply = (completion, accessible)
             else:
                 completion(accessible)
-        SelectedTextTransformation.inspect(selection, inspected)
+        SelectedTextTransformation.inspect(context_characters, inspected)
 
     def do_destroy(self):
         print(json.dumps({"event": "engine-destroy", "engine": self.context_id}), flush=True)
@@ -58,10 +73,11 @@ class AITargetFixtureEngine(engine_module.Engine):
         print(json.dumps({"event": "focus-out", "engine": self.context_id, "context": object_path}), flush=True)
         super().do_focus_out_id(object_path)
 
-    def start_ai(self, snapshot, scope, *, prompt=None, completion=None):
+    def start_ai(self, snapshot, request, *, prompt=None, completion=None):
         # The provider is the only replacement for product behavior. No API
         # key is read and no network request is made. Product completion still
-        # verifies the captured bridge generation and input focus epoch.
+        # verifies the captured bridge generation and input focus epoch; Core
+        # still decides what was sent and whether the result may be applied.
         self.ai_pending = True
         reply = (["変更済み"], snapshot.get("generation", -1), snapshot.get("reading", ""),
                  completion, self.input.generation, self.input.cancelled)
@@ -115,14 +131,14 @@ class AITargetFixtureEngine(engine_module.Engine):
                 "has_focus_id": self.get_property("has-focus-id"),
                 "active_surrounding_text": self.get_property("active-surrounding-text"),
                 "settings_ready": "aiModel" in self.settings,
-                "selection_ready": self.current_transform_selection() is not None,
+                "selection_ready": self.has_fresh_selection(),
                 "dialog": dialog is not None,
                 "dialog_active": bool(dialog and dialog.is_active()),
                 "generated": bool(dialog and dialog.result),
                 "visible": bool(dialog and dialog.get_visible()),
                 "can_apply": bool(dialog and dialog.get_widget_for_response(Gtk.ResponseType.OK).get_sensitive()),
                 "can_copy": bool(dialog and dialog.copy_button.get_sensitive()),
-                "pending": owner.transformation.pending is not None,
+                "pending": owner.transformation.pending,
                 "ai_reply_held": owner.held_ai_reply is not None,
                 "ai_input_epoch_changed": bool(owner.held_ai_reply
                                                and owner.held_ai_reply[-1] is not owner.input.cancelled),

@@ -151,7 +151,8 @@ class SettingsWindowTests(unittest.TestCase):
         window.widgets["live"].set_active(True)
         with patch.object(window.bridge, "request", wraps=window.bridge.request) as bridge:
             window.save(None)
-            bridge.assert_not_called()
+            # Only Core's reading of the shortcut notation; nothing is configured.
+            self.assertEqual({call.args[0] for call in bridge.call_args_list}, {"ai-shortcut"})
         self.assertIn("変わりました", window.message.get_text())
         self.assertEqual(json.loads(self.path.read_text()), latest)
 
