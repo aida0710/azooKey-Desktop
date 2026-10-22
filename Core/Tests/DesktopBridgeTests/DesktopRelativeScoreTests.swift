@@ -30,10 +30,10 @@ import Testing
     let visibleNodes = Set(visible.columns.flatMap { $0 })
     #expect(visible.nodes.filter { visibleNodes.contains($0.id) }.allSatisfy { $0.scorePresentation != nil })
 
-    var settings = DesktopSettings()
+    var settings = DesktopSettings.current()
     settings.showRelativeScores = false
-    try settings.apply()
-    #expect(!DesktopSettings().showRelativeScores)
+    try settings.applyToConfig()
+    #expect(!DesktopSettings.current().showRelativeScores)
     let hidden = session.snapshot()
     #expect(!hidden.showRelativeScores)
     #expect(hidden.nodes.allSatisfy { $0.scorePresentation == nil })

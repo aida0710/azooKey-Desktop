@@ -10,7 +10,7 @@ struct DesktopDictionaryBridgeTests {
     func savedDictionarySurvivesRestartAndFailedReplacement() throws {
         let fixture = try DesktopDictionaryBridgeFixture()
         let initial = try fixture.run([["operation": "settings"]] + fixture.requestsForCandidates())
-        var settings = try #require(initial.first?["settings"] as? [String: Any])
+        let settings = try #require(initial.first?["settings"] as? [String: Any])
         let compiledDirectory = CompiledUserDictionaryStore.directoryURL(
             memoryDirectoryURL: fixture.dataURL.appendingPathComponent("memory")
         )
@@ -20,11 +20,11 @@ struct DesktopDictionaryBridgeTests {
         let encodedEntry = try #require(
             try JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any]
         )
-        settings["userDictionary"] = ["items": [encodedEntry]]
-        settings["preservedByDictionarySave"] = ["nested": "辞書以外の設定"]
-        let stagedURL = try fixture.stage(settings: settings)
+        // Another setting saved first must survive the dictionary transaction.
+        let opened = try fixture.run([["operation": "settings-save", "settings": ["profile": "辞書以外の設定"]]])
+        let openedStamp = try #require(fileState(in: opened.first)["stamp"] as? String)
         let saved = try fixture.run([
-            ["operation": "dictionary-save", "items": [encodedEntry], "stagedSettingsPath": stagedURL.path]
+            ["operation": "dictionary-save", "items": [encodedEntry], "settingsFile": ["expectedStamp": openedStamp]]
         ] + fixture.requestsForCandidates())
 
         #expect(saved.first?["dictionarySaved"] as? Bool == true)
@@ -33,7 +33,9 @@ struct DesktopDictionaryBridgeTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.dataURL.appendingPathComponent("UserDictionary").path))
         let savedContent = try Data(contentsOf: fixture.settingsURL)
         let savedDocument = try #require(try JSONSerialization.jsonObject(with: savedContent) as? [String: Any])
-        #expect((savedDocument["preservedByDictionarySave"] as? [String: String])?["nested"] == "辞書以外の設定")
+        #expect(savedDocument["profile"] as? String == "辞書以外の設定")
+        let savedStamp = try #require(fileState(in: saved.first)["stamp"] as? String)
+        #expect(savedStamp != openedStamp)
         #expect(try backups(in: fixture).isEmpty)
 
         let restarted = try fixture.run([["operation": "settings"]] + fixture.requestsForCandidates())
@@ -47,9 +49,8 @@ struct DesktopDictionaryBridgeTests {
         invalidEntry["reading"] = "てすと🦊"
         var invalidSettings = settings
         invalidSettings["userDictionary"] = ["items": [invalidEntry]]
-        let invalidStage = try fixture.stage(settings: invalidSettings)
         let failed = try fixture.run([
-            ["operation": "dictionary-save", "items": [invalidEntry], "stagedSettingsPath": invalidStage.path],
+            ["operation": "dictionary-save", "items": [invalidEntry], "settingsFile": ["expectedStamp": savedStamp]],
             ["operation": "configure", "settings": invalidSettings]
         ] + fixture.requestsForCandidates())
 
@@ -64,6 +65,19 @@ struct DesktopDictionaryBridgeTests {
 
         let afterFailure = try fixture.run(fixture.requestsForCandidates())
         #expect(try candidateTexts(in: afterFailure.last).contains(entry.word))
+
+        let stale = try fixture.run([
+            ["operation": "dictionary-save", "items": [encodedEntry], "settingsFile": ["expectedStamp": openedStamp]]
+        ])
+        #expect(stale.first?["dictionarySaved"] as? Bool == false)
+        #expect(stale.first?["dictionarySaveError"] as? String == "persistence")
+        #expect((stale.first?["settingsResult"] as? [String: Any])?["error"] != nil)
+        #expect(try Data(contentsOf: fixture.settingsURL) == savedContent)
+    }
+
+    private func fileState(in response: [String: Any]?) throws -> [String: Any] {
+        let result = try #require(response?["settingsResult"] as? [String: Any])
+        return try #require(result["file"] as? [String: Any])
     }
 
     private func candidateTexts(in response: [String: Any]?) throws -> [String] {
