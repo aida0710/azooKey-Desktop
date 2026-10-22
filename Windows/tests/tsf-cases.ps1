@@ -30,7 +30,8 @@ $cases = @(
     @{ Name = 'an application that draws candidates itself'; Keys = 'nihongo{SPACE}{DOWN}{ENTER}'; Expected = 'ニホンゴ'; UiLess = $true },
     # F10 shows the restored composition as its romaji, which only exists if the commit came back.
     @{ Name = 'Ctrl+Shift+Backspace undoes the commit'; Keys = 'nihongo{ENTER}{CTRL+SHIFT+BS}{SHOT:undo}{F10}'; Expected = 'nihongo' },
-    @{ Name = 'Ctrl+Shift+R reconverts the selection after its reading'; Keys = 'nihongo{ENTER}{SHIFT+LEFT}{SHIFT+LEFT}{SHIFT+LEFT}{CTRL+SHIFT+R}{SHOT:reading}nihongo{ENTER}{SHOT:reconverted}{F10}'; Expected = 'nihongo' },
+    # A selection comes back as its typed reading, which has no romaji; F6 shows that reading.
+    @{ Name = 'Ctrl+Shift+R reconverts the selection after its reading'; Keys = 'nihongo{ENTER}{SHIFT+LEFT}{SHIFT+LEFT}{SHIFT+LEFT}{CTRL+SHIFT+R}{SHOT:reading}nihongo{ENTER}{SHOT:reconverted}{F6}'; Expected = 'にほんご' },
     @{ Name = 'Esc leaves the reading prompt'; Keys = 'nihongo{ENTER}{SHIFT+LEFT}{SHIFT+LEFT}{SHIFT+LEFT}{CTRL+SHIFT+R}ka{ESC}a'; Expected = 'あ' }
 )
 $failed = 0
