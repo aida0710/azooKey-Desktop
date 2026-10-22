@@ -19,6 +19,9 @@ inline constexpr GUID kTargetClauseAttributeGuid = {0x9b7c402f, 0x8cf7, 0x4b2c, 
 // Other converted clauses.
 // {606C2F32-0046-4FD4-B462-995FA553D251}
 inline constexpr GUID kConvertedClauseAttributeGuid = {0x606c2f32, 0x0046, 0x4fd4, {0xb4, 0x62, 0x99, 0x5f, 0xa5, 0x53, 0xd2, 0x51}};
+// The candidate list as a TSF UI element, for applications that draw it themselves.
+// {863CCDD5-722F-4B6D-959E-DE00B688DC82}
+inline constexpr GUID kCandidateListElementGuid = {0x863ccdd5, 0x722f, 0x4b6d, {0x95, 0x9e, 0xde, 0x00, 0xb6, 0x88, 0xdc, 0x82}};
 
 inline constexpr LANGID kJapaneseLanguage = MAKELANGID(LANG_JAPANESE, SUBLANG_JAPANESE_JAPAN);
 inline constexpr wchar_t kDisplayName[] = L"azooKey Tree";

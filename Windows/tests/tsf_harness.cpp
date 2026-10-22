@@ -5,11 +5,13 @@
 // delivered to the edit control as ordinary messages.
 //
 //   tsf-harness --clsid {..} --profile {..} --keys "nihongo{SPACE}{SHOT:menu}{ENTER}"
-//               [--expect 日本語] [--screenshots <directory>]
+//               [--expect 日本語] [--screenshots <directory>] [--ui-less]
 //
 // With --expect the exit code is 0 only when the document equals that text.
 // {SHOT:name} saves the screen as <directory>\name.png at that point, so the
 // candidate windows can be reviewed from machines without a desktop session.
+// --ui-less makes the harness behave like a full-screen game: it refuses the
+// IME's own candidate window and reads the list through ITfCandidateListUIElement.
 #include <windows.h>
 #include <msctf.h>
 #include <richedit.h>
@@ -27,6 +29,7 @@ struct Options {
     std::wstring keys;
     std::optional<std::wstring> expected;
     std::wstring screenshotDirectory = L".";
+    bool uiLess = false;
     LANGID language = 0x0411;
     DWORD settleMilliseconds = 30;
 };
@@ -165,6 +168,63 @@ bool SaveScreenshot(const std::wstring& path) {
     return saved;
 }
 
+// Records what an application drawing its own candidates would see.
+class UiElementObserver final : public ITfUIElementSink {
+public:
+    explicit UiElementObserver(ITfUIElementMgr* manager) : manager_(manager) {}
+
+    STDMETHODIMP QueryInterface(REFIID riid, void** object) override {
+        if (riid == IID_IUnknown || riid == IID_ITfUIElementSink) {
+            *object = static_cast<ITfUIElementSink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *object = nullptr;
+        return E_NOINTERFACE;
+    }
+    STDMETHODIMP_(ULONG) AddRef() override { return ++references_; }
+    STDMETHODIMP_(ULONG) Release() override { return --references_; }  // lives on the stack
+
+    STDMETHODIMP BeginUIElement(DWORD id, BOOL* show) override {
+        *show = FALSE;  // we draw the candidates ourselves
+        ++begun_;
+        Read(id);
+        return S_OK;
+    }
+    STDMETHODIMP UpdateUIElement(DWORD id) override {
+        Read(id);
+        return S_OK;
+    }
+    STDMETHODIMP EndUIElement(DWORD) override { return S_OK; }
+
+    int begun() const { return begun_; }
+    UINT count() const { return count_; }
+    const std::wstring& first() const { return first_; }
+
+private:
+    void Read(DWORD id) {
+        ITfUIElement* element = nullptr;
+        if (FAILED(manager_->GetUIElement(id, &element))) return;
+        ITfCandidateListUIElement* list = nullptr;
+        if (SUCCEEDED(element->QueryInterface(IID_ITfCandidateListUIElement, reinterpret_cast<void**>(&list)))) {
+            list->GetCount(&count_);
+            BSTR text = nullptr;
+            if (count_ > 0 && SUCCEEDED(list->GetString(0, &text))) {
+                first_ = text;
+                SysFreeString(text);
+            }
+            list->Release();
+        }
+        element->Release();
+    }
+
+    ITfUIElementMgr* manager_;
+    ULONG references_ = 1;
+    int begun_ = 0;
+    UINT count_ = 0;
+    std::wstring first_;
+};
+
 std::string ToUtf8(const std::wstring& text) {
     if (text.empty()) return {};
     int size = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
@@ -182,14 +242,20 @@ std::wstring EditText(HWND edit) {
 }
 
 bool ParseOptions(int argc, wchar_t** argv, Options* options) {
-    for (int i = 1; i + 1 < argc; i += 2) {
+    for (int i = 1; i < argc; ++i) {
         std::wstring name = argv[i];
-        if (name == L"--clsid" && ParseGuid(argv[i + 1], &options->clsid)) continue;
-        if (name == L"--profile" && ParseGuid(argv[i + 1], &options->profile)) continue;
-        if (name == L"--keys") { options->keys = argv[i + 1]; continue; }
-        if (name == L"--expect") { options->expected = argv[i + 1]; continue; }
-        if (name == L"--screenshots") { options->screenshotDirectory = argv[i + 1]; continue; }
-        if (name == L"--settle") { options->settleMilliseconds = static_cast<DWORD>(_wtoi(argv[i + 1])); continue; }
+        if (name == L"--ui-less") {
+            options->uiLess = true;
+            continue;
+        }
+        if (i + 1 >= argc) return false;
+        const wchar_t* value = argv[++i];
+        if (name == L"--clsid" && ParseGuid(value, &options->clsid)) continue;
+        if (name == L"--profile" && ParseGuid(value, &options->profile)) continue;
+        if (name == L"--keys") { options->keys = value; continue; }
+        if (name == L"--expect") { options->expected = value; continue; }
+        if (name == L"--screenshots") { options->screenshotDirectory = value; continue; }
+        if (name == L"--settle") { options->settleMilliseconds = static_cast<DWORD>(_wtoi(value)); continue; }
         return false;
     }
     return !options->keys.empty();
@@ -251,6 +317,18 @@ int wmain(int argc, wchar_t** argv) {
     if (FAILED(hr)) Fail("SetValue(OPENCLOSE)", hr);
     PumpMessages(100);
 
+    ITfUIElementMgr* elements = nullptr;
+    threadManager->QueryInterface(IID_ITfUIElementMgr, reinterpret_cast<void**>(&elements));
+    UiElementObserver observer(elements);
+    DWORD observerCookie = TF_INVALID_COOKIE;
+    if (options.uiLess) {
+        ITfSource* source = nullptr;
+        if (SUCCEEDED(threadManager->QueryInterface(IID_ITfSource, reinterpret_cast<void**>(&source)))) {
+            source->AdviseSink(IID_ITfUIElementSink, static_cast<ITfUIElementSink*>(&observer), &observerCookie);
+            source->Release();
+        }
+    }
+
     ITfKeystrokeMgr* keystrokes = nullptr;
     hr = threadManager->QueryInterface(IID_ITfKeystrokeMgr, reinterpret_cast<void**>(&keystrokes));
     if (FAILED(hr)) Fail("QueryInterface(KeystrokeMgr)", hr);
@@ -295,6 +373,21 @@ int wmain(int argc, wchar_t** argv) {
     PumpMessages(300);
     std::wstring text = EditText(edit);
     std::printf("eaten=%d/%zu\n", eatenCount, strokes.size());
+    bool uiLessPassed = true;
+    if (options.uiLess) {
+        HWND panel = FindWindowW(L"azooKeyTreeCandidatePanel", nullptr);
+        bool panelVisible = panel && IsWindowVisible(panel);
+        std::printf("UIELEMENT begun=%d count=%u first=%s panelVisible=%s\n", observer.begun(), observer.count(),
+                    ToUtf8(observer.first()).c_str(), panelVisible ? "yes" : "no");
+        uiLessPassed = observer.begun() > 0 && observer.count() > 0 && !panelVisible;
+        ITfSource* source = nullptr;
+        if (observerCookie != TF_INVALID_COOKIE &&
+            SUCCEEDED(threadManager->QueryInterface(IID_ITfSource, reinterpret_cast<void**>(&source)))) {
+            source->UnadviseSink(observerCookie);
+            source->Release();
+        }
+    }
+    if (elements) elements->Release();
     std::printf("TEXT=%s\n", ToUtf8(text).c_str());
     std::fflush(stdout);
     keystrokes->Release();
@@ -305,6 +398,10 @@ int wmain(int argc, wchar_t** argv) {
     threadManager->Deactivate();
     threadManager->Release();
     CoUninitialize();
+    if (!uiLessPassed) {
+        std::printf("FAIL ui-less: the candidates were not offered as a UI element, or our panel was shown\n");
+        return 1;
+    }
     if (options.expected) {
         bool matched = text == *options.expected;
         std::printf("%s expected=%s\n", matched ? "PASS" : "FAIL", ToUtf8(*options.expected).c_str());

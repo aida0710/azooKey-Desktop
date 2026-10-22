@@ -24,15 +24,18 @@ $cases = @(
     @{ Name = 'Esc then typing again'; Keys = 'nihongo{ESC}kanji{ENTER}'; Expected = '漢字' },
     @{ Name = 'Hankaku/Zenkaku turns Japanese input off'; Keys = '{KANJI}abc'; Expected = 'abc' },
     @{ Name = 'Muhenkan leaves Japanese input'; Keys = '{NONCONVERT}abc'; Expected = 'abc' },
-    @{ Name = 'Henkan turns Japanese input back on'; Keys = '{NONCONVERT}a{CONVERT}ka'; Expected = 'aか' }
+    @{ Name = 'Henkan turns Japanese input back on'; Keys = '{NONCONVERT}a{CONVERT}ka'; Expected = 'aか' },
+    @{ Name = 'an application that draws candidates itself'; Keys = 'nihongo{SPACE}{DOWN}{ENTER}'; Expected = 'にほんご'; UiLess = $true }
 )
 $failed = 0
 foreach ($case in $cases) {
-    $output = & $Harness --clsid $clsid --profile $profileGuid --keys $case.Keys --expect $case.Expected --screenshots $Screenshots 2>&1 | Out-String
+    $arguments = @('--clsid', $clsid, '--profile', $profileGuid, '--keys', $case.Keys, '--expect', $case.Expected, '--screenshots', $Screenshots)
+    if ($case.UiLess) { $arguments += '--ui-less' }
+    $output = & $Harness @arguments 2>&1 | Out-String
     $passed = $LASTEXITCODE -eq 0
     if (-not $passed) { $failed++ }
-    $text = ($output -split "`n" | Where-Object { $_ -like 'TEXT=*' } | Select-Object -First 1)
-    '{0} {1}: {2}' -f ($(if ($passed) { 'PASS' } else { 'FAIL' })), $case.Name, $text.Trim()
+    $details = ($output -split "`n" | Where-Object { $_ -like 'TEXT=*' -or $_ -like 'UIELEMENT*' -or $_ -like 'FAIL*' }) -join ' | '
+    '{0} {1}: {2}' -f ($(if ($passed) { 'PASS' } else { 'FAIL' })), $case.Name, $details.Trim()
 }
 "$($cases.Count - $failed)/$($cases.Count) cases passed"
 exit $failed

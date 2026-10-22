@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 
+#include "candidate_list_element.h"
 #include "candidate_panel.h"
 #include "composition_writer.h"
 #include "converter_client.h"
@@ -83,6 +84,9 @@ private:
     // Pointer actions from the candidate panel; they are not key events, so
     // their edits may reach the document later.
     void ApplyPointerChoice(std::optional<protocol::Snapshot> snapshot);
+    void ShowCandidates(const protocol::Snapshot& snapshot, const std::optional<CompositionGeometry>& geometry);
+    void HideCandidates();
+    void CreateCandidateElement();
     ITfContext* CompositionContext() const;  // AddRef'd, or nullptr
 
     bool IsInputOpen();
@@ -104,6 +108,7 @@ private:
     ClauseAttributeAtoms clauseAtoms_;
     std::unique_ptr<ConverterClient> converter_;
     std::unique_ptr<CandidatePanel> candidatePanel_;
+    CandidateListElement* candidateElement_ = nullptr;  // COM object; the application may hold it too
     protocol::Snapshot snapshot_;  // last state written to the document
 
     // Password fields are detected once per focused context.
