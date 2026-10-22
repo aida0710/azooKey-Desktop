@@ -52,9 +52,10 @@ final class DesktopAIController {
             return DesktopAIReviewSendResponse()
         }
         reviews[context] = nil
-        let current = session.snapshot()
+        // Compared without a new snapshot: recomputing candidates for this
+        // request's (absent) surrounding text could itself change the generation.
         guard !session.privateInput, AIDesktopConfiguration.current().isEnabled,
-              review.isCurrent(generation: current.generation, reading: current.reading) else {
+              review.isCurrent(generation: session.generation, reading: session.currentReading) else {
             return DesktopAIReviewSendResponse()
         }
         return DesktopAIReviewSendResponse(

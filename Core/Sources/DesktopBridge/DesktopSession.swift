@@ -77,7 +77,7 @@ final class DesktopSession: SegmentManagerDelegate {
     private var language: InputLanguage = .japanese
     private var tree = CandidateTree(entries: [])
     private var treeSelection = CandidateTreeSelection(tree: CandidateTree(entries: []), candidateIndex: nil)
-    private var generation = 0
+    private(set) var generation = 0
     private var pageStart = 0
     private var suggestions: [Candidate] = []
     private var suggestionIndex = 0
@@ -510,6 +510,9 @@ final class DesktopSession: SegmentManagerDelegate {
         response.request = result.request
         return response
     }
+
+    /// The reading being composed, read without recomputing candidates.
+    var currentReading: String { segments.convertTarget }
 
     func snapshot(commits: [String] = []) -> DesktopSnapshot {
         var result = DesktopSnapshot()

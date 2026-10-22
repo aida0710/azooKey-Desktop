@@ -42,6 +42,14 @@ import Testing
         try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(response)) as? [String: Any])
     }
 
+    /// What BridgeMain sets on the session from every request before the operation runs.
+    func applyRequestFacts(_ request: BridgeRequest, to session: DesktopSession) {
+        session.privateInput = request.privateInput ?? false
+        session.leftContext = String((request.leftContext ?? "").suffix(100))
+        session.rightContext = String((request.rightContext ?? "").prefix(100))
+        session.reconversionContext = request.reconversionContext
+    }
+
     func keyEvent(_ characters: String, _ modifiers: KeyEventCore.ModifierFlag = [], keyCode: UInt16 = 0) -> [String: Any] {
         ["modifierFlags": modifiers.rawValue, "characters": characters, "charactersIgnoringModifiers": characters, "keyCode": keyCode]
     }
@@ -49,7 +57,7 @@ import Testing
     func key(_ controller: DesktopAIController, _ session: DesktopSession, _ event: [String: Any], extra: [String: Any] = [:],
              context: String = "field") throws -> DesktopSnapshot {
         let request = try request(["operation": "key", "event": event].merging(extra) { $1 })
-        session.privateInput = request.privateInput ?? false
+        applyRequestFacts(request, to: session)
         return controller.key(try #require(request.event), request: request, session: session, context: context)
     }
 
@@ -57,7 +65,7 @@ import Testing
               privateInput: Bool = false, context: String = "field") throws -> [String: Any] {
         let request = try request(["operation": "ai-review-send", "privateInput": privateInput,
                                    "ai": ["review": review, "includeContext": includeContext]])
-        session.privateInput = privateInput
+        applyRequestFacts(request, to: session)
         return try encoded(try #require(try controller.sessionResponse(to: request, session: session, context: context)))
     }
 
@@ -100,6 +108,17 @@ import Testing
             #expect((arguments["leftContext"] as? String)?.isEmpty == true && (arguments["rightContext"] as? String)?.isEmpty == true)
             #expect(sent["generation"] as? Int == pending.generation && sent["reading"] as? String == pending.reading)
             #expect(try send(controller, session, review: review.id, includeContext: false)["request"] == nil, "sent once")
+        }
+    }
+
+    @Test func sendingDoesNotDependOnTheSurroundingTextOfTheSendRequest() throws {
+        try withController { controller, session, _ in
+            for character in "nihongo" {
+                _ = try key(controller, session, keyEvent(String(character)), extra: ["leftContext": "前の文"])
+            }
+            let review = try #require(try key(controller, session, keyEvent("s", .control), extra: ["leftContext": "前の文"]).ai?.review)
+            // The send request carries no surrounding text, so the session's context is now empty.
+            #expect(try send(controller, session, review: review.id, includeContext: false)["request"] != nil)
         }
     }
 
