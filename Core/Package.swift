@@ -16,6 +16,17 @@ let kanaKanjiConverterTraits: Set<Package.Dependency.Trait> = [
 ]
 #endif
 
+#if os(Windows)
+// SwiftPM 6.2 on Windows waits for the plugin tool as "<name>" while it links
+// "<name>-tool.exe", so the build never starts. Version info comes from the
+// Windows frontend's own resources instead.
+let corePlugins: [Target.PluginUsage] = []
+let coreSwiftSettings: [SwiftSetting] = [.interoperabilityMode(.Cxx), .define("AZOOKEY_GIT_INFO_UNAVAILABLE")]
+#else
+let corePlugins: [Target.PluginUsage] = [.plugin(name: "GitInfoPlugin")]
+let coreSwiftSettings: [SwiftSetting] = [.interoperabilityMode(.Cxx)]
+#endif
+
 let products: [Product] = [
     // Products define the executables and libraries a package produces, making them visible to other packages.
     .library(
@@ -42,13 +53,12 @@ let targets: [Target] = [
             .product(name: "SwiftUtils", package: "AzooKeyKanaKanjiConverter"),
             .product(name: "KanaKanjiConverterModuleWithDefaultDictionary", package: "AzooKeyKanaKanjiConverter"),
             .product(name: "Crypto", package: "swift-crypto"),
-            .product(name: "ZIPFoundation", package: "ZIPFoundation")
+            // ZIPFoundation needs system zlib headers, which the Windows SDK does not ship.
+            .product(name: "ZIPFoundation", package: "ZIPFoundation", condition: .when(platforms: [.macOS, .linux]))
         ],
         resources: [.process("Resources")],
-        swiftSettings: [.interoperabilityMode(.Cxx)],
-        plugins: [
-            .plugin(name: "GitInfoPlugin")
-        ]
+        swiftSettings: coreSwiftSettings,
+        plugins: corePlugins
     ),
     .testTarget(
         name: "CoreTests",

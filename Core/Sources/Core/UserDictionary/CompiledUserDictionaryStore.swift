@@ -100,8 +100,8 @@ public enum CompiledUserDictionaryStore {
     static func defaultCharIDFileURL() -> URL? {
         _ = DicdataStore.withDefaultDictionary(preloadDictionary: false)
         let fileManager = FileManager.default
-        #if os(Linux)
-        // SwiftPM emits .resources directories on Linux, not macOS .bundles.
+        #if os(Linux) || os(Windows)
+        // SwiftPM emits .resources directories on Linux and Windows, not macOS .bundles.
         // Avoid Bundle.allFrameworks, which has no equivalent for ELF modules.
         let root = Bundle.main.bundleURL
         let children = (try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []

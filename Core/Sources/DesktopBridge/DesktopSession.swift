@@ -13,6 +13,12 @@ struct DesktopSnapshot: Encodable {
         let comparisonGroup: Int?
         let commitScope: CandidateCommitScope?
     }
+    /// One visually distinct part of the preedit. Frontends that draw their own
+    /// clause underline (TSF display attributes) use it to mark the clause in conversion.
+    struct PreeditSegment: Encodable {
+        let text: String
+        let focus: String
+    }
     struct Node: Encodable {
         let id: Int
         let text: String
@@ -28,6 +34,7 @@ struct DesktopSnapshot: Encodable {
     }
     var consumed = true
     var preedit = ""
+    var preeditSegments: [PreeditSegment] = []
     var cursor = 0
     var commits: [String] = []
     var candidates: [CandidateItem] = []
@@ -533,6 +540,14 @@ final class DesktopSession: SegmentManagerDelegate {
         } else {
             let marked = segments.getCurrentMarkedText(inputState: state)
             result.preedit = marked.map(\.content).joined()
+            result.preeditSegments = marked.map { element in
+                let focus = switch element.focus {
+                case .focused: "focused"
+                case .unfocused: "unfocused"
+                case .none: "none"
+                }
+                return .init(text: element.content, focus: focus)
+            }
             result.cursor = unicodeScalarOffset(in: result.preedit, utf16Offset: marked.selectionRange.location)
         }
         let candidates = currentCandidates

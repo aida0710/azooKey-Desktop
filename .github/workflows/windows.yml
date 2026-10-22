@@ -1,0 +1,41 @@
+name: Windows
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Swift
+        shell: pwsh
+        run: Windows/scripts/install-swift.ps1
+      - name: Build the package
+        shell: pwsh
+        run: |
+          . Windows/scripts/enter-dev-shell.ps1
+          Windows/scripts/build-package.ps1 -Output build/windows-package
+      - name: Unit tests
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-windows-tests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Convert through the host with the packaged bridge
+        shell: pwsh
+        run: |
+          build/windows-frontend/azookey-host-integration-test.exe build/windows-package/azookey-windows-host.exe build/windows-package/bridge/azookey-desktop-bridge.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Type through TSF with the installed text service
+        shell: pwsh
+        run: |
+          build/windows-package/install.ps1
+          build/windows-frontend/tsf-harness.exe --clsid '{DC2488F5-F672-4910-9FEA-6D97306B86DA}' --profile '{30051583-6CBB-49E0-AEAA-91AE64DCA550}' --keys 'nihongo{SPACE}{ENTER}' --expect '日本語'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: azookey-tree-windows-x64
+          path: build/windows-package

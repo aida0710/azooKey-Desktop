@@ -1,0 +1,32 @@
+# Removes azooKey Tree for Windows. Run from an elevated PowerShell.
+# The user's learning data in %LOCALAPPDATA%\azooKey Tree is kept unless -RemoveUserData is given.
+param(
+    [string]$Destination = (Join-Path $env:ProgramFiles 'azooKey Tree'),
+    [switch]$RemoveUserData
+)
+$ErrorActionPreference = 'Stop'
+$textServiceTip = '0411:{DC2488F5-F672-4910-9FEA-6D97306B86DA}{30051583-6CBB-49E0-AEAA-91AE64DCA550}'
+
+$languages = Get-WinUserLanguageList
+foreach ($language in $languages) {
+    if ($language.InputMethodTips -contains $textServiceTip) { [void]$language.InputMethodTips.Remove($textServiceTip) }
+}
+Set-WinUserLanguageList $languages -Force
+
+Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'azooKeyTreeHost' -ErrorAction SilentlyContinue
+Get-Process azookey-windows-host, azookey-desktop-bridge -ErrorAction SilentlyContinue | Stop-Process -Force
+
+$dll = Join-Path $Destination 'azookey-tsf.dll'
+if (Test-Path $dll) {
+    Start-Process -FilePath "$env:SystemRoot\System32\regsvr32.exe" -ArgumentList @('/u', '/s', "`"$dll`"") -Wait | Out-Null
+}
+# Applications that still have the DLL loaded keep it until they exit; what
+# cannot be deleted now is left for the next uninstall or a restart.
+Get-ChildItem $Destination -Force -ErrorAction SilentlyContinue | ForEach-Object {
+    try { Remove-Item -Recurse -Force $_.FullName } catch { Write-Warning "使用中のため残しました: $($_.FullName)" }
+}
+Remove-Item -Force $Destination -ErrorAction SilentlyContinue
+if ($RemoveUserData) {
+    Remove-Item -Recurse -Force (Join-Path $env:LOCALAPPDATA 'azooKey Tree') -ErrorAction SilentlyContinue
+}
+Write-Output 'azooKey Tree を削除しました。'

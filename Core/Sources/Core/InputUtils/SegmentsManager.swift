@@ -127,7 +127,7 @@ public final class SegmentsManager {
         }
 
         let base = self.resourcesDirectoryURL.appendingPathComponent("lm", isDirectory: false).path
-        #if os(Linux)
+        #if !os(macOS)
         let personal = containerURL.appendingPathComponent("personalization/current").resolvingSymlinksInPath().path + "/lm"
         #else
         let personal = containerURL.appendingPathComponent("Library/Application Support/p13n_v1").path + "/lm"
