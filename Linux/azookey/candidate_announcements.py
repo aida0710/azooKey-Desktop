@@ -3,6 +3,11 @@ from .i18n import text as message
 
 
 def candidate_announcement(snapshot):
+    if (snapshot.get("inputState") == "composing" and snapshot.get("candidateDisplayMode") == "menu"
+            and snapshot.get("selection") is None and snapshot.get("candidates")):
+        # Candidate arrival has no formal selection. Announce availability
+        # without presenting a candidate as the text that Enter will commit.
+        return message("candidate.available", total=len(snapshot["candidates"]))
     if snapshot.get("inputState") not in ("previewing", "selecting", "replaceSuggestion"):
         return None
     candidate = next((item for item in snapshot.get("candidates", [])

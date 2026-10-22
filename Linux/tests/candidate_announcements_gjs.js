@@ -36,6 +36,25 @@ const partial = {...snapshot, candidates: [
 ]};
 equal(candidateAnnouncement(partial), '変換候補 1 / 1。日本。読み ニホン。語 1 / 2。残る読み にいく');
 
+const arrival = {...snapshot, inputState: 'composing', candidateDisplayMode: 'menu', selection: null,
+    focusedNode: null, selectedPath: [], preedit: 'にほんにいく'};
+const unchanged = JSON.stringify(arrival);
+const arrivals = [];
+const unselected = new CandidateAnnouncements(text => arrivals.push(text));
+unselected.update(arrival);
+unselected.update({...arrival, generation: 2, location: [20, 30, 0, 18]});
+equal(arrivals, ['変換候補が2件あります。上下キーで選べます']);
+equal(JSON.stringify(arrival), unchanged);
+unselected.update(snapshot);
+equal(arrivals[1], '変換候補 1 / 2。日本。読み ニホン。語 1 / 2。確定予定 日本に行く');
+for (const changes of [{candidates: []}, {candidateDisplayMode: 'live'}, {candidateDisplayMode: null},
+    {selection: 0}, {inputState: 'none'}])
+    equal(candidateAnnouncement({...arrival, ...changes}), null);
+unselected.update({...arrival, candidates: []});
+unselected.update(arrival);
+unselected.update({...arrival, contextId: 'another-synthetic-field'});
+equal(arrivals.slice(2), ['変換候補が2件あります。上下キーで選べます', '変換候補が2件あります。上下キーで選べます']);
+
 // Exercise the action lifecycle; the real Cally/AT-SPI boundary is tested in GNOME.
 let action, destroy, clicked = 0;
 const accessible = {

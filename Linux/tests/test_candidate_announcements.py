@@ -59,9 +59,58 @@ class CandidateAnnouncementTests(unittest.TestCase):
         for changes in ({"selection": 8}, {"focusedNode": 99}, {"inputState": "unknown"}):
             self.assertIsNone(candidate_announcement({**self.snapshot, **changes}))
 
+    def test_unselected_menu_announces_availability_without_selecting_or_changing_input(self):
+        arrival = {**self.snapshot, "inputState": "composing", "candidateDisplayMode": "menu",
+                   "selection": None, "focusedNode": None, "selectedPath": [], "preedit": "にほんにいく"}
+        unchanged = copy.deepcopy(arrival)
+        self.announcements.update(arrival)
+        self.announcements.update({**arrival, "generation": 2, "location": [20, 30, 0, 18]})
+        self.assertEqual(self.spoken, ["変換候補が2件あります。上下キーで選べます"])
+        self.assertEqual(arrival, unchanged)
+        self.announcements.update(self.snapshot)
+        self.assertEqual(len(self.spoken), 2)
+        self.assertIn("日本。読み ニホン", self.spoken[-1])
+
+    def test_empty_or_live_composition_does_not_report_candidate_availability(self):
+        arrival = {**self.snapshot, "inputState": "composing", "candidateDisplayMode": "menu", "selection": None}
+        for changes in ({"candidates": []}, {"candidateDisplayMode": "live"},
+                        {"candidateDisplayMode": None}, {"selection": 0}, {"inputState": "none"}):
+            self.assertIsNone(candidate_announcement({**arrival, **changes}))
+
+    def test_reopening_or_another_context_announces_unselected_candidates_again(self):
+        arrival = {**self.snapshot, "inputState": "composing", "candidateDisplayMode": "menu", "selection": None}
+        self.announcements.update(arrival)
+        self.announcements.update({**arrival, "candidates": []})
+        self.announcements.update(arrival)
+        self.announcements.update({**arrival, "contextId": "another-synthetic-field"})
+        self.assertEqual(self.spoken, ["変換候補が2件あります。上下キーで選べます"] * 3)
+
 
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires a GTK display")
 class CandidateAnnouncementGTKTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import gi
+        gi.require_version("Atk", "1.0")
+        gi.require_version("Gtk", "3.0")
+
+    def test_unselected_menu_emits_one_native_notification_and_keeps_confirmation_disabled(self):
+        from gi.repository import Atk
+        from azookey.tree_panel import TreePanel
+
+        activated, spoken = [], []
+        panel = TreePanel(lambda *selection: activated.append(selection))
+        self.addCleanup(panel.destroy)
+        panel.get_accessible().connect("notification", lambda _accessible, text, priority: spoken.append((text, priority)))
+        arrival = {**json.loads(FIXTURE.read_text()), "inputState": "composing", "candidateDisplayMode": "menu",
+                   "selection": None, "focusedNode": None, "selectedPath": []}
+        panel.update(arrival)
+        panel.update({**arrival, "generation": 2})
+        self.assertEqual(spoken, [("変換候補が2件あります。上下キーで選べます", Atk.Live.POLITE)])
+        self.assertFalse(panel.navigation.confirm.get_sensitive())
+        self.assertFalse(panel.get_accept_focus())
+        self.assertEqual(activated, [])
+
     def test_native_notification_preserves_document_focus_and_at_action_commits_once(self):
         from gi.repository import Atk, Gtk
         from azookey.tree_panel import TreePanel

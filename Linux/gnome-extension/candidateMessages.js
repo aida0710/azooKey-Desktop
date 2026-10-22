@@ -3,6 +3,7 @@ export const messages = {
     detail: '候補の詳細',
     detailKeys: '矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール',
     position: (position, total) => `変換候補 ${position} / ${total}`,
+    available: total => `変換候補が${total}件あります。上下キーで選べます`,
     openList: '一覧',
     closeList: '閉じる',
     previousPage: '前へ',
