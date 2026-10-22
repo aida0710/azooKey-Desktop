@@ -1,0 +1,18 @@
+{
+  "dictionary.imported.reset.action": {
+    "ja": "取り込んだ辞書を削除…",
+    "en": "Delete imported dictionary…"
+  },
+  "dictionary.imported.reset.confirm": {
+    "ja": "取り込んだ辞書を削除",
+    "en": "Delete imported dictionary"
+  },
+  "dictionary.imported.reset.explanation": {
+    "ja": "azooKey に取り込んだコピーだけを削除します。macOS の辞書原本、azooKey ユーザー辞書、履歴学習、個人化モデルは残ります。この削除は取り消せませんが、OS の辞書から再度取り込めます。",
+    "en": "Only the copy imported into azooKey is deleted. The macOS original, azooKey user dictionary, learning history and personalization models are kept. This cannot be undone, but the system dictionary can be imported again."
+  },
+  "dictionary.imported.reset.title": {
+    "ja": "取り込んだシステム辞書を削除しますか？",
+    "en": "Delete the imported system dictionary?"
+  }
+}

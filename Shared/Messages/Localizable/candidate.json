@@ -1,0 +1,216 @@
+{
+  "candidate.activate": {
+    "ja": "実行",
+    "en": "Activate",
+    "gjs": "activate"
+  },
+  "candidate.announceCommit": {
+    "ja": "確定予定 {text}",
+    "en": "Will commit {text}",
+    "gjs": "commit"
+  },
+  "candidate.announceReading": {
+    "ja": "読み {reading}",
+    "en": "Reading {reading}",
+    "gjs": "reading"
+  },
+  "candidate.announceRemaining": {
+    "ja": "残る読み {reading}",
+    "en": "Reading left {reading}",
+    "gjs": "remaining"
+  },
+  "candidate.closeDetails": {
+    "ja": "詳細を閉じる",
+    "en": "Hide details",
+    "gjs": "closeDetails"
+  },
+  "candidate.closeList": {
+    "ja": "閉じる",
+    "en": "Close",
+    "gjs": "closeList"
+  },
+  "candidate.closeTree": {
+    "ja": "文節を閉じる",
+    "en": "Hide segments",
+    "gjs": "closeTree"
+  },
+  "candidate.composition": {
+    "ja": "確定する文章",
+    "en": "Text to confirm",
+    "gjs": "composition"
+  },
+  "candidate.confirm": {
+    "ja": "押すと候補を確定",
+    "en": "Press to confirm this candidate"
+  },
+  "candidate.detail": {
+    "ja": "候補の詳細",
+    "en": "Candidate details",
+    "gjs": "detail"
+  },
+  "candidate.detailKeys": {
+    "ja": "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール",
+    "en": "Arrow keys show details; PageUp / PageDown scroll the details",
+    "gjs": "detailKeys"
+  },
+  "candidate.focused": {
+    "ja": "操作対象",
+    "en": "Current navigation target"
+  },
+  "candidate.focusedConfirm": {
+    "ja": "操作対象。押すと候補を確定",
+    "en": "Current navigation target. Press to confirm this candidate"
+  },
+  "candidate.focusedSelect": {
+    "ja": "操作対象。押すと候補を選択",
+    "en": "Current navigation target. Select this candidate",
+    "gjs": "focusedSelect"
+  },
+  "candidate.nextPage": {
+    "ja": "次へ",
+    "en": "Next",
+    "gjs": "nextPage"
+  },
+  "candidate.numberBadge": {
+    "ja": "候補番号 {number}",
+    "en": "Candidate number {number}",
+    "gjs": "numberBadge"
+  },
+  "candidate.numberConfirm": {
+    "ja": "候補 {number} を確定",
+    "en": "Confirm candidate {number}"
+  },
+  "candidate.numberSelect": {
+    "ja": "候補 {number} を選択",
+    "en": "Select candidate {number}",
+    "gjs": "numberSelect"
+  },
+  "candidate.openDetails": {
+    "ja": "詳細を表示",
+    "en": "Show details",
+    "gjs": "openDetails"
+  },
+  "candidate.openList": {
+    "ja": "一覧",
+    "en": "List",
+    "gjs": "openList"
+  },
+  "candidate.openTree": {
+    "ja": "文節を調整",
+    "en": "Adjust segments",
+    "gjs": "openTree"
+  },
+  "candidate.position": {
+    "ja": "変換候補 {position} / {total}",
+    "en": "Candidates {position} / {total}",
+    "gjs": "position"
+  },
+  "candidate.preview.changedFollowing": {
+    "ja": "後続の変更: {before} → {after}",
+    "en": "Following text changes: {before} → {after}"
+  },
+  "candidate.preview.commit": {
+    "ja": "確定予定: {text}",
+    "en": "Will commit: {text}"
+  },
+  "candidate.preview.empty": {
+    "ja": "なし",
+    "en": "none"
+  },
+  "candidate.preview.following": {
+    "ja": "この語の後続: {text}",
+    "en": "Following text: {text}"
+  },
+  "candidate.preview.remaining": {
+    "ja": "残る読み: {reading}",
+    "en": "Reading left to edit: {reading}"
+  },
+  "candidate.preview.scope": {
+    "ja": "確定する読み: {reading}",
+    "en": "Reading to commit: {reading}"
+  },
+  "candidate.previousPage": {
+    "ja": "前へ",
+    "en": "Previous",
+    "gjs": "previousPage"
+  },
+  "candidate.proposal": {
+    "ja": "候補のプレビュー",
+    "en": "Candidate preview",
+    "gjs": "proposal"
+  },
+  "candidate.score.conditional100": {
+    "ja": "100はこの分岐内の相対値です。子候補が一つでも100になり、正解を保証しません。",
+    "en": "100 is relative to this branch. A sole child also gets 100; it does not guarantee a correct conversion."
+  },
+  "candidate.score.explanation": {
+    "ja": "同じ読み・消費範囲の取得候補を、同じ親から分かれる候補同士で比べた値です。非表示の候補も含みます。正解の確率ではありません。",
+    "en": "These values compare returned candidates with the same reading and consumed input, conditional on their parent. Hidden candidates count too. They are not probabilities of correctness."
+  },
+  "candidate.score.roundedZero": {
+    "ja": "0は丸めた相対値です。この候補が不可能という意味ではありません。",
+    "en": "0 is a rounded relative value. It does not mean this candidate is impossible."
+  },
+  "candidate.score.show": {
+    "ja": "相対スコアを表示",
+    "en": "Show relative scores"
+  },
+  "candidate.score.unavailable": {
+    "ja": "未評価: 同じ読み・消費範囲で比較できる評価がありません。",
+    "en": "Not evaluated: no comparable evaluation for the same reading and consumed input."
+  },
+  "candidate.score.unavailableLabel": {
+    "ja": "—",
+    "en": "—"
+  },
+  "candidate.score.value": {
+    "ja": "相対スコア {score:d}",
+    "en": "Relative score {score:d}"
+  },
+  "candidate.select": {
+    "ja": "押すと候補を選択",
+    "en": "Select this candidate",
+    "gjs": "select"
+  },
+  "candidate.selectHint": {
+    "ja": "候補を選び、Enterで確定",
+    "en": "Select a candidate, then press Enter to confirm",
+    "gjs": "selectHint"
+  },
+  "candidate.selected": {
+    "ja": "選択中",
+    "en": "Selected",
+    "gjs": "selected"
+  },
+  "candidate.submit": {
+    "ja": "確定",
+    "en": "Confirm",
+    "gjs": "submit"
+  },
+  "candidate.submitCandidate": {
+    "ja": "この候補を確定",
+    "en": "Confirm this candidate",
+    "gjs": "submitCandidate"
+  },
+  "candidate.textSize": {
+    "ja": "候補の文字サイズ",
+    "en": "Candidate text size"
+  },
+  "candidate.textSize.large": {
+    "ja": "大きい",
+    "en": "Large"
+  },
+  "candidate.textSize.standard": {
+    "ja": "標準",
+    "en": "Standard"
+  },
+  "candidate.withReading": {
+    "ja": "{text}（{reading}）",
+    "en": "{text} ({reading})"
+  },
+  "candidate.wordPosition": {
+    "ja": "語 {position} / {total}",
+    "en": "Word {position} / {total}",
+    "gjs": "wordPosition"
+  }
+}

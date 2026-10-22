@@ -1,0 +1,138 @@
+{
+  "settings.backend_recovery_failed": {
+    "ja": "設定ファイルの保存と、変換器の元の設定への復元に失敗しました。もう一度保存すると、元の設定の復元から再試行します。",
+    "en": "Saving the settings file and restoring the converter's previous settings both failed. Saving again first retries restoring the previous settings."
+  },
+  "settings.backup_warning": {
+    "ja": "設定は保存しましたが、正常版の控えを保存できませんでした。設定フォルダーの権限を確認してください。",
+    "en": "The settings were saved, but a backup of the valid version could not be saved. Check the permissions of the settings folder."
+  },
+  "settings.busy": {
+    "ja": "別の画面が設定を保存しています。少し待ってもう一度保存してください。",
+    "en": "Another window is saving the settings. Wait a moment and save again."
+  },
+  "settings.cancel": {
+    "ja": "取消",
+    "en": "Cancel"
+  },
+  "settings.changed": {
+    "ja": "別の操作で設定ファイルが変わりました。設定画面を開き直してください。",
+    "en": "Another operation changed the settings file. Reopen the settings window."
+  },
+  "settings.custom-table": {
+    "ja": "カスタム入力表（TSV）",
+    "en": "Custom input table (TSV)"
+  },
+  "settings.dictionary_edit": {
+    "ja": "ユーザー辞書を編集…（{count}件）",
+    "en": "Edit user dictionary… ({count} entries)"
+  },
+  "settings.dictionary_saved": {
+    "ja": "辞書を保存しました。次の変換から使用します。",
+    "en": "The dictionary was saved. It will be used for the next conversion."
+  },
+  "settings.dictionary_separate_save": {
+    "ja": "辞書は専用の画面で編集し、その画面の「保存」で反映します。",
+    "en": "The dictionary is edited in its own window and applied with that window's Save button."
+  },
+  "settings.engine_rejected": {
+    "ja": "変換器が設定を適用できませんでした。カスタム入力表などを確認してください。",
+    "en": "The converter could not apply the settings. Check the custom input table and other settings."
+  },
+  "settings.input_continues": {
+    "ja": "設定を読み込めないため、正常な設定で入力を続けます。設定画面で確認してください。",
+    "en": "The settings could not be loaded, so input continues with the last valid settings. Check them in the settings window."
+  },
+  "settings.invalid_json": {
+    "ja": "JSONの構文を確認してください（{line}行目、{column}列目）。",
+    "en": "Check the JSON syntax (line {line}, column {column})."
+  },
+  "settings.invalid_structure": {
+    "ja": "JSONの入れ子が深すぎます。設定の構造を確認してください。",
+    "en": "The JSON is nested too deeply. Check the structure of the settings."
+  },
+  "settings.invalid_value": {
+    "ja": "設定項目「{field}」の型または値を確認してください。",
+    "en": "Check the type or value of the setting “{field}”."
+  },
+  "settings.page.ai": {
+    "ja": "AI",
+    "en": "AI"
+  },
+  "settings.page.conversion": {
+    "ja": "変換表示",
+    "en": "Conversion and display"
+  },
+  "settings.page.dictionary": {
+    "ja": "辞書と学習",
+    "en": "Dictionaries and learning"
+  },
+  "settings.page.input": {
+    "ja": "入力",
+    "en": "Input"
+  },
+  "settings.page.support": {
+    "ja": "サポート",
+    "en": "Support"
+  },
+  "settings.personalization": {
+    "ja": "個人化モデル",
+    "en": "Personalization model"
+  },
+  "settings.personalization.explanation": {
+    "ja": "変換プロフィールは変換時の補足情報です。個人化モデルは別途作成したモデルを使います。どちらも履歴学習とは別の設定です。",
+    "en": "The conversion profile provides context for conversion. Personalization uses a separately created model. Both are independent of learning history."
+  },
+  "settings.profile": {
+    "ja": "変換プロフィール",
+    "en": "Conversion profile"
+  },
+  "settings.read_failed": {
+    "ja": "設定ファイルを読み取れません。ファイルの権限と種類を確認してください。",
+    "en": "The settings file cannot be read. Check the file's permissions and type."
+  },
+  "settings.recovery_detail": {
+    "ja": "{reason}\n対象: {path}\n現在は正常な設定を使っています。復旧時は元ファイルを別名で残します。",
+    "en": "{reason}\nFile: {path}\nThe last valid settings are in use. Recovery keeps the original file under another name."
+  },
+  "settings.recovery_required": {
+    "ja": "設定ファイルの復旧が必要です。設定画面で元ファイルを保全してから復旧してください。",
+    "en": "The settings file needs recovery. Preserve the original file in the settings window, then recover it."
+  },
+  "settings.recovery_title": {
+    "ja": "設定ファイルを復旧できます",
+    "en": "The settings file can be recovered"
+  },
+  "settings.restore_current": {
+    "ja": "正常な設定で復旧",
+    "en": "Recover with the valid settings"
+  },
+  "settings.restore_defaults": {
+    "ja": "入力・表示を既定に戻して復旧",
+    "en": "Recover with default input and display settings"
+  },
+  "settings.restore_explanation": {
+    "ja": "辞書、学習データ、個人化モデル、APIキーは削除しません。AI設定と学習方法も保持します。",
+    "en": "Dictionaries, learning data, personalization models, and API keys are not deleted. AI settings and the learning mode are also kept."
+  },
+  "settings.restore_question": {
+    "ja": "元ファイルを保全して設定を復旧しますか？",
+    "en": "Preserve the original file and recover the settings?"
+  },
+  "settings.restored": {
+    "ja": "設定を復旧しました。元ファイル: {backup}",
+    "en": "The settings were recovered. Original file: {backup}"
+  },
+  "settings.save": {
+    "ja": "保存",
+    "en": "Save"
+  },
+  "settings.saved": {
+    "ja": "保存しました。次の入力から反映します。",
+    "en": "Saved. Changes apply from the next input."
+  },
+  "settings.unknown_key": {
+    "ja": "未対応の設定項目「{field}」があります。",
+    "en": "The setting “{field}” is not supported."
+  }
+}

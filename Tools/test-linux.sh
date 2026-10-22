@@ -3,6 +3,8 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 export PYTHONPATH="$PWD/Linux:$PWD/Linux/tests${PYTHONPATH:+:$PYTHONPATH}"
 [[ "$(uname -s)" == Linux ]] || { echo 'Run this script inside Ubuntu or Docker.' >&2; exit 2; }
+python3 Tools/tests/test-generate-messages.py
+python3 Tools/generate-messages.py --check
 bash Tools/tests/test-sync-upstream.sh
 bash Tools/tests/test-docker-preflight.sh
 bash Tools/test-tree-model.sh

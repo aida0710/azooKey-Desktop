@@ -1,0 +1,46 @@
+{
+  "learning.mode.inputAndOutput": {
+    "ja": "学習して利用する",
+    "en": "Learn and use learning history"
+  },
+  "learning.mode.nothing": {
+    "ja": "学習データを利用しない",
+    "en": "Do not use learning history"
+  },
+  "learning.mode.onlyOutput": {
+    "ja": "新しい学習を停止し、これまでの学習を利用する",
+    "en": "Stop new learning and use existing history"
+  },
+  "learning.reset.action": {
+    "ja": "履歴学習データを削除…",
+    "en": "Delete learning history…"
+  },
+  "learning.reset.completed": {
+    "ja": "履歴学習データを削除しました。",
+    "en": "Learning history was deleted."
+  },
+  "learning.reset.confirm": {
+    "ja": "履歴学習データを削除",
+    "en": "Delete learning history"
+  },
+  "learning.reset.explanation": {
+    "ja": "履歴学習データだけを削除します。ユーザー辞書と取り込んだ辞書、個人化モデル、設定は残ります。この削除は取り消せません。",
+    "en": "Only learning history will be deleted. User and imported dictionaries, personalization models and settings are kept. This deletion cannot be undone."
+  },
+  "learning.reset.failed": {
+    "ja": "履歴学習データを削除できませんでした。",
+    "en": "Learning history could not be deleted."
+  },
+  "learning.reset.title": {
+    "ja": "履歴学習データを削除しますか？",
+    "en": "Delete learning history?"
+  },
+  "learning.retention": {
+    "ja": "「学習データを利用しない」では新しい学習も保存しません。設定の変更だけでは、蓄積済みの学習データは削除されません。",
+    "en": "Disabling history use also stops new learning. Changing this setting does not delete existing learning history."
+  },
+  "learning.title": {
+    "ja": "履歴学習",
+    "en": "Learning history"
+  }
+}

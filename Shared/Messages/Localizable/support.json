@@ -1,0 +1,126 @@
+{
+  "support.backend": {
+    "ja": "変換モデルの実行方式",
+    "en": "Inference backend"
+  },
+  "support.copied": {
+    "ja": "診断情報をコピーしました。",
+    "en": "Diagnostics copied."
+  },
+  "support.copy": {
+    "ja": "診断情報をコピー",
+    "en": "Copy diagnostics"
+  },
+  "support.cpu": {
+    "ja": "実行環境の CPU",
+    "en": "Runtime CPU architecture"
+  },
+  "support.fallback": {
+    "ja": "通常リストに戻る理由",
+    "en": "List fallback reason"
+  },
+  "support.fallback.extension": {
+    "ja": "GNOME 拡張が入力エンジンへ接続していません。",
+    "en": "The GNOME extension is not connected to the input engine."
+  },
+  "support.fallback.setting": {
+    "ja": "設定でツリーをオフにしています。",
+    "en": "Tree display is disabled in settings."
+  },
+  "support.fallback.unavailable": {
+    "ja": "入力エンジンの状態を取得できません。入力欄で azooKey Tree を選んでから更新してください。",
+    "en": "The input engine status is unavailable. Select azooKey Tree in a text field, then refresh."
+  },
+  "support.guide": {
+    "ja": "初回導入・復旧の案内",
+    "en": "Setup and recovery guide"
+  },
+  "support.issues": {
+    "ja": "このフォークへ問題を報告",
+    "en": "Report a problem with this fork"
+  },
+  "support.none": {
+    "ja": "なし",
+    "en": "None"
+  },
+  "support.os": {
+    "ja": "OS",
+    "en": "OS"
+  },
+  "support.package-cpu": {
+    "ja": "配布物の CPU",
+    "en": "Package CPU architecture"
+  },
+  "support.privacy": {
+    "ja": "コピーするのは版・OS・CPU・表示方式などの診断項目だけです。本文、辞書内容、指示の履歴、API キーは含みません。",
+    "en": "Only version, OS, CPU and renderer diagnostics are copied. Document text, dictionary entries, prompt history and API keys are excluded."
+  },
+  "support.recovery": {
+    "ja": "候補が読みにくい、表示されないときは、設定の「木構造の候補ウィンドウ」をオフにして通常リストへ戻せます。案内ページに更新・無効化・削除とデータの保存先を記載しています。",
+    "en": "If candidates are difficult to read or missing, disable the tree candidate window to use the normal list. The guide explains updates, disabling, removal and data locations."
+  },
+  "support.refresh": {
+    "ja": "診断情報を更新",
+    "en": "Refresh diagnostics"
+  },
+  "support.releases": {
+    "ja": "このフォークの配布版・更新",
+    "en": "Fork releases and updates"
+  },
+  "support.renderer": {
+    "ja": "候補の表示方式",
+    "en": "Candidate renderer"
+  },
+  "support.renderer.gtk-tree": {
+    "ja": "GTK のツリー",
+    "en": "GTK tree"
+  },
+  "support.renderer.ibus-list": {
+    "ja": "IBus の通常リスト",
+    "en": "IBus list"
+  },
+  "support.renderer.mac-list": {
+    "ja": "macOS の通常リスト",
+    "en": "macOS list"
+  },
+  "support.renderer.mac-tree": {
+    "ja": "macOS のツリー",
+    "en": "macOS tree"
+  },
+  "support.renderer.shell-tree": {
+    "ja": "GNOME 拡張のツリー",
+    "en": "GNOME extension tree"
+  },
+  "support.session": {
+    "ja": "画面の方式",
+    "en": "Display session"
+  },
+  "support.setup.linux": {
+    "ja": "GNOME の設定 → キーボード → 入力ソースに「日本語 → azooKey Tree」を追加します。入力方式は IBus を選びます。初回は作業を保存してログアウトし、再ログインしてください。GNOME 46 / Wayland のツリーには azooKey Tree 拡張を有効にします。",
+    "en": "Add Japanese → azooKey Tree in GNOME Settings → Keyboard → Input Sources and use IBus. Save your work and log out and back in after initial setup. Enable the azooKey Tree extension for the tree on GNOME 46 / Wayland."
+  },
+  "support.setup.mac": {
+    "ja": "システム設定 → キーボード → 入力ソースに azooKey を追加します。表示されない場合は、作業を保存してログアウトし、再ログインしてください。設定はメニューバーの入力メニュー → 設定…から開けます。",
+    "en": "Add azooKey in System Settings → Keyboard → Input Sources. If it is missing, save your work, log out and log back in. Open settings from the input menu in the menu bar."
+  },
+  "support.source": {
+    "ja": "ソースのコミット",
+    "en": "Source commit"
+  },
+  "support.title": {
+    "ja": "使い方・サポート",
+    "en": "Help and support"
+  },
+  "support.unknown": {
+    "ja": "未確認",
+    "en": "Not verified"
+  },
+  "support.upstream": {
+    "ja": "上流の azooKey プロジェクト",
+    "en": "Upstream azooKey project"
+  },
+  "support.version": {
+    "ja": "配布版",
+    "en": "Package version"
+  }
+}
