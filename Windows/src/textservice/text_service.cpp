@@ -21,9 +21,6 @@ constexpr int kCandidatePageSize = 9;
 // pending dead key in the application's keyboard state.
 constexpr UINT kToUnicodeKeepKeyboardState = 0x4;
 
-constexpr DWORD kSyncWrite = TF_ES_SYNC | TF_ES_READWRITE;
-constexpr DWORD kAnytimeWrite = TF_ES_ASYNCDONTCARE | TF_ES_READWRITE;
-
 bool IsKeyDown(int virtualKey) { return (GetKeyState(virtualKey) & 0x8000) != 0; }
 
 std::wstring JoinCommits(const protocol::Snapshot& snapshot) {
@@ -31,18 +28,6 @@ std::wstring JoinCommits(const protocol::Snapshot& snapshot) {
     for (const auto& commit : snapshot.commits) text += commit;
     return text;
 }
-
-// Keeps COM objects alive while an edit session that may run later uses them.
-class Retained {
-public:
-    explicit Retained(IUnknown* object) : object_(object) { if (object_) object_->AddRef(); }
-    Retained(const Retained& other) : Retained(other.object_) {}
-    Retained& operator=(const Retained&) = delete;
-    ~Retained() { if (object_) object_->Release(); }
-
-private:
-    IUnknown* object_;
-};
 
 }  // namespace
 
@@ -114,6 +99,7 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* threadManager, TfClientId cli
         if (converter_) ApplyPointerChoice(converter_->SelectNode(nodeId, snapshot_.generation, false));
     };
     candidatePanel_ = std::make_unique<CandidatePanel>(std::move(actions));
+    notice_ = std::make_unique<NoticeWindow>();
     CreateCandidateElement();
     AddInputModeButton();
     // Choosing azooKey Tree means the user wants Japanese input now.
@@ -130,6 +116,7 @@ STDMETHODIMP TextService::Deactivate() {
     }
     RemoveInputModeButton();
     candidatePanel_.reset();
+    notice_.reset();
     converter_.reset();
     UnadviseCompartment(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, openCloseSinkCookie_);
     UnadviseCompartment(GUID_COMPARTMENT_KEYBOARD_INPUTMODE_CONVERSION, conversionSinkCookie_);
@@ -175,6 +162,7 @@ void TextService::RegisterClauseAttributes() {
 STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) {
     // Moving to another field must not carry the composition along with it.
     if (IsComposing()) FinishComposition(true, kAnytimeWrite);
+    HideNotice();
     privacyCheckedContext_ = nullptr;
     // Settings may have changed while another window had focus.
     presentationSettings_.reset();
@@ -182,11 +170,13 @@ STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) {
     return S_OK;
 }
 
-bool TextService::IsComposing() const { return composition_ != nullptr || !snapshot_.preedit.empty(); }
+bool TextService::IsComposing() const { return HasComposition() || reconversionReading_.has_value(); }
+
+bool TextService::HasComposition() const { return composition_ != nullptr || !snapshot_.preedit.empty(); }
 
 bool TextService::IsFieldPrivate(ITfContext* context) {
     if (context != privacyCheckedContext_) {
-        privateField_ = ReadInputField(context).privateInput;
+        privateField_ = ReadInputField(context).document.privateInput;
         // A field can also switch the IME off for itself (for example a PIN box).
         ITfCompartmentMgr* compartments = nullptr;
         if (SUCCEEDED(context->QueryInterface(IID_ITfCompartmentMgr, reinterpret_cast<void**>(&compartments)))) {
@@ -271,17 +261,27 @@ void TextService::HandleKey(ITfContext* context, WPARAM virtualKey, const KeyInp
     case KeyAction::SendToConverter:
         break;
     }
+    auto event = keys::Translate(static_cast<uint32_t>(virtualKey), input.modifiers, input.typedText);
+    if (reconversionReading_) {
+        HandleReadingKey(context, event);
+        return;
+    }
+    HideNotice();
     bool wasComposing = IsComposing();
     InputField field;
-    if (!wasComposing) field = ReadInputField(context);
-    auto event = keys::Translate(static_cast<uint32_t>(virtualKey), input.modifiers, input.typedText);
-    auto snapshot = converter_->Key(event, field.leftContext, field.privateInput);
+    if (!wasComposing) {
+        // The whole composition describes the document as it is now (DocumentContext).
+        field = ReadInputField(context);
+        converter_->SetDocument(field.document);
+    }
+    auto snapshot = converter_->Key(event);
     if (!snapshot) {
         // Keep what the user already sees, and do not lose the key just typed.
         FinishComposition(false, kSyncWrite);
         if (event.characters && !input.modifiers.control) InsertText(context, input.typedText, kSyncWrite);
         return;
     }
+    if (!wasComposing && HandleReconversionReply(context, *snapshot, field)) return;
     if (!snapshot->consumed && !wasComposing && snapshot->preedit.empty() && snapshot->commits.empty()) {
         // Core declined the key; behave as if the IME had not taken it.
         if (event.characters && !input.modifiers.control) InsertText(context, input.typedText, kSyncWrite);
@@ -301,6 +301,8 @@ void TextService::ApplySnapshot(ITfContext* context, const protocol::Snapshot& s
         CompositionWriter writer(this, clauseAtoms_);
         auto geometry = writer.Apply(cookie, context, snapshot, &composition_);
         ShowCandidates(snapshot, geometry);
+        // For example a candidate that covers only part of a reconverted selection.
+        if (geometry) ShowReconversionNotice(snapshot, geometry->composition);
     });
 }
 
@@ -320,6 +322,7 @@ void TextService::FinishComposition(bool confirm, DWORD sessionFlags) {
     }
     snapshot_ = {};
     HideCandidates();
+    EndReconversionReading();
     if (!composition_) return;
     // The session may run after a new composition has started elsewhere, so it
     // finishes exactly this composition object.
@@ -366,7 +369,7 @@ void TextService::CreateCandidateElement() {
     };
     actions.cancel = [this]() {
         // Leaving the list is what Escape does in the converter.
-        if (converter_) ApplyPointerChoice(converter_->Key(keys::Translate(VK_ESCAPE, {}, L""), L"", false));
+        if (converter_) ApplyPointerChoice(converter_->Key(keys::Translate(VK_ESCAPE, {}, L"")));
     };
     candidateElement_ = new (std::nothrow) CandidateListElement(threadManager_, std::move(actions));
 }
@@ -398,6 +401,8 @@ void TextService::AddInputModeButton() {
         if (open && IsComposing()) FinishComposition(true, kAnytimeWrite);
         SetInputOpen(!open);
     };
+    actions.undoCommit = [this]() { StartReconversion(true); };
+    actions.reconvertSelection = [this]() { StartReconversion(false); };
     actions.openSettings = [this]() { OpenSettings(L""); };
     actions.openDictionary = [this]() { OpenSettings(L"--page dictionary"); };
     inputModeButton_ = new (std::nothrow) InputModeButton(std::move(actions));
@@ -527,6 +532,17 @@ void TextService::ShowCandidates(const protocol::Snapshot& snapshot, const std::
 void TextService::HideCandidates() {
     if (candidateElement_) candidateElement_->End();
     if (candidatePanel_) candidatePanel_->Hide();
+}
+
+ITfContext* TextService::FocusedContext() const {
+    if (!threadManager_) return nullptr;
+    ITfDocumentMgr* documents = nullptr;
+    ITfContext* context = nullptr;
+    if (SUCCEEDED(threadManager_->GetFocus(&documents)) && documents) {
+        documents->GetTop(&context);
+        documents->Release();
+    }
+    return context;
 }
 
 ITfContext* TextService::CompositionContext() const {

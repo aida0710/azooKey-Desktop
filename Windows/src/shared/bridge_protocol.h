@@ -63,6 +63,33 @@ struct CandidatePage {
     std::optional<int> nextIndex;
 };
 
+// The field around the selection, for undoing a commit and reconverting a
+// selection (ReconversionContext in Core). Positions are UTF-16 offsets from the
+// start of the document: Core compares them between requests, so they must not
+// move when text far before the caret is out of the window. `before` and
+// `after` hold at most kReconversionContextLimit scalars.
+struct ReconversionContext {
+    std::wstring before;
+    std::wstring selected;
+    std::wstring after;
+    int cursorUTF16 = 0;
+    int anchorUTF16 = 0;
+    bool canReplace = false;
+    bool isSensitive = false;
+};
+
+// Core's bound for `before`, `selected` and `after`, in scalars.
+inline constexpr size_t kReconversionContextLimit = 256;
+
+// The text Core will turn back into a composition: `count` scalars starting
+// `offset` scalars from the caret (negative: before it).
+struct ReconversionReplacement {
+    std::string token;
+    int offset = 0;
+    int count = 0;
+    std::wstring text;
+};
+
 struct Snapshot {
     bool consumed = false;
     std::wstring preedit;
@@ -78,6 +105,10 @@ struct Snapshot {
     bool showCandidateIndex = false;
     bool japanese = true;
     std::string error;
+
+    std::optional<ReconversionReplacement> reconversion;
+    std::string reconversionError;              // ReconversionSession.Failure raw value
+    std::optional<std::wstring> reconversionReading;  // set while the user types the reading
 
     std::string inputState;  // Core's InputState: "composing" while typing, "selecting" while choosing, ...
     std::vector<TreeNode> nodes;
@@ -97,13 +128,30 @@ struct PresentationSettings {
     bool treeCandidates = true;
 };
 
-struct RequestContext {
-    std::string context;       // one bridge session per text service instance
+// The document as Core should see it. During a composition this stays the
+// document from before the composition started (Core treats the composition as
+// not yet in the document), advanced past each commit.
+struct DocumentContext {
     std::wstring leftContext;  // text before the caret, for better conversion
     bool privateInput = false;
+    std::optional<ReconversionContext> reconversion;
+};
+
+// The document once `committed` has replaced the selection, as Core's
+// ReconversionContext.replacingSelection records it for undoing that commit.
+DocumentContext AdvancedPastCommit(const DocumentContext& document, const std::wstring& committed);
+
+struct RequestContext {
+    std::string context;  // one bridge session per text service instance
+    DocumentContext document;
 };
 
 std::string KeyRequest(const RequestContext& context, const keys::CoreKeyEvent& event);
+// While Core asks for the reading of the selection, keys go here instead.
+std::string ReconversionReadingRequest(const RequestContext& context, const keys::CoreKeyEvent& event);
+std::string ConfirmReconversionRequest(const RequestContext& context, const std::string& token);
+std::string UndoCommitRequest(const RequestContext& context);
+std::string ReconvertRequest(const RequestContext& context);
 std::string SelectRequest(const RequestContext& context, int candidateIndex, int generation, bool submit);
 std::string NodeRequest(const RequestContext& context, int nodeId, int generation, bool submit);
 std::string ResetRequest(const RequestContext& context, bool submit);

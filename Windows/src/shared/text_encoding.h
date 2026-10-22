@@ -15,4 +15,9 @@ std::string Utf16ToUtf8(const std::wstring& text);
 // `text`. Counts past the end clamp to the whole string.
 size_t ScalarOffsetToUtf16(const std::wstring& text, size_t scalarCount);
 
+size_t ScalarCount(const std::wstring& text);
+// The last / first `scalarCount` scalars of `text`, never splitting a surrogate pair.
+std::wstring LastScalars(const std::wstring& text, size_t scalarCount);
+std::wstring FirstScalars(const std::wstring& text, size_t scalarCount);
+
 }  // namespace azookey::text

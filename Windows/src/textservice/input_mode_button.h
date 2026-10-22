@@ -1,6 +1,7 @@
 // The input mode indicator on the taskbar (GUID_LBI_INPUTMODE): あ while
 // Japanese input is on, A while it is off. A left click switches; a right
-// click opens the menu (switch, settings, user dictionary).
+// click opens the menu (switch, undo the last commit, reconvert the selection,
+// settings, user dictionary).
 #pragma once
 
 #include <msctf.h>
@@ -13,6 +14,8 @@ class InputModeButton final : public ITfLangBarItemButton, public ITfSource {
 public:
     struct Actions {
         std::function<void()> toggleInput;
+        std::function<void()> undoCommit;
+        std::function<void()> reconvertSelection;
         std::function<void()> openSettings;
         std::function<void()> openDictionary;
     };
@@ -45,8 +48,6 @@ public:
     STDMETHODIMP UnadviseSink(DWORD cookie) override;
 
 private:
-    enum MenuItem : UINT { kToggle = 1, kSettings, kDictionary };
-
     ~InputModeButton();
     void Run(UINT id);
 

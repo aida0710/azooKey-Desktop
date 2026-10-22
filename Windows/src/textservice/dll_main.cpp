@@ -5,6 +5,7 @@
 #include "class_factory.h"
 #include "guids.h"
 #include "module.h"
+#include "notice_window.h"
 #include "registration.h"
 
 namespace {
@@ -19,6 +20,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
         DisableThreadLibraryCalls(instance);
     } else if (reason == DLL_PROCESS_DETACH) {
         azookey::tsf::CandidatePanel::UnregisterWindowClass();
+        azookey::tsf::NoticeWindow::UnregisterWindowClass();
     }
     return TRUE;
 }

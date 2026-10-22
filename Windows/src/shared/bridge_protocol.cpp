@@ -13,18 +13,6 @@ namespace {
 // more would only enlarge every request.
 constexpr size_t kMaximumLeftContextUnits = 100;
 
-std::string CommonFields(const RequestContext& context) {
-    std::wstring left = context.leftContext;
-    if (left.size() > kMaximumLeftContextUnits) left = left.substr(left.size() - kMaximumLeftContextUnits);
-    return ",\"context\":" + json::Quote(context.context) + ",\"leftContext\":" + json::Quote(text::Utf16ToUtf8(left)) +
-           ",\"privateInput\":" + (context.privateInput ? "true" : "false");
-}
-
-std::optional<int> OptionalInteger(const json::Value& value) {
-    if (value.kind() != json::Value::Kind::Number) return std::nullopt;
-    return static_cast<int>(value.AsInteger(0));
-}
-
 std::string AsciiLowercase(std::string text) {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
         return static_cast<char>(c < 0x80 ? std::tolower(c) : c);
@@ -32,14 +20,73 @@ std::string AsciiLowercase(std::string text) {
     return text;
 }
 
-}  // namespace
+std::string ReconversionContextField(const ReconversionContext& reconversion) {
+    return ",\"reconversionContext\":{\"before\":" + json::Quote(text::Utf16ToUtf8(reconversion.before)) +
+           ",\"selected\":" + json::Quote(text::Utf16ToUtf8(reconversion.selected)) +
+           ",\"after\":" + json::Quote(text::Utf16ToUtf8(reconversion.after)) +
+           ",\"cursorUTF16\":" + std::to_string(reconversion.cursorUTF16) +
+           ",\"anchorUTF16\":" + std::to_string(reconversion.anchorUTF16) +
+           ",\"canReplace\":" + (reconversion.canReplace ? "true" : "false") +
+           ",\"isSensitive\":" + (reconversion.isSensitive ? "true" : "false") + "}";
+}
 
-std::string KeyRequest(const RequestContext& context, const keys::CoreKeyEvent& event) {
+std::wstring LastUnits(const std::wstring& text, size_t units) {
+    return text.size() > units ? text.substr(text.size() - units) : text;
+}
+
+std::string CommonFields(const RequestContext& context) {
+    const DocumentContext& document = context.document;
+    std::wstring left = LastUnits(document.leftContext, kMaximumLeftContextUnits);
+    return ",\"context\":" + json::Quote(context.context) + ",\"leftContext\":" + json::Quote(text::Utf16ToUtf8(left)) +
+           ",\"privateInput\":" + (document.privateInput ? "true" : "false") +
+           (document.reconversion ? ReconversionContextField(*document.reconversion) : "");
+}
+
+std::string EventField(const keys::CoreKeyEvent& event) {
     std::string characters = event.characters ? json::Quote(*event.characters) : "null";
     std::string ignoring = event.characters ? json::Quote(AsciiLowercase(*event.characters)) : "null";
-    return "{\"operation\":\"key\"" + CommonFields(context) + ",\"event\":{\"keyCode\":" + std::to_string(event.keyCode) +
-           ",\"characters\":" + characters + ",\"charactersIgnoringModifiers\":" + ignoring +
-           ",\"modifierFlags\":" + std::to_string(event.modifierFlags) + "}}";
+    return ",\"event\":{\"keyCode\":" + std::to_string(event.keyCode) + ",\"characters\":" + characters +
+           ",\"charactersIgnoringModifiers\":" + ignoring + ",\"modifierFlags\":" + std::to_string(event.modifierFlags) + "}";
+}
+
+std::optional<int> OptionalInteger(const json::Value& value) {
+    if (value.kind() != json::Value::Kind::Number) return std::nullopt;
+    return static_cast<int>(value.AsInteger(0));
+}
+
+}  // namespace
+
+DocumentContext AdvancedPastCommit(const DocumentContext& document, const std::wstring& committed) {
+    DocumentContext advanced = document;
+    advanced.leftContext = LastUnits(document.leftContext + committed, kMaximumLeftContextUnits);
+    if (advanced.reconversion) {
+        ReconversionContext& reconversion = *advanced.reconversion;
+        int caret = std::min(reconversion.cursorUTF16, reconversion.anchorUTF16) + static_cast<int>(committed.size());
+        reconversion.before = text::LastScalars(reconversion.before + committed, kReconversionContextLimit);
+        reconversion.selected.clear();
+        reconversion.cursorUTF16 = reconversion.anchorUTF16 = caret;
+    }
+    return advanced;
+}
+
+std::string KeyRequest(const RequestContext& context, const keys::CoreKeyEvent& event) {
+    return "{\"operation\":\"key\"" + CommonFields(context) + EventField(event) + "}";
+}
+
+std::string ReconversionReadingRequest(const RequestContext& context, const keys::CoreKeyEvent& event) {
+    return "{\"operation\":\"reconversion-reading\"" + CommonFields(context) + EventField(event) + "}";
+}
+
+std::string ConfirmReconversionRequest(const RequestContext& context, const std::string& token) {
+    return "{\"operation\":\"confirm-reconversion\"" + CommonFields(context) + ",\"reconversionToken\":" + json::Quote(token) + "}";
+}
+
+std::string UndoCommitRequest(const RequestContext& context) {
+    return "{\"operation\":\"undo-commit\"" + CommonFields(context) + "}";
+}
+
+std::string ReconvertRequest(const RequestContext& context) {
+    return "{\"operation\":\"reconvert\"" + CommonFields(context) + "}";
 }
 
 std::string SelectRequest(const RequestContext& context, int candidateIndex, int generation, bool submit) {
@@ -138,6 +185,16 @@ std::optional<Snapshot> ParseSnapshot(const std::string& line) {
     snapshot.largeText = value["candidateTextSize"].AsString() == "large";
     snapshot.showRelativeScores = value["showRelativeScores"].AsBoolean(false);
     snapshot.display = display::ParseCandidateDisplay(value["candidateDisplay"]);
+    const json::Value& reconversion = value["reconversion"];
+    if (reconversion.kind() == json::Value::Kind::Object) {
+        snapshot.reconversion = ReconversionReplacement{reconversion["token"].AsString(), static_cast<int>(reconversion["offset"].AsInteger(0)),
+                                                        static_cast<int>(reconversion["count"].AsInteger(0)),
+                                                        text::Utf8ToUtf16(reconversion["text"].AsString())};
+    }
+    snapshot.reconversionError = value["reconversionError"].AsString();
+    if (value["reconversionReading"].kind() == json::Value::Kind::String) {
+        snapshot.reconversionReading = text::Utf8ToUtf16(value["reconversionReading"].AsString());
+    }
     return snapshot;
 }
 

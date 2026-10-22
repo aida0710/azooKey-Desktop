@@ -25,7 +25,11 @@ $cases = @(
     @{ Name = 'Hankaku/Zenkaku turns Japanese input off'; Keys = '{KANJI}abc'; Expected = 'abc' },
     @{ Name = 'Muhenkan leaves Japanese input'; Keys = '{NONCONVERT}abc'; Expected = 'abc' },
     @{ Name = 'Henkan turns Japanese input back on'; Keys = '{NONCONVERT}a{CONVERT}ka'; Expected = 'aか' },
-    @{ Name = 'an application that draws candidates itself'; Keys = 'nihongo{SPACE}{DOWN}{ENTER}'; Expected = 'にほんご'; UiLess = $true }
+    @{ Name = 'an application that draws candidates itself'; Keys = 'nihongo{SPACE}{DOWN}{ENTER}'; Expected = 'にほんご'; UiLess = $true },
+    # F10 shows the restored composition as its romaji, which only exists if the commit came back.
+    @{ Name = 'Ctrl+Shift+Backspace undoes the commit'; Keys = 'nihongo{ENTER}{CTRL+SHIFT+BS}{SHOT:undo}{F10}'; Expected = 'nihongo' },
+    @{ Name = 'Ctrl+Shift+R reconverts the selection after its reading'; Keys = 'nihongo{ENTER}{SHIFT+LEFT}{SHIFT+LEFT}{SHIFT+LEFT}{CTRL+SHIFT+R}{SHOT:reading}nihongo{ENTER}{SHOT:reconverted}{F10}'; Expected = 'nihongo' },
+    @{ Name = 'Esc leaves the reading prompt'; Keys = 'nihongo{ENTER}{SHIFT+LEFT}{SHIFT+LEFT}{SHIFT+LEFT}{CTRL+SHIFT+R}ka{ESC}a'; Expected = 'あ' }
 )
 $failed = 0
 foreach ($case in $cases) {

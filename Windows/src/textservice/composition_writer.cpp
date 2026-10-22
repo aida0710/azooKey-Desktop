@@ -2,6 +2,8 @@
 
 #include <inputscope.h>
 
+#include <algorithm>
+
 #include "shared/text_encoding.h"
 
 namespace azookey::tsf {
@@ -9,6 +11,9 @@ namespace {
 
 // Matches the context the bridge keeps (DesktopSession).
 constexpr LONG kLeftContextUnits = 100;
+// Enough UTF-16 units for Core's 256-scalar reconversion window even when every
+// character is a surrogate pair.
+constexpr LONG kSurroundingReadUnits = 512;
 
 // GUID_PROP_INPUTSCOPE from msctf.h; the SDK declares it but ships no library
 // that defines it.
@@ -31,6 +36,45 @@ ITfRange* SubRange(TfEditCookie cookie, ITfRange* range, LONG start, LONG end) {
     sub->ShiftEnd(cookie, end, &moved, nullptr);
     sub->ShiftStart(cookie, start, &moved, nullptr);
     return sub;
+}
+
+struct Extent {
+    LONG start = 0;   // UTF-16 units from the start of the document
+    LONG length = 0;
+};
+
+// Character positions let Core compare the field between requests. Documents
+// without them (anchor-based text stores) get no reconversion.
+std::optional<Extent> DocumentExtent(ITfRange* range) {
+    Releaser<ITfRangeACP> characters;
+    if (FAILED(range->QueryInterface(IID_ITfRangeACP, reinterpret_cast<void**>(&characters)))) return std::nullopt;
+    Extent extent;
+    if (FAILED(characters->GetExtent(&extent.start, &extent.length))) return std::nullopt;
+    return extent;
+}
+
+std::wstring ReadRange(TfEditCookie cookie, ITfRange* range, LONG maximumUnits) {
+    std::wstring text(static_cast<size_t>(maximumUnits), L'\0');
+    ULONG length = 0;
+    if (FAILED(range->GetText(cookie, 0, text.data(), static_cast<ULONG>(maximumUnits), &length))) return {};
+    text.resize(length);
+    return text;
+}
+
+// Text before (negative `units`) or after the given end of `range`, stopping at
+// embedded objects.
+std::wstring ReadBeside(TfEditCookie cookie, ITfRange* range, TfAnchor end, LONG units) {
+    ITfRange* beside = nullptr;
+    if (FAILED(range->Clone(&beside))) return {};
+    LONG moved = 0;
+    TF_HALTCOND halt{};
+    halt.dwFlags = TF_HF_OBJECT;
+    beside->Collapse(cookie, end);
+    if (units < 0) beside->ShiftStart(cookie, units, &moved, &halt);
+    else beside->ShiftEnd(cookie, units, &moved, &halt);
+    std::wstring text = ReadRange(cookie, beside, units < 0 ? -units : units);
+    beside->Release();
+    return text;
 }
 
 bool IsPrivateScope(InputScope scope) {
@@ -205,6 +249,7 @@ std::optional<RECT> CompositionWriter::ScreenRectangle(TfEditCookie cookie, ITfC
 
 InputField CompositionWriter::ReadInputField(TfEditCookie cookie, ITfContext* context) {
     InputField field;
+    protocol::DocumentContext& document = field.document;
     TF_SELECTION selection{};
     ULONG fetched = 0;
     if (FAILED(context->GetSelection(cookie, TF_DEFAULT_SELECTION, 1, &selection, &fetched)) || fetched == 0) return field;
@@ -221,7 +266,7 @@ InputField CompositionWriter::ReadInputField(TfEditCookie cookie, ITfContext* co
                 InputScope* scopes = nullptr;
                 UINT count = 0;
                 if (SUCCEEDED(inputScope->GetInputScopes(&scopes, &count))) {
-                    for (UINT i = 0; i < count; ++i) field.privateInput = field.privateInput || IsPrivateScope(scopes[i]);
+                    for (UINT i = 0; i < count; ++i) document.privateInput = document.privateInput || IsPrivateScope(scopes[i]);
                     CoTaskMemFree(scopes);
                 }
             }
@@ -229,20 +274,93 @@ InputField CompositionWriter::ReadInputField(TfEditCookie cookie, ITfContext* co
         VariantClear(&value);
     }
 
-    Releaser<ITfRange> before;
-    if (SUCCEEDED(caret->Clone(&before))) {
-        LONG moved = 0;
-        before->Collapse(cookie, TF_ANCHOR_START);
-        TF_HALTCOND halt{};
-        halt.dwFlags = TF_HF_OBJECT;
-        before->ShiftStart(cookie, -kLeftContextUnits, &moved, &halt);
-        wchar_t buffer[kLeftContextUnits + 1];
-        ULONG length = 0;
-        if (SUCCEEDED(before->GetText(cookie, 0, buffer, kLeftContextUnits, &length))) {
-            field.leftContext.assign(buffer, length);
-        }
+    std::wstring before = ReadBeside(cookie, caret.pointer, TF_ANCHOR_START, -kSurroundingReadUnits);
+    document.leftContext = before.size() > static_cast<size_t>(kLeftContextUnits) ? before.substr(before.size() - kLeftContextUnits) : before;
+    field.caret = ScreenRectangle(cookie, context, caret.pointer);
+
+    auto extent = DocumentExtent(caret.pointer);
+    std::wstring selected = ReadRange(cookie, caret.pointer, kSurroundingReadUnits + 1);
+    if (!extent || static_cast<LONG>(selected.size()) != extent->length ||
+        text::ScalarCount(selected) > protocol::kReconversionContextLimit) {
+        return field;  // no character positions, or a selection Core does not reconvert
     }
+    TF_STATUS status{};
+    bool readOnly = SUCCEEDED(context->GetStatus(&status)) && (status.dwDynamicFlags & TF_SD_READONLY);
+    protocol::ReconversionContext reconversion;
+    reconversion.before = text::LastScalars(before, protocol::kReconversionContextLimit);
+    reconversion.selected = selected;
+    reconversion.after = text::FirstScalars(ReadBeside(cookie, caret.pointer, TF_ANCHOR_END, kSurroundingReadUnits),
+                                            protocol::kReconversionContextLimit);
+    int start = static_cast<int>(extent->start);
+    int end = start + static_cast<int>(extent->length);
+    bool caretAtStart = selection.style.ase == TF_AE_START;
+    reconversion.cursorUTF16 = caretAtStart ? start : end;
+    reconversion.anchorUTF16 = caretAtStart ? end : start;
+    reconversion.canReplace = !readOnly;
+    reconversion.isSensitive = document.privateInput;
+    document.reconversion = reconversion;
     return field;
+}
+
+ITfRange* CompositionWriter::FindReplacedText(TfEditCookie cookie, ITfContext* context, const ReconversionEdit& edit) {
+    const protocol::ReconversionContext& source = edit.source;
+    const protocol::ReconversionReplacement& replacement = edit.replacement;
+    TF_SELECTION selection{};
+    ULONG fetched = 0;
+    if (FAILED(context->GetSelection(cookie, TF_DEFAULT_SELECTION, 1, &selection, &fetched)) || fetched == 0) return nullptr;
+    Releaser<ITfRange> current;
+    current.pointer = selection.range;
+    LONG selectionStart = std::min(source.cursorUTF16, source.anchorUTF16);
+    auto extent = DocumentExtent(current.pointer);
+    if (!extent || extent->start != selectionStart || replacement.count <= 0) return nullptr;
+
+    // Core counts `offset` in scalars from the caret, inside the window it was sent.
+    std::wstring window = source.before + source.selected + source.after;
+    size_t caretInWindow = source.before.size() + (source.cursorUTF16 > source.anchorUTF16 ? source.selected.size() : 0);
+    LONG firstScalar = static_cast<LONG>(text::ScalarCount(window.substr(0, caretInWindow))) + replacement.offset;
+    if (firstScalar < 0) return nullptr;
+    size_t first = text::ScalarOffsetToUtf16(window, static_cast<size_t>(firstScalar));
+    size_t last = text::ScalarOffsetToUtf16(window, static_cast<size_t>(firstScalar + replacement.count));
+    if (window.compare(first, last - first, replacement.text) != 0) return nullptr;
+
+    // Move from the selection start (which is `before.size()` into the window).
+    ITfRange* target = nullptr;
+    if (FAILED(current->Clone(&target))) return nullptr;
+    LONG shift = static_cast<LONG>(first) - static_cast<LONG>(source.before.size());
+    LONG length = static_cast<LONG>(last - first);
+    LONG moved = 0;
+    target->Collapse(cookie, TF_ANCHOR_START);
+    bool placed = SUCCEEDED(target->ShiftStart(cookie, shift, &moved, nullptr)) && moved == shift;
+    target->Collapse(cookie, TF_ANCHOR_START);
+    placed = placed && SUCCEEDED(target->ShiftEnd(cookie, length, &moved, nullptr)) && moved == length;
+    if (!placed || ReadRange(cookie, target, length + 1) != replacement.text) {
+        target->Release();
+        return nullptr;
+    }
+    return target;
+}
+
+ReconversionOutcome CompositionWriter::Reconvert(TfEditCookie cookie, ITfContext* context, const ReconversionEdit& edit,
+                                                 ITfComposition** composition) {
+    ReconversionOutcome outcome;
+    Releaser<ITfRange> target;
+    target.pointer = FindReplacedText(cookie, context, edit);
+    if (!target) return outcome;
+    const std::wstring& text = edit.replacement.text;
+    if (FAILED(target->SetText(cookie, 0, L"", 0))) return outcome;
+    PlaceCaret(cookie, context, target.pointer, 0);
+
+    outcome.reply = edit.confirm(ReadInputField(cookie, context).document);
+    bool accepted = outcome.reply && outcome.reply->reconversionError.empty() && !outcome.reply->preedit.empty();
+    if (!accepted) {
+        target->SetText(cookie, 0, text.c_str(), static_cast<LONG>(text.size()));
+        PlaceCaret(cookie, context, target.pointer, static_cast<LONG>(text.size()));
+        outcome.result = ReconversionResult::Declined;
+        return outcome;
+    }
+    outcome.result = ReconversionResult::Restored;
+    outcome.geometry = Apply(cookie, context, *outcome.reply, composition);
+    return outcome;
 }
 
 }  // namespace azookey::tsf

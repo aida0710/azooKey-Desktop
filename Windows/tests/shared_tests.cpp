@@ -30,7 +30,7 @@ using azookey::keys::Translate;
 
 constexpr uint32_t kVkA = 'A', kVkBack = 0x08, kVkReturn = 0x0D, kVkSpace = 0x20, kVkLeft = 0x25, kVkF7 = 0x76;
 constexpr uint32_t kVkConvert = 0x1C, kVkNonConvert = 0x1D, kVkKanji = 0x19, kVkShift = 0x10, kVkNext = 0x22;
-constexpr uint32_t kVkOem3 = 0xC0, kVkImeOn = 0x16;
+constexpr uint32_t kVkOem3 = 0xC0, kVkImeOn = 0x16, kVkR = 'R';
 
 void TestJsonRoundTripKeepsJapaneseAndEscapes() {
     auto parsed = azookey::json::Parse(R"({"text":"日本\u8a9e","list":[1,true,null],"quote":"a\"b\n"})");
@@ -65,6 +65,14 @@ void TestUtf16OffsetsCountSurrogatePairs() {
     Check(azookey::text::Utf8ToUtf16("\xff") == L"\xfffd", "invalid UTF-8 becomes U+FFFD");
 }
 
+void TestScalarWindowsKeepSurrogatePairsWhole() {
+    std::wstring text = azookey::text::Utf8ToUtf16("a𠮷b𠮷");
+    Check(azookey::text::ScalarCount(text) == 4, "a surrogate pair counts as one scalar");
+    Check(azookey::text::LastScalars(text, 2) == azookey::text::Utf8ToUtf16("b𠮷"), "the last scalars keep the trailing pair whole");
+    Check(azookey::text::FirstScalars(text, 2) == azookey::text::Utf8ToUtf16("a𠮷"), "the first scalars keep the pair whole");
+    Check(azookey::text::LastScalars(text, 10) == text, "asking for more scalars than there are returns the text");
+}
+
 void TestPrintableKeysStartCompositionOnlyWhenInputIsOn() {
     KeyState on{true, false, false};
     KeyState off{false, false, false};
@@ -73,6 +81,17 @@ void TestPrintableKeysStartCompositionOnlyWhenInputIsOn() {
     Check(Classify(kVkReturn, {}, L"", on) == KeyAction::PassThrough, "Enter without a composition reaches the application");
     Check(Classify(kVkBack, {}, L"", on) == KeyAction::PassThrough, "Backspace without a composition reaches the application");
     Check(Classify(kVkA, {false, true, false}, L"a", on) == KeyAction::PassThrough, "Ctrl+A stays an application shortcut");
+}
+
+void TestReconversionShortcutsReachCore() {
+    KeyState on{true, false, false};
+    Modifiers controlShift{true, true, false};
+    Check(Classify(kVkBack, controlShift, L"", on) == KeyAction::SendToConverter, "Ctrl+Shift+Backspace asks Core to undo the commit");
+    Check(Classify(kVkR, controlShift, L"R", on) == KeyAction::SendToConverter, "Ctrl+Shift+R asks Core to reconvert the selection");
+    Check(Classify(kVkBack, {false, true, false}, L"", on) == KeyAction::PassThrough, "Ctrl+Backspace stays the application's");
+    Check(Classify(kVkR, controlShift, L"R", {false, false, false}) == KeyAction::PassThrough, "the shortcuts need Japanese input on");
+    auto undo = Translate(kVkBack, controlShift, L"");
+    Check(undo.keyCode == 51 && undo.modifierFlags == 3, "Ctrl+Shift+Backspace matches Core's ReconversionShortcut");
 }
 
 void TestCompositionKeepsEditingKeys() {
@@ -112,7 +131,7 @@ void TestTranslationUsesCoreKeyCodes() {
 }
 
 void TestKeyRequestMatchesBridgeContract() {
-    azookey::protocol::RequestContext context{"ctx", L"前の文", false};
+    azookey::protocol::RequestContext context{"ctx", {L"前の文", false}};
     std::string request = azookey::protocol::KeyRequest(context, Translate(kVkA, {true, false, false}, L"A"));
     auto parsed = azookey::json::Parse(request);
     Check(parsed.has_value(), "key request is valid JSON");
@@ -121,8 +140,54 @@ void TestKeyRequestMatchesBridgeContract() {
     Check((*parsed)["event"]["charactersIgnoringModifiers"].AsString() == "a", "charactersIgnoringModifiers is lowercased");
     Check((*parsed)["leftContext"].AsString() == "前の文", "left context is sent as UTF-8");
     std::wstring longContext(150, L'あ');
-    auto trimmed = azookey::json::Parse(azookey::protocol::ResetRequest({"ctx", longContext, false}, true));
+    auto trimmed = azookey::json::Parse(azookey::protocol::ResetRequest({"ctx", {longContext, false}}, true));
     Check(azookey::text::Utf8ToUtf16((*trimmed)["leftContext"].AsString()).size() == 100, "left context keeps the last 100 units");
+}
+
+azookey::protocol::ReconversionContext SampleField() {
+    azookey::protocol::ReconversionContext field;
+    field.before = L"前";
+    field.selected = L"選択";
+    field.after = L"後";
+    field.cursorUTF16 = 12;  // the caret after the selection, 10 units into the document
+    field.anchorUTF16 = 10;
+    field.canReplace = true;
+    return field;
+}
+
+void TestReconversionRequestsCarryTheField() {
+    azookey::protocol::RequestContext context{"ctx", {L"前", false, SampleField()}};
+    auto undo = azookey::json::Parse(azookey::protocol::UndoCommitRequest(context));
+    Check(undo && (*undo)["operation"].AsString() == "undo-commit", "undo-commit request");
+    const auto& field = (*undo)["reconversionContext"];
+    Check(field["before"].AsString() == "前" && field["selected"].AsString() == "選択" && field["after"].AsString() == "後",
+          "the field's text is sent");
+    Check(field["cursorUTF16"].AsInteger(0) == 12 && field["anchorUTF16"].AsInteger(0) == 10, "positions are sent as given");
+    Check(field["canReplace"].AsBoolean(false) && !field["isSensitive"].AsBoolean(true), "replaceability is sent");
+    auto reconvert = azookey::json::Parse(azookey::protocol::ReconvertRequest(context));
+    Check(reconvert && (*reconvert)["operation"].AsString() == "reconvert", "reconvert request");
+    auto confirm = azookey::json::Parse(azookey::protocol::ConfirmReconversionRequest(context, "token-1"));
+    Check(confirm && (*confirm)["operation"].AsString() == "confirm-reconversion" &&
+              (*confirm)["reconversionToken"].AsString() == "token-1",
+          "confirm-reconversion carries the token");
+    auto reading = azookey::json::Parse(azookey::protocol::ReconversionReadingRequest(context, Translate(kVkA, {}, L"a")));
+    Check(reading && (*reading)["operation"].AsString() == "reconversion-reading" && (*reading)["event"]["characters"].AsString() == "a",
+          "reading keys go to reconversion-reading");
+    auto plain = azookey::json::Parse(azookey::protocol::KeyRequest({"ctx", {}}, Translate(kVkA, {}, L"a")));
+    Check(plain && (*plain)["reconversionContext"].kind() == azookey::json::Value::Kind::Null, "no field, no reconversionContext");
+}
+
+void TestCommitAdvancesTheDocumentLikeCore() {
+    azookey::protocol::DocumentContext document{L"前", false, SampleField()};
+    auto advanced = azookey::protocol::AdvancedPastCommit(document, L"漢字");
+    Check(advanced.leftContext == L"前漢字", "the left context gains the commit");
+    const auto& field = *advanced.reconversion;
+    Check(field.before == L"前漢字" && field.selected.empty() && field.after == L"後", "the commit replaces the selection");
+    Check(field.cursorUTF16 == 12 && field.anchorUTF16 == 12, "the caret ends after the commit, counted from the selection start");
+    document.reconversion->before = std::wstring(256, L'あ');
+    auto trimmed = azookey::protocol::AdvancedPastCommit(document, L"漢字");
+    Check(trimmed.reconversion->before.size() == 256 && trimmed.reconversion->before.substr(254) == L"漢字",
+          "the field keeps Core's 256-scalar window");
 }
 
 void TestSnapshotParsing() {
@@ -131,6 +196,8 @@ void TestSnapshotParsing() {
         R"("cursor":3,"commits":["前"],"candidates":[{"index":0,"text":"日本語","annotation":"","tokens":[]}],)"
         R"("selection":0,"generation":7,"pageStart":0,"showCandidateIndex":true,"language":"japanese"})");
     Check(snapshot.has_value(), "snapshot parses");
+    Check(!snapshot->reconversion && snapshot->reconversionError.empty() && !snapshot->reconversionReading,
+          "an ordinary snapshot has no reconversion state");
     Check(snapshot->preedit == L"日本語" && snapshot->cursorScalars == 3, "preedit and caret are read");
     Check(snapshot->segments.size() == 1 && snapshot->segments[0].focus == azookey::protocol::SegmentFocus::Focused,
           "the empty trailing segment is dropped");
@@ -145,6 +212,20 @@ void TestSnapshotParsing() {
     auto idle = azookey::protocol::ParseSnapshot(R"({"consumed":false,"preedit":"","selection":null})");
     Check(idle && !idle->selection.has_value(), "a null selection means no candidate is being chosen");
     Check(!azookey::protocol::ParseSnapshot("not json").has_value(), "a broken line is not a snapshot");
+}
+
+void TestReconversionReplyParsing() {
+    auto replacement = azookey::protocol::ParseSnapshot(
+        R"({"consumed":true,"preedit":"","commits":[],"reconversion":{"token":"t","offset":-3,"count":3,"text":"日本語","reading":"にほんご",)"
+        R"("removedContext":{"before":"","selected":"","after":"","cursorUTF16":0,"anchorUTF16":0,"canReplace":true,"isSensitive":false}}})");
+    Check(replacement && replacement->reconversion && replacement->reconversion->token == "t" &&
+              replacement->reconversion->offset == -3 && replacement->reconversion->count == 3 &&
+              replacement->reconversion->text == L"日本語",
+          "a replacement is read");
+    auto reading = azookey::protocol::ParseSnapshot(
+        R"({"consumed":true,"preedit":"","commits":[],"reconversionError":"reading_required","reconversionReading":""})");
+    Check(reading && reading->reconversionError == "reading_required" && reading->reconversionReading == L"",
+          "an empty reading still means the reading prompt is open");
 }
 
 void TestTreeAndPageParsing() {
@@ -243,12 +324,17 @@ int main() {
     TestJsonRejectsMalformedInput();
     TestQuoteEscapesControlCharacters();
     TestUtf16OffsetsCountSurrogatePairs();
+    TestScalarWindowsKeepSurrogatePairsWhole();
     TestPrintableKeysStartCompositionOnlyWhenInputIsOn();
+    TestReconversionShortcutsReachCore();
     TestCompositionKeepsEditingKeys();
     TestModeKeys();
     TestTranslationUsesCoreKeyCodes();
     TestKeyRequestMatchesBridgeContract();
+    TestReconversionRequestsCarryTheField();
+    TestCommitAdvancesTheDocumentLikeCore();
     TestSnapshotParsing();
+    TestReconversionReplyParsing();
     TestTreeAndPageParsing();
     TestCandidateDisplayParsing();
     TestLayoutRequestAndResult();

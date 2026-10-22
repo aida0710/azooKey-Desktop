@@ -13,6 +13,7 @@
 #include "input_mode_button.h"
 #include "composition_writer.h"
 #include "converter_client.h"
+#include "notice_window.h"
 #include "shared/bridge_protocol.h"
 #include "shared/key_translation.h"
 
@@ -72,7 +73,9 @@ private:
     ~TextService();
 
     KeyInput ReadKey(ITfContext* context, WPARAM virtualKey, LPARAM lParam);
+    // A composition is in the document, or the user is typing a reading Core asked for.
     bool IsComposing() const;
+    bool HasComposition() const;
     bool IsFieldPrivate(ITfContext* context);
     InputField ReadInputField(ITfContext* context);
 
@@ -94,6 +97,22 @@ private:
     // Starts azookey-settings.exe beside this DLL; `arguments` like L"--page dictionary".
     void OpenSettings(const std::wstring& arguments);
     ITfContext* CompositionContext() const;  // AddRef'd, or nullptr
+    ITfContext* FocusedContext() const;      // AddRef'd, or nullptr
+
+    // Undoing a commit and reconverting a selection (text_service_reconversion.cpp).
+    void StartReconversion(bool undo);  // from the input mode menu
+    void HandleReadingKey(ITfContext* context, const keys::CoreKeyEvent& event);
+    // Acts on Core's reply to a request made outside a composition; false when
+    // the reply is an ordinary one for the caller to write.
+    bool HandleReconversionReply(ITfContext* context, const protocol::Snapshot& reply, const InputField& source);
+    void ReplaceForReconversion(TfEditCookie cookie, ITfContext* context, const protocol::ReconversionReplacement& replacement,
+                                const InputField& source);
+    // Shows the reading prompt or Core's reason in `reply`. Returns true when
+    // the reply carries nothing else to write.
+    bool ShowReconversionNotice(const protocol::Snapshot& reply, const std::optional<RECT>& caret);
+    void EndReconversionReading();
+    void ShowNotice(const std::wstring& text);
+    void HideNotice();
 
     bool IsInputOpen();
     void SetInputOpen(bool open);
@@ -114,11 +133,14 @@ private:
     ClauseAttributeAtoms clauseAtoms_;
     std::unique_ptr<ConverterClient> converter_;
     std::unique_ptr<CandidatePanel> candidatePanel_;
+    std::unique_ptr<NoticeWindow> notice_;
+    std::optional<RECT> noticeCaret_;  // where the latest notice belongs
     CandidateListElement* candidateElement_ = nullptr;  // COM object; the application may hold it too
     InputModeButton* inputModeButton_ = nullptr;        // COM object owned with the language bar
     std::string lastPlacementSide_;  // Core keeps the popup on this side while it still fits
     std::optional<protocol::PresentationSettings> presentationSettings_;  // read again after a focus change
     protocol::Snapshot snapshot_;  // last state written to the document
+    std::optional<std::wstring> reconversionReading_;  // set while the user types the reading of a selection
 
     // Password fields are detected once per focused context.
     ITfContext* privacyCheckedContext_ = nullptr;
