@@ -82,7 +82,11 @@ void TestPrintableKeysStartCompositionOnlyWhenInputIsOn() {
     Check(Classify(kVkA, {}, L"a", off) == KeyAction::PassThrough, "a letter passes through when input is off");
     Check(Classify(kVkReturn, {}, L"", on) == KeyAction::PassThrough, "Enter without a composition reaches the application");
     Check(Classify(kVkBack, {}, L"", on) == KeyAction::PassThrough, "Backspace without a composition reaches the application");
-    Check(Classify(kVkA, {false, true, false}, L"a", on) == KeyAction::PassThrough, "Ctrl+A stays an application shortcut");
+    const std::vector<azookey::keys::KeyBinding> noShortcuts;
+    KeyState listed = on;
+    listed.coreShortcuts = &noShortcuts;
+    Check(Classify(kVkA, {false, true, false}, L"a", listed) == KeyAction::PassThrough,
+          "Ctrl+A stays an application shortcut once Core's list is known");
 }
 
 azookey::keys::KeyBinding Binding(const char* key, int modifiers, const char* command) {
@@ -134,7 +138,10 @@ void TestReconversionShortcutsReachCore() {
     Modifiers controlShift{true, true, false};
     Check(Classify(kVkBack, controlShift, L"", on) == KeyAction::SendToConverter, "Ctrl+Shift+Backspace asks Core to undo the commit");
     Check(Classify(kVkR, controlShift, L"R", on) == KeyAction::SendToConverter, "Ctrl+Shift+R asks Core to reconvert the selection");
-    Check(Classify(kVkBack, {false, true, false}, L"", on) == KeyAction::PassThrough, "Ctrl+Backspace stays the application's");
+    const std::vector<azookey::keys::KeyBinding> noShortcuts;
+    KeyState listed = on;
+    listed.coreShortcuts = &noShortcuts;
+    Check(Classify(kVkBack, {false, true, false}, L"", listed) == KeyAction::PassThrough, "Ctrl+Backspace stays the application's");
     Check(Classify(kVkR, controlShift, L"R", {false, false, false}) == KeyAction::PassThrough, "the shortcuts need Japanese input on");
     auto undo = Translate(kVkBack, controlShift, L"");
     Check(undo.keyCode == 51 && undo.modifierFlags == 3, "Ctrl+Shift+Backspace matches Core's ReconversionShortcut");
