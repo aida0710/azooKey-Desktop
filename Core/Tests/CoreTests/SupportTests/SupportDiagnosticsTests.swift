@@ -47,31 +47,39 @@ private func linuxEnvironment(
     #expect(report.contains(japanese("support.fallback.unavailable")))
 }
 
+struct LinuxRendererCase: Sendable, CustomTestStringConvertible {
+    let treeEnabled: Bool
+    let session: String?
+    let rendererRegistered: Bool?
+    let renderer: SupportDiagnostics.Renderer?
+    let fallback: SupportDiagnostics.Fallback?
+
+    var testDescription: String { "tree=\(treeEnabled) session=\(session ?? "nil") registered=\(String(describing: rendererRegistered))" }
+}
+
 @Test(arguments: [
-    (false, "wayland", nil, SupportDiagnostics.Renderer.ibusList, SupportDiagnostics.Fallback.setting),
-    (false, "x11", true, .ibusList, .setting),
-    (false, "wayland", true, .ibusList, .setting),
-    (true, "x11", false, .gtkTree, nil),
-    (true, "x11", true, .shellTree, nil),
-    (true, "wayland", true, .shellTree, nil),
-    (true, "wayland", false, .ibusList, .gnomeExtension),
-    (true, "x11", nil, nil, .unavailable),
-    (true, "wayland", nil, nil, .unavailable),
-    (true, "tty", true, nil, .unavailable),
-    (true, nil, true, nil, .unavailable)
-] as [(Bool, String?, Bool?, SupportDiagnostics.Renderer?, SupportDiagnostics.Fallback?)])
-func linuxRendererDistinguishesSettingExtensionAndMissingEngine(
-    treeEnabled: Bool, session: String?, rendererRegistered: Bool?,
-    renderer: SupportDiagnostics.Renderer?, fallback: SupportDiagnostics.Fallback?
-) {
-    let decision = SupportDiagnostics.linuxRenderer(treeEnabled: treeEnabled, session: session, rendererRegistered: rendererRegistered)
-    #expect(decision.0 == renderer)
-    #expect(decision.1 == fallback)
+    LinuxRendererCase(treeEnabled: false, session: "wayland", rendererRegistered: nil, renderer: .ibusList, fallback: .setting),
+    LinuxRendererCase(treeEnabled: false, session: "x11", rendererRegistered: true, renderer: .ibusList, fallback: .setting),
+    LinuxRendererCase(treeEnabled: false, session: "wayland", rendererRegistered: true, renderer: .ibusList, fallback: .setting),
+    LinuxRendererCase(treeEnabled: true, session: "x11", rendererRegistered: false, renderer: .gtkTree, fallback: nil),
+    LinuxRendererCase(treeEnabled: true, session: "x11", rendererRegistered: true, renderer: .shellTree, fallback: nil),
+    LinuxRendererCase(treeEnabled: true, session: "wayland", rendererRegistered: true, renderer: .shellTree, fallback: nil),
+    LinuxRendererCase(treeEnabled: true, session: "wayland", rendererRegistered: false, renderer: .ibusList, fallback: .gnomeExtension),
+    LinuxRendererCase(treeEnabled: true, session: "x11", rendererRegistered: nil, renderer: nil, fallback: .unavailable),
+    LinuxRendererCase(treeEnabled: true, session: "wayland", rendererRegistered: nil, renderer: nil, fallback: .unavailable),
+    LinuxRendererCase(treeEnabled: true, session: "tty", rendererRegistered: true, renderer: nil, fallback: .unavailable),
+    LinuxRendererCase(treeEnabled: true, session: nil, rendererRegistered: true, renderer: nil, fallback: .unavailable)
+])
+func linuxRendererDistinguishesSettingExtensionAndMissingEngine(_ rendererCase: LinuxRendererCase) {
+    let decision = SupportDiagnostics.linuxRenderer(treeEnabled: rendererCase.treeEnabled, session: rendererCase.session,
+                                                    rendererRegistered: rendererCase.rendererRegistered)
+    #expect(decision.0 == rendererCase.renderer)
+    #expect(decision.1 == rendererCase.fallback)
 }
 
 @Test func macOSReportExplainsWhyTheListIsShown() {
-    let report = SupportDiagnostics.macOS(version: nil, source: "abc1234", operatingSystem: "Version 26.0",
-                                          cpu: "arm64", backend: nil, treeEnabled: false).report(language: .english)
+    let report = SupportDiagnostics.macOS(.init(version: nil, source: "abc1234", operatingSystem: "Version 26.0",
+                                                cpu: "arm64", backend: nil, treeEnabled: false)).report(language: .english)
     let lines = report.split(separator: "\n").map(String.init)
     #expect(lines.first == "azooKey Tree")
     #expect(lines.contains("\(Localization.text("support.version", language: .english)): \(Localization.text("support.unknown", language: .english))"))
