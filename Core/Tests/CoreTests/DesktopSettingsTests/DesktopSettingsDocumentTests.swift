@@ -19,6 +19,7 @@ struct DesktopSettingsDocumentTests {
             #"{"transformShortcut":{"key":"s","modifiers":16}}"#, #"{"transformShortcut":{"key":"","modifiers":2}}"#,
             #"{"transformShortcut":{"key":"s","modifiers":2,"extra":1}}"#,
             #"{"userDictionary":{"items":[{"word":"欠落"}]}}"#, #"{"customTable":10}"#, #"{"inputStyle":"custom"}"#,
+            #"{"aiPromptLanguage":"fr"}"#, #"{"aiPromptLanguage":"english"}"#, #"{"aiPromptLanguage":1}"#,
             #"{"profile":"\ud800"}"#, #"{"profile":"\#(String(repeating: "あ", count: 4097))"}"#
         ]
         for document in malformed {
@@ -85,9 +86,21 @@ struct DesktopSettingsDocumentTests {
         #expect(reset.live)
         #expect(!reset.halfSpace)
         for key in ["userDictionary", "aiEnabled", "aiModel", "aiEndpoint", "includeContext",
-                    "transformShortcut", "learning", "profile", "personalization", "customTable"] {
+                    "transformShortcut", "aiPromptLanguage", "learning", "profile", "personalization", "customTable"] {
             #expect(reset.value(forKey: key) == values.value(forKey: key), "\(key)")
         }
+    }
+
+    @Test("既定の指示の言語は既定で英語と書き、ja と en だけを読む")
+    func promptLanguageDefaultsToEnglishAndReadsItsCodes() throws {
+        #expect(DesktopSettings.defaults.aiPromptLanguage == .english)
+        let written = try #require(String(data: DesktopSettingsDocument.data(for: .defaults), encoding: .utf8))
+        #expect(written.contains(#""aiPromptLanguage": "en""#))
+        #expect(try read(#"{"aiPromptLanguage":"ja"}"#, over: .defaults).aiPromptLanguage == .japanese)
+        #expect(try read(#"{"aiPromptLanguage":"en"}"#).aiPromptLanguage == .english)
+        #expect(try read(#"{"live":true}"#).aiPromptLanguage == DesktopSettingsFixture.known.aiPromptLanguage,
+                "a document without the setting keeps the known value")
+        #expect(settingsProblem { _ = try read(#"{"aiPromptLanguage":"fr"}"#) } == .invalidValue("aiPromptLanguage"))
     }
 
     @Test("書き出した文書は読み戻すと同じ値になり日本語をそのまま書く")

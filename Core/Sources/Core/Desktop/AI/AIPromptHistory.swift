@@ -2,7 +2,8 @@ import Foundation
 
 /// Instructions the user gave the selected-text AI, never the document text.
 /// Pinned instructions stay and may carry a shortcut; the most recent
-/// unpinned ones are kept up to `recentLimit`.
+/// unpinned ones are kept up to `recentLimit`. Until the user uses them, the
+/// default instructions are shown in the language the settings choose.
 public struct AIPromptHistory: Sendable {
     public struct Item: Codable, Sendable {
         public var prompt: String
@@ -26,26 +27,45 @@ public struct AIPromptHistory: Sendable {
         case saveFailed
     }
 
-    /// Offered until the user saves an instruction of their own.
-    public static let defaultPrompts = ["elaborate", "rewrite", "formal", "english"]
+    /// The default instructions' names in `ai.example.*`, in the order they
+    /// are offered. Earlier versions offered these English words themselves.
+    private static let defaultPromptNames = ["elaborate", "rewrite", "formal", "english"]
     public static let recentLimit = 10
 
     public let fileURL: URL
+    /// Nil follows the settings, read at each use, so a running bridge shows
+    /// a changed language without opening the history again.
+    private let fixedLanguage: Localization.Language?
 
+    /// The default instructions follow `Config.AIPromptLanguage`.
     public init(fileURL: URL) {
         self.fileURL = fileURL
+        self.fixedLanguage = nil
+    }
+
+    /// The default instructions are shown in `language`, whatever the settings say.
+    public init(fileURL: URL, language: Localization.Language) {
+        self.fileURL = fileURL
+        self.fixedLanguage = language
+    }
+
+    /// The default instructions in `language`, offered pinned to a new user.
+    public static func defaultPrompts(in language: Localization.Language) -> [String] {
+        defaultPromptNames.map { defaultPrompt(named: $0, in: language) }
     }
 
     /// Pinned first, then most recently used. An unreadable file is an empty
-    /// history rather than a reason to stop offering the prompt.
+    /// history rather than a reason to stop offering the prompt. Default
+    /// instructions not used yet are shown in the current language.
     public func load() -> [Item] {
+        let defaults = Self.defaultPrompts(in: fixedLanguage ?? Config.AIPromptLanguage().value)
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return Self.defaultPrompts.map { Item(prompt: $0, pinned: true, lastUsed: 0, shortcut: nil) }
+            return defaults.map(Self.unusedDefault)
         }
         guard let data = try? Data(contentsOf: fileURL), let items = try? JSONDecoder().decode([Item].self, from: data) else {
             return []
         }
-        return Self.ranked(items)
+        return Self.ranked(Self.showingUnusedDefaults(items, as: defaults))
     }
 
     /// Moves `prompt` to the front. A shortcut is kept only for a pinned
@@ -104,6 +124,49 @@ public struct AIPromptHistory: Sendable {
                 return nil
             }
             return (shortcut, item.prompt)
+        }
+    }
+
+    private static func defaultPrompt(named name: String, in language: Localization.Language) -> String {
+        Localization.text("ai.example.\(name)", language: language)
+    }
+
+    /// How a default instruction is offered before the user uses it.
+    private static func unusedDefault(_ prompt: String) -> Item {
+        Item(prompt: prompt, pinned: true, lastUsed: 0, shortcut: nil)
+    }
+
+    /// Every text a default instruction may have been saved with, by position:
+    /// the English word of earlier versions and its text in each language.
+    private static let defaultPromptTexts: [[String]] = defaultPromptNames.map { name in
+        [name] + Localization.Language.allCases.map { defaultPrompt(named: name, in: $0) }
+    }
+
+    /// The position of a default instruction the user has not yet used,
+    /// unpinned or given a shortcut to; nil for every other instruction.
+    private static func unusedDefaultPosition(of item: Item) -> Int? {
+        guard item.pinned, item.lastUsed == 0, item.shortcut == nil else {
+            return nil
+        }
+        return defaultPromptTexts.firstIndex { texts in texts.contains { $0.hasSameScalars(as: item.prompt) } }
+    }
+
+    /// Replaces each unused default with the default at its position in
+    /// `defaults`. A default whose text is already shown is left out, so an
+    /// instruction the user saved with that text is not listed twice.
+    private static func showingUnusedDefaults(_ items: [Item], as defaults: [String]) -> [Item] {
+        let positions = items.map(unusedDefaultPosition)
+        var shownPrompts = zip(items, positions).compactMap { item, position in position == nil ? item.prompt : nil }
+        return zip(items, positions).compactMap { item, position in
+            guard let position else {
+                return item
+            }
+            let prompt = defaults[position]
+            guard !shownPrompts.contains(where: { $0.hasSameScalars(as: prompt) }) else {
+                return nil
+            }
+            shownPrompts.append(prompt)
+            return unusedDefault(prompt)
         }
     }
 

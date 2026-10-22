@@ -119,6 +119,22 @@
     "ja": "元の入力欄や選択範囲を確認できないため、適用しませんでした。結果をコピーして貼り付けてください。",
     "en": "The original field or selection could not be verified, so the result was not applied. Copy the result and paste it where needed."
   },
+  "ai.prompt-language": {
+    "ja": "既定の指示の言語",
+    "en": "Default instruction language"
+  },
+  "ai.prompt-language.en": {
+    "ja": "英語",
+    "en": "English"
+  },
+  "ai.prompt-language.explanation": {
+    "ja": "AI変換の指示の履歴に、最初から並んでいる指示の言語です。まだ使っていない既定の指示だけが切り替わります。",
+    "en": "The language of the instructions listed in the AI conversion history from the start. Only default instructions you have not used yet change."
+  },
+  "ai.prompt-language.ja": {
+    "ja": "日本語",
+    "en": "Japanese"
+  },
   "ai.scope.api-key": {
     "ja": "API キーはこの端末に保存され、要求の認証情報として設定した送信先へ送られます。外部 API の利用料金がかかる場合があります。",
     "en": "The API key is stored on this device and sent to the configured destination to authenticate requests. External API usage may incur charges."

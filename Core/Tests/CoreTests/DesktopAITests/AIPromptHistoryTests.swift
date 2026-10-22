@@ -4,17 +4,88 @@ import Testing
 
 /// The history keeps instructions only. Ported from the Ubuntu prompt tests.
 struct AIPromptHistoryTests {
+    static let englishDefaults = ["Elaborate on this text", "Rewrite this clearly", "Use formal language", "Translate into English"]
+    static let japaneseDefaults = ["内容を詳しくする", "わかりやすく書き直す", "敬語に直す", "英語へ翻訳する"]
+
+    /// An English history in a fresh directory; the settings are not read.
     static func withHistory(_ test: (AIPromptHistory) throws -> Void) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("prompt-history-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        try test(AIPromptHistory(fileURL: directory.appendingPathComponent("azookey-tree/prompts.json")))
+        try test(AIPromptHistory(fileURL: directory.appendingPathComponent("azookey-tree/prompts.json"), language: .english))
     }
 
-    @Test func aMissingFileOffersThePinnedDefaults() throws {
+    /// The same history file shown in another language, as after the setting changes.
+    static func reopened(_ history: AIPromptHistory, in language: Localization.Language) -> AIPromptHistory {
+        AIPromptHistory(fileURL: history.fileURL, language: language)
+    }
+
+    static func writeFile(of history: AIPromptHistory, _ json: String) throws {
+        try FileManager.default.createDirectory(at: history.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: history.fileURL)
+    }
+
+    @Test func aMissingFileOffersThePinnedDefaultsInTheChosenLanguage() throws {
         try Self.withHistory { history in
             let items = history.load()
-            #expect(items.map(\.prompt) == AIPromptHistory.defaultPrompts)
-            #expect(items.allSatisfy { $0.pinned && $0.shortcut == nil })
+            #expect(items.map(\.prompt) == Self.englishDefaults)
+            #expect(items.allSatisfy { $0.pinned && $0.lastUsed == 0 && $0.shortcut == nil })
+            #expect(Self.reopened(history, in: .japanese).load().map(\.prompt) == Self.japaneseDefaults)
+            #expect(AIPromptHistory.defaultPrompts(in: .japanese) == Self.japaneseDefaults)
+        }
+    }
+
+    @Test func changingTheLanguageReplacesOnlyDefaultsThatWereNeverUsed() throws {
+        try Self.withHistory { history in
+            let shortcut = #"{"key": "e", "modifiers": 6}"#
+            try Self.writeFile(of: history, """
+            [{"prompt": "Elaborate on this text", "pinned": true, "lastUsed": 0},
+             {"prompt": "Rewrite this clearly", "pinned": true, "lastUsed": 5},
+             {"prompt": "Use formal language", "pinned": true, "lastUsed": 0, "shortcut": \(shortcut)},
+             {"prompt": "Translate into English", "pinned": false, "lastUsed": 0},
+             {"prompt": "自分の指示", "pinned": true, "lastUsed": 0}]
+            """)
+            let japanese = Self.reopened(history, in: .japanese).load()
+            #expect(japanese.map(\.prompt) == ["Rewrite this clearly", "内容を詳しくする", "Use formal language", "自分の指示",
+                                               "Translate into English"],
+                    "used, given a shortcut, unpinned and the user's own instructions keep their text")
+            #expect(japanese.first { $0.prompt == "内容を詳しくする" }?.pinned == true)
+            #expect(japanese.first { $0.prompt == "Use formal language" }?.shortcut == KeyboardShortcut(key: "e", modifiers: [.control, .option]))
+        }
+    }
+
+    @Test func theEnglishWordsEarlierVersionsSavedAreReplacedToo() throws {
+        try Self.withHistory { history in
+            try Self.writeFile(of: history, """
+            [{"prompt": "敬語", "pinned": false, "lastUsed": 1},
+             {"prompt": "elaborate", "pinned": true, "lastUsed": 0}, {"prompt": "rewrite", "pinned": true, "lastUsed": 0},
+             {"prompt": "formal", "pinned": true, "lastUsed": 0}, {"prompt": "english", "pinned": true, "lastUsed": 0}]
+            """)
+            #expect(history.load().map(\.prompt) == Self.englishDefaults + ["敬語"])
+            #expect(Self.reopened(history, in: .japanese).load().map(\.prompt) == Self.japaneseDefaults + ["敬語"])
+        }
+    }
+
+    @Test func savingKeepsUnusedDefaultsSwitchableAndUsingOneKeepsIt() throws {
+        try Self.withHistory { history in
+            // Saving in Japanese writes the unused defaults with their Japanese text.
+            try Self.reopened(history, in: .japanese).recordUse("わかりやすく書き直す")
+            let english = history.load()
+            #expect(english.map(\.prompt) == ["わかりやすく書き直す", "Elaborate on this text", "Use formal language",
+                                              "Translate into English"],
+                    "the used default stays Japanese and first; the others follow the language")
+            #expect(english.first?.pinned == true && (english.first?.lastUsed ?? 0) > 0)
+        }
+    }
+
+    @Test func aDefaultIsNotListedAgainBesideTheUsersInstructionWithTheSameText() throws {
+        try Self.withHistory { history in
+            try Self.writeFile(of: history, """
+            [{"prompt": "内容を詳しくする", "pinned": true, "lastUsed": 0},
+             {"prompt": "Elaborate on this text", "pinned": false, "lastUsed": 3}]
+            """)
+            let items = history.load()
+            #expect(items.map(\.prompt) == ["Elaborate on this text"])
+            #expect(items.first?.pinned == false, "the user's own instruction is the one shown")
         }
     }
 

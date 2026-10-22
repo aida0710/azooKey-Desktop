@@ -8,7 +8,7 @@ extension DesktopSettings {
         "tree", "live", "halfSpace", "backslash", "optionDirect", "inputStyle", "candidateTextSize",
         "punctuation", "inferenceLimit", "predictiveTyping", "typoCorrection", "debug", "showRelativeScores",
         "learning", "personalization", "profile", "aiEnabled", "aiModel", "aiEndpoint", "includeContext",
-        "transformShortcut", "userDictionary", "customTable"
+        "transformShortcut", "aiPromptLanguage", "userDictionary", "customTable"
     ]
 
     private static let shortcutKeys: Set<String> = ["key", "modifiers"]
@@ -44,6 +44,7 @@ extension DesktopSettings {
         case "aiEndpoint": .string(aiEndpoint)
         case "includeContext": .bool(includeContext)
         case "transformShortcut": Self.json(for: transformShortcut)
+        case "aiPromptLanguage": .string(aiPromptLanguage.rawValue)
         case "userDictionary": Self.json(for: userDictionary)
         case "customTable": .string(customTable)
         default: .null
@@ -76,6 +77,7 @@ extension DesktopSettings {
         case "aiEndpoint": aiEndpoint = try Self.text(value, field: key)
         case "includeContext": includeContext = try Self.bool(value, field: key)
         case "transformShortcut": transformShortcut = try Self.shortcut(value)
+        case "aiPromptLanguage": aiPromptLanguage = try Self.choice(value, field: key)
         case "userDictionary": userDictionary = try Self.dictionary(value)
         case "customTable": customTable = try Self.text(value, field: key)
         default: throw DesktopSettingsProblem.unknownKey(key)

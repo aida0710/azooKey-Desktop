@@ -11,7 +11,7 @@ struct DesktopSettingsSchemaTests {
     ]
     private static let recoveryKeptKeys: Set<String> = [
         "userDictionary", "customTable", "learning", "personalization", "profile",
-        "aiEnabled", "aiModel", "aiEndpoint", "includeContext", "transformShortcut"
+        "aiEnabled", "aiModel", "aiEndpoint", "includeContext", "transformShortcut", "aiPromptLanguage"
     ]
 
     @Test("設定ファイルのすべての項目に定義があり既定値は既定の設定と一致する")
@@ -80,7 +80,13 @@ struct DesktopSettingsSchemaTests {
         let pages = try #require(document["pages"] as? [[String: Any]])
         let ai = try #require(pages.first { $0["id"] as? String == "ai" })
         let kinds = try #require(ai["elements"] as? [[String: Any]]).compactMap { $0["kind"] as? String }
-        #expect(kinds == ["setting", "setting", "note", "setting", "setting", "setting", "secret"])
+        #expect(kinds == ["setting", "setting", "note", "setting", "setting", "setting", "setting", "secret"])
+        let language = try #require(items.first { $0["key"] as? String == "aiPromptLanguage" })
+        #expect(language["control"] as? String == "choice")
+        #expect(language["default"] as? String == "en")
+        let choices = try #require(language["choices"] as? [[String: Any]])
+        #expect(choices.compactMap { $0["value"] as? String } == ["en", "ja"])
+        #expect(choices.compactMap { $0["labelKey"] as? String } == ["ai.prompt-language.en", "ai.prompt-language.ja"])
     }
 
     @Test("設定ファイルはLinuxとmacOSではXDGの場所、Windowsでは利用者のAppDataに置く")

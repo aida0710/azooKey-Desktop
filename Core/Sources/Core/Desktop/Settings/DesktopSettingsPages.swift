@@ -26,6 +26,7 @@ enum DesktopSettingsPages {
             .init(id: "ai", titleKey: "settings.page.ai", elements: [
                 .setting(key: "aiEnabled"), .setting(key: "includeContext"), .note(textKey: aiProcessingNote(for: platform)),
                 .setting(key: "aiModel"), .setting(key: "aiEndpoint"), .setting(key: "transformShortcut"),
+                .setting(key: "aiPromptLanguage"),
                 .secret(.init(id: "apiKey", labelKey: "ai.api-key", placeholderKey: "ai.api-key-placeholder",
                               descriptionKey: "ai.scope.api-key", accessKey: "K"))
             ]),
