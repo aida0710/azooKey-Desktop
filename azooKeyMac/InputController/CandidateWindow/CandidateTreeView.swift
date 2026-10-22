@@ -441,7 +441,6 @@ final class CandidateTreeView: NSView {
         scorePresentations = showsScores ? Dictionary(uniqueKeysWithValues: nodeFrames.keys.map {
             ($0, CandidateScorePresentation(relativeScore: scores[$0]))
         }) : [:]
-        canvas.scores = scores
         canvas.scorePresentations = scorePresentations
         canvas.nodeFrames = nodeFrames
         canvas.selectedPath = Set(displayedColumns.compactMap(\.first))

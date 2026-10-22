@@ -168,7 +168,7 @@ def javascript_template(text):
 
 
 def gjs_messages(messages):
-    lines = [f"// {GENERATED_NOTICE}", "// User-facing strings are kept outside rendering and interaction code.",
+    lines = [f"// {GENERATED_NOTICE}", "// Fixed control labels. Core supplies candidate-dependent text.",
              "export const messages = {"]
     for message in sorted((item for item in messages.values() if item.gjs_name), key=lambda item: item.gjs_name):
         text = message.text("linux", "ja")

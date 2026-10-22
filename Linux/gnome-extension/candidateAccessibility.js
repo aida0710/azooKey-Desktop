@@ -17,31 +17,14 @@ export function attachCandidateAction(button) {
     button.connect('destroy', () => { active = false; });
 }
 
-export function candidateAnnouncement(snapshot) {
-    if (!['previewing', 'selecting', 'replaceSuggestion'].includes(snapshot.inputState))
-        return null;
-    const candidate = snapshot.candidates?.find(item => item.index === snapshot.selection);
-    const node = snapshot.nodes?.find(item => item.id === snapshot.focusedNode);
-    if (!candidate || !node) return null;
-    const reading = node.reading || candidate.commitScope?.consumedReading || snapshot.reading;
-    const parts = [messages.position(candidate.index + 1, snapshot.candidates.length), node.text];
-    if (reading) parts.push(messages.reading(reading));
-    const word = snapshot.selectedPath?.indexOf(node.id);
-    if (word >= 0 && snapshot.selectedPath.length > 1)
-        parts.push(messages.wordPosition(word + 1, snapshot.selectedPath.length));
-    if (candidate.text !== node.text) parts.push(messages.commit(candidate.text));
-    if (candidate.commitScope?.remainingReading)
-        parts.push(messages.remaining(candidate.commitScope.remainingReading));
-    return parts.join('。');
-}
-
+// Core composes the announcement; this speaks it once per input context.
 export class CandidateAnnouncements {
     constructor(announce) {
         this._announce = announce;
     }
 
     update(snapshot) {
-        const announcement = candidateAnnouncement(snapshot);
+        const announcement = snapshot.candidateDisplay?.announcement;
         if (!announcement) {
             this.reset();
             return;

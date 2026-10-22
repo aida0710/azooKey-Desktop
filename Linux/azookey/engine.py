@@ -1,3 +1,4 @@
+from contextlib import closing
 import pathlib
 import subprocess
 import threading
@@ -10,7 +11,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("Atk", "1.0")
 from gi.repository import Atk, IBus, Gdk, GLib, Gtk
 from .bridge import Bridge
-from .async_bridge import AsyncBridge
+from .async_bridge import AsyncBridge, Request
 from .input_coordinator import InputCoordinator
 from .input_preview import is_native_key
 from .native_key_reply import NativeKeyReply
@@ -19,7 +20,8 @@ from .tree_panel import TreePanel
 from .candidate_announcements import CandidateAnnouncements
 from .preedit_anchor import PreeditAnchor
 from .settings import read_key
-from .settings_store import SettingsStore
+from . import settings_client
+from .settings_reload import SettingsReload
 from .i18n import text
 from .shell_surface import surface
 from .prompts import PromptHistory, matches
@@ -28,7 +30,6 @@ from .selected_text_transform import SelectedTextTransformation
 from .ai_scope import AIRequestConfiguration, AIRequestScope, MODIFIER_KEYS
 from .ai_review import AISuggestionReview
 from .i18n import text as message
-from .settings_store import update_settings
 from .reconversion import ReconversionCoordinator, reconversion_message, surrounding_context
 
 
@@ -40,7 +41,7 @@ class Engine(IBus.Engine):
         super().__init__(*args, **kwargs)
         self.context_id = str(uuid.uuid4())
         self.bridge = AsyncBridge.acquire(GLib.idle_add)
-        self.panel = TreePanel(self.choose)
+        self.panel = TreePanel(self.choose, self.request_layout)
         self.lookup_announcements = CandidateAnnouncements(
             lambda announcement: self.panel.get_accessible().emit("notification", announcement, Atk.Live.POLITE),
         )
@@ -57,9 +58,6 @@ class Engine(IBus.Engine):
         self.last_language_key = (None, 0)
         self.destroyed = False
         self.settings = {}
-        self.settings_stamp = None
-        self.pending_settings_stamp = None
-        self.settings_store = SettingsStore()
         self.settings_problem_stamp = None
         self.selected_text = ""
         self.left = ""
@@ -84,7 +82,10 @@ class Engine(IBus.Engine):
             replay=self.replay_key_event, forward=self.forward_key_event,
             schedule_timeout=GLib.timeout_add, remove_timeout=GLib.source_remove,
         )
-        self.input.submit("settings", completion=self.load_settings)
+        self.settings_reload = SettingsReload(
+            self.input, applied=self.apply_settings, problem=self.show_settings_problem,
+        )
+        self.reload_settings()
 
     def ai_review_state(self):
         return {
@@ -102,56 +103,28 @@ class Engine(IBus.Engine):
     def save_ai_context(self, value):
         try:
             # Other screens may have changed conversion or dictionary settings.
-            # Leave those for reload_settings and its Core acknowledgement.
-            update_settings({"includeContext": value}, defaults=self.settings)
+            # Core changes only this choice; the next reload applies the file.
+            with closing(Bridge()) as bridge:
+                settings_client.update(bridge, {"includeContext": value})
             self.settings = {**self.settings, "includeContext": value}
             self.input.settings = self.settings
             return True
-        except (OSError, ValueError):
+        except (OSError, RuntimeError, ValueError):
             return False
 
-    def load_settings(self, snapshot):
-        if "settings" in snapshot:
-            self.settings = snapshot["settings"]
-            self.input.settings = self.settings
-            self.reload_settings()
-
     def reload_settings(self):
-        if not self.settings:
-            if not any(pending.operation == "settings" for pending in self.input.pending):
-                self.input.submit("settings", completion=self.load_settings)
-            return
-        loaded = self.settings_store.load(self.settings)
-        if loaded.problem:
-            self.notify_settings_problem(loaded.problem)
-            return
-        self.settings_problem_stamp = None
-        if loaded.stamp is None or loaded.stamp in (self.settings_stamp, self.pending_settings_stamp):
-            return
-        self.pending_settings_stamp = loaded.stamp
+        self.settings_reload.request()
 
-        def configured(snapshot):
-            self.pending_settings_stamp = None
-            if snapshot.get("error"):
-                self.settings_store.reject(loaded)
-                self.notify_settings_problem(self.settings_store.load(self.settings).problem)
-                return
-            self.settings = loaded.values
-            self.input.settings = loaded.values
-            self.settings_stamp = loaded.stamp
+    def apply_settings(self, values):
+        self.settings = values
+        self.input.settings = values
 
-        self.input.submit(
-            "configure", payload={"settings": loaded.values}, completion=configured,
-            persist=lambda: self.settings_store.remember(loaded.values),
-        )
-
-    def notify_settings_problem(self, problem):
-        # The user may have repaired the file while Core rejected an older
-        # queued version. In that case there is no current problem to show.
+    def show_settings_problem(self, problem):
         if problem is None:
+            self.settings_problem_stamp = None
             return
-        if problem.stamp != self.settings_problem_stamp:
-            self.settings_problem_stamp = problem.stamp
+        if problem["stamp"] != self.settings_problem_stamp:
+            self.settings_problem_stamp = problem["stamp"]
             notification = text("settings.input_continues")
             self.update_auxiliary_text(IBus.Text.new_from_string(notification), True)
 
@@ -165,6 +138,23 @@ class Engine(IBus.Engine):
             "reconversionContext": self.current_reconversion_context(), **values,
         }, key=original_key, key_reply=self.defer_native_key(original_key))
         return True
+
+    def request_layout(self, layout, completion):
+        """Ask Core to lay out candidates after the conversion requests before it.
+
+        The request is not input: it never joins InputCoordinator.pending, so
+        native-key decisions do not wait for it. Callers check that their reply
+        still belongs to the displayed snapshot.
+        """
+        if self.destroyed:
+            completion(None)
+            return
+
+        def complete(reply):
+            snapshot = reply.snapshot or {}
+            completion(None if reply.failed or snapshot.get("error") else snapshot.get("candidateLayout"))
+
+        self.bridge.submit(Request("candidate-layout", {"layout": layout}, complete))
 
     def defer_native_key(self, original_key):
         if original_key is not None and self.native_key_reply:
@@ -222,7 +212,6 @@ class Engine(IBus.Engine):
         self.ai_review.cancel()
         text, recovery = self.reconversion.take_recovery(text)
         try:
-            self.pending_settings_stamp = None
             self.snapshot = {}
             self.anchor.update("", 0)
             self.update_preedit_text_with_mode(IBus.Text.new_from_string(""), 0, False, IBus.PreeditFocusMode.COMMIT)
@@ -349,7 +338,6 @@ class Engine(IBus.Engine):
             self.clear_reconversion()
         if self.private:
             self.input.cancel()
-            self.pending_settings_stamp = None
             self.recover_composition()
 
     def do_set_surrounding_text(self, text, cursor, anchor):
@@ -375,7 +363,7 @@ class Engine(IBus.Engine):
         snapshot = self.positioned_snapshot(self.snapshot)
         if self.focused and self.settings.get("tree", True):
             surface().show(self, snapshot, self.panel.location)
-        if self.panel.get_visible():
+        if self.panel.is_presenting:
             self.panel.update(snapshot)
 
     def positioned_snapshot(self, snapshot):
@@ -432,7 +420,6 @@ class Engine(IBus.Engine):
         self.clear_reconversion()
         surface().hide(self)
         self.input.cancel()
-        self.pending_settings_stamp = None
         self.snapshot = {}
         self.left = self.right = self.selected_text = ""
         self.panel.dismiss()
@@ -445,7 +432,6 @@ class Engine(IBus.Engine):
         self.transformation.reset_input()
         self.clear_reconversion()
         self.input.cancel()
-        self.pending_settings_stamp = None
         self.recover_composition()
 
     def do_disable(self):

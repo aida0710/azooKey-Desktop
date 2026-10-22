@@ -11,12 +11,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires a GTK display")
 class CandidateAccessibilityTests(unittest.TestCase):
     def setUp(self):
-        from azookey.tree_panel import TreePanel
+        from candidate_core import core_tree_panel
 
         self.submitted = []
-        self.panel = TreePanel(lambda *selection: self.submitted.append(selection))
+        self.panel = core_tree_panel(lambda *selection: self.submitted.append(selection))
         self.snapshot = {
             "generation": 1,
+            "inputState": "selecting",
             "selection": 0,
             "focusedNode": 0,
             "nodes": [

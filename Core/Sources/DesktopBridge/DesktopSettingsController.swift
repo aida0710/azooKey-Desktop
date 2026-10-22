@@ -60,7 +60,9 @@ final class DesktopSettingsController {
         case "settings-load":
             respond(with: store.load(knownGood: activation.current), to: &response)
         case "settings-reload":
-            let loaded = await activation.reload(from: store) { try await apply($0, reloadSessions: reloadSessions) }
+            let loaded = await activation.reload(from: store) {
+                try await apply($0, requiredDictionarySource: nil, reloadSessions: reloadSessions)
+            }
             respond(with: loaded, to: &response)
         case "settings-save":
             guard let document = request.settings else {
@@ -78,15 +80,7 @@ final class DesktopSettingsController {
             guard let changes = request.settings else {
                 throw BridgeMain.ProtocolError.invalidRequest
             }
-            do {
-                let saved = try await store.modify(
-                    knownGood: activation.current, expectedStamp: request.settingsFile?.expectedStamp,
-                    change: { try $0.merge(changes) }, publish: { try store.install($0) }
-                )
-                respond(with: saved, to: &response)
-            } catch {
-                response.settingsResult = .init(error: Self.problem(for: error))
-            }
+            await update(changes, expectedStamp: request.settingsFile?.expectedStamp, to: &response)
         default:
             return nil
         }
@@ -95,7 +89,10 @@ final class DesktopSettingsController {
 
     /// Applies settings sent with the request itself, without the settings file.
     func configure(_ document: DesktopSettingsJSON, reloadSessions: () throws -> Void) async throws {
-        try await apply(DesktopSettingsDocument.settings(from: document, over: activation.current), reloadSessions: reloadSessions)
+        try await apply(
+            DesktopSettingsDocument.settings(from: document, over: activation.current),
+            requiredDictionarySource: store.fileURL, reloadSessions: reloadSessions
+        )
     }
 
     private func save(
@@ -107,7 +104,7 @@ final class DesktopSettingsController {
             let expectedStamp = request.settingsFile?.expectedStamp
             let saved = try await store.save(values, expectedStamp: expectedStamp, recover: recover) { staged in
                 try await activation.publish(values, stagedFileURL: staged, into: store) {
-                    try await apply($0, reloadSessions: reloadSessions)
+                    try await apply($0, requiredDictionarySource: nil, reloadSessions: reloadSessions)
                 }
             }
             activation.recordSaved(saved)
@@ -117,9 +114,24 @@ final class DesktopSettingsController {
         }
     }
 
-    private func apply(_ settings: DesktopSettings, reloadSessions: () throws -> Void) async throws {
+    /// Changes some settings in the file without applying them; the next reload does.
+    private func update(_ changes: DesktopSettingsJSON, expectedStamp: DesktopSettingsFileStamp?, to response: inout DesktopSnapshot) async {
+        do {
+            let saved = try await store.modify(
+                knownGood: activation.current, expectedStamp: expectedStamp,
+                change: { try $0.merge(changes) }, publish: { try store.install($0) }
+            )
+            respond(with: saved, to: &response)
+        } catch {
+            response.settingsResult = .init(error: Self.problem(for: error))
+        }
+    }
+
+    private func apply(
+        _ settings: DesktopSettings, requiredDictionarySource: URL?, reloadSessions: () throws -> Void
+    ) async throws {
         try await DesktopDictionaryController.applyDictionary(
-            settings.userDictionary.items, settingsFileURL: store.fileURL,
+            settings.userDictionary.items, requiredSourceURL: requiredDictionarySource,
             memoryDirectoryURL: memoryDirectoryURL, converter: converter
         )
         try settings.applyToConfig()

@@ -30,6 +30,8 @@ public struct CandidateLayoutRequest: Codable, Sendable {
     /// Font size used to measure `textWidth` and `lineHeight`. Core scales
     /// them to the candidate font size, so platforms can measure before layout.
     public var measuredFontSize: Double
+    /// One measured line of candidate text, including any border the platform
+    /// draws inside a node. Word and number lines keep at least this ratio.
     public var lineHeight: Double?
     public var columns: [Column]
     /// Widths of the document's words under the composition, when known.
@@ -111,8 +113,10 @@ public struct CandidateLayout: Codable, Equatable, Sendable {
 
     private static func tree(_ request: CandidateLayoutRequest, allowAlignment: Bool) -> CandidateTreeLayout {
         let measurementScale = measurementScale(request)
-        let metrics = CandidateTextMetrics(textSize: request.textSize, textScale: request.textScale,
-                                           lineHeight: request.lineHeight.map { $0 * measurementScale })
+        let metrics = CandidateTextMetrics(
+            textSize: request.textSize, textScale: request.textScale,
+            lineHeightRatio: request.lineHeight.flatMap { request.measuredFontSize > 0 ? $0 / request.measuredFontSize : nil }
+        )
         var input = CandidateTreeLayout.Input(
             columns: request.columns, columnWidths: nil, metrics: metrics, textWidthScale: measurementScale,
             showScores: request.showScores, showNumbers: request.showNumbers,

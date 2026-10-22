@@ -115,6 +115,7 @@ std::string LayoutRequestLine(const LayoutRequest& request) {
         layout["documentWordWidths"] = json::Value::MakeArray(std::move(widths));
     }
     if (request.columnAnchorX) layout["columnAnchorX"] = json::Value::MakeNumber(*request.columnAnchorX);
+    if (request.lineHeight) layout["lineHeight"] = json::Value::MakeNumber(*request.lineHeight);
     if (request.popupHeight) layout["popupHeight"] = json::Value::MakeNumber(*request.popupHeight);
     if (!request.preferredSide.empty()) layout["preferredSide"] = json::Value::MakeString(request.preferredSide);
     return json::Serialize(json::Value::MakeObject(
@@ -137,8 +138,10 @@ std::optional<LayoutResult> ParseLayoutResult(const std::string& line) {
         layout.aligned = tree["aligned"].AsBoolean(false);
         layout.leadingText = tree["textAlignment"].AsString() == "leading";
         const json::Value& metrics = tree["metrics"];
-        layout.metrics = {Number(metrics["fontSize"], 18), Number(metrics["numberFontSize"], 12), Number(metrics["scoreFontSize"], 12),
-                          Number(metrics["wordHeight"], 32), Number(metrics["numberHeight"]), Number(metrics["scoreHeight"])};
+        layout.metrics = {Number(metrics["fontSize"], 18),           Number(metrics["numberFontSize"], 12),
+                          Number(metrics["scoreFontSize"], 12),      Number(metrics["wordHeight"], 32),
+                          Number(metrics["numberHeight"]),           Number(metrics["scoreHeight"]),
+                          Number(metrics["scoreBadgeMinimumWidth"], 22), Number(metrics["scoreBadgeHorizontalInset"], 3)};
         for (const auto& node : tree["nodes"].AsArray()) {
             layout.nodes.push_back({static_cast<int>(node["id"].AsInteger(0)), ParseFrame(node["frame"]), ParseFrame(node["textFrame"]),
                                     OptionalFrame(node["scoreFrame"]), OptionalFrame(node["numberFrame"])});

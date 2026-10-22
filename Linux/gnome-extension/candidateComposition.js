@@ -2,7 +2,6 @@ import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import St from 'gi://St';
 import {attachCandidateAction} from './candidateAccessibility.js';
-import {messages} from './candidateMessages.js';
 import {createWrappingLabel} from './candidateText.js';
 
 // Compact spacing leaves the sentence readable without enlarging the popup.
@@ -17,8 +16,7 @@ export class CandidateComposition {
         this._select = select;
         this.actor = new St.BoxLayout({vertical: true, can_focus: false});
         this._header = new St.BoxLayout();
-        this._title = new St.Label({text: messages.composition, x_expand: true,
-            y_align: Clutter.ActorAlign.CENTER});
+        this._title = new St.Label({x_expand: true, y_align: Clutter.ActorAlign.CENTER});
         this._title.set_width(1);
         this._header.add_child(this._title);
         this.actor.add_child(this._header);
@@ -41,31 +39,29 @@ export class CandidateComposition {
     }
 
     update(snapshot, {fontSize, width, maximumHeight, palette}) {
-        const candidate = snapshot.candidates?.find(item => item.index === snapshot.selection);
-        const enterConfirmsCandidate = ['selecting', 'previewing', 'replaceSuggestion'].includes(snapshot.inputState);
-        const identity = JSON.stringify([snapshot.contextId, snapshot.generation, snapshot.selection, enterConfirmsCandidate]);
+        const listing = snapshot.candidateDisplay.list ?? {};
+        const identity = JSON.stringify([snapshot.contextId, snapshot.generation, listing.confirmIndex,
+            listing.confirmLabel]);
         if (this._identity !== identity) {
             this.retire();
             this._identity = identity;
-            if (candidate) this._createConfirm(snapshot, candidate, enterConfirmsCandidate);
+            if (Number.isInteger(listing.confirmIndex)) this._createConfirm(snapshot, listing);
         }
-        this._title.text = enterConfirmsCandidate ? messages.composition : messages.proposal;
-        const sentence = candidate?.text ?? snapshot.preedit ?? '';
+        this._title.text = listing.title ?? '';
+        const sentence = listing.commitText ?? snapshot.preedit ?? '';
         if (sentence !== this._sentence.text) {
             this._sentence.text = sentence;
             this._scroll.get_vadjustment().value = 0;
         }
-        const reading = candidate?.commitScope?.consumedReading ?? snapshot.reading;
-        this._reading.text = reading ? messages.reading(reading) : '';
-        this._reading.visible = Boolean(reading);
-        const remaining = candidate?.commitScope?.remainingReading;
-        const remainingText = remaining ? messages.remaining(remaining) : '';
+        this._reading.text = listing.readingText ?? '';
+        this._reading.visible = Boolean(listing.readingText);
+        const remainingText = listing.remainingText ?? '';
         if (remainingText !== this._remaining.text) {
             this._remaining.text = remainingText;
             this._remainingScroll.get_vadjustment().value = 0;
         }
-        this._remaining.visible = Boolean(remaining);
-        this._remainingScroll.visible = Boolean(remaining);
+        this._remaining.visible = Boolean(remainingText);
+        this._remainingScroll.visible = Boolean(remainingText);
         this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text}; padding: ${COMPOSITION_INSET}px;`);
         this._title.set_style(`font-size: ${Math.max(12, fontSize - 4)}px;`);
         this._sentence.set_style(`font-size: ${fontSize + 2}px; font-weight: 600; padding-top: ${SENTENCE_GAP}px;`);
@@ -76,7 +72,7 @@ export class CandidateComposition {
         if (this._confirm) this._confirm.set_style(`color: ${palette.selectionText}; background-color: ${palette.selection};
             border: 2px solid ${palette.text}; border-radius: 8px; padding: 4px 12px; min-height: 32px; font-size: ${fontSize}px;`);
         const headerHeight = this._header.get_preferred_height(innerWidth)[1];
-        const remainingHeight = remaining ? Math.min(this._remaining.get_preferred_height(innerWidth)[1],
+        const remainingHeight = remainingText ? Math.min(this._remaining.get_preferred_height(innerWidth)[1],
             maximumHeight * REMAINING_HEIGHT_FRACTION) : 0;
         const contentHeight = this._content.get_preferred_height(innerWidth)[1];
         const textHeight = Math.min(contentHeight,
@@ -88,12 +84,12 @@ export class CandidateComposition {
         return height;
     }
 
-    _createConfirm(snapshot, candidate, enterConfirmsCandidate) {
-        const label = enterConfirmsCandidate ? `${messages.submit} ↵` : messages.submitCandidate;
-        const button = new St.Button({can_focus: false, reactive: true, label,
-            accessible_name: `${enterConfirmsCandidate ? messages.submit : messages.submitCandidate} ${candidate.text}`});
+    _createConfirm(snapshot, listing) {
+        const button = new St.Button({can_focus: false, reactive: true, label: listing.confirmLabel,
+            accessible_name: listing.confirmAccessibleName});
+        button.get_accessible().accessible_description = listing.confirmAccessibleDescription;
         const selection = new GLib.Variant('(sibis)',
-            ['select', candidate.index, true, snapshot.generation, snapshot.contextId]);
+            ['select', listing.confirmIndex, true, snapshot.generation, snapshot.contextId]);
         attachCandidateAction(button);
         button.connect('clicked', () => {
             if (this._confirm !== button || !button.reactive || !button.is_mapped()) return;

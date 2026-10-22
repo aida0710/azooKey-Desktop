@@ -57,6 +57,7 @@
 "candidate.announceCommit" = "確定予定 %@";
 "candidate.announceReading" = "読み %@";
 "candidate.announceRemaining" = "残る読み %@";
+"candidate.announceSeparator" = "。";
 "candidate.closeDetails" = "詳細を閉じる";
 "candidate.closeList" = "閉じる";
 "candidate.closeTree" = "文節を閉じる";

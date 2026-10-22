@@ -121,16 +121,16 @@ class AIScopeDialogTests(unittest.TestCase):
         finally:
             engine.ai_review.cancel()
 
+    @unittest.skipUnless(os.environ.get("AZOOKEY_BRIDGE"), "Core saves the context choice")
     def test_context_choice_preserves_newer_settings_and_does_not_overwrite_a_broken_file(self):
         from azookey.engine import Engine
-        from azookey.settings_store import config_path
         from azookey.ai_review import AISuggestionReview
         from azookey.i18n import text as message
         settings = {"includeContext": False, "aiModel": "fixture", "aiEndpoint": "https://example.invalid",
                     "profile": "old profile", "userDictionary": {"items": []}}
         engine = SimpleNamespace(settings=dict(settings), input=SimpleNamespace(settings=dict(settings)))
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": directory}):
-            path = config_path()
+            path = pathlib.Path(directory) / "azookey-tree/settings.json"
             path.parent.mkdir()
             path.write_text(json.dumps({**settings, "profile": "new profile"}))
             self.assertTrue(Engine.save_ai_context(engine, True))

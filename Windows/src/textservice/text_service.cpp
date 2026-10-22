@@ -3,6 +3,7 @@
 #include <shellscalingapi.h>
 
 #include <algorithm>
+#include <cmath>
 #include <new>
 
 #include "display_attributes.h"
@@ -479,6 +480,7 @@ void TextService::ShowCandidates(const protocol::Snapshot& snapshot, const std::
     request.largeText = snapshot.largeText;
     request.textScale = SystemTextScale();
     request.measuredFontSize = shown.baseFontSize;
+    request.lineHeight = candidatePanel_->LineHeight(shown.baseFontSize);
     for (const auto& column : shown.columns) {
         display::LayoutColumn layoutColumn;
         for (int id : column) {
@@ -502,7 +504,7 @@ void TextService::ShowCandidates(const protocol::Snapshot& snapshot, const std::
     request.preferredSide = lastPlacementSide_;
 
     // First the widths, then the placement for the height measured at that width
-    // (docs/candidate-display.md).
+    // (docs/candidate-display.md, 呼び出しの手順).
     auto sized = converter_->Layout(request);
     if (!sized) {
         HideCandidates();
@@ -513,14 +515,25 @@ void TextService::ShowCandidates(const protocol::Snapshot& snapshot, const std::
     content.nodes = snapshot.nodes;
     content.showList = listMode;
     content.showScores = snapshot.showRelativeScores;
-    if (treeMode || (listMode && shown.expandTree)) content.tree = sized->tree;
-    content.fontSize = sized->tree ? sized->tree->metrics.fontSize : shown.baseFontSize;
-    request.popupHeight = candidatePanel_->ContentHeight(content, sized->popupWidth);
+    bool drawsTree = treeMode || (listMode && shown.expandTree);
+    auto measure = [&](const display::LayoutResult& layout) {
+        content.tree = drawsTree ? layout.tree : std::nullopt;
+        content.fontSize = layout.tree ? layout.tree->metrics.fontSize : shown.baseFontSize;
+        request.popupHeight = static_cast<int>(std::ceil(candidatePanel_->ContentHeight(content, layout.popupWidth)));
+    };
+    measure(*sized);
     auto placed = converter_->Layout(request);
+    // Core gives up aligning the columns when it places the popup beside the
+    // text, which changes the width; measure again at the new width.
+    if (placed && placed->popupWidth != sized->popupWidth) {
+        measure(*placed);
+        placed = converter_->Layout(request);
+    }
     if (!placed || placed->placementStatus != "placed" || !placed->placement) {
         candidatePanel_->Hide();
         return;
     }
+    content.tree = drawsTree ? placed->tree : std::nullopt;
     lastPlacementSide_ = placed->side;
     const display::Frame& frame = *placed->placement;
     float toPixels = dpiX / 96.0f;

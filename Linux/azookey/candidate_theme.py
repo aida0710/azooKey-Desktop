@@ -7,9 +7,6 @@ from gi.repository import Gio
 
 from .candidate_palette_data import PALETTES
 
-# Retain the existing visual split without changing the conditional score.
-RELATIVE_SCORE_COLOR_SPLIT = 75
-
 
 def appearance_name(*, color_scheme, theme_name, prefer_dark, high_contrast, dark_background):
     theme = theme_name.lower()
@@ -19,13 +16,6 @@ def appearance_name(*, color_scheme, theme_name, prefer_dark, high_contrast, dar
     else:
         dark = prefer_dark or "dark" in theme or "inverse" in theme or dark_background
     return ("highContrastDark" if dark else "highContrastLight") if contrast else ("dark" if dark else "light")
-
-
-def score_role(score):
-    # Preserve the existing relative-score threshold; an unevaluated node is neutral.
-    if score is None:
-        return "scoreUnknown"
-    return "scoreLow" if score < RELATIVE_SCORE_COLOR_SPLIT else "scoreHigh"
 
 
 class CandidateTheme:

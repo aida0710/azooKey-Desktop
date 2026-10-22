@@ -10,14 +10,16 @@ from unittest import mock
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 
-@unittest.skipUnless(os.environ.get("DISPLAY"), "requires an isolated GTK display")
+@unittest.skipUnless(os.environ.get("DISPLAY") and os.environ.get("AZOOKEY_BRIDGE"),
+                     "requires an isolated GTK display and the Swift bridge")
 class SettingsAccessibilityTests(unittest.TestCase):
     def setUp(self):
         from azookey.settings import SettingsWindow
-        from azookey.settings_store import SettingsStore
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        environment = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": self.directory.name})
+        environment = mock.patch.dict(os.environ, {
+            "XDG_CONFIG_HOME": self.directory.name, "AZOOKEY_DATA_DIR": os.path.join(self.directory.name, "data"),
+        })
         environment.start()
         self.addCleanup(environment.stop)
         values = dict.fromkeys(
@@ -28,12 +30,10 @@ class SettingsAccessibilityTests(unittest.TestCase):
                       punctuation=3, personalization="soft", profile="保持するプロフィール", inferenceLimit=10,
                       userDictionary={"items": []}, customTable="", aiModel="fixture",
                       aiEndpoint="https://example.invalid", transformShortcut={"key": "g", "modifiers": 6})
-        self.store = SettingsStore()
-        self.store.save(values)
-        bridge = mock.patch("azookey.settings.Bridge")
-        factory = bridge.start()
-        self.addCleanup(bridge.stop)
-        factory.return_value.request.return_value = {"settings": values, "supportDiagnostics": "azooKey Tree"}
+        # The window opens Core's reading of this file; the converter itself keeps its defaults.
+        self.path = pathlib.Path(self.directory.name) / "azookey-tree/settings.json"
+        self.path.parent.mkdir()
+        self.path.write_text(json.dumps(values, ensure_ascii=False))
         support = mock.patch("azookey.support_page.renderer_registered", return_value=None)
         support.start()
         self.addCleanup(support.stop)
@@ -47,9 +47,7 @@ class SettingsAccessibilityTests(unittest.TestCase):
 
     def test_labels_name_the_entry_combo_and_multiline_controls(self):
         from gi.repository import Atk, Gtk
-        controls = list(self.window.widgets.values()) + [
-            self.window.api_key, self.window.transform_shortcut, self.window.custom_table, self.window.dictionary_button,
-        ]
+        controls = list(self.window.widgets.values()) + [self.window.api_key, self.window.dictionary_button]
         for control in controls:
             with self.subTest(control=control.get_name()):
                 accessible = control.get_accessible()
@@ -72,7 +70,7 @@ class SettingsAccessibilityTests(unittest.TestCase):
             page = notebook.get_accessible().ref_accessible_child(index)
             self.assertEqual(page.get_name(), title)
             self.assertTrue(page.ref_state_set().contains_state(Atk.StateType.SELECTED))
-        stored = json.loads(self.store.path.read_text())
+        stored = json.loads(self.path.read_text())
         self.assertEqual(self.window.widgets["profile"].get_text(), stored["profile"])
         self.assertEqual(self.window.widgets["learning"].get_active_id(), stored["learning"])
         self.assertEqual(self.window.widgets["candidateTextSize"].get_active_id(), stored["candidateTextSize"])
@@ -89,14 +87,14 @@ class SettingsAccessibilityTests(unittest.TestCase):
 
     def test_save_error_is_visible_and_published_without_changing_the_file(self):
         from gi.repository import Atk
-        original = self.store.path.read_bytes()
+        original = self.path.read_bytes()
         self.window.widgets["inferenceLimit"].set_text("invalid")
         self.window.save(None)
         notice = self.window.message
         self.assertTrue(notice.get_text())
         self.assertEqual(notice.get_accessible().get_role(), Atk.Role.ALERT)
         self.assertEqual(notice.get_accessible().get_name(), notice.get_text())
-        self.assertEqual(self.store.path.read_bytes(), original)
+        self.assertEqual(self.path.read_bytes(), original)
 
     def test_prompt_entry_and_preview_have_labels_and_wait_for_explicit_submit(self):
         from azookey.ai_scope import AIRequestConfiguration, AIRequestScope

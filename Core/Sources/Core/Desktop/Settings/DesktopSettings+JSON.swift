@@ -50,9 +50,9 @@ extension DesktopSettings {
         }
     }
 
+    // swiftlint:disable cyclomatic_complexity
     /// Replaces one setting. Only the JSON type and allowed choices are checked
     /// here; `validate()` checks ranges and rules that span settings.
-    // swiftlint:disable:next cyclomatic_complexity
     public mutating func setValue(_ value: DesktopSettingsJSON, forKey key: String) throws {
         switch key {
         case "tree": tree = try Self.bool(value, field: key)
@@ -81,6 +81,7 @@ extension DesktopSettings {
         default: throw DesktopSettingsProblem.unknownKey(key)
         }
     }
+    // swiftlint:enable cyclomatic_complexity
 
     /// Replaces the settings named in `document`, keeping every other value.
     public mutating func merge(_ document: DesktopSettingsJSON) throws {

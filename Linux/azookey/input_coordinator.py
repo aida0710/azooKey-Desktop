@@ -70,7 +70,7 @@ class InputCoordinator:
             "language": projection.language,
         })
 
-    def submit(self, operation, *, payload=None, key=None, completion=None, persist=None, key_reply=None):
+    def submit(self, operation, *, payload=None, key=None, completion=None, key_reply=None):
         if self.recovering and key is not None:
             if key_reply:
                 key_reply(False)
@@ -85,7 +85,7 @@ class InputCoordinator:
             return
         self.worker.submit(Request(
             operation, {**pending.payload, "context": self.context},
-            lambda reply: self._complete(epoch, pending, reply), cancelled=pending.cancelled, persist=persist,
+            lambda reply: self._complete(epoch, pending, reply), cancelled=pending.cancelled,
         ))
         if self.timeout_source is None:
             self._watch_progress()

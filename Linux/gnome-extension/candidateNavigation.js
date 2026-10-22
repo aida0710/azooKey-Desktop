@@ -74,15 +74,15 @@ export class CandidateNavigation {
     }
 
     update(snapshot, {fontSize, listHeight, width = 400, palette}) {
-        const page = snapshot.candidatePage;
-        this.actor.visible = (page?.totalCount ?? 0) > 0;
+        const listing = snapshot.candidateDisplay.list;
+        this.actor.visible = Boolean(listing?.items.length);
         if (!this.actor.visible) {
             this.collapse();
             return 0;
         }
         const actionIdentity = JSON.stringify([
-            snapshot.contextId, snapshot.generation, snapshot.selection, this.expanded,
-            page.previousIndex, page.nextIndex,
+            snapshot.contextId, snapshot.generation, listing.confirmIndex, this.expanded,
+            listing.previousIndex, listing.nextIndex,
         ]);
         if (actionIdentity !== this._actionIdentity) {
             this._actionIdentity = actionIdentity;
@@ -90,17 +90,19 @@ export class CandidateNavigation {
         }
         const action = (index, submit) => new GLib.Variant('(sibis)',
             ['select', index, submit, snapshot.generation, snapshot.contextId]);
-        this._status.text = messages.position(page.position ?? '—', page.totalCount);
+        this._status.text = listing.positionText;
         this._toggle.label = this.expanded ? messages.closeList : messages.openList;
         for (const [button, index, label] of [
-            [this._previous, page.previousIndex, messages.previousPage],
-            [this._next, page.nextIndex, messages.nextPage]]) {
+            [this._previous, listing.previousIndex, messages.previousPage],
+            [this._next, listing.nextIndex, messages.nextPage]]) {
             button.label = label;
             button.reactive = index !== null && index !== undefined;
             button._selection = button.reactive ? action(index, false) : null;
             button.visible = this.expanded;
         }
-        const pageIdentity = serializeCandidateIdentity([page.items, snapshot.contextId, snapshot.showCandidateIndex, fontSize]);
+        // Selection changes keep rows, their scroll position and hover state.
+        const items = listing.items.map(({selected, ...item}) => item);
+        const pageIdentity = serializeCandidateIdentity([items, snapshot.contextId, fontSize]);
         const identity = JSON.stringify([pageIdentity, actionIdentity]);
         if (identity !== this._identity) {
             // Retire queued AT actions while keeping the same candidate under a stationary pointer.
@@ -110,14 +112,15 @@ export class CandidateNavigation {
             if (hoveredIndex == null) this._clearPreview();
             this._hoveredButton = null;
             this._rows.destroy_all_children();
-            for (const [offset, item] of page.items.entries()) {
+            for (const item of items) {
                 const button = this._button(source => {
                     if (this.expanded && this._identity === identity && source.get_parent() === this._rows)
                         this._select(source._pressedAction ?? source._selection);
                 });
                 const row = new St.BoxLayout();
-                if (snapshot.showCandidateIndex) {
-                    const number = new St.Label({text: String(offset + 1), y_align: Clutter.ActorAlign.START,
+                button._numbered = Number.isInteger(item.number);
+                if (button._numbered) {
+                    const number = new St.Label({text: String(item.number), y_align: Clutter.ActorAlign.START,
                         style: `font-size: ${Math.max(12, fontSize - 4)}px; padding: 3px 8px 0 0;`});
                     row.add_child(number);
                 }
@@ -130,8 +133,7 @@ export class CandidateNavigation {
                 button._selectionMark.set_width(24);
                 row.add_child(button._selectionMark);
                 button.set_child(row);
-                button.accessible_name = [item.text, item.reading].filter(Boolean).join('\n');
-                button.get_accessible().accessible_description = [messages.select, item.detailDescription].filter(Boolean).join('\n');
+                button.get_accessible().accessible_description = item.accessibleDescription;
                 button.connect('notify::hover', () => {
                     if (this._identity !== identity || button.get_parent() !== this._rows) return;
                     if (button.hover && this.expanded) {
@@ -148,15 +150,15 @@ export class CandidateNavigation {
             }
         }
         for (const [offset, button] of this._rows.get_children().entries()) {
-            const item = page.items[offset];
+            const item = listing.items[offset];
             button._selection = action(item.index, false);
-            button._candidateLabel.set_width(Math.max(1, width - (snapshot.showCandidateIndex ? 84 : 52)));
-            const selected = item.index === snapshot.selection;
-            button.set_checked(selected);
-            button._selectionMark.text = selected ? '✓' : '';
-            button.accessible_name = [item.text, item.reading, selected ? messages.selected : null].filter(Boolean).join('\n');
+            button._candidateLabel.set_width(Math.max(1, width - (button._numbered ? 84 : 52)));
+            button.set_checked(item.selected);
+            button._selectionMark.text = item.selected ? '✓' : '';
+            // St exposes no selected state, so the name carries it.
+            button.accessible_name = [item.accessibleName, item.selected ? messages.selected : null].filter(Boolean).join('\n');
         }
-        const revealIdentity = JSON.stringify([snapshot.contextId, page.start, snapshot.selection]);
+        const revealIdentity = JSON.stringify([snapshot.contextId, listing.items[0].index, listing.confirmIndex]);
         if (revealIdentity !== this._revealIdentity) {
             this._revealIdentity = revealIdentity;
             this._revealPending = true;

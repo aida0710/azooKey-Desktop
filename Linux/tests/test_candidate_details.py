@@ -11,10 +11,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 @unittest.skipUnless(os.environ.get("DISPLAY"), "requires a GTK display")
 class CandidateDetailTests(unittest.TestCase):
     def setUp(self):
-        from azookey.tree_panel import TreePanel
+        from candidate_core import core_tree_panel
 
         self.commits = []
-        self.panel = TreePanel(lambda *selection: self.commits.append(selection))
+        self.panel = core_tree_panel(lambda *selection: self.commits.append(selection))
         self.long_text = "日本語の長い候補👩‍💻ABC" * 20
         self.long_reading = "ニホンゴノナガイコウホ" * 20
         self.snapshot = {
@@ -23,7 +23,7 @@ class CandidateDetailTests(unittest.TestCase):
                 {"id": 1, "text": self.long_text, "reading": self.long_reading, "parent": None, "terminals": [1]},
             ],
             "columns": [[0, 1]], "selectedPath": [0], "selection": 0, "focusedNode": 0,
-            "generation": 1,
+            "generation": 1, "inputState": "selecting",
         }
 
     def tearDown(self):
@@ -100,15 +100,17 @@ class CandidateDetailTests(unittest.TestCase):
         self.assertFalse(any(item[0] == "select" for item in self.panel.rectangles))
         self.assertLessEqual(words[0][2] + words[0][4], words[1][2])
         context = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1))
-        for _, index, _, _, width, height, *_ in words:
-            self.assertGreaterEqual(width, 44)
-            self.assertGreaterEqual(height, 44)
-            number = str(self.panel.candidate_numbers[index])
-            layout = self.panel.fitted_layout(context, number, width - 12, self.panel.number_font_size)
+        tree = self.panel.layout["tree"]
+        for node in tree["nodes"]:
+            frame, number_frame = node["frame"], node["numberFrame"]
+            self.assertGreaterEqual(frame["width"], 44)
+            self.assertGreaterEqual(frame["height"], 44)
+            number = str(self.panel.candidate_numbers[node["id"]])
+            layout = self.panel.fitted_layout(context, number, number_frame["width"], tree["metrics"]["numberFontSize"])
             ink, logical = layout.get_pixel_extents()
-            top = height - self.panel.number_height + (self.panel.number_height - logical.height) / 2 + ink.y
+            top = number_frame["y"] - frame["y"] + (number_frame["height"] - logical.height) / 2 + ink.y
             self.assertGreaterEqual(top, 0)
-            self.assertLessEqual(top + ink.height, height)
+            self.assertLessEqual(top + ink.height, frame["height"])
             self.assertFalse(layout.is_ellipsized())
 
     def test_keyboard_can_scroll_all_of_a_long_candidate(self):
@@ -148,6 +150,7 @@ class CandidateDetailTests(unittest.TestCase):
         alternative = full.replace("全文の注釈", "別の全文注釈")
         return {
             "contextId": "editor", "generation": selection, "selection": selection, "focusedNode": 0,
+            "inputState": "selecting",
             "columns": [[0], [1]], "selectedPath": [0, 1], "showCandidateIndex": True,
             "nodes": [
                 {"id": 0, "text": "日本語", "reading": "ニホンゴ", "terminals": [0],

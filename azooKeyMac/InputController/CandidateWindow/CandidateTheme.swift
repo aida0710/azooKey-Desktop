@@ -1,10 +1,8 @@
 import AppKit
+import Core
 
 @MainActor
 enum CandidateTheme {
-    // Preserve the existing visual split without changing the conditional score.
-    private static let relativeScoreColorSplit = 75
-
     static func name(for appearance: NSAppearance, increaseContrast: Bool) -> String {
         let match = appearance.bestMatch(from: [.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua])
         let dark = match == .darkAqua || match == .accessibilityHighContrastDarkAqua
@@ -17,10 +15,12 @@ enum CandidateTheme {
         return CandidatePaletteData.palettes[mode]!
     }
 
-    static func scoreColor(_ score: Int?, palette: CandidatePalette) -> NSColor {
-        guard let score else {
-            return palette.scoreUnknown
+    /// Core decides the role; the palette only supplies its color.
+    static func scoreColor(_ role: CandidateScoreRole, palette: CandidatePalette) -> NSColor {
+        switch role {
+        case .scoreLow: palette.scoreLow
+        case .scoreHigh: palette.scoreHigh
+        case .scoreUnknown: palette.scoreUnknown
         }
-        return score < relativeScoreColorSplit ? palette.scoreLow : palette.scoreHigh
     }
 }

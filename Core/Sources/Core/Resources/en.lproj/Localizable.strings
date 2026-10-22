@@ -57,6 +57,7 @@
 "candidate.announceCommit" = "Will commit %@";
 "candidate.announceReading" = "Reading %@";
 "candidate.announceRemaining" = "Reading left %@";
+"candidate.announceSeparator" = ". ";
 "candidate.closeDetails" = "Hide details";
 "candidate.closeList" = "Close";
 "candidate.closeTree" = "Hide segments";

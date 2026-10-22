@@ -45,9 +45,14 @@ public:
 
     // Width of `text` in DIPs at `fontSize`, for the candidate-layout request.
     float MeasureText(const std::wstring& text, float fontSize);
+    // One line of text at `fontSize` plus the border drawn inside a selected
+    // node, in DIPs (candidate-layout's lineHeight).
+    float LineHeight(float fontSize);
     // Height in DIPs of `content` laid out at `width`, for placing the popup.
     float ContentHeight(const PanelContent& content, float width);
-    // `frame` is where Core placed the popup, in physical screen pixels.
+    // `frame` is where Core placed the popup, in physical screen pixels. When
+    // Core had to make it lower than the content, the content scrolls inside
+    // it and keeps the selected row or word in view.
     void Show(const PanelContent& content, const RECT& frame, UINT dpi);
     void Hide();
     bool visible() const { return window_ && IsWindowVisible(window_); }
@@ -76,6 +81,9 @@ private:
     IDWriteTextFormat* TextFormat(float size);
     void LayoutSections(const PanelContent& content, float width);
     void UpdateAccessibility();
+    std::optional<D2D1_RECT_F> FocusFrame() const;
+    void KeepFocusVisible();
+    void ScrollBy(float dips);
 
     void Paint();
     void PaintList();
@@ -103,6 +111,8 @@ private:
     PanelContent content_;
     float panelWidth_ = 0;
     float panelHeight_ = 0;
+    float contentHeight_ = 0;
+    float scrollOffset_ = 0;  // DIPs of content above the panel's top edge
     // List section
     std::vector<ListRow> rows_;
     D2D1_RECT_F previousFrame_{}, nextFrame_{}, confirmFrame_{}, footerFrame_{};

@@ -1,11 +1,11 @@
-"""Connect dictionary callbacks to a staged SettingsStore transaction."""
+"""Connect dictionary editor callbacks to Core's dictionary save transaction."""
 
 from contextlib import contextmanager
 import copy
-import os
 import uuid
 
 from .bridge import Bridge
+from . import settings_client
 from .user_dictionary_model import DictionarySaveError, DictionaryValidationIssue
 
 
@@ -38,17 +38,15 @@ def _validation_issues(response, *, required):
 
 
 class UserDictionaryService:
-    """Use a dedicated store instance and one private Bridge per worker call.
+    """Use one private Bridge per worker call.
 
-    opened is the SettingsLoad captured when the editor opens. The required
-    expected_stamp prevents its other settings from overwriting later changes.
-    SettingsStore.save_with_backend owns validation, the writer lock, staging,
-    and cache updates. Core owns atomic installation, readback and rollback.
+    opened is the settings-load result captured when the editor opens. Its
+    stamp lets Core refuse to overwrite settings another screen saved since.
+    Core stages, validates, installs, reads back and rolls back the settings
+    file together with the compiled dictionary.
     """
 
-    def __init__(self, store, opened, *, bridge_factory=Bridge):
-        self._store = store
-        self._values = copy.deepcopy(opened.values)
+    def __init__(self, opened, *, bridge_factory=Bridge):
         self._stamp = opened.stamp
         self._bridge_factory = bridge_factory
         self.last_saved = None
@@ -80,45 +78,35 @@ class UserDictionaryService:
     def save(self, entries):
         if self.needs_recovery:
             raise DictionarySaveError("rollback")
-        items = copy.deepcopy(entries)
-        values = copy.deepcopy(self._values)
-        values["userDictionary"] = {"items": items}
         try:
-            saved = self._store.save_with_backend(
-                values,
-                apply_staged=lambda path: self._apply_staged(items, path),
-                expected_stamp=self._stamp,
-            )
-            if saved.values != values or saved.stamp is None:
-                raise ValueError("dictionary_settings_readback_failed")
+            with self._connection() as connection:
+                response = connection.request(
+                    "dictionary-save", items=copy.deepcopy(entries), settingsFile={"expectedStamp": self._stamp},
+                )
+            saved = _saved_settings(response)
         except DictionarySaveError as error:
             if error.stage == "rollback":
                 self.needs_recovery = True
             raise
         except Exception:
-            raise DictionarySaveError("persistence") from None
-        self._values = copy.deepcopy(saved.values)
+            raise DictionarySaveError("unknown") from None
         self._stamp = saved.stamp
         self.last_saved = saved
 
-    def _apply_staged(self, items, path):
-        try:
-            with self._connection() as connection:
-                response = connection.request(
-                    "dictionary-save", items=copy.deepcopy(items), stagedSettingsPath=os.fspath(path),
-                )
-            if type(response) is not dict or response.get("error") is not None:
-                raise DictionarySaveError("unknown")
-            issues = _validation_issues(response, required=False)
-            stage = response.get("dictionarySaveError")
-            if stage is not None:
-                public_stage = stage if type(stage) is str and stage in SAVE_STAGES else "unknown"
-                raise DictionarySaveError(public_stage, issues=issues)
-            if issues:
-                raise DictionarySaveError("validation", issues=issues)
-            if response.get("dictionarySaved") is not True:
-                raise DictionarySaveError("unknown")
-        except DictionarySaveError:
-            raise
-        except Exception:
-            raise DictionarySaveError("unknown") from None
+
+def _saved_settings(response):
+    if type(response) is not dict or response.get("error") is not None:
+        raise DictionarySaveError("unknown")
+    issues = _validation_issues(response, required=False)
+    stage = response.get("dictionarySaveError")
+    if stage is not None:
+        public_stage = stage if type(stage) is str and stage in SAVE_STAGES else "unknown"
+        raise DictionarySaveError(public_stage, issues=issues)
+    if issues:
+        raise DictionarySaveError("validation", issues=issues)
+    if response.get("dictionarySaved") is not True:
+        raise DictionarySaveError("unknown")
+    try:
+        return settings_client.saved_settings(response)
+    except (KeyError, TypeError, ValueError, RuntimeError):
+        raise DictionarySaveError("unknown") from None

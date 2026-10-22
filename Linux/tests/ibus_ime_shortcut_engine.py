@@ -17,18 +17,22 @@ class IMEShortcutFixtureEngine(engine_module.Engine):
 
     def __init__(self, *args, **kwargs):
         self.fixture_ready = False
+        self.fixture_configured = False
         self.provider_requests = 0
         self.provider_failure = False
         self.core_requests = []
         super().__init__(*args, **kwargs)
 
-    def load_settings(self, snapshot):
-        if "settings" not in snapshot:
+    def apply_settings(self, values):
+        # Core's first answer is replaced by the fixture's settings; later
+        # answers already carry them because configure applied them in Core.
+        if self.fixture_configured:
+            super().apply_settings(values)
             return
-        settings = {**snapshot["settings"], "live": False, "learning": "nothing",
-                    "tree": False, "predictiveTyping": False, "typoCorrection": False,
-                    "aiEnabled": True}
-        self.configure_fixture(settings)
+        self.fixture_configured = True
+        self.configure_fixture({**values, "live": False, "learning": "nothing",
+                                "tree": False, "predictiveTyping": False, "typoCorrection": False,
+                                "aiEnabled": True})
 
     def configure_fixture(self, settings):
         self.fixture_ready = False

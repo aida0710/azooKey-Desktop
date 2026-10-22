@@ -287,6 +287,7 @@ void TestLayoutRequestAndResult() {
     request.columns = {{{{0, std::nullopt}, {1, 0}}, 54.5f}};
     request.documentWordWidths = std::vector<float>{60.0f};
     request.columnAnchorX = 100.0f;
+    request.lineHeight = 25.5f;
     request.showNumbers = true;
     request.cursor = {300.0f, 200.0f, 0.0f, 24.0f};
     request.workArea = {0.0f, 32.0f, 1280.0f, 768.0f};
@@ -298,12 +299,17 @@ void TestLayoutRequestAndResult() {
     Check(layout["columns"].AsArray()[0]["nodes"].AsArray()[1]["parent"].AsInteger() == 0, "node parents are sent");
     Check(layout["columns"].AsArray()[0]["nodes"].AsArray()[0]["parent"].IsNull(), "a root node has a null parent");
     Check(layout["documentWordWidths"].AsArray().size() == 1 && layout["columnAnchorX"].AsNumber() == 100, "document words are sent");
+    Check(layout["lineHeight"].AsNumber() == 25.5, "the measured line height is sent");
     Check(!layout.Has("popupHeight") && !layout.Has("preferredSide"), "optional members are left out");
+    request.popupHeight = 181;
+    auto placed = azookey::json::Parse(azookey::display::LayoutRequestLine(request));
+    Check((*placed)["layout"]["popupHeight"].AsNumber() == 181, "the popup height is sent in whole DIPs");
 
     auto result = azookey::display::ParseLayoutResult(
         R"({"candidateLayout":{"popupWidth":240,"placementStatus":"placed","placement":{"x":300,"y":224,"width":240,"height":180,"side":"below"},)"
         R"("tree":{"aligned":false,"reason":"unavailable-or-narrow","textAlignment":"center","rowHeight":66,)"
-        R"("metrics":{"fontSize":18,"numberFontSize":12,"scoreFontSize":12,"wordHeight":32,"numberHeight":18,"scoreHeight":16},)"
+        R"("metrics":{"fontSize":18,"numberFontSize":12,"scoreFontSize":12,"wordHeight":32,"numberHeight":18,"scoreHeight":16,)"
+        R"("scoreBadgeMinimumWidth":24,"scoreBadgeHorizontalInset":4},)"
         R"("nodes":[{"id":0,"column":0,"row":0,"frame":{"x":12,"y":6,"width":66,"height":66},"textFrame":{"x":16,"y":6,"width":58,"height":32},)"
         R"("scoreFrame":{"x":12,"y":38,"width":66,"height":16},"numberFrame":{"x":18,"y":54,"width":54,"height":18}}],)"
         R"("edges":[{"node":0,"start":{"x":4,"y":39},"end":{"x":12,"y":39}}],"rootAnchor":{"x":4,"y":39},"contentSize":{"width":90,"height":216}}}})");
@@ -312,6 +318,8 @@ void TestLayoutRequestAndResult() {
     Check(result->placement && result->placement->y == 224 && result->placement->height == 180, "the placement frame is read");
     Check(result->tree && !result->tree->aligned && !result->tree->leadingText, "tree alignment is read");
     Check(result->tree && result->tree->metrics.numberHeight == 18 && result->tree->metrics.wordHeight == 32, "tree metrics are read");
+    Check(result->tree && result->tree->metrics.scoreBadgeMinimumWidth == 24 && result->tree->metrics.scoreBadgeHorizontalInset == 4,
+          "score badge dimensions come from Core");
     Check(result->tree && result->tree->nodes.size() == 1 && result->tree->nodes[0].numberFrame &&
               result->tree->nodes[0].numberFrame->y == 54, "node frames are read");
     Check(result->tree && result->tree->edges.size() == 1 && result->tree->edges[0].start.x == 4, "edges are read");

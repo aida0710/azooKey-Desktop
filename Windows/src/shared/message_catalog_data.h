@@ -76,6 +76,7 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"candidate.announceCommit", L"\u78BA\u5B9A\u4E88\u5B9A {text}", L"Will commit {text}"},
     {"candidate.announceReading", L"\u8AAD\u307F {reading}", L"Reading {reading}"},
     {"candidate.announceRemaining", L"\u6B8B\u308B\u8AAD\u307F {reading}", L"Reading left {reading}"},
+    {"candidate.announceSeparator", L"\u3002", L". "},
     {"candidate.closeDetails", L"\u8A73\u7D30\u3092\u9589\u3058\u308B", L"Hide details"},
     {"candidate.closeList", L"\u9589\u3058\u308B", L"Close"},
     {"candidate.closeTree", L"\u6587\u7BC0\u3092\u9589\u3058\u308B", L"Hide segments"},

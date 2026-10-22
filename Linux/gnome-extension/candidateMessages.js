@@ -1,30 +1,16 @@
 // Generated from Shared/Messages. Run Tools/generate-messages.py.
-// User-facing strings are kept outside rendering and interaction code.
+// Fixed control labels. Core supplies candidate-dependent text.
 export const messages = {
     activate: "実行",
     closeDetails: "詳細を閉じる",
     closeList: "閉じる",
     closeTree: "文節を閉じる",
-    commit: text => `確定予定 ${text}`,
-    composition: "確定する文章",
     detail: "候補の詳細",
-    detailKeys: "矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール",
-    focusedSelect: "操作対象。押すと候補を選択",
     nextPage: "次へ",
-    numberBadge: number => `候補番号 ${number}`,
-    numberSelect: number => `候補 ${number} を選択`,
     openDetails: "詳細を表示",
     openList: "一覧",
     openTree: "文節を調整",
-    position: (position, total) => `変換候補 ${position} / ${total}`,
     previousPage: "前へ",
-    proposal: "候補のプレビュー",
-    reading: reading => `読み ${reading}`,
-    remaining: reading => `残る読み ${reading}`,
-    select: "押すと候補を選択",
     selectHint: "候補を選び、Enterで確定",
     selected: "選択中",
-    submit: "確定",
-    submitCandidate: "この候補を確定",
-    wordPosition: (position, total) => `語 ${position} / ${total}`,
 };

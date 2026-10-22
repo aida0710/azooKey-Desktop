@@ -46,11 +46,12 @@ enum DesktopDictionaryController {
         do {
             let saved = try await store.modify(
                 knownGood: settings.activation.current, expectedStamp: expectedStamp,
-                change: { $0.userDictionary.items = items }
-            ) { staged in
-                try await publish(items: items, stagedFileURL: staged, settingsFileURL: store.fileURL,
-                                  memoryDirectoryURL: memoryDirectoryURL, converter: converter)
-            }
+                change: { $0.userDictionary.items = items },
+                publish: { staged in
+                    try await publish(items: items, stagedFileURL: staged, settingsFileURL: store.fileURL,
+                                      memoryDirectoryURL: memoryDirectoryURL, converter: converter)
+                }
+            )
             response.dictionarySaved = true
             settings.respond(with: saved, to: &response)
         } catch let error as UserDictionarySaveError {
@@ -102,14 +103,29 @@ enum DesktopDictionaryController {
         }
     }
 
-    /// A stale queued configure cannot revive a dictionary after its failed save was rolled back.
+    /// Compiles and activates `items` when the converter uses other entries.
+    /// With `requiredSourceURL`, the entries must also be the ones that settings
+    /// file holds, so a stale configure cannot revive a dictionary whose save
+    /// was rolled back. Settings Core read or staged itself need no such check.
     static func applyDictionary(
-        _ items: [Config.UserDictionaryEntry], settingsFileURL: URL, memoryDirectoryURL: URL, converter: KanaKanjiConverter
+        _ items: [Config.UserDictionaryEntry], requiredSourceURL: URL?, memoryDirectoryURL: URL, converter: KanaKanjiConverter
     ) async throws {
         if DesktopDictionarySettingsFile.sameEntries(items, Config.UserDictionary().value.items) {
             return
         }
-        let sourceCheck = UserDictionaryPersistence {
+        var persistence = [UserDictionaryConfigPersistence.make(items: items)]
+        if let settingsFileURL = requiredSourceURL {
+            persistence.insert(sourceCheck(items, settingsFileURL: settingsFileURL), at: 0)
+        }
+        let directory = CompiledUserDictionaryStore.directoryURL(memoryDirectoryURL: memoryDirectoryURL)
+        try await UserDictionarySaveTransaction.save(
+            items: items, directoryURL: directory, persistence: .combining(persistence),
+            activate: { @MainActor in converter.updateUserDictionaryURL(directory, forceReload: true) }
+        )
+    }
+
+    private static func sourceCheck(_ items: [Config.UserDictionaryEntry], settingsFileURL: URL) -> UserDictionaryPersistence {
+        UserDictionaryPersistence {
             try await UserDictionaryFileWorker.perform {
                 let content = try Data(contentsOf: settingsFileURL)
                 guard let current = try DesktopDictionarySettingsFile.dictionary(in: content),
@@ -119,11 +135,5 @@ enum DesktopDictionaryController {
             }
             return .init(write: {}, restore: {})
         }
-        let directory = CompiledUserDictionaryStore.directoryURL(memoryDirectoryURL: memoryDirectoryURL)
-        try await UserDictionarySaveTransaction.save(
-            items: items, directoryURL: directory,
-            persistence: .combining([sourceCheck, UserDictionaryConfigPersistence.make(items: items)]),
-            activate: { @MainActor in converter.updateUserDictionaryURL(directory, forceReload: true) }
-        )
     }
 }
