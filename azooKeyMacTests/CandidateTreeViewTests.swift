@@ -302,6 +302,21 @@ final class CandidateTreeViewTests: XCTestCase {
         }
     }
 
+    func testCandidateBlockKeepsAVisibleEdgeAgainstAWhiteDocument() throws {
+        let view = CandidateTreeView()
+        updateLiveTree(view, entries: entries, selectionIndex: 0)
+        view.setFrameSize(view.preferredSize)
+        view.layoutSubtreeIfNeeded()
+        view.appearance = NSAppearance(named: .aqua)
+        let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let edge = try XCTUnwrap(bitmap.colorAt(x: 0, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.sRGB))
+        let inside = try XCTUnwrap(bitmap.colorAt(x: 8, y: 4)?.usingColorSpace(.sRGB))
+        XCTAssertEqual(edge.alphaComponent, 1)
+        XCTAssertLessThan(edge.brightnessComponent, inside.brightnessComponent,
+                          "A white block on a white document needs its border")
+    }
+
     func testKeyboardNavigationRevealsOffscreenChildAndTerminal() {
         let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 480, height: 180))
         let tokens = (0..<20).map { CandidateTree.Token(text: "文節\($0)") }

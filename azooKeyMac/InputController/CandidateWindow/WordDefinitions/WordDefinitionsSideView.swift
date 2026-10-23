@@ -65,8 +65,6 @@ final class WordDefinitionsSideView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        CandidateTheme.palette(for: effectiveAppearance).background.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: MacCandidateMetrics.cornerRadius,
-                     yRadius: MacCandidateMetrics.cornerRadius).fill()
+        CandidateBlockBackground.draw(in: bounds, appearance: effectiveAppearance)
     }
 }

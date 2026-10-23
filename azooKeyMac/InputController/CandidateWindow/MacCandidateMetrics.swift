@@ -17,4 +17,5 @@ enum MacCandidateMetrics {
     static let cardGap: CGFloat = 6
     static let definitionWidth: CGFloat = 200
     static let cornerRadius: CGFloat = 6
+    static let borderWidth: CGFloat = 1
 }

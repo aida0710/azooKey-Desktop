@@ -152,7 +152,10 @@ class CandidatesViewController: BaseCandidateViewController {
     override func configureWindowForRoundedCorners() {
         super.configureWindowForRoundedCorners()
         if showsCandidateView {
-            view.window?.hasShadow = false
+            // The list and the definition card are separate rounded blocks on a
+            // transparent window, so the window keeps square corners and its
+            // shadow follows each block's opaque shape.
+            view.window?.hasShadow = true
             view.window?.contentView?.layer?.cornerRadius = 0
         }
     }

@@ -111,14 +111,14 @@ final class CandidateTreeView: NSView {
                 width: MacCandidateMetrics.definitionWidth, height: cardHeight)
         }
         updateVisibleControls()
+        // The window's shadow follows its opaque blocks, which changed with this layout.
+        window?.invalidateShadow()
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        CandidateTheme.palette(for: effectiveAppearance).background.setFill()
         let frame = NSRect(x: 0, y: max(0, bounds.height - candidateHeight),
                            width: min(bounds.width, candidateWidth), height: min(bounds.height, candidateHeight))
-        NSBezierPath(roundedRect: frame, xRadius: MacCandidateMetrics.cornerRadius,
-                     yRadius: MacCandidateMetrics.cornerRadius).fill()
+        CandidateBlockBackground.draw(in: frame, appearance: effectiveAppearance)
     }
 
     @objc private func viewportChanged() { updateVisibleControls() }
