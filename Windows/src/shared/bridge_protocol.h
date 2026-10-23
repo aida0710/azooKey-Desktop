@@ -149,7 +149,8 @@ struct PresentationSettings {
 // document from before the composition started (Core treats the composition as
 // not yet in the document), advanced past each commit.
 struct DocumentContext {
-    std::wstring leftContext;  // text before the caret, for better conversion
+    std::wstring leftContext;   // text before the caret, for better conversion
+    std::wstring rightContext;  // text after the caret (or the selection), likewise
     bool privateInput = false;
     std::optional<ReconversionContext> reconversion;
 };

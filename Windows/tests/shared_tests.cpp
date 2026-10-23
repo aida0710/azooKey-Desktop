@@ -184,7 +184,7 @@ void TestTranslationUsesCoreKeyCodes() {
 }
 
 void TestKeyRequestMatchesBridgeContract() {
-    azookey::protocol::RequestContext context{"ctx", {L"前の文", false}};
+    azookey::protocol::RequestContext context{"ctx", {.leftContext = L"前の文", .rightContext = L"後の文"}};
     std::string request = azookey::protocol::KeyRequest(context, Translate(kVkA, {true, false, false}, L"A"), {});
     auto parsed = azookey::json::Parse(request);
     Check(parsed.has_value(), "key request is valid JSON");
@@ -192,9 +192,18 @@ void TestKeyRequestMatchesBridgeContract() {
     Check((*parsed)["event"]["characters"].AsString() == "A", "characters keep the case");
     Check((*parsed)["event"]["charactersIgnoringModifiers"].AsString() == "a", "charactersIgnoringModifiers is lowercased");
     Check((*parsed)["leftContext"].AsString() == "前の文", "left context is sent as UTF-8");
+    Check((*parsed)["rightContext"].AsString() == "後の文", "right context is sent as UTF-8");
     std::wstring longContext(150, L'あ');
-    auto trimmed = azookey::json::Parse(azookey::protocol::ResetRequest({"ctx", {longContext, false}}, true));
+    auto trimmed = azookey::json::Parse(
+        azookey::protocol::ResetRequest({"ctx", {.leftContext = longContext, .rightContext = longContext}}, true));
     Check(azookey::text::Utf8ToUtf16((*trimmed)["leftContext"].AsString()).size() == 100, "left context keeps the last 100 units");
+    Check(azookey::text::Utf8ToUtf16((*trimmed)["rightContext"].AsString()).size() == 100, "right context keeps the first 100 characters");
+    // 𠮷 takes two UTF-16 units; the limit counts characters and never splits one.
+    std::wstring surrogates;
+    for (int i = 0; i < 150; ++i) surrogates += L"\U00020BB7";
+    auto wide = azookey::json::Parse(azookey::protocol::ResetRequest({"ctx", {.rightContext = surrogates}}, true));
+    Check(azookey::text::Utf8ToUtf16((*wide)["rightContext"].AsString()) == surrogates.substr(0, 200),
+          "right context keeps whole characters");
 }
 
 azookey::protocol::ReconversionContext SampleField() {
@@ -209,7 +218,7 @@ azookey::protocol::ReconversionContext SampleField() {
 }
 
 void TestReconversionRequestsCarryTheField() {
-    azookey::protocol::RequestContext context{"ctx", {L"前", false, SampleField()}};
+    azookey::protocol::RequestContext context{"ctx", {.leftContext = L"前", .reconversion = SampleField()}};
     auto undo = azookey::json::Parse(azookey::protocol::UndoCommitRequest(context));
     Check(undo && (*undo)["operation"].AsString() == "undo-commit", "undo-commit request");
     const auto& field = (*undo)["reconversionContext"];
@@ -231,9 +240,10 @@ void TestReconversionRequestsCarryTheField() {
 }
 
 void TestCommitAdvancesTheDocumentLikeCore() {
-    azookey::protocol::DocumentContext document{L"前", false, SampleField()};
+    azookey::protocol::DocumentContext document{.leftContext = L"前", .rightContext = L"後", .reconversion = SampleField()};
     auto advanced = azookey::protocol::AdvancedPastCommit(document, L"漢字");
     Check(advanced.leftContext == L"前漢字", "the left context gains the commit");
+    Check(advanced.rightContext == L"後", "the text after the caret stays after the commit");
     const auto& field = *advanced.reconversion;
     Check(field.before == L"前漢字" && field.selected.empty() && field.after == L"後", "the commit replaces the selection");
     Check(field.cursorUTF16 == 12 && field.anchorUTF16 == 12, "the caret ends after the commit, counted from the selection start");
@@ -298,7 +308,7 @@ void TestAIRepliesAndRequests() {
     auto prompt = azookey::protocol::ParseSnapshot(R"({"consumed":true,"preedit":"","ai":{"prompt":{"initialPrompt":"敬語に直す"}}})");
     Check(prompt && prompt->aiPrompt == L"敬語に直す" && !prompt->aiReview, "an instruction window request is read");
 
-    azookey::protocol::RequestContext context{"ctx", {L"", false}};
+    azookey::protocol::RequestContext context{"ctx", {}};
     auto send = azookey::json::Parse(azookey::protocol::AIReviewSendRequest(context, 7, true));
     Check(send && (*send)["operation"].AsString() == "ai-review-send" && (*send)["ai"]["review"].AsInteger() == 7 &&
               (*send)["ai"]["includeContext"].AsBoolean(false),
