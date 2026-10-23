@@ -164,7 +164,8 @@ private func frames(_ layout: CandidateLayout) -> [Int: CandidateRect] {
     layoutRequest.popupHeight = 120
     let placed = CandidateLayout(layoutRequest)
     #expect(placed.placementStatus == .placed)
-    #expect(frame(placed.placement) == [100, 120, 185, 120] && placed.placement?.side == .below)
+    // Two columns with text padding and gaps (10 + 99 + 9 + 81 + 9) exceed the tree-only minimum.
+    #expect(frame(placed.placement) == [100, 120, 208, 120] && placed.placement?.side == .below)
 
     layoutRequest.cursor = .init(x: 0, y: 0, width: 1280, height: 1024)
     let unavailable = CandidateLayout(layoutRequest)
