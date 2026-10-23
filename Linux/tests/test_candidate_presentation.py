@@ -120,7 +120,6 @@ class CandidatePresentationTests(unittest.TestCase):
         self.panel.update(live)
         self.assertTrue(self.panel.scroll.get_visible())
         old_word = self.panel.actions[("node", 1)]
-        self.assertEqual(self.panel.candidate_numbers, {0: 1, 1: 2, 2: 3})
         self.assertTrue(self.panel.scroll.get_visible())
         self.assertFalse(self.panel.navigation.expanded)
         self.assertFalse(self.panel.composition.get_visible())
@@ -156,21 +155,24 @@ class CandidatePresentationTests(unittest.TestCase):
         CandidateThemeTests.wait_for_paint(self.panel, GLib)
         adjustment = self.panel.scroll.get_vadjustment()
         self.assertGreater(adjustment.get_upper(), adjustment.get_page_size())
-        adjustment.set_value(60)
+        # Halfway down the scrollable range, which depends on the shared row sizes.
+        scrolled = int(adjustment.get_upper() - adjustment.get_page_size()) // 2
+        self.assertGreater(scrolled, 0)
+        adjustment.set_value(scrolled)
         self.assertTrue(self.panel.navigation.expanded)
         self.panel.update({**live, "generation": 2})
         CandidateThemeTests.wait_for_paint(self.panel, GLib)
         self.assertTrue(self.panel.navigation.expanded)
-        self.assertEqual(adjustment.get_value(), 60)
+        self.assertEqual(adjustment.get_value(), scrolled)
         self.panel.suspend()
         self.panel.update({**live, "generation": 3})
         CandidateThemeTests.wait_for_paint(self.panel, GLib)
         self.assertTrue(self.panel.navigation.expanded)
         self.assertTrue(self.panel.scroll.get_visible())
-        self.assertEqual(adjustment.get_value(), 60)
+        self.assertEqual(adjustment.get_value(), scrolled)
         self.assertEqual(self.actions, [])
 
-    def test_badge_uses_real_page_numbers_and_the_same_node_action(self):
+    def test_word_on_a_later_page_keeps_its_node_action_without_a_number_badge(self):
         import types
 
         snapshot = copy.deepcopy(self.snapshot)
@@ -190,9 +192,8 @@ class CandidatePresentationTests(unittest.TestCase):
         self.snapshot = snapshot
         self.panel.update(snapshot)
         self.assertFalse(any(kind == "select" for kind, *_ in self.panel.rectangles))
-        self.assertEqual(self.panel.candidate_numbers, {9: 1, 10: 2, 11: 3})
         node = self.panel.actions[("node", 10)]
-        self.assertIn("候補番号 2", node.get_accessible().get_description())
+        self.assertNotIn("候補番号", node.get_accessible().get_description())
         frame = next(frame for frame in self.panel.rectangles if frame[:2] == ("node", 10))
         self.assertGreaterEqual(frame[4], 24)
         self.assertGreaterEqual(frame[5], 24)
@@ -200,17 +201,18 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertEqual(self.actions, [("node", 10, False)])
         self.assertIs(self.document.get_focus(), self.entry)
 
-    def test_shared_node_badge_matches_the_preview_not_its_shorter_terminal_and_hides_page_outliers(self):
-        snapshot = copy.deepcopy(self.snapshot)
-        snapshot["inputState"] = "composing"
-        snapshot["nodes"][0]["terminals"] = [2]
-        snapshot["nodes"][0]["preview"] = {"candidateIndex": 1}
-        snapshot["nodes"][1]["preview"] = {"candidateIndex": 11}
-        snapshot["nodes"][2].pop("preview")
-        self.panel.update(snapshot)
-        self.assertEqual(self.panel.candidate_numbers, {0: 2})
-        self.assertIn("候補番号 2", self.panel.actions[("node", 0)].get_accessible().get_description())
-        self.assertNotIn("候補番号", self.panel.actions[("node", 1)].get_accessible().get_description())
+    def test_tree_words_have_no_number_badges_in_any_state(self):
+        for state in ("composing", "selecting"):
+            with self.subTest(state=state):
+                self.panel.update({**self.snapshot, "inputState": state, "showCandidateIndex": True})
+                if not self.panel.tree_expanded:
+                    self.panel.disclosure_actions["tree"].clicked()
+                tree = self.panel.layout["tree"]
+                self.assertTrue(tree["nodes"])
+                self.assertTrue(all("numberFrame" not in node for node in tree["nodes"]))
+                for node_id in (node["id"] for node in tree["nodes"]):
+                    description = self.panel.actions[("node", node_id)].get_accessible().get_description()
+                    self.assertNotIn("候補番号", description)
 
     def test_compact_rows_keep_readable_text_and_a_large_activation_area(self):
         from gi.repository import GLib

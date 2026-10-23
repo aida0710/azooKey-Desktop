@@ -129,21 +129,17 @@ print('GNOME tree: stationary hover survives selection, old AT/leave are rejecte
 
 hover(replacementNode, true);
 render(snapshot({selection: 10}));
-equal(extension._buttons.get(nodeIdentity)._numberBadge.text, '2');
 equal(extension._details.label.text.startsWith('日本語\n'), true);
 render(snapshot());
-const numberedNode = extension._buttons.get(nodeIdentity);
-equal(numberedNode._numberBadge.text, '2');
-equal(numberedNode._numberBadge.reactive, false);
-equal(numberedNode._numberBadge.can_focus, false);
-equal(numberedNode.height >= 44, true);
-equal(numberedNode.get_accessible().accessible_description.includes('候補番号 2'), true);
+const wordNode = extension._buttons.get(nodeIdentity);
+// Tree words carry only the word; number keys are shown on the list rows.
+equal(wordNode.get_children().at(-1).get_children().length, 1);
+equal(wordNode.height >= 24, true);
+equal(wordNode.get_accessible().accessible_description.includes('候補番号'), false);
 equal([...extension._buttons.keys()].some(identity => JSON.parse(identity)[0] === 'select'), false);
-numberedNode.get_accessible().do_action();
+wordNode.get_accessible().do_action();
 drainActions();
 equal(submitted.pop(), ['Select', 'node', 0, false, 2, 'synthetic-field']);
-render(snapshot({numbers: false}));
-equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
 render(snapshot());
 hover(extension._buttons.get(nodeIdentity), true);
 render(snapshot({contextId: 'another-synthetic-field'}));
@@ -357,7 +353,6 @@ const liveBranches = {...branches, inputState: 'composing', showCandidateIndex: 
 render(liveBranches);
 equal(extension._treeScroll.visible, true);
 equal(extension._buttons.has(JSON.stringify(['node', 2])), true);
-equal(extension._buttons.get(JSON.stringify(['node', 2]))._numberBadge, null);
 equal(extension._navigation.actor.visible, false);
 equal(extension._composition.actor.visible, false);
 equal(extension._details.actor.visible, false);
@@ -410,15 +405,13 @@ for (const scale of [1, 2]) {
     const scaledNode = extension._buttons.get(nodeIdentity);
     const caption = scaledNode.get_children().at(-1).get_children()[0];
     const textHeight = caption.get_preferred_height(-1)[1];
-    const badgeHeight = scaledNode._numberBadge.get_preferred_height(-1)[1];
-    equal(caption.style.includes(`font-size: ${24 * scale}px`), true);
-    // Core's lines keep the measured line-height ratio, so neither label is clipped.
+    equal(caption.style.includes(`font-size: ${18 * scale}px`), true);
+    // Core's lines keep the measured line-height ratio, so the word is not clipped.
     equal(caption.height >= textHeight, true);
-    equal(scaledNode._numberBadge.height >= badgeHeight, true);
-    equal(scaledNode.height >= textHeight + badgeHeight + 4, true);
+    equal(scaledNode.height >= textHeight + 4, true);
 }
 extension._interfaceSettings = {get_double: () => 1};
-print('GNOME enlarged block: 24px at 100%/200% reserves measured sentence, number badge and both borders without a fixed-height clip PASS');
+print('GNOME enlarged block: 18px at 100%/200% reserves the measured word and both borders without a fixed-height clip PASS');
 
 submitted.length = 0;
 extension._hideCandidates();
@@ -427,8 +420,7 @@ render(sharedWord);
 const sharedNode = extension._buttons.get(nodeIdentity);
 equal(sharedWord.nodes[0].terminals, [0]);
 equal(sharedWord.nodes[0].preview.candidateIndex, 1);
-equal(sharedNode._numberBadge.text, '2');
-equal(sharedNode.get_accessible().accessible_description.includes('候補番号 2'), true);
+equal(sharedNode.get_accessible().accessible_description.includes('候補番号'), false);
 sharedNode.get_accessible().do_action();
 drainActions();
 equal(submitted, [['Select', 'node', 0, false, 2, 'synthetic-field']]);
@@ -438,23 +430,9 @@ for (const inputState of ['previewing', 'replaceSuggestion']) {
     render({...sharedWord, inputState});
     extension._treeExpanded = true;
     render({...sharedWord, inputState});
-    equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
+    equal(extension._buttons.get(nodeIdentity).get_children().at(-1).get_children().length, 1);
 }
-const outsidePage = snapshot({selection: 10});
-outsidePage.nodes[0].preview.candidateIndex = 0;
-render({...outsidePage, inputState: 'composing', showCandidateIndex: false});
-equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
-// Core types previews; a missing or negative one gives no number.
-for (const preview of [null, {candidateIndex: -1}]) {
-    const unavailable = {...sharedWord, nodes: sharedWord.nodes.map(node => node.id === 0 ? {...node, preview} : node)};
-    render(unavailable);
-    equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
-}
-const unavailableCandidate = {...sharedWord, pageStart: 999,
-    nodes: sharedWord.nodes.map(node => node.id === 0 ? {...node, preview: {candidateIndex: 999}} : node)};
-render(unavailableCandidate);
-equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
-print('GNOME reference numbers: shared partial word shows preferred preview 2; live permits no numeric action, AI/previewing and unavailable previews stay unnumbered PASS');
+print('GNOME shared word: selecting a partial word chooses its preferred preview 2 without a number badge in any state PASS');
 
 submitted.length = 0;
 extension._hideCandidates();

@@ -70,7 +70,7 @@ class CandidateDetailTests(unittest.TestCase):
         self.assertNotIn("語", str(description))
         self.assertEqual(self.commits, [])
 
-    def test_number_badges_fit_inside_nodes_at_the_configured_text_scales(self):
+    def test_words_fit_inside_nodes_without_number_badges_at_the_configured_text_scales(self):
         from gi.repository import Pango
 
         settings = self.panel.get_settings()
@@ -80,12 +80,12 @@ class CandidateDetailTests(unittest.TestCase):
             for size, base_size in [("standard", 14), ("large", 18)]:
                 for scale in [1, 1.5, 2]:
                     settings.set_property("gtk-xft-dpi", round(96 * Pango.SCALE * scale))
-                    self.assert_number_geometry(size=size, column_width=base_size * scale + 8)
-                    self.assert_number_geometry(size=size, column_width=base_size * scale + 14)
+                    self.assert_word_geometry(size=size, column_width=base_size * scale + 8)
+                    self.assert_word_geometry(size=size, column_width=base_size * scale + 14)
         finally:
             settings.set_property("gtk-xft-dpi", previous_dpi)
 
-    def assert_number_geometry(self, *, size, column_width):
+    def assert_word_geometry(self, *, size, column_width):
         import cairo
 
         self.panel.update({
@@ -96,22 +96,21 @@ class CandidateDetailTests(unittest.TestCase):
         })
         self.flush()
         words = [item for item in self.panel.rectangles if item[0] == "node"]
-        self.assertEqual(self.panel.candidate_numbers, {0: 1, 1: 2})
         self.assertFalse(any(item[0] == "select" for item in self.panel.rectangles))
         self.assertLessEqual(words[0][2] + words[0][4], words[1][2])
         context = cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1))
         tree = self.panel.layout["tree"]
+        texts = {node["id"]: node["text"] for node in self.snapshot["nodes"]}
         for node in tree["nodes"]:
-            frame, number_frame = node["frame"], node["numberFrame"]
+            frame, text_frame = node["frame"], node["textFrame"]
+            self.assertNotIn("numberFrame", node)
             self.assertGreaterEqual(frame["width"], 24)
             self.assertGreaterEqual(frame["height"], 24)
-            number = str(self.panel.candidate_numbers[node["id"]])
-            layout = self.panel.fitted_layout(context, number, number_frame["width"], tree["metrics"]["numberFontSize"])
+            layout = self.panel.fitted_layout(context, texts[node["id"]], text_frame["width"], tree["metrics"]["fontSize"])
             ink, logical = layout.get_pixel_extents()
-            top = number_frame["y"] - frame["y"] + (number_frame["height"] - logical.height) / 2 + ink.y
+            top = text_frame["y"] - frame["y"] + (text_frame["height"] - logical.height) / 2 + ink.y
             self.assertGreaterEqual(top, 0)
             self.assertLessEqual(top + ink.height, frame["height"])
-            self.assertFalse(layout.is_ellipsized())
 
     def test_keyboard_can_scroll_all_of_a_long_candidate(self):
         self.panel.update({**self.snapshot, "focusedNode": 1})
@@ -181,7 +180,6 @@ class CandidateDetailTests(unittest.TestCase):
         word = self.panel.actions[("node", 0)]
         partial_row = self.panel.navigation.row_buttons[0]
         self.assertNotIn(("select", 0), self.panel.actions)
-        self.assertEqual(self.panel.candidate_numbers[0], 2)
         entered = Gdk.Event.new(Gdk.EventType.ENTER_NOTIFY)
         word.emit("enter-notify-event", entered)
         self.assertIn(full, self.panel.details.displayed_text)

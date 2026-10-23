@@ -12,7 +12,7 @@ namespace azookey::tsf {
 namespace {
 
 constexpr wchar_t kWindowClassName[] = L"azooKeyTreeCandidatePanel";
-// Secondary labels (numbers, page position, buttons); Core's numberFontSize.
+// Secondary labels: the list's numbers, page position and buttons.
 constexpr float kSmallTextSize = 12;
 constexpr float kPadding = 6;
 constexpr float kRowExtraHeight = 12;  // a row is its text plus 6 above and below, like the tree's words (Core's wordVerticalPadding)
@@ -399,7 +399,6 @@ void CandidatePanel::PaintTree() {
 
     float strokeWidth = SelectionStrokeWidth(appearance_);
     IDWriteTextFormat* wordFormat = TextFormat(tree.metrics.fontSize);
-    IDWriteTextFormat* numberFormat = TextFormat(tree.metrics.numberFontSize);
     IDWriteTextFormat* scoreFormat = TextFormat(tree.metrics.scoreFontSize);
     for (const auto& layoutNode : tree.nodes) {
         const display::DisplayNode* node = content_.display.FindNode(layoutNode.id);
@@ -431,10 +430,6 @@ void CandidatePanel::PaintTree() {
             brush_->SetColor(Color(badgeColor));
             target_->FillRectangle(badge, brush_);
             DrawText(word->score->label, scoreFormat, badge, palette.scoreText, DWRITE_TEXT_ALIGNMENT_CENTER);
-        }
-        if (layoutNode.numberFrame && node->number) {
-            DrawText(std::to_wstring(*node->number), numberFormat, TreeRect(*layoutNode.numberFrame), textColor,
-                     DWRITE_TEXT_ALIGNMENT_LEADING);
         }
     }
 }

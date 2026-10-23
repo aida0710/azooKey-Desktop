@@ -46,7 +46,6 @@ class CandidateSuggestionTests(unittest.TestCase):
             snapshot = bridge.request("key", event=translate(ord(" "), 0))
         panel.update(snapshot)
         self.assertTrue(snapshot["showCandidateIndex"])
-        self.assertTrue(panel.candidate_numbers)
         self.assertEqual(panel.navigation.row_buttons[0].number_label.get_text(), "1")
 
         original_reading = snapshot["reading"]
@@ -56,7 +55,7 @@ class CandidateSuggestionTests(unittest.TestCase):
         panel.update(snapshot)
         self.assertEqual(snapshot["inputState"], "replaceSuggestion")
         self.assertFalse(snapshot["showCandidateIndex"])
-        self.assertEqual(panel.candidate_numbers, {})
+        self.assertTrue(all(not button.number_label.get_text() for button in panel.navigation.row_buttons))
         self.assertEqual([button.text_label.get_text() for button in panel.navigation.row_buttons], suggestions[:9])
         panel.navigation.next.clicked()
         self.assertEqual(panel.snapshot["candidatePage"]["start"], 9)

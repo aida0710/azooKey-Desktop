@@ -31,7 +31,6 @@ final class CandidateLiveTreeViewTests: XCTestCase {
                 XCTAssertEqual(word.font?.pointSize, MacCandidateMetrics.fontSize(size))
                 XCTAssertLessThan(word.frame.height, 36)
                 XCTAssertTrue(word.bounds.contains(word.candidateTextFrame))
-                XCTAssertFalse(word.accessibilityHelp()?.contains(Localization.text("candidate.numberBadge")) == true)
             }
             XCTAssertLessThan(view.preferredSize.width, 200)
             XCTAssertLessThan(view.preferredSize.height, 100)

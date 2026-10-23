@@ -56,12 +56,12 @@ private func frames(_ layout: CandidateLayout) -> [Int: CandidateRect] {
     aligned.documentWordWidths = [75, 60]
     aligned.columnAnchorX = 100
     aligned.showScores = true
-    aligned.showNumbers = true
     let layout = CandidateLayout(aligned)
     let words = frames(layout)
     #expect(layout.tree.aligned && layout.tree.reason == .estimatedInline)
     #expect(layout.tree.textAlignment == .leading)
     #expect(words[1]!.x - words[0]!.x == 75)
+    #expect(words[1]!.x - words[0]!.maxX == 6, "Neighboring words keep a gap")
     #expect(words[0]!.x == words[2]!.x)
     // Long alternatives must not cover the next word.
     #expect(words[2]!.width <= 75)
@@ -107,25 +107,23 @@ private func frames(_ layout: CandidateLayout) -> [Int: CandidateRect] {
     #expect(CandidateLayout(smallDesktop).tree.metrics.fontSize == 14, "Candidates never shrink below the setting")
 }
 
-@Test func rowsReserveScoreAndNumberLinesInsideEachNode() throws {
+@Test func rowsReserveTheScoreLineInsideEachNode() throws {
     let columns = [Column(nodes: [Node(id: 0, parent: nil), Node(id: 1, parent: nil)], textWidth: 40)]
     let plain = CandidateLayout(request(columns: columns))
     #expect(plain.tree.rowHeight == 26)
-    #expect(frames(plain)[1]!.y == 5 + 26 + 3)
-    #expect(plain.tree.nodes.allSatisfy { $0.scoreFrame == nil && $0.numberFrame == nil })
+    #expect(frames(plain)[1]!.y == 5 + 26 + 6)
+    #expect(plain.tree.nodes.allSatisfy { $0.scoreFrame == nil })
 
-    var badges = request(columns: columns)
-    badges.showScores = true
-    badges.showNumbers = true
-    let layout = CandidateLayout(badges)
+    var scored = request(columns: columns)
+    scored.showScores = true
+    let layout = CandidateLayout(scored)
     let metrics = layout.tree.metrics
-    #expect(metrics.fontSize == 14 && metrics.numberFontSize == 12 && metrics.wordHeight == 26)
-    #expect(layout.tree.rowHeight == 26 + 16 + 18)
+    #expect(metrics.fontSize == 14 && metrics.wordHeight == 26)
+    #expect(layout.tree.rowHeight == 26 + 16)
     let node = try #require(layout.tree.nodes.first)
     #expect(node.textFrame == CandidateRect(x: 14, y: 5, width: node.frame.width - 8, height: 26))
     #expect(node.scoreFrame == CandidateRect(x: 10, y: 31, width: node.frame.width, height: 16))
-    #expect(node.numberFrame == CandidateRect(x: 16, y: node.frame.maxY - 18, width: node.frame.width - 12, height: 18))
-    #expect(layout.tree.contentSize.height == 2 * (60 + 3) + 5)
+    #expect(layout.tree.contentSize.height == 2 * (42 + 6) + 5)
 
     var tall = request(columns: columns)
     tall.lineHeight = 30
@@ -190,7 +188,7 @@ private func frames(_ layout: CandidateLayout) -> [Int: CandidateRect] {
     {"mode":"tree","textSize":"standard","textScale":1,"measuredFontSize":18,
      "columns":[{"nodes":[{"id":0,"parent":null},{"id":2,"parent":null}],"textWidth":54},
                 {"nodes":[{"id":1,"parent":0}],"textWidth":72}],
-     "documentWordWidths":null,"columnAnchorX":null,"showScores":false,"showNumbers":true,
+     "documentWordWidths":null,"columnAnchorX":null,"showScores":false,
      "cursor":{"x":300,"y":200,"width":0,"height":24},"workArea":{"x":0,"y":32,"width":1280,"height":768},
      "popupHeight":150,"preferredSide":"below"}
     """

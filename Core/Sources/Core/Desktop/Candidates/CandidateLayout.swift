@@ -31,7 +31,7 @@ public struct CandidateLayoutRequest: Codable, Sendable {
     /// them to the candidate font size, so platforms can measure before layout.
     public var measuredFontSize: Double
     /// One measured line of candidate text, including any border the platform
-    /// draws inside a node. Word and number lines keep at least this ratio.
+    /// draws inside a node. Word lines keep at least this ratio.
     public var lineHeight: Double?
     public var columns: [Column]
     /// Widths of the document's words under the composition, when known.
@@ -39,7 +39,6 @@ public struct CandidateLayoutRequest: Codable, Sendable {
     /// The x coordinate where the composition starts in the document.
     public var columnAnchorX: Double?
     public var showScores: Bool
-    public var showNumbers: Bool
     /// The real insertion caret, which the popup must never cover.
     public var cursor: CandidateRect
     public var workArea: CandidateRect
@@ -56,7 +55,6 @@ public struct CandidateLayoutRequest: Codable, Sendable {
         self.measuredFontSize = measuredFontSize
         self.columns = columns
         self.showScores = false
-        self.showNumbers = false
         self.cursor = cursor
         self.workArea = workArea
     }
@@ -119,7 +117,7 @@ public struct CandidateLayout: Codable, Equatable, Sendable {
         )
         var input = CandidateTreeLayout.Input(
             columns: request.columns, columnWidths: nil, metrics: metrics, textWidthScale: measurementScale,
-            showScores: request.showScores, showNumbers: request.showNumbers,
+            showScores: request.showScores,
             parents: parents(request.columns), reason: .unavailableOrNarrow
         )
         guard allowAlignment, request.columnAnchorX != nil,

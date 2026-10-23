@@ -1,8 +1,8 @@
 import Foundation
 
 /// What the candidate window shows for one snapshot: the display mode, the
-/// nodes to draw with their numbers and accessible text, the full-sentence
-/// list, and the announcement. Renderers draw this; they do not decide it.
+/// nodes to draw with their accessible text, the full-sentence list, and the
+/// announcement. Renderers draw this; they do not decide it.
 public struct CandidateDisplay: Encodable, Equatable, Sendable {
     public enum Mode: String, Codable, Sendable {
         /// Live input: only the tree with its branches.
@@ -14,8 +14,6 @@ public struct CandidateDisplay: Encodable, Equatable, Sendable {
 
     public struct Node: Encodable, Equatable, Sendable {
         public let id: Int
-        /// The 1...9 badge of the candidate this node selects on the current page.
-        public let number: Int?
         /// On the selected sentence's path.
         public let selected: Bool
         /// The word that arrow keys move.
@@ -56,8 +54,6 @@ public struct CandidateDisplay: Encodable, Equatable, Sendable {
     public let mode: Mode
     /// Node ids to draw, one array per column; the first row is the selected path.
     public let columns: [[Int]]
-    /// Some drawn node has a number badge, so every node reserves its line.
-    public let showsNumbers: Bool
     /// Candidate font size before the desktop text scale; measure text at this size.
     public let baseFontSize: Double
     public let nodes: [Node]
@@ -72,16 +68,14 @@ public struct CandidateDisplay: Encodable, Equatable, Sendable {
     public init(_ input: CandidateDisplayInput) {
         let mode = Self.mode(input)
         let columns = Self.columns(input, mode: mode)
-        let numbers = Self.nodeNumbers(input, mode: mode, columns: columns)
         let nodesByID = Dictionary(input.nodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let selectedPath = Set(input.selectedPath)
         self.mode = mode
         self.columns = columns
-        self.showsNumbers = !numbers.isEmpty
         self.baseFontSize = CandidateTextMetrics.baseFontSize(input.candidateTextSize)
         self.nodes = columns.flatMap { $0 }.compactMap { id in
             nodesByID[id].map { node in
-                Self.node(node, number: numbers[id], selected: selectedPath.contains(id),
+                Self.node(node, selected: selectedPath.contains(id),
                           focused: id == input.focusedNode, showScores: input.showRelativeScores)
             }
         }
@@ -123,39 +117,19 @@ public struct CandidateDisplay: Encodable, Equatable, Sendable {
         }
     }
 
-    /// A shared node can end a shorter candidate than the one it selects, so
-    /// the number always comes from its preview's candidate.
-    private static func nodeNumbers(_ input: CandidateDisplayInput, mode: Mode, columns: [[Int]]) -> [Int: Int] {
-        // Live badges identify the preview; selection advertises number keys.
-        guard mode == .tree || input.showCandidateIndex else {
-            return [:]
-        }
-        let visible = Set(columns.flatMap { $0 })
-        var numbers: [Int: Int] = [:]
-        for node in input.nodes where visible.contains(node.id) {
-            guard let index = node.preview?.candidateIndex,
-                  let number = pageNumber(index: index, page: input.candidatePage) else {
-                continue
-            }
-            numbers[node.id] = number
-        }
-        return numbers
-    }
-
     private static func pageNumber(index: Int, page: CandidateDisplayInput.Page) -> Int? {
         let number = index - page.start + 1
         return (1...CandidatePage.size).contains(number) ? number : nil
     }
 
-    private static func node(_ node: CandidateDisplayInput.Node, number: Int?, selected: Bool,
+    private static func node(_ node: CandidateDisplayInput.Node, selected: Bool,
                              focused: Bool, showScores: Bool) -> Node {
         let score = showScores ? CandidateScorePresentation(relativeScore: node.relativeScore).detailDescription : nil
         let action = Localization.text(focused ? "candidate.focusedSelect" : "candidate.select")
-        let numberBadge = number.map { String(format: Localization.text("candidate.numberBadge"), String($0)) }
         return Node(
-            id: node.id, number: number, selected: selected, focused: focused,
+            id: node.id, selected: selected, focused: focused,
             accessibleName: CandidateText.withReading(node.text, reading: node.reading),
-            accessibleDescription: CandidateText.lines([action, node.previewDescription, score, numberBadge]),
+            accessibleDescription: CandidateText.lines([action, node.previewDescription, score]),
             detailText: CandidateText.lines([node.text, node.reading, node.previewDescription, score,
                                              Localization.text("candidate.detailKeys")])
         )

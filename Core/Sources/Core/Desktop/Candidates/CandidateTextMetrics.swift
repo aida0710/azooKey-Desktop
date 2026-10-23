@@ -17,10 +17,6 @@ public struct CandidateTextMetrics: Codable, Equatable, Sendable {
 
     // Six pixels above and below a word; Windows' candidate list rows use the same.
     static let wordVerticalPadding = 12.0
-    // Keeps the number badge readable at the standard size.
-    static let minimumNumberFontSize = 12.0
-    static let numberFontRatio = 2.0 / 3.0
-    static let numberVerticalPadding = 6.0
     // Candidate words retain the larger configured font beside the score.
     static let scoreFontSize = 12.0
     static let scoreLineHeight = 16.0
@@ -29,12 +25,9 @@ public struct CandidateTextMetrics: Codable, Equatable, Sendable {
     static let scoreBadgeHorizontalInset = 3.0
 
     public let fontSize: Double
-    public let numberFontSize: Double
     public let scoreFontSize: Double
     /// Height of the word line inside a node.
     public let wordHeight: Double
-    /// Height of the number badge line, reserved only when numbers are shown.
-    public let numberHeight: Double
     /// Height of the score badge line, reserved only when scores are shown.
     public let scoreHeight: Double
     /// A score badge is its label width plus both insets, centered in
@@ -47,11 +40,9 @@ public struct CandidateTextMetrics: Codable, Equatable, Sendable {
     ///   the shared padding allows, so no glyph is clipped.
     public init(textSize: Config.CandidateTextSize.Value, textScale: Double, lineHeightRatio: Double? = nil) {
         fontSize = Self.fontSize(textSize: textSize, textScale: textScale)
-        numberFontSize = max(Self.minimumNumberFontSize, fontSize * Self.numberFontRatio)
         scoreFontSize = Self.scoreFontSize
         let ratio = lineHeightRatio ?? 0
         wordHeight = max(fontSize + Self.wordVerticalPadding, fontSize * ratio)
-        numberHeight = max(numberFontSize + Self.numberVerticalPadding, numberFontSize * ratio)
         scoreHeight = Self.scoreLineHeight
         scoreBadgeMinimumWidth = Self.scoreBadgeMinimumWidth
         scoreBadgeHorizontalInset = Self.scoreBadgeHorizontalInset

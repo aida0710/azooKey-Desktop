@@ -102,7 +102,8 @@ class CandidateScalingTests(unittest.TestCase):
         self.panel.update(snapshot)
         self.paint()
         self.assertTrue(self.panel.aligned)
-        self.assertEqual(self.panel.rectangles[0][4], 300)
+        # The word starts at its document word and leaves Core's gap before the next one.
+        self.assertEqual(self.panel.rectangles[0][4], 300 - 6)
         first_word = self.panel.layout["tree"]["nodes"][0]["frame"]
         self.assertEqual(self.panel.get_position()[0] + first_word["x"], logical_start[0])
         self.assertEqual(snapshot["wordGeometry"], geometry)

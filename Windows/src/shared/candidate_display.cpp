@@ -52,13 +52,12 @@ CandidateDisplay ParseCandidateDisplay(const json::Value& value) {
         for (const auto& id : column.AsArray()) ids.push_back(static_cast<int>(id.AsInteger(0)));
         display.columns.push_back(std::move(ids));
     }
-    display.showsNumbers = value["showsNumbers"].AsBoolean(false);
-    display.baseFontSize = Number(value["baseFontSize"], 18);
+    display.baseFontSize = Number(value["baseFontSize"], 14);
     display.detailNode = OptionalInteger(value["detailNode"]);
     display.expandTree = value["expandTree"].AsBoolean(false);
     display.announcement = Text(value["announcement"]);
     for (const auto& node : value["nodes"].AsArray()) {
-        display.nodes.push_back({static_cast<int>(node["id"].AsInteger(0)), OptionalInteger(node["number"]),
+        display.nodes.push_back({static_cast<int>(node["id"].AsInteger(0)),
                                  node["selected"].AsBoolean(false), node["focused"].AsBoolean(false),
                                  Text(node["accessibleName"]), Text(node["accessibleDescription"]), Text(node["detailText"])});
     }
@@ -105,7 +104,6 @@ std::string LayoutRequestLine(const LayoutRequest& request) {
         {"measuredFontSize", json::Value::MakeNumber(request.measuredFontSize)},
         {"columns", json::Value::MakeArray(std::move(columns))},
         {"showScores", json::Value::MakeBoolean(request.showScores)},
-        {"showNumbers", json::Value::MakeBoolean(request.showNumbers)},
         {"cursor", FrameValue(request.cursor)},
         {"workArea", FrameValue(request.workArea)},
     };
@@ -138,13 +136,12 @@ std::optional<LayoutResult> ParseLayoutResult(const std::string& line) {
         layout.aligned = tree["aligned"].AsBoolean(false);
         layout.leadingText = tree["textAlignment"].AsString() == "leading";
         const json::Value& metrics = tree["metrics"];
-        layout.metrics = {Number(metrics["fontSize"], 14),           Number(metrics["numberFontSize"], 12),
-                          Number(metrics["scoreFontSize"], 12),      Number(metrics["wordHeight"], 26),
-                          Number(metrics["numberHeight"]),           Number(metrics["scoreHeight"]),
+        layout.metrics = {Number(metrics["fontSize"], 14),       Number(metrics["scoreFontSize"], 12),
+                          Number(metrics["wordHeight"], 26),     Number(metrics["scoreHeight"]),
                           Number(metrics["scoreBadgeMinimumWidth"], 22), Number(metrics["scoreBadgeHorizontalInset"], 3)};
         for (const auto& node : tree["nodes"].AsArray()) {
             layout.nodes.push_back({static_cast<int>(node["id"].AsInteger(0)), ParseFrame(node["frame"]), ParseFrame(node["textFrame"]),
-                                    OptionalFrame(node["scoreFrame"]), OptionalFrame(node["numberFrame"])});
+                                    OptionalFrame(node["scoreFrame"])});
         }
         for (const auto& edge : tree["edges"].AsArray()) {
             layout.edges.push_back({static_cast<int>(edge["node"].AsInteger(0)), ParsePoint(edge["start"]), ParsePoint(edge["end"])});

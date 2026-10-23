@@ -406,9 +406,9 @@ void TestTreeAndPageParsing() {
 void TestCandidateDisplayParsing() {
     // The example from docs/candidate-display.md.
     auto snapshot = azookey::protocol::ParseSnapshot(
-        R"({"preedit":"にほんご","candidateDisplay":{"mode":"list","columns":[[1,0,3],[2]],"showsNumbers":true,"baseFontSize":18,)"
+        R"({"preedit":"にほんご","candidateDisplay":{"mode":"list","columns":[[1,0,3],[2]],"baseFontSize":14,)"
         R"("detailNode":1,"expandTree":false,"announcement":"変換候補 2 / 56。にほん",)"
-        R"("nodes":[{"id":1,"number":2,"selected":true,"focused":true,"accessibleName":"にほん（ニホン）","accessibleDescription":"操作対象","detailText":"にほん"}],)"
+        R"("nodes":[{"id":1,"selected":true,"focused":true,"accessibleName":"にほん（ニホン）","accessibleDescription":"操作対象","detailText":"にほん"}],)"
         R"("list":{"title":"確定する文章","commitText":"にほんご","readingText":"読み にほんご","positionText":"変換候補 2 / 56",)"
         R"("keyboardConfirmsCandidate":true,"confirmLabel":"確定 ↵","confirmAccessibleName":"確定 にほんご","confirmAccessibleDescription":"押すと候補を確定",)"
         R"("confirmIndex":1,"previousIndex":null,"nextIndex":9,"items":[{"index":0,"number":1,"text":"日本語","selected":false,)"
@@ -417,10 +417,10 @@ void TestCandidateDisplayParsing() {
     const auto& shown = snapshot->display;
     Check(shown.mode == azookey::display::DisplayMode::List, "the display mode is read");
     Check(shown.columns.size() == 2 && shown.columns[0].size() == 3 && shown.columns[1][0] == 2, "display columns are read");
-    Check(shown.showsNumbers && shown.baseFontSize == 18 && shown.detailNode == 1 && !shown.expandTree, "display flags are read");
+    Check(shown.baseFontSize == 14 && shown.detailNode == 1 && !shown.expandTree, "display flags are read");
     Check(shown.announcement == L"変換候補 2 / 56。にほん", "the announcement is read");
     const auto* node = shown.FindNode(1);
-    Check(node && node->number == 2 && node->selected && node->focused && node->accessibleName == L"にほん（ニホン）", "display nodes are read");
+    Check(node && node->selected && node->focused && node->accessibleName == L"にほん（ニホン）", "display nodes are read");
     Check(shown.list && shown.list->confirmIndex == 1 && !shown.list->previousIndex && shown.list->nextIndex == 9, "list buttons are read");
     Check(shown.list && shown.list->items.size() == 1 && shown.list->items[0].number == 1 && shown.list->items[0].text == L"日本語",
           "list items are read");
@@ -432,12 +432,11 @@ void TestCandidateDisplayParsing() {
 void TestLayoutRequestAndResult() {
     azookey::display::LayoutRequest request;
     request.mode = azookey::display::DisplayMode::Tree;
-    request.measuredFontSize = 18;
-    request.columns = {{{{0, std::nullopt}, {1, 0}}, 54.5f}};
+    request.measuredFontSize = 14;
+    request.columns = {{{{0, std::nullopt}, {1, 0}}, 42.5f}};
     request.documentWordWidths = std::vector<float>{60.0f};
     request.columnAnchorX = 100.0f;
     request.lineHeight = 25.5f;
-    request.showNumbers = true;
     request.cursor = {300.0f, 200.0f, 0.0f, 24.0f};
     request.workArea = {0.0f, 32.0f, 1280.0f, 768.0f};
     auto line = azookey::json::Parse(azookey::display::LayoutRequestLine(request));
@@ -449,30 +448,31 @@ void TestLayoutRequestAndResult() {
     Check(layout["columns"].AsArray()[0]["nodes"].AsArray()[0]["parent"].IsNull(), "a root node has a null parent");
     Check(layout["documentWordWidths"].AsArray().size() == 1 && layout["columnAnchorX"].AsNumber() == 100, "document words are sent");
     Check(layout["lineHeight"].AsNumber() == 25.5, "the measured line height is sent");
+    Check(!layout.Has("showNumbers"), "tree words have no number lines to reserve");
     Check(!layout.Has("popupHeight") && !layout.Has("preferredSide"), "optional members are left out");
     request.popupHeight = 181;
     auto placed = azookey::json::Parse(azookey::display::LayoutRequestLine(request));
     Check((*placed)["layout"]["popupHeight"].AsNumber() == 181, "the popup height is sent in whole DIPs");
 
     auto result = azookey::display::ParseLayoutResult(
-        R"({"candidateLayout":{"popupWidth":240,"placementStatus":"placed","placement":{"x":300,"y":224,"width":240,"height":180,"side":"below"},)"
-        R"("tree":{"aligned":false,"reason":"unavailable-or-narrow","textAlignment":"center","rowHeight":66,)"
-        R"("metrics":{"fontSize":18,"numberFontSize":12,"scoreFontSize":12,"wordHeight":32,"numberHeight":18,"scoreHeight":16,)"
+        R"({"candidateLayout":{"popupWidth":185,"placementStatus":"placed","placement":{"x":300,"y":224,"width":185,"height":180,"side":"below"},)"
+        R"("tree":{"aligned":false,"reason":"unavailable-or-narrow","textAlignment":"center","rowHeight":42,)"
+        R"("metrics":{"fontSize":14,"scoreFontSize":12,"wordHeight":26,"scoreHeight":16,)"
         R"("scoreBadgeMinimumWidth":24,"scoreBadgeHorizontalInset":4},)"
-        R"("nodes":[{"id":0,"column":0,"row":0,"frame":{"x":12,"y":6,"width":66,"height":66},"textFrame":{"x":16,"y":6,"width":58,"height":32},)"
-        R"("scoreFrame":{"x":12,"y":38,"width":66,"height":16},"numberFrame":{"x":18,"y":54,"width":54,"height":18}}],)"
-        R"("edges":[{"node":0,"start":{"x":4,"y":39},"end":{"x":12,"y":39}}],"rootAnchor":{"x":4,"y":39},"contentSize":{"width":90,"height":216}}}})");
+        R"("nodes":[{"id":0,"column":0,"row":0,"frame":{"x":10,"y":5,"width":51,"height":42},"textFrame":{"x":14,"y":5,"width":43,"height":26},)"
+        R"("scoreFrame":{"x":10,"y":31,"width":51,"height":16}}],)"
+        R"("edges":[{"node":0,"start":{"x":4,"y":26},"end":{"x":10,"y":26}}],"rootAnchor":{"x":4,"y":26},"contentSize":{"width":70,"height":149}}}})");
     Check(result.has_value(), "the layout result parses");
-    Check(result->popupWidth == 240 && result->placementStatus == "placed" && result->side == "below", "placement is read");
+    Check(result->popupWidth == 185 && result->placementStatus == "placed" && result->side == "below", "placement is read");
     Check(result->placement && result->placement->y == 224 && result->placement->height == 180, "the placement frame is read");
     Check(result->tree && !result->tree->aligned && !result->tree->leadingText, "tree alignment is read");
-    Check(result->tree && result->tree->metrics.numberHeight == 18 && result->tree->metrics.wordHeight == 32, "tree metrics are read");
+    Check(result->tree && result->tree->metrics.scoreHeight == 16 && result->tree->metrics.wordHeight == 26, "tree metrics are read");
     Check(result->tree && result->tree->metrics.scoreBadgeMinimumWidth == 24 && result->tree->metrics.scoreBadgeHorizontalInset == 4,
           "score badge dimensions come from Core");
-    Check(result->tree && result->tree->nodes.size() == 1 && result->tree->nodes[0].numberFrame &&
-              result->tree->nodes[0].numberFrame->y == 54, "node frames are read");
+    Check(result->tree && result->tree->nodes.size() == 1 && result->tree->nodes[0].scoreFrame &&
+              result->tree->nodes[0].scoreFrame->y == 31, "node frames are read");
     Check(result->tree && result->tree->edges.size() == 1 && result->tree->edges[0].start.x == 4, "edges are read");
-    Check(result->tree && result->tree->contentHeight == 216, "the content size is read");
+    Check(result->tree && result->tree->contentHeight == 149, "the content size is read");
     Check(!azookey::display::ParseLayoutResult(R"({"error":"invalid_request"})").has_value(), "an error reply is not a layout");
 }
 

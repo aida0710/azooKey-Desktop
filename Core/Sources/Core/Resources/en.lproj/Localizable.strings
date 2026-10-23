@@ -80,7 +80,6 @@
 "candidate.focused" = "Current navigation target";
 "candidate.focusedSelect" = "Current navigation target. Select this candidate";
 "candidate.nextPage" = "Next";
-"candidate.numberBadge" = "Candidate number %@";
 "candidate.openDetails" = "Show details";
 "candidate.openList" = "List";
 "candidate.openTree" = "Adjust segments";

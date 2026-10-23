@@ -99,7 +99,6 @@ inline constexpr MessageEntry kLocalizableMessages[] = {
     {"candidate.focused", L"\u64CD\u4F5C\u5BFE\u8C61", L"Current navigation target"},
     {"candidate.focusedSelect", L"\u64CD\u4F5C\u5BFE\u8C61\u3002\u62BC\u3059\u3068\u5019\u88DC\u3092\u9078\u629E", L"Current navigation target. Select this candidate"},
     {"candidate.nextPage", L"\u6B21\u3078", L"Next"},
-    {"candidate.numberBadge", L"\u5019\u88DC\u756A\u53F7 {number}", L"Candidate number {number}"},
     {"candidate.openDetails", L"\u8A73\u7D30\u3092\u8868\u793A", L"Show details"},
     {"candidate.openList", L"\u4E00\u89A7", L"List"},
     {"candidate.openTree", L"\u6587\u7BC0\u3092\u8ABF\u6574", L"Adjust segments"},

@@ -294,7 +294,6 @@ export default class AzooKeyTreeExtension extends Extension {
             documentWordWidths: null,
             columnAnchorX: null,
             showScores: Boolean(data.showRelativeScores),
-            showNumbers: Boolean(display.showsNumbers),
             cursor: {x, y, width, height},
             workArea: {x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height},
             popupHeight: null,
@@ -415,16 +414,15 @@ export default class AzooKeyTreeExtension extends Extension {
             border-radius: 4px; padding: 0;`);
         const content = this._nodeContent({node, displayed, source, metrics});
         widget.set_child(content);
-        widget._numberBadge = content._numberBadge;
         widget.set_position(node.frame.x, node.frame.y);
         widget.set_size(node.frame.width, node.frame.height);
         this._canvas.set_child_above_sibling(widget, null);
         return identity;
     }
 
-    // The word, the score line Core reserves, and the number badge, inside both borders.
+    // The word inside both borders, at the top of the frame Core reserves.
     _nodeContent({node, displayed, source, metrics}) {
-        const {frame, textFrame, numberFrame} = node;
+        const {frame, textFrame} = node;
         const innerWidth = Math.max(1, frame.width - NODE_BORDER_WIDTH * 2);
         const innerHeight = frame.height - NODE_BORDER_WIDTH * 2;
         const content = new St.BoxLayout({vertical: true});
@@ -442,18 +440,6 @@ export default class AzooKeyTreeExtension extends Extension {
         const captionHeight = textFrame.height - NODE_BORDER_WIDTH;
         caption.set_size(innerWidth, captionHeight);
         content.add_child(caption);
-        content._numberBadge = null;
-        if (!numberFrame || !Number.isInteger(displayed.number)) return content;
-        const badgeHeight = numberFrame.height - NODE_BORDER_WIDTH;
-        const gap = new St.Widget();
-        gap.set_size(innerWidth, Math.max(0, innerHeight - captionHeight - badgeHeight));
-        content.add_child(gap);
-        const badge = new St.Label({text: String(displayed.number), x_align: Clutter.ActorAlign.START,
-            reactive: false, can_focus: false,
-            style: `font-size: ${metrics.numberFontSize}px; padding-left: ${numberFrame.x - frame.x - NODE_BORDER_WIDTH}px;`});
-        badge.set_size(innerWidth, badgeHeight);
-        content.add_child(badge);
-        content._numberBadge = badge;
         return content;
     }
 

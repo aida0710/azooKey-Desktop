@@ -560,7 +560,6 @@ void TextService::ShowCandidates(const protocol::Snapshot& snapshot, const std::
         request.columnAnchorX = geometry->words.front().left * toDips;
     }
     request.showScores = snapshot.showRelativeScores;
-    request.showNumbers = shown.showsNumbers;
     request.cursor = frameInDips(geometry->composition);
     request.workArea = frameInDips(monitorInfo.rcWork);
     request.preferredSide = lastPlacementSide_;

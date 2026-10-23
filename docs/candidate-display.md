@@ -4,7 +4,7 @@
 
 | 決めること | 置き場所 | ブリッジでの受け取り方 |
 | --- | --- | --- |
-| 木と一覧のどちらを出すか、描く列、節点の番号（1〜9）、読み上げ文、詳細文、確定ボタンの文言と可否、前後ページ、残る読み | `CandidateDisplay` | すべての応答の `candidateDisplay` |
+| 木と一覧のどちらを出すか、描く列、一覧の行の番号（1〜9）、読み上げ文、詳細文、確定ボタンの文言と可否、前後ページ、残る読み | `CandidateDisplay` | すべての応答の `candidateDisplay` |
 | 相対スコアの色の区分 | `CandidateScoreRole` | `nodes[].scorePresentation.role` |
 | 節点の枠、行の高さ、列の幅、文書の語への整列、ポップアップの幅、配置と向き | `CandidateLayout`、`CandidateTreeLayout`、`CandidatePopupPlacement` | `candidate-layout` 操作 |
 | 文字の大きさ（標準 14、大きい 18、OS の文字倍率が 1 未満なら縮めない） | `CandidateTextMetrics` | `candidate-layout` の `tree.metrics` |
@@ -56,15 +56,14 @@
 {
   "mode": "list",
   "columns": [[1, 0, 3], [2]],
-  "showsNumbers": true,
   "baseFontSize": 14,
   "detailNode": 1,
   "expandTree": false,
   "announcement": "変換候補 2 / 56。にほん。読み ニホン。語 1 / 2。確定予定 にほんご",
   "nodes": [
-    {"id": 1, "number": 2, "selected": true, "focused": true,
+    {"id": 1, "selected": true, "focused": true,
      "accessibleName": "にほん（ニホン）",
-     "accessibleDescription": "操作対象。押すと候補を選択\n確定予定: にほんご\n…\n候補番号 2",
+     "accessibleDescription": "操作対象。押すと候補を選択\n確定予定: にほんご\n…",
      "detailText": "にほん\nニホン\n確定予定: にほんご\n…\n矢印キーで詳細を確認・PageUp / PageDownで詳細をスクロール"}
   ],
   "list": {
@@ -87,9 +86,8 @@
 | --- | --- |
 | `mode` | `tree`: 打鍵中（`composing` など）。候補の枝を含む木だけを出す。`list`: 変換中（`selecting`・`previewing`・`replaceSuggestion`）。全文候補の一覧を出し、木は求められたときだけ出す。`hidden`: 何も出さない |
 | `columns` | 描く節点の id を列ごとに並べたもの。各列の先頭は選択中の文の語。`list` では操作中の列だけ兄弟を並べ、ほかの列は選択中の語だけにする |
-| `showsNumbers` | 番号の付いた節点が1つでもある。全節点の行の高さに番号の行を含める |
 | `baseFontSize` | 文字倍率をかける前の候補の文字の大きさ。`candidate-layout` の `textWidth` はこの大きさで測ると正確 |
-| `nodes` | `columns` に出る節点だけ。`number` は、その節点を選んだときに選ばれる候補（`preview.candidateIndex`）が今のページにあるときの 1〜9。`tree` では常に、`list` では数字キーが使える `selecting` のときだけ付く |
+| `nodes` | `columns` に出る節点だけ。木の語には番号を付けない（数字キーの番号は一覧の行にだけ出す） |
 | `detailNode` | ポインターが何も指していないときに詳細を出す節点（操作対象の語、無ければ最初の語） |
 | `expandTree` | 同じ候補のまま操作対象の語だけが動いた応答で `true`。木を開いて対象を見せる。同じ応答を描き直すときは1回だけ扱う（GTK・GNOME は `contextId` と `generation` で判断している）。変換中の↑↓は、木が出ているあいだは操作対象の語の兄弟を動き、出ていないあいだは一覧の行を1つずつ動く（macOS の候補画面と同じ）。木が出ているかは `key` の要求の `candidateDisplay.treeShown` で伝える（下記）。伝えないOS（Windows）は、この応答から一覧が閉じるまで木を開いたままにし、Core は↑↓をこの応答までは一覧の行、この応答からは兄弟の移動にする。変換を終えると一覧の行の移動に戻る |
 | `announcement` | 変換中に選択か操作対象が変わったときに読み上げる文。打鍵中は `null`。同じ入力欄で直前と同じ文なら読み上げない |
@@ -132,7 +130,7 @@ Linux では、エンジンがすべての `key` の要求にこの値を付け�
   "columns": [{"nodes": [{"id": 0, "parent": null}, {"id": 1, "parent": null}, {"id": 3, "parent": null}],
                "textWidth": 42.0}],
   "lineHeight": null, "documentWordWidths": null, "columnAnchorX": null,
-  "showScores": true, "showNumbers": true,
+  "showScores": true,
   "cursor": {"x": 300, "y": 200, "width": 0, "height": 24},
   "workArea": {"x": 0, "y": 32, "width": 1280, "height": 768},
   "popupHeight": 180, "preferredSide": "below"}}
@@ -144,10 +142,10 @@ Linux では、エンジンがすべての `key` の要求にこの値を付け�
 | `textSize`・`textScale` | 候補の文字サイズ設定と OS の文字倍率（GTK は `gtk-xft-dpi / 96`、GNOME は `text-scaling-factor`） |
 | `measuredFontSize` | `textWidth` と `lineHeight` を測った文字の大きさ。Core が候補の文字の大きさへ比例で直す |
 | `columns` | `candidateDisplay.columns` の順の節点（`id` と、描く木の上での親 `parent`）と、列の先頭の節点の文字の幅 |
-| `lineHeight` | 任意。`measuredFontSize` で1行を測った高さ（節点の中に枠線を描くならその分も含める）。語の行は「文字 + 12」、番号の行は「番号の文字 + 6」を最小に、この比率より低くしない |
+| `lineHeight` | 任意。`measuredFontSize` で1行を測った高さ（節点の中に枠線を描くならその分も含める）。語の行は「文字 + 12」を最小に、この比率より低くしない |
 | `documentWordWidths` | 任意。文書上の語の幅が分かるとき（GTK の推定語幅、Windows の文字矩形）。全列の幅が揃い、どれも読める幅のときだけ整列する |
 | `columnAnchorX` | 任意。整列するときの文頭の x |
-| `showScores`・`showNumbers` | スコアの行・番号の行を確保するか（`showRelativeScores` と `candidateDisplay.showsNumbers`） |
+| `showScores` | スコアの行を確保するか（`showRelativeScores`） |
 | `cursor` | 実際のキャレット。ポップアップはこれを覆わない |
 | `workArea` | カーソルのあるモニターの作業領域 |
 | `popupHeight` | 任意。返った `popupWidth` で測ったポップアップ全体の高さ。あるときだけ配置を返す |
@@ -159,26 +157,23 @@ Linux では、エンジンがすべての `key` の要求にこの値を付け�
 {"popupWidth": 185, "placementStatus": "placed",
  "placement": {"x": 300, "y": 224, "width": 185, "height": 180, "side": "below"},
  "tree": {
-   "aligned": false, "reason": "unavailable-or-narrow", "textAlignment": "center", "rowHeight": 60,
-   "metrics": {"fontSize": 14, "numberFontSize": 12, "scoreFontSize": 12,
-               "wordHeight": 26, "numberHeight": 18, "scoreHeight": 16,
+   "aligned": false, "reason": "unavailable-or-narrow", "textAlignment": "center", "rowHeight": 42,
+   "metrics": {"fontSize": 14, "scoreFontSize": 12, "wordHeight": 26, "scoreHeight": 16,
                "scoreBadgeMinimumWidth": 22, "scoreBadgeHorizontalInset": 3},
    "nodes": [{"id": 0, "column": 0, "row": 0,
-              "frame": {"x": 10, "y": 5, "width": 51, "height": 60},
+              "frame": {"x": 10, "y": 5, "width": 51, "height": 42},
               "textFrame": {"x": 14, "y": 5, "width": 43, "height": 26},
-              "scoreFrame": {"x": 10, "y": 31, "width": 51, "height": 16},
-              "numberFrame": {"x": 16, "y": 47, "width": 39, "height": 18}}],
-   "edges": [{"node": 0, "start": {"x": 4, "y": 35}, "end": {"x": 10, "y": 35}}],
-   "rootAnchor": {"x": 4, "y": 35},
-   "contentSize": {"width": 70, "height": 194}}}
+              "scoreFrame": {"x": 10, "y": 31, "width": 51, "height": 16}}],
+   "edges": [{"node": 0, "start": {"x": 4, "y": 26}, "end": {"x": 10, "y": 26}}],
+   "rootAnchor": {"x": 4, "y": 26},
+   "contentSize": {"width": 70, "height": 149}}}
 ```
 
 | 出力 | 意味 |
 | --- | --- |
-| `tree.nodes[].frame` | 押せる範囲（ポインターと支援技術の対象）。番号とスコアの行を含む |
+| `tree.nodes[].frame` | 押せる範囲（ポインターと支援技術の対象）。スコアの行を含む。行の間は 6 空ける。文書の語に揃えたときは、列の始まりを語に合わせ、語の幅から 6 を空けて隣の語と離す |
 | `textFrame` | 語を描く範囲。`textAlignment` が `leading` なら左寄せ、`center` なら中央。はみ出す語は末尾を省略する |
 | `scoreFrame` | スコアのバッジを描く行。バッジの幅は文字の幅 + `scoreBadgeHorizontalInset` × 2（`scoreBadgeMinimumWidth` 以上、`scoreFrame` の幅以下）で、中央に置く。色は `scorePresentation.role` |
-| `numberFrame` | 番号を左寄せで描く行 |
 | `edges` | 親から子へ線を引く。`start` は親の右端の中央、親が描かれていない節点は `rootAnchor` から。線は `node` が選択中の文の語なら太く実線、ほかは細い点線 |
 | `contentSize` | 木を描く面の大きさ。ポップアップより大きいときはスクロールする |
 | `aligned`・`reason` | 文書の語の下に列を揃えたか。`estimated-inline`（揃えた）、`unavailable-or-narrow`（語の幅が無いか狭い）、`outside-workarea`（画面内に収まらない、または横に置いた） |
@@ -215,7 +210,7 @@ GTK と GNOME で別々だった判断を1つにしたため、次の点が変�
 - 表示の種類: GTK は `composing` 以外をすべて一覧、GNOME は選択系の3状態以外をすべて木としていた。今は選択系の3状態が一覧、それ以外が木。
 - 一覧のときの木: GTK はすべての列で兄弟を並べていた。今は GNOME と同じく、操作中の列だけ兄弟を並べる。
 - 配置: GNOME は下か上だけで、入らないときは作業領域の端へ寄せていた。今は GTK と同じく、右と左も使い、キャレットを覆わない。
-- 列の幅: GNOME は文字の幅 + 24（最大 280）、行の高さは測った値だった。今は文字の幅 + 9（最大 185、最小は 24 と文字 + 8 の大きい方）、行の高さは文字 + 12。どちらの OS も測った `lineHeight` を渡し、それより高いフォントでは行を高くする（GTK の番号の行は大きい文字で少し高くなる）。スコアのバッジは GNOME でも節点の中に置く。
+- 列の幅: GNOME は文字の幅 + 24（最大 280）、行の高さは測った値だった。今は文字の幅 + 9（最大 185、最小は 24 と文字 + 8 の大きい方）、行の高さは文字 + 12。どちらの OS も測った `lineHeight` を渡し、それより高いフォントでは行を高くする。スコアのバッジは GNOME でも節点の中に置く。
 - ポップアップの幅: 一覧のときは 320 以上かつ文字 26 字分（最大 430）。標準の文字で 364。木だけのときは 185 以上（GTK は 240 以上、GNOME は 320 以上、最大 560 だった）。
 - 木の始点: GTK は (4, 18) に固定していた。今は最初の行の中央。
-- 節点の支援技術向けの名前: GNOME は「語・読み・候補番号」を改行で並べていた。今は GTK と同じく名前を「語（読み）」、候補番号は説明に入れる。
+- 節点の支援技術向けの名前: GNOME は「語・読み・候補番号」を改行で並べていた。今は GTK と同じく名前を「語（読み）」にする。木の語には候補番号を付けない。

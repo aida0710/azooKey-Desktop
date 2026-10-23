@@ -66,10 +66,6 @@
     "en": "Next",
     "gjs": "nextPage"
   },
-  "candidate.numberBadge": {
-    "ja": "候補番号 {number}",
-    "en": "Candidate number {number}"
-  },
   "candidate.openDetails": {
     "ja": "詳細を表示",
     "en": "Show details",

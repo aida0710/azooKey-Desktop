@@ -80,7 +80,6 @@
 "candidate.focused" = "操作対象";
 "candidate.focusedSelect" = "操作対象。押すと候補を選択";
 "candidate.nextPage" = "次へ";
-"candidate.numberBadge" = "候補番号 %@";
 "candidate.openDetails" = "詳細を表示";
 "candidate.openList" = "一覧";
 "candidate.openTree" = "文節を調整";

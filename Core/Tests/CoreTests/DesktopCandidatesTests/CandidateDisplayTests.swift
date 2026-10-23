@@ -77,7 +77,7 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     #expect(CandidateDisplay(try input(["nodes": [Any](), "inputState": "selecting"])).mode == .hidden)
 }
 
-@Test func nodeNumbersComeFromThePreviewCandidateOnTheCurrentPage() throws {
+@Test func treeWordsCarryNoNumberBadgesEvenWhenNumberKeysWork() throws {
     let nodes: [[String: Any]] = [
         ["id": 0, "text": "日本", "reading": "ニホン", "preview": ["candidateIndex": 9, "text": "日本に行く"]],
         ["id": 1, "text": "二本", "reading": "ニホン", "preview": ["candidateIndex": 12, "text": "二本"]],
@@ -86,14 +86,17 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     let page: [String: Any] = ["start": 9, "position": 1, "totalCount": 20, "items": [Any]()]
     let changes: [String: Any] = ["nodes": nodes, "columns": [[0, 1], [2]], "selectedPath": [0, 2],
                                   "focusedNode": 0, "selection": 9, "candidatePage": page]
-    let live = CandidateDisplay(try input(changes.merging(["inputState": "composing"]) { _, new in new }))
-    #expect(live.nodes.map(\.number) == [1, 4, nil])
-    #expect(live.showsNumbers)
-    #expect(live.nodes[0].accessibleDescription.hasSuffix(text("numberBadge", "1")))
-    let unnumbered = CandidateDisplay(try input(changes.merging(["showCandidateIndex": false]) { _, new in new }))
-    #expect(unnumbered.nodes.allSatisfy { $0.number == nil } && !unnumbered.showsNumbers)
-    let numbered = CandidateDisplay(try input(changes.merging(["showCandidateIndex": true]) { _, new in new }))
-    #expect(numbered.nodes.map(\.number) == [1, 4, nil])
+    for state: [String: Any] in [["inputState": "composing"], ["showCandidateIndex": true]] {
+        let display = CandidateDisplay(try input(changes.merging(state) { _, new in new }))
+        let encoded = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(display)) as? [String: Any])
+        let encodedNodes = try #require(encoded["nodes"] as? [[String: Any]])
+        #expect(encodedNodes.count == 3 && encodedNodes.allSatisfy { $0["number"] == nil }, "\(state)")
+        #expect(encoded["showsNumbers"] == nil)
+    }
+    // Number keys do not add a number to the words' spoken descriptions either.
+    let withKeys = CandidateDisplay(try input(changes.merging(["showCandidateIndex": true]) { _, new in new }))
+    let withoutKeys = CandidateDisplay(try input(changes.merging(["showCandidateIndex": false]) { _, new in new }))
+    #expect(withKeys.nodes.map(\.accessibleDescription) == withoutKeys.nodes.map(\.accessibleDescription))
 }
 
 @Test func nodeTextExplainsTheTargetDetailsAndScore() throws {
