@@ -69,7 +69,7 @@ final class CandidateRowButton: CandidatePresentationButton {
             foreground.setStroke()
             NSBezierPath(roundedRect: badge.insetBy(dx: 1, dy: 1), xRadius: 5, yRadius: 5).stroke()
             let numberAttributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: max(14, (font?.pointSize ?? 18) - 4), weight: .medium),
+                .font: CandidateNumberFont.make(size: max(14, (font?.pointSize ?? 18) - 4), weight: .medium),
                 .foregroundColor: foreground
             ]
             let size = (number as NSString).size(withAttributes: numberAttributes)

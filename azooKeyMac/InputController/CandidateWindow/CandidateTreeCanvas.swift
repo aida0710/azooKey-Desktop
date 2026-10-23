@@ -57,7 +57,7 @@ final class TreeButton: NSButton {
         Self.numberFont(fontSize: font?.pointSize ?? 18)
     }
     private static func numberFont(fontSize: CGFloat) -> NSFont {
-        .monospacedSystemFont(ofSize: max(minimumNumberFontSize, fontSize - numberFontReduction), weight: .medium)
+        CandidateNumberFont.make(size: max(minimumNumberFontSize, fontSize - numberFontReduction), weight: .medium)
     }
     static func preferredHeight(fontSize: CGFloat, hasNumber: Bool) -> CGFloat {
         let titleFont = NSFont.systemFont(ofSize: fontSize)

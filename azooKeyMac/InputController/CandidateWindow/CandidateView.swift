@@ -197,7 +197,7 @@ class CandidatesViewController: BaseCandidateViewController {
 
         if numberRange.location != NSNotFound {
             attributedString.addAttributes([
-                .font: NSFont.monospacedSystemFont(ofSize: max(14, CandidateTextMetrics.baseFontSize(Config.CandidateTextSize().value) - 4), weight: .regular),
+                .font: CandidateNumberFont.make(size: max(14, CandidateTextMetrics.baseFontSize(Config.CandidateTextSize().value) - 4), weight: .regular),
                 .foregroundColor: currentSelectedRow == row ? NSColor.white : NSColor.gray,
                 .baselineOffset: 2
             ], range: numberRange)
