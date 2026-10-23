@@ -14,6 +14,9 @@ COMMAND_TIMEOUT_SECONDS = 45
 PROCESS_SAMPLE_INTERVAL_SECONDS = 0.5
 # ReportCrash writes asynchronously after the process exits.
 CRASH_REPORT_WAIT_SECONDS = 15
+# Process queries and log-stream shutdown should finish well before a diagnostic command.
+PROCESS_QUERY_TIMEOUT_SECONDS = 5
+LOG_SHUTDOWN_TIMEOUT_SECONDS = 5
 
 
 class Evidence:
@@ -72,7 +75,7 @@ class Evidence:
             while not self.stop_sampling.is_set():
                 try:
                     processes = subprocess.run(["pgrep", "-lx", "azooKeyMac"],
-                                               capture_output=True, text=True, timeout=5)
+                                               capture_output=True, text=True, timeout=PROCESS_QUERY_TIMEOUT_SECONDS)
                     snapshot = {"time": datetime.datetime.now().astimezone().isoformat(),
                                 "returncode": processes.returncode, "processes": processes.stdout.strip()}
                     self.observed_processes |= processes.returncode == 0
@@ -106,7 +109,7 @@ class Evidence:
         if self.log_process:
             self.log_process.terminate()
             try:
-                self.log_process.wait(timeout=5)
+                self.log_process.wait(timeout=LOG_SHUTDOWN_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
                 self.log_process.kill()
                 self.log_process.wait()

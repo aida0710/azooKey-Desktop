@@ -1,5 +1,5 @@
 name: macOS release IME smoke
-run-name: macOS IME ${{ inputs.tag }} (${{ inputs.backend }})
+run-name: macOS IME ${{ inputs.tag }} (${{ inputs.backend }}, ${{ inputs.runner }})
 on:
   # Register this workflow before it reaches the default branch. The push run
   # skips the test; workflow_dispatch runs the requested release explicitly.
@@ -13,6 +13,12 @@ on:
         required: true
         default: tree-v0.2.0
         type: string
+      runner:
+        description: macOS version (15 tests the older supported runtime; 26 matches the package builder)
+        required: true
+        default: macos-15
+        type: choice
+        options: [macos-15, macos-26]
       backend:
         description: CPU works without a GPU; both compares CPU and Metal on separate VMs
         required: true
@@ -25,7 +31,7 @@ jobs:
   smoke:
     if: github.event_name == 'workflow_dispatch'
     name: Input and diagnostics (${{ matrix.backend }})
-    runs-on: macos-26
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
     strategy:
       fail-fast: false

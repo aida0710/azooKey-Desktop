@@ -23,60 +23,67 @@ func sources() -> [TISInputSource] {
     TISCreateInputSourceList(nil, true).takeRetainedValue() as! [TISInputSource]
 }
 
-func emit(_ value: Any) {
-    let bytes = try! JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
-    print(String(decoding: bytes, as: UTF8.self))
-}
-
 func select(_ identifier: String) -> Bool {
     guard let source = sources().first(where: {
         property($0, kTISPropertyInputSourceID) as? String == identifier
     }) else {
-        emit(["error": "Input source not found", "id": identifier])
+        printJSON(["error": "Input source not found", "id": identifier])
         return false
     }
     let enableStatus = TISEnableInputSource(source)
     let selectStatus = TISSelectInputSource(source)
     let current = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
-    emit(["enableStatus": enableStatus, "selectStatus": selectStatus, "current": describe(current)])
+    printJSON(["enableStatus": enableStatus, "selectStatus": selectStatus, "current": describe(current)])
     return enableStatus == noErr && selectStatus == noErr
         && property(current, kTISPropertyInputSourceID) as? String == identifier
 }
 
-let arguments = Array(CommandLine.arguments.dropFirst())
-switch arguments.first {
-case "list":
-    emit(sources().map(describe))
-case "current":
-    emit(describe(TISCopyCurrentKeyboardInputSource().takeRetainedValue()))
-case "register" where arguments.count == 2:
-    let appURL = URL(fileURLWithPath: arguments[1])
-    let status = TISRegisterInputSource(appURL as CFURL)
-    let bundleIdentifier = Bundle(url: appURL)?.bundleIdentifier
-    let registered = sources().filter {
-        property($0, kTISPropertyBundleID) as? String == bundleIdentifier
+@main
+enum InputSourceCommand {
+    static func main() {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        switch arguments.first {
+        case "list":
+            printJSON(sources().map(describe))
+        case "current":
+            printJSON(describe(TISCopyCurrentKeyboardInputSource().takeRetainedValue()))
+        case "register" where arguments.count == 2:
+            let appURL = URL(fileURLWithPath: arguments[1])
+            let status = TISRegisterInputSource(appURL as CFURL)
+            guard let bundleIdentifier = Bundle(url: appURL)?.bundleIdentifier else {
+                printJSON(["error": "The app has no bundle identifier"])
+                exit(1)
+            }
+            let registered = sources().filter {
+                property($0, kTISPropertyBundleID) as? String == bundleIdentifier
+            }.sorted {
+                let leftIsParent = property($0, kTISPropertyInputSourceID) as? String == bundleIdentifier
+                let rightIsParent = property($1, kTISPropertyInputSourceID) as? String == bundleIdentifier
+                return leftIsParent && !rightIsParent
+            }
+            // Enable the input method itself before its modes. Merely registering it
+            // leaves the parent disabled and its modes can disappear on app activation.
+            var enableRecords: [[String: Any]] = []
+            for source in registered where property(source, kTISPropertyInputSourceIsEnableCapable) as? Bool == true {
+                let enableStatus = TISEnableInputSource(source)
+                enableRecords.append(["source": describe(source), "enableStatus": enableStatus])
+            }
+            printJSON(["registerStatus": status, "enabledSources": enableRecords])
+            let enabled = !enableRecords.isEmpty && enableRecords.allSatisfy { $0["enableStatus"] as? OSStatus == noErr }
+            exit(status == noErr && enabled ? 0 : 1)
+        case "select" where arguments.count == 2:
+            exit(select(arguments[1]) ? 0 : 1)
+        case "ascii":
+            let identifier = sources().compactMap { property($0, kTISPropertyInputSourceID) as? String }
+                .first { $0 == "com.apple.keylayout.ABC" || $0 == "com.apple.keylayout.US" }
+            guard let identifier else {
+                printJSON(["error": "ABC/US keyboard layout not found"])
+                exit(1)
+            }
+            exit(select(identifier) ? 0 : 1)
+        default:
+            fputs("Usage: InputSource list|current|ascii|register APP|select SOURCE_ID\n", stderr)
+            exit(2)
+        }
     }
-    // Enable the input method itself before its modes. Merely registering it
-    // leaves the parent disabled and its modes can disappear on app activation.
-    var enableRecords: [[String: Any]] = []
-    for source in registered where property(source, kTISPropertyInputSourceIsEnableCapable) as? Bool == true {
-        let enableStatus = TISEnableInputSource(source)
-        enableRecords.append(["source": describe(source), "enableStatus": enableStatus])
-    }
-    emit(["registerStatus": status, "enabledSources": enableRecords])
-    let enabled = !enableRecords.isEmpty && enableRecords.allSatisfy { $0["enableStatus"] as? OSStatus == noErr }
-    exit(status == noErr && enabled ? 0 : 1)
-case "select" where arguments.count == 2:
-    exit(select(arguments[1]) ? 0 : 1)
-case "ascii":
-    let identifier = sources().compactMap { property($0, kTISPropertyInputSourceID) as? String }
-        .first { $0 == "com.apple.keylayout.ABC" || $0 == "com.apple.keylayout.US" }
-    guard let identifier else {
-        emit(["error": "ABC/US keyboard layout not found"])
-        exit(1)
-    }
-    exit(select(identifier) ? 0 : 1)
-default:
-    fputs("Usage: InputSource list|current|ascii|register APP|select SOURCE_ID\n", stderr)
-    exit(2)
 }

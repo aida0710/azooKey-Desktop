@@ -27,6 +27,12 @@ JAPANESE_SOURCE = "dev.ensan.inputmethod.azooKeyMac.Japanese"
 # Registration and app startup are asynchronous; poll their state up to a deadline.
 STATE_WAIT_SECONDS = 20
 POLL_INTERVAL_SECONDS = 0.5
+# Network transfer and first Swift compilation can be slow on a fresh runner.
+RELEASE_DOWNLOAD_TIMEOUT_SECONDS = 120
+HELPER_BUILD_TIMEOUT_SECONDS = 120
+# Direct launch is diagnostic only; a healthy IME normally stays in its main loop.
+DIRECT_LAUNCH_OBSERVATION_SECONDS = 10
+DEBUGGER_TIMEOUT_SECONDS = 30
 
 
 def require_success(completed, description):
@@ -59,7 +65,7 @@ def install_release(evidence, arguments):
     downloads.mkdir()
     require_success(evidence.run("release-download", ["gh", "release", "download", arguments.tag,
                     "--repo", REPOSITORY, "--pattern", asset, "--pattern", asset + ".sha256",
-                    "--dir", str(downloads)], timeout=120), "Release download")
+                    "--dir", str(downloads)], timeout=RELEASE_DOWNLOAD_TIMEOUT_SECONDS), "Release download")
     # Validate against the published checksum without depending on its relative path.
     expected = (downloads / (asset + ".sha256")).read_text().split()[0]
     actual = hashlib.sha256((downloads / asset).read_bytes()).hexdigest()
@@ -92,8 +98,9 @@ def compile_helpers(evidence):
     executables.mkdir()
     for name in ["InputSource", "SendKeys", "TextEditDocument", "InputSourcePermission"]:
         require_success(evidence.run("compile-" + name, ["xcrun", "swiftc", "-swift-version", "5",
-                        str(Path(__file__).parent / (name + ".swift")), "-o", str(executables / name)],
-                        timeout=120), "Compile " + name)
+                        str(Path(__file__).parent / (name + ".swift")),
+                        str(Path(__file__).parent / "SmokeOutput.swift"), "-o", str(executables / name)],
+                        timeout=HELPER_BUILD_TIMEOUT_SECONDS), "Compile " + name)
     return executables / "InputSource", executables / "SendKeys"
 
 
@@ -117,19 +124,18 @@ def exercise_input(evidence, input_source, send_keys, outcome):
     permissions = evidence.run("permissions", [send_keys, "permissions"])
     outcome["permissions"] = json.loads(require_success(permissions, "Read permissions").stdout)
     document_path = evidence.directory / "TextEdit-document.txt"
-    control_path = evidence.directory / "TextEdit-control.txt"
     document_path.write_text("")
-    control_path.write_text("")
-    require_success(evidence.run("textedit-open-control", ["open", "-a", "TextEdit", str(control_path)]), "Open TextEdit")
+    require_success(evidence.run("textedit-open", ["open", "-a", "TextEdit", str(document_path)]), "Open TextEdit")
     ready_text = wait_for_text(evidence, "textedit-ready", lambda text: text == "")
-    if ready_text is None:
+    if ready_text != "":
         raise RuntimeError("TextEdit's focused text area is unavailable; see Accessibility diagnostics")
     require_success(evidence.run("select-ascii", [input_source, "ascii"]), "Select ASCII control")
     posted = evidence.run("type-ascii", [send_keys, "nihongo"])
     outcome["asciiText"] = wait_for_text(evidence, "ascii-text", lambda text: text == "nihongo")
     outcome["asciiControlPassed"] = posted.returncode == 0 and outcome["asciiText"] == "nihongo"
     evidence.screenshot("screen-ascii")
-    require_success(evidence.run("textedit-open-test", ["open", "-a", "TextEdit", str(document_path)]), "Open test document")
+    require_success(evidence.run("textedit-clear", [evidence.directory / "helpers/TextEditDocument", "clear"]),
+                    "Clear control text")
     if wait_for_text(evidence, "empty-test-document", lambda text: text == "") != "":
         raise RuntimeError("The test document is not empty")
     selected = evidence.run("select-japanese", [input_source, "select", JAPANESE_SOURCE])
@@ -166,11 +172,11 @@ def launch_fallback(evidence, app, outcome):
     # registration/input test into a pass. Preserve direct-launch stderr as well.
     outcome["directLaunchAttempted"] = True
     evidence.run("fallback-open", ["open", "-a", str(app)])
-    evidence.run("fallback-executable", [str(app / "Contents/MacOS/azooKeyMac")], timeout=10)
+    evidence.run("fallback-executable", [str(app / "Contents/MacOS/azooKeyMac")], timeout=DIRECT_LAUNCH_OBSERVATION_SECONDS)
     # A crash stops LLDB and prints a symbolized stack; a healthy main loop times out.
     evidence.run("fallback-lldb", ["xcrun", "lldb", "--batch",
                  "-o", "settings set target.disable-aslr false", "-o", "run",
-                 "-k", "thread backtrace all", "--", str(app / "Contents/MacOS/azooKeyMac")], timeout=30)
+                 "-k", "thread backtrace all", "--", str(app / "Contents/MacOS/azooKeyMac")], timeout=DEBUGGER_TIMEOUT_SECONDS)
 
 
 def main():
@@ -205,6 +211,8 @@ def main():
         print(f"Smoke test error: {error}", flush=True)
     finally:
         # Save natural activation evidence before any explicit launch/debugger.
+        if (evidence.directory / "helpers/InputSourcePermission").exists():
+            evidence.run("input-source-permission-final", [evidence.directory / "helpers/InputSourcePermission"])
         outcome["processObservedDuringInput"] = evidence.observed_processes
         outcome["crashesBeforeFallback"] = [str(path) for path in evidence.crash_reports()]
         try:
