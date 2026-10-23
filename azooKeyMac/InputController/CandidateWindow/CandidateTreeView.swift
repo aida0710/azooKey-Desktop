@@ -102,7 +102,9 @@ final class CandidateTreeView: NSView {
         let candidateFrame = NSRect(x: 0, y: bounds.height - height, width: width, height: height)
         navigation.frame = candidateFrame
         navigation.layoutSubtreeIfNeeded()
-        scrollView.frame = candidateFrame
+        // Scrolled words and edges must stay inside the block's border.
+        let treeViewportFrame = candidateFrame.insetBy(dx: MacCandidateMetrics.borderWidth, dy: MacCandidateMetrics.borderWidth)
+        scrollView.frame = treeViewportFrame.isNull ? .zero : treeViewportFrame
         definitionCard.isHidden = !showsDefinition
         if showsDefinition {
             let cardHeight = min(bounds.height, definitionCard.preferredHeight)
@@ -271,8 +273,10 @@ final class CandidateTreeView: NSView {
         let rowCount = displayedColumns.map(\.count).max() ?? 0
         let contentSize = NSSize(width: max(60, x), height: max(MacCandidateMetrics.minimumTreeHeight, CGFloat(rowCount) * rowPitch + 6))
         canvas.frame = NSRect(origin: .zero, size: contentSize)
-        treePreferredSize = NSSize(width: aligned ? contentSize.width : min(MacCandidateMetrics.maximumTreeWidth, contentSize.width),
-                                  height: contentSize.height)
+        let borderedSize = NSSize(width: contentSize.width + MacCandidateMetrics.borderWidth * 2,
+                                  height: contentSize.height + MacCandidateMetrics.borderWidth * 2)
+        treePreferredSize = NSSize(width: aligned ? borderedSize.width : min(MacCandidateMetrics.maximumTreeWidth, borderedSize.width),
+                                  height: borderedSize.height)
         canvas.edges = []
         for id in displayedColumns.flatMap({ $0 }) {
             let node = tree.nodes[id]

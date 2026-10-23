@@ -315,6 +315,63 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertEqual(edge.alphaComponent, 1)
         XCTAssertLessThan(edge.brightnessComponent, inside.brightnessComponent,
                           "A white block on a white document needs its border")
+        try assertVisibleBlockEdges(view)
+    }
+
+    func testCandidateListKeepsAllFourEdgesVisible() throws {
+        let view = CandidateTreeView()
+        view.update(entries: entries, selectionIndex: 0, enterConfirmsCandidate: true)
+        view.setFrameSize(view.preferredSize)
+        view.layoutSubtreeIfNeeded()
+        try assertVisibleBlockEdges(view)
+    }
+
+    func testScrolledTreeKeepsAllFourEdgesVisible() throws {
+        let view = CandidateTreeView()
+        let entries = (0..<20).map { index in
+            let words = ["候補\(index)"] + (1..<20).map { "文節\($0)" }
+            return CandidateTree.Entry(text: words.joined(), tokens: words.map { .init(text: $0) }, candidateIndex: index)
+        }
+        updateLiveTree(view, entries: entries, selectionIndex: 0)
+        openTree(in: view)
+        view.setFrameSize(view.preferredSize)
+        view.layoutSubtreeIfNeeded()
+        let scrollView = try XCTUnwrap(view.subviews.compactMap { $0 as? NSScrollView }.first)
+        let document = try XCTUnwrap(scrollView.documentView)
+        let offset = NSPoint(x: document.bounds.width - scrollView.contentSize.width,
+                             y: document.bounds.height - scrollView.contentSize.height)
+        XCTAssertGreaterThan(offset.x, 0)
+        XCTAssertGreaterThan(offset.y, 0)
+        try assertVisibleBlockEdges(view)
+        scrollView.contentView.scroll(to: offset)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        XCTAssertGreaterThan(scrollView.documentVisibleRect.minX, 0)
+        XCTAssertGreaterThan(scrollView.documentVisibleRect.minY, 0)
+        try assertVisibleBlockEdges(view)
+    }
+
+    private func assertVisibleBlockEdges(_ view: CandidateTreeView, file: StaticString = #filePath, line: UInt = #line) throws {
+        view.appearance = NSAppearance(named: .aqua)
+        let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds), file: file, line: line)
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let samples = [
+            ("left", NSPoint(x: 0, y: view.bounds.midY)),
+            ("right", NSPoint(x: view.bounds.maxX - MacCandidateMetrics.borderWidth / 2, y: view.bounds.midY)),
+            ("top", NSPoint(x: view.bounds.midX, y: MacCandidateMetrics.borderWidth / 2)),
+            ("bottom", NSPoint(x: view.bounds.midX, y: view.bounds.maxY - MacCandidateMetrics.borderWidth / 2))
+        ]
+        // Bitmap pixels may differ from AppKit points on Retina displays.
+        let scaleX = CGFloat(bitmap.pixelsWide) / view.bounds.width
+        let scaleY = CGFloat(bitmap.pixelsHigh) / view.bounds.height
+        // Antialiased edge pixels must still contrast with the white document beneath them.
+        let maximumBrightness: CGFloat = 0.9
+        for (edge, point) in samples {
+            let color = try XCTUnwrap(bitmap.colorAt(x: Int(point.x * scaleX), y: Int(point.y * scaleY))?
+                .usingColorSpace(.sRGB), file: file, line: line)
+            let brightnessOnWhite = color.brightnessComponent * color.alphaComponent + 1 - color.alphaComponent
+            XCTAssertLessThan(brightnessOnWhite, maximumBrightness,
+                              "The \(edge) border must remain visible over white: \(color)", file: file, line: line)
+        }
     }
 
     func testKeyboardNavigationRevealsOffscreenChildAndTerminal() {

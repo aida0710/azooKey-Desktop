@@ -11,8 +11,6 @@ final class TreeCanvas: NSView {
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
         let palette = CandidateTheme.palette(for: effectiveAppearance)
-        palette.background.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
         for edge in edges {
             let selected = selectedPath.contains(edge.nodeID)
             (selected ? palette.text : palette.border).setStroke()
