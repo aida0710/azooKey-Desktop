@@ -20,6 +20,8 @@ let package = Package(name: "azooKeyMacStandalone", platforms: [.macOS(.v13)],
             swiftSettings: [.swiftLanguageMode(.v5), .interoperabilityMode(.Cxx)])
     ])
 SWIFT
+# Remove links to deleted sources when reusing the standalone test package.
+find "$PACKAGE/Sources/azooKeyMac" "$PACKAGE/Tests/azooKeyMacTests" -type l -delete
 while IFS= read -r -d '' source; do
     ln -sf "$source" "$PACKAGE/Sources/azooKeyMac/$(basename "$source")"
 done < <(find "$ROOT/azooKeyMac" -name '*.swift' -print0)

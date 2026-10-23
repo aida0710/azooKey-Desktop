@@ -58,8 +58,7 @@ class CandidatesViewController: BaseCandidateViewController {
 
     private func refreshTree(selectionIndex: Int?) {
         var numbers: [Int: String] = [:]
-        // Live numbers identify candidates without changing the input state's number-key behavior.
-        if showCandidateIndex || !enterConfirmsCandidate {
+        if showCandidateIndex {
             for index in showedRows where candidates.indices.contains(index) {
                 numbers[index] = String(index - showedRows.lowerBound + 1)
             }
@@ -80,8 +79,8 @@ class CandidatesViewController: BaseCandidateViewController {
         return true
     }
 
-    func scrollTreeDetails(forward: Bool) -> Bool {
-        usesTree && !candidates.isEmpty && treeView.scrollDetails(forward: forward)
+    func moveCandidatePage(forward: Bool) -> Bool {
+        usesTree && !candidates.isEmpty && treeView.movePage(forward: forward)
     }
 
     override func resizeWindowToFitContent(cursorLocation: CGPoint) {

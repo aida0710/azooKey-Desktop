@@ -78,12 +78,9 @@
 "candidate.detail" = "Candidate details";
 "candidate.detailKeys" = "Arrow keys show details; PageUp / PageDown scroll the details";
 "candidate.focused" = "Current navigation target";
-"candidate.focusedConfirm" = "Current navigation target. Press to confirm this candidate";
 "candidate.focusedSelect" = "Current navigation target. Select this candidate";
 "candidate.nextPage" = "Next";
 "candidate.numberBadge" = "Candidate number %@";
-"candidate.numberConfirm" = "Confirm candidate %@";
-"candidate.numberSelect" = "Select candidate %@";
 "candidate.openDetails" = "Show details";
 "candidate.openList" = "List";
 "candidate.openTree" = "Adjust segments";

@@ -43,50 +43,43 @@ final class CandidateNavigationViewTests: XCTestCase {
         XCTAssertEqual(controller.getNumberCandidate(num: 1), 0)
     }
 
-    func testPointerCanPageToTheLastRealCandidateAndSelectIt() throws {
+    func testPageKeysReachTheLastCandidateWithoutPagingButtons() throws {
         let entries = (0..<500).map { CandidateTree.Entry(text: "候補\($0)", tokens: [], candidateIndex: $0) }
-        let view = CandidateNavigationView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        var selections: [Int] = []
-        view.onSelection = { index in
-            selections.append(index)
-            view.update(page: CandidatePage(entries: entries, selectionIndex: index), numbers: [:], fontSize: 18)
-        }
-        view.update(page: CandidatePage(entries: entries, selectionIndex: 0), numbers: [:], fontSize: 18)
-        for _ in 0..<56 {
-            let next = try XCTUnwrap(buttons(in: view).first { $0.title == Localization.text("candidate.nextPage") })
-            if next.isEnabled { next.performClick(nil) }
-        }
-        let next = try XCTUnwrap(buttons(in: view).first { $0.title == Localization.text("candidate.nextPage") })
-        XCTAssertFalse(next.isEnabled)
-        XCTAssertLessThanOrEqual(buttons(in: view).count, 12)
-        let last = try XCTUnwrap(buttons(in: view).first { $0.title == "候補499" })
-        XCTAssertFalse(last.acceptsFirstResponder)
-        last.performClick(nil)
-        XCTAssertEqual(selections.last, 499)
-        let selected = selections
-        view.update(page: CandidatePage(entries: [], selectionIndex: nil), numbers: [:], fontSize: 18)
-        last.performClick(nil)
-        XCTAssertEqual(selections, selected)
+        let view = CandidateTreeView()
+        var selected: [Int] = []
+        view.onSelectionChanged = { selected.append($0) }
+        view.update(entries: entries, selectionIndex: 0, enterConfirmsCandidate: true)
+        for _ in 0..<55 { XCTAssertTrue(view.movePage(forward: true)) }
+        XCTAssertEqual(selected.last, 495)
+        for _ in 0..<4 { XCTAssertTrue(view.navigate(.down)) }
+        XCTAssertEqual(selected.last, 499)
+        XCTAssertTrue(view.movePage(forward: true))
+        XCTAssertEqual(selected.last, 499)
+        XCTAssertTrue(view.movePage(forward: false))
+        XCTAssertEqual(selected.last, 486)
+        XCTAssertFalse(buttons(in: view).contains { $0.title == Localization.text("candidate.nextPage") ||
+            $0.title == Localization.text("candidate.previousPage") })
     }
 
-    func testUpdatingThePageDisablesRetainedPageActionsAndKeepsCurrentRows() throws {
+    func testChangingPagesDisablesOldRowsAndKeepsSelectionWithinAPage() throws {
         let entries = (0..<20).map { CandidateTree.Entry(text: "候補\($0)", tokens: [], candidateIndex: $0) }
-        let view = CandidateNavigationView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let view = CandidateNavigationView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         var selected: [Int] = []
-        view.onSelection = { index in selected.append(index) }
-        view.update(page: CandidatePage(entries: entries, selectionIndex: 0), numbers: [:], fontSize: 18)
-        let next = try XCTUnwrap(buttons(in: view).first { $0.title == Localization.text("candidate.nextPage") })
+        view.onSelection = { selected.append($0) }
+        view.update(page: CandidatePage(entries: entries, selectionIndex: 0), numbers: [:], fontSize: 14)
         let first = try XCTUnwrap(buttons(in: view).first { $0.title == "候補0" })
-        XCTAssertEqual(first.state, .on)
-        view.update(page: CandidatePage(entries: entries, selectionIndex: 1), numbers: [:], fontSize: 18)
+        view.update(page: CandidatePage(entries: entries, selectionIndex: 1), numbers: [:], fontSize: 14)
         XCTAssertTrue(buttons(in: view).contains { $0 === first })
         XCTAssertFalse(first.isAccessibilitySelected())
-        XCTAssertEqual(first.state, .off)
         XCTAssertEqual(buttons(in: view).first { $0.title == "候補1" }?.state, .on)
-        next.performClick(nil)
+        view.update(page: CandidatePage(entries: entries, selectionIndex: 9), numbers: [:], fontSize: 14)
+        first.performClick(nil)
         XCTAssertTrue(selected.isEmpty)
-        let currentNext = try XCTUnwrap(buttons(in: view).first { $0.title == Localization.text("candidate.nextPage") })
-        currentNext.performClick(nil)
+        try XCTUnwrap(buttons(in: view).first { $0.title == "候補9" }).performClick(nil)
+        XCTAssertEqual(selected, [9])
+        let current = try XCTUnwrap(buttons(in: view).first { $0.title == "候補9" })
+        view.update(page: CandidatePage(entries: [], selectionIndex: nil), numbers: [:], fontSize: 14)
+        current.performClick(nil)
         XCTAssertEqual(selected, [9])
     }
 

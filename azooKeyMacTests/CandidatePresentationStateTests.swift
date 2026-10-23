@@ -5,149 +5,58 @@ import XCTest
 
 @MainActor
 final class CandidatePresentationStateTests: XCTestCase {
-    private let entries = [CandidateTree.Entry(text: "日本語", tokens: [.init(text: "日本語")], candidateIndex: 7)]
-
-    private func descendants(in view: NSView) -> [NSView] {
-        view.subviews.flatMap { [$0] + descendants(in: $0) }
+    private func descendants(_ view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants($0) }
     }
 
-    private func confirm(in view: NSView) throws -> NSButton {
-        try XCTUnwrap(descendants(in: view).compactMap { $0 as? NSButton }.first {
-            $0.accessibilityIdentifier() == "candidate-confirm"
-        })
-    }
-
-    func testComposingCandidateIsAProposalAndItsButtonDoesNotAdvertiseEnter() throws {
+    func testBothInputPhasesOmitHeadingsDetailsAndActionButtons() {
         let view = CandidateTreeView()
-        var submissions: [Int] = []
-        view.onCandidateSubmitted = { submissions.append($0) }
-        view.update(entries: entries, selectionIndex: 7)
-        let heading = descendants(in: view).compactMap { $0 as? NSTextField }
-        XCTAssertTrue(heading.contains { $0.stringValue == Localization.text("candidate.proposal") })
-        XCTAssertEqual(view.accessibilityLabel(), Localization.text("candidate.proposal"))
-        let button = try confirm(in: view)
-        XCTAssertEqual(button.title, Localization.text("candidate.submitCandidate"))
-        XCTAssertFalse(button.title.contains("↵"))
-        XCTAssertEqual(button.accessibilityLabel(), Localization.text("candidate.submitCandidate"))
-        button.performClick(nil)
-        button.performClick(nil)
-        XCTAssertEqual(submissions, [7], "The explicit button still submits the actual candidate once")
+        let entries = [CandidateTree.Entry(text: "候補", tokens: [], candidateIndex: 0)]
+        let removedIdentifiers = ["candidate-confirm", "candidate-tree-toggle", "candidate-details-toggle", "candidate-details"]
+        let removedKeys = ["candidate.composition", "candidate.proposal", "candidate.selectHint", "candidate.nextPage",
+                           "candidate.previousPage", "candidate.openTree", "candidate.openDetails", "candidate.submit"]
+        for converting in [false, true] {
+            view.update(entries: entries, selectionIndex: 0, numbers: [0: "1"], enterConfirmsCandidate: converting)
+            let children = descendants(view)
+            XCTAssertFalse(children.contains { removedIdentifiers.contains($0.accessibilityIdentifier() ?? "") })
+            let labels = children.compactMap { ($0 as? NSTextField)?.stringValue }
+            XCTAssertFalse(removedKeys.contains { labels.contains(Localization.text($0)) })
+            let buttons = children.compactMap { $0 as? NSButton }
+            XCTAssertTrue(buttons.allSatisfy { $0 is TreeButton || $0 is CandidateRowButton })
+            XCTAssertFalse(buttons.contains { $0.acceptsFirstResponder })
+            XCTAssertEqual(labels.filter { $0.contains("/") }, ["1/1"])
+        }
     }
 
-    func testOnlyTheInputStatesEnterContractChangesTheDisplayedCommitHint() throws {
+    func testChangingInputPhaseRetiresOldRowsAndTreeActions() throws {
         let view = CandidateTreeView()
-        var selections: [Int] = []
-        var submissions: [Int] = []
-        view.onSelectionChanged = { selections.append($0) }
-        view.onCandidateSubmitted = { submissions.append($0) }
+        let entries = [CandidateTree.Entry(text: "候補", tokens: [], candidateIndex: 7)]
+        var selected: [Int] = []
+        view.onSelectionChanged = { selected.append($0) }
         view.update(entries: entries, selectionIndex: 7)
-        try XCTUnwrap(descendants(in: view).compactMap { $0 as? TreeButton }.first).performClick(nil)
-        XCTAssertEqual(selections, [7])
-        XCTAssertTrue(submissions.isEmpty)
-        XCTAssertEqual(try confirm(in: view).title, Localization.text("candidate.submitCandidate"))
-
+        let oldWord = try XCTUnwrap(descendants(view).compactMap { $0 as? TreeButton }.first)
         view.update(entries: entries, selectionIndex: 7, enterConfirmsCandidate: true)
-        XCTAssertTrue(descendants(in: view).compactMap { $0 as? NSTextField }.contains {
-            $0.stringValue == Localization.text("candidate.composition")
-        })
-        XCTAssertEqual(view.accessibilityLabel(), Localization.text("candidate.composition"))
-        XCTAssertEqual(try confirm(in: view).title, Localization.text("candidate.submit") + "  ↵")
-        XCTAssertEqual(selections, [7], "A presentation update never selects or submits a candidate")
-        XCTAssertTrue(submissions.isEmpty)
-    }
-
-    func testChangingInputModeRetiresOldConfirmAndRowActionsEvenWhenTheCandidateIsIdentical() throws {
-        let view = CandidateTreeView()
-        var selections: [Int] = []
-        var submissions: [Int] = []
-        view.onSelectionChanged = { selections.append($0) }
-        view.onCandidateSubmitted = { submissions.append($0) }
+        oldWord.performClick(nil)
+        XCTAssertTrue(selected.isEmpty)
+        let oldRow = try XCTUnwrap(descendants(view).compactMap { $0 as? CandidateRowButton }.first)
+        oldRow.performClick(nil)
+        XCTAssertEqual(selected, [7])
         view.update(entries: entries, selectionIndex: 7)
-        let proposalConfirm = try confirm(in: view)
-        let proposalRow = try XCTUnwrap(descendants(in: view).compactMap { $0 as? CandidateRowButton }.first)
-        try XCTUnwrap(descendants(in: view).compactMap { $0 as? NSButton }.first {
-            $0.title == Localization.text("candidate.openTree")
-        }).performClick(nil)
-        let proposalNode = try XCTUnwrap(descendants(in: view).compactMap { $0 as? TreeButton }.first)
-        view.update(entries: entries, selectionIndex: 7, enterConfirmsCandidate: true)
-        let selectedConfirm = try confirm(in: view)
-        proposalConfirm.performClick(nil)
-        proposalRow.performClick(nil)
-        proposalNode.performClick(nil)
-        XCTAssertTrue(selections.isEmpty)
-        XCTAssertTrue(submissions.isEmpty)
-
-        view.update(entries: entries, selectionIndex: 7, enterConfirmsCandidate: false)
-        selectedConfirm.performClick(nil)
-        XCTAssertTrue(submissions.isEmpty)
-        try confirm(in: view).performClick(nil)
-        XCTAssertEqual(submissions, [7])
-        XCTAssertFalse(descendants(in: view).compactMap { $0 as? NSButton }.contains { $0.acceptsFirstResponder })
+        oldRow.performClick(nil)
+        XCTAssertEqual(selected, [7])
     }
 
-    func testCompactCandidateRowsKeepBothTextSizesAndAtLeastA44PointPointerTarget() throws {
-        let page = CandidatePage(entries: entries, selectionIndex: 7)
-        for size: CGFloat in [18, 24] {
-            let item = try XCTUnwrap(page.items.first)
-            let button = CandidateRowButton(item: item, number: "1", fontSize: size)
-            let height = button.preferredHeight(width: 464)
-            XCTAssertEqual(button.font?.pointSize, size)
-            XCTAssertGreaterThanOrEqual(height, 44)
-            XCTAssertLessThan(height, 52, "Short rows reduce padding while keeping the text and pointer target")
+    func testShortRowsFitDesktopSizesAndGrowForLargerText() throws {
+        let page = CandidatePage(entries: [.init(text: "日本語", tokens: [], candidateIndex: 0)], selectionIndex: 0)
+        var heights: [CGFloat] = []
+        for size in Config.CandidateTextSize.Value.allCases {
+            let points = MacCandidateMetrics.fontSize(size)
+            let row = CandidateRowButton(item: try XCTUnwrap(page.items.first), number: "1", fontSize: points)
+            let height = row.preferredHeight(width: 180)
+            XCTAssertGreaterThan(height, try XCTUnwrap(row.font).ascender - try XCTUnwrap(row.font).descender)
+            XCTAssertLessThan(height, 36)
+            heights.append(height)
         }
-    }
-
-    func testNarrowFooterStacksActionsWithoutClippingTheConfirmTarget() throws {
-        for width: CGFloat in [320, 480] {
-            let view = CandidateActionsView(frame: .zero)
-            view.update(candidateIndex: 7, generation: 1, treeExpanded: false, detailsExpanded: false,
-                        enterConfirmsCandidate: false)
-            view.setFrameSize(NSSize(width: width, height: view.preferredHeight(width: width)))
-            view.layoutSubtreeIfNeeded()
-            let buttons = descendants(in: view).compactMap { $0 as? NSButton }
-            XCTAssertEqual(buttons.count, 3)
-            for button in buttons {
-                XCTAssertTrue(view.bounds.contains(button.frame))
-                XCTAssertGreaterThanOrEqual(button.frame.height, 38)
-                XCTAssertGreaterThanOrEqual(button.frame.width, 44)
-                XCTAssertFalse(button.acceptsFirstResponder)
-            }
-            let confirmFrame = try confirm(in: view).frame
-            XCTAssertFalse(buttons.filter { $0.accessibilityIdentifier() != "candidate-confirm" }.contains {
-                $0.frame.intersects(confirmFrame)
-            })
-        }
-    }
-
-    func testDisclosureActionsFromAnOldCandidateGenerationOrInputModeCannotToggleTheCurrentView() throws {
-        let view = CandidateActionsView(frame: .zero)
-        var treeToggles = 0
-        var detailToggles = 0
-        view.onTreeToggle = { treeToggles += 1 }
-        view.onDetailsToggle = { detailToggles += 1 }
-        view.update(candidateIndex: 7, generation: 1, treeExpanded: false, detailsExpanded: false,
-                    enterConfirmsCandidate: false)
-        let oldButtons = descendants(in: view).compactMap { $0 as? NSButton }.filter {
-            $0.accessibilityIdentifier() != "candidate-confirm"
-        }
-        view.update(candidateIndex: 7, generation: 2, treeExpanded: false, detailsExpanded: false,
-                    enterConfirmsCandidate: false)
-        oldButtons.forEach { $0.performClick(nil) }
-        XCTAssertEqual(treeToggles, 0)
-        XCTAssertEqual(detailToggles, 0)
-
-        let composingButtons = descendants(in: view).compactMap { $0 as? NSButton }.filter {
-            $0.accessibilityIdentifier() != "candidate-confirm"
-        }
-        view.update(candidateIndex: 7, generation: 2, treeExpanded: false, detailsExpanded: false,
-                    enterConfirmsCandidate: true)
-        composingButtons.forEach { $0.performClick(nil) }
-        XCTAssertEqual(treeToggles, 0)
-        XCTAssertEqual(detailToggles, 0)
-        descendants(in: view).compactMap { $0 as? NSButton }.filter {
-            $0.accessibilityIdentifier() != "candidate-confirm"
-        }.forEach { $0.performClick(nil) }
-        XCTAssertEqual(treeToggles, 1)
-        XCTAssertEqual(detailToggles, 1)
+        XCTAssertGreaterThan(heights[1], heights[0])
     }
 }

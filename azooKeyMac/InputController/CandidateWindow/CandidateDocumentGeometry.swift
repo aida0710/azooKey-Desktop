@@ -28,7 +28,7 @@ struct CandidateDocumentGeometry {
     }
 
     func fits(in bounds: CGRect) -> Bool {
-        let popupWidth = max(CandidateDetailView.minimumWidth, widths.reduce(12, +))
+        let popupWidth = max(MacCandidateMetrics.minimumListWidth, widths.reduce(12, +))
         return bounds.contains(anchor) && anchor.x + popupWidth <= bounds.maxX
     }
 }

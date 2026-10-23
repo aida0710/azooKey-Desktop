@@ -10,11 +10,6 @@ final class CandidateTreePanel: NSPanel {
 /// A projection of complete, real candidates. Rendering never emits input events.
 @MainActor
 final class CandidateTreeView: NSView {
-    private enum DetailTarget {
-        case node(Int)
-        case candidate(Int)
-    }
-
     var onSelectionChanged: ((Int) -> Void)?
     var onCandidateSubmitted: ((Int) -> Void)?
     var onLayoutChanged: (() -> Void)?
@@ -23,19 +18,13 @@ final class CandidateTreeView: NSView {
     private var candidatePage = CandidatePage(entries: [], selectionIndex: nil)
     private var selection = CandidateTreeSelection(tree: CandidateTree(entries: []), candidateIndex: nil)
     private let scrollView = NSScrollView()
-    private let details = CandidateDetailView(frame: .zero)
-    private let composition = CandidateCompositionView(frame: .zero)
     private let navigation = CandidateNavigationView(frame: .zero)
-    private let actions = CandidateActionsView(frame: .zero)
     private let canvas = TreeCanvas()
     private var nodeButtons: [Int: TreeButton] = [:]
-    private var hoveredDetail: DetailTarget?
-    private weak var hoveredControl: NSButton?
     private var nodeFrames: [Int: NSRect] = [:]
     private var numberLabels: [Int: String] = [:]
     private var rebuilding = false
     private var displayedColumns: [[Int]] = []
-    private var layoutShowsNumbers = false
     private var documentWidths: [CGFloat]?
     private var scores: [Int: Int] = [:]
     private var scorePresentations: [Int: CandidateScorePresentation] = [:]
@@ -43,9 +32,10 @@ final class CandidateTreeView: NSView {
     private var announcedCandidate: Int?
     private var announcedNode: Int?
     private var textSize = Config.CandidateTextSize.Value.standard
-    private var fontSize: Double { CandidateTextMetrics.baseFontSize(textSize) }
+    private var fontSize: CGFloat { MacCandidateMetrics.fontSize(textSize) }
+    let definitions: WordDefinitionsModel
+    private let definitionCard = WordDefinitionsSideView(frame: .zero)
     private var treeExpanded = false
-    private var detailsExpanded = false
     private var generation: UInt = 0
     private var enterConfirmsCandidate = false
     private var revealedTreeSelection: TreeViewportSelection?
@@ -55,22 +45,24 @@ final class CandidateTreeView: NSView {
         var generation: UInt
         var isEditing: Bool
     }
-    // Optional branches stay scrollable without displacing the primary candidate list.
-    private let maximumTreeHeight: CGFloat = 220
-    // Detail text needs a readable line even when the selected word is one character.
-    private let minimumDetailWidth = CandidateDetailView.minimumWidth
+    // Long paths remain scrollable inside the small input window.
+    private let maximumTreeHeight: CGFloat = 160
     var hasDocumentAlignment: Bool { documentWidths != nil }
-    private var treePreferredSize = NSSize(width: 80, height: 46)
-    private var showsTree: Bool { !tree.nodes.isEmpty && (!enterConfirmsCandidate || treeExpanded) }
+    private var treePreferredSize = NSSize(width: 80, height: 26)
+    private var showsTree: Bool { !tree.nodes.isEmpty && !enterConfirmsCandidate }
+    private var candidateWidth: CGFloat { enterConfirmsCandidate ? navigation.preferredWidth : treePreferredSize.width }
+    private var candidateHeight: CGFloat {
+        enterConfirmsCandidate ? navigation.preferredHeight(width: candidateWidth) : min(maximumTreeHeight, treePreferredSize.height)
+    }
+    private var showsDefinition: Bool { enterConfirmsCandidate && definitionCard.hasDefinition }
     var preferredSize: NSSize {
-        let width = showsTree ? treePreferredSize.width : minimumDetailWidth
-        let menuHeight = enterConfirmsCandidate ? composition.preferredHeight(width: width) + navigation.preferredHeight(width: width) : 0
-        let height = menuHeight + actions.preferredHeight(width: width) + (showsTree ? min(maximumTreeHeight, treePreferredSize.height) : 0) +
-            (detailsExpanded ? CandidateDetailView.maximumHeight : 0)
+        let width = candidateWidth + (showsDefinition ? MacCandidateMetrics.cardGap + MacCandidateMetrics.definitionWidth : 0)
+        let height = max(candidateHeight, showsDefinition ? navigation.selectedRowTop + definitionCard.preferredHeight : 0)
         return NSSize(width: width, height: height)
     }
 
-    override init(frame: NSRect) {
+    init(frame: NSRect, definitions: WordDefinitionsModel) {
+        self.definitions = definitions
         super.init(frame: frame)
         scrollView.documentView = canvas
         scrollView.hasHorizontalScroller = true
@@ -85,69 +77,50 @@ final class CandidateTreeView: NSView {
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(refreshAppearance),
                                                            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
         addSubview(scrollView)
-        addSubview(details)
-        addSubview(composition)
         addSubview(navigation)
-        addSubview(actions)
-        navigation.onSelection = { [weak self] index in
-            self?.selectCandidate(index)
-        }
-        navigation.onPreview = { [weak self] index, button, hovered in
-            self?.changeDetailHover(.candidate(index), control: button, hovered: hovered)
-        }
-        actions.onTreeToggle = { [weak self] in
+        addSubview(definitionCard)
+        navigation.onSelection = { [weak self] index in self?.selectCandidate(index) }
+        definitions.onChange = { [weak self] in self?.refreshDefinitionCard() }
+        definitions.availability.onChange = { [weak self] in
             guard let self else {
                 return
             }
-            self.treeExpanded.toggle()
-            self.generation &+= 1
-            self.retireTreeControls()
-            self.refreshSelection()
-            self.onLayoutChanged?()
+            self.navigation.updateDefinitions(availableIndices: self.definitions.availability.availableCandidateIndices)
         }
-        actions.onDetailsToggle = { [weak self] in
-            guard let self else {
-                return
-            }
-            self.detailsExpanded.toggle()
-            self.refreshSelection()
-            self.onLayoutChanged?()
-        }
-        actions.onSubmit = { [weak self] index in self?.submit(candidateIndex: index) }
         scrollView.isHidden = true
-        details.isHidden = true
-        details.setAccessibilityIdentifier("candidate-details")
         scrollView.setAccessibilityIdentifier("candidate-segments")
         setAccessibilityLabel(Localization.text("candidate.proposal"))
         refreshAppearance()
     }
 
+    override convenience init(frame: NSRect) { self.init(frame: frame, definitions: WordDefinitionsModel()) }
     convenience init() { self.init(frame: .zero) }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func layout() {
         super.layout()
-        let actionHeight = min(actions.preferredHeight(width: bounds.width), bounds.height)
-        let available = max(0, bounds.height - actionHeight)
-        let compositionHeight = enterConfirmsCandidate ? composition.preferredHeight(width: bounds.width) : 0
-        let navigationHeight = enterConfirmsCandidate ? navigation.preferredHeight(width: bounds.width) : 0
-        let treeHeight = showsTree ? min(maximumTreeHeight, treePreferredSize.height) : 0
-        let detailHeight = detailsExpanded ? CandidateDetailView.maximumHeight : 0
-        let scale = min(1, available / max(1, compositionHeight + navigationHeight + treeHeight + detailHeight))
-        var top = bounds.height
-        for (view, height) in [(composition as NSView, compositionHeight * scale),
-                               (navigation, navigationHeight * scale),
-                               (scrollView, treeHeight * scale), (details, detailHeight * scale)] {
-            top -= height
-            view.frame = NSRect(x: 0, y: top, width: bounds.width, height: height)
+        let width = min(bounds.width, candidateWidth)
+        let height = min(bounds.height, candidateHeight)
+        let candidateFrame = NSRect(x: 0, y: bounds.height - height, width: width, height: height)
+        navigation.frame = candidateFrame
+        navigation.layoutSubtreeIfNeeded()
+        scrollView.frame = candidateFrame
+        definitionCard.isHidden = !showsDefinition
+        if showsDefinition {
+            let cardHeight = min(bounds.height, definitionCard.preferredHeight)
+            definitionCard.frame = NSRect(x: width + MacCandidateMetrics.cardGap,
+                y: max(0, bounds.height - navigation.selectedRowTop - cardHeight),
+                width: MacCandidateMetrics.definitionWidth, height: cardHeight)
         }
-        actions.frame = NSRect(x: 0, y: 0, width: bounds.width, height: actionHeight)
         updateVisibleControls()
     }
 
     override func draw(_ dirtyRect: NSRect) {
         CandidateTheme.palette(for: effectiveAppearance).background.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill()
+        let frame = NSRect(x: 0, y: max(0, bounds.height - candidateHeight),
+                           width: min(bounds.width, candidateWidth), height: min(bounds.height, candidateHeight))
+        NSBezierPath(roundedRect: frame, xRadius: MacCandidateMetrics.cornerRadius,
+                     yRadius: MacCandidateMetrics.cornerRadius).fill()
     }
 
     @objc private func viewportChanged() { updateVisibleControls() }
@@ -162,10 +135,8 @@ final class CandidateTreeView: NSView {
         canvas.needsDisplay = true
         nodeButtons.values.forEach { $0.needsDisplay = true }
         let palette = CandidateTheme.palette(for: effectiveAppearance)
-        details.applyPalette(palette)
-        composition.applyPalette(palette)
+        definitionCard.applyPalette(palette)
         navigation.applyPalette(palette)
-        actions.subviews.forEach { $0.needsDisplay = true }
     }
 
     func update(entries: [CandidateTree.Entry], selectionIndex: Int?, numbers: [Int: String] = [:],
@@ -173,7 +144,7 @@ final class CandidateTreeView: NSView {
         let updatedTree = CandidateTree(entries: entries)
         let size = Config.CandidateTextSize().value
         let scoresVisible = Config.ShowRelativeScores().value
-        let minimumColumnWidth = CGFloat(CandidateTextMetrics.baseFontSize(size)) + (numbers.isEmpty ? 8 : 14)
+        let minimumColumnWidth = MacCandidateMetrics.fontSize(size) + 8
         let readableWidths = documentWidths?.allSatisfy { $0 >= minimumColumnWidth } == true ? documentWidths : nil
         let changed = updatedTree != tree || self.documentWidths != readableWidths || textSize != size || showsScores != scoresVisible
         let phaseChanged = self.enterConfirmsCandidate != enterConfirmsCandidate
@@ -183,7 +154,6 @@ final class CandidateTreeView: NSView {
         }
         if phaseChanged {
             treeExpanded = false
-            detailsExpanded = false
             revealedTreeSelection = nil
         }
         self.documentWidths = readableWidths
@@ -195,7 +165,6 @@ final class CandidateTreeView: NSView {
         tree = updatedTree
         if entries.isEmpty {
             treeExpanded = false
-            detailsExpanded = false
         }
         numberLabels = numbers
         candidatePage = CandidatePage(entries: entries, selectionIndex: selectionIndex, pageStart: numbers.keys.min())
@@ -207,19 +176,12 @@ final class CandidateTreeView: NSView {
     }
 
     @discardableResult
-    func scrollDetails(forward: Bool) -> Bool {
-        guard !tree.nodes.isEmpty else {
+    func movePage(forward: Bool) -> Bool {
+        guard enterConfirmsCandidate, !entries.isEmpty else {
             return false
         }
-        if detailsExpanded {
-            details.scrollPage(forward: forward)
-        } else if enterConfirmsCandidate {
-            composition.scrollPage(forward: forward)
-        } else {
-            detailsExpanded = true
-            refreshSelection()
-            onLayoutChanged?()
-            details.scrollPage(forward: forward)
+        if let index = forward ? candidatePage.nextIndex : candidatePage.previousIndex {
+            selectCandidate(index)
         }
         return true
     }
@@ -288,13 +250,11 @@ final class CandidateTreeView: NSView {
         nodeFrames.removeAll()
         var rows: [Int: CGFloat] = [:]
         displayedColumns = presentationColumns
-        layoutShowsNumbers = !numberLabels.isEmpty
         var widths: [Int: CGFloat] = [:]
         let aligned = documentWidths?.count == displayedColumns.count
-        // A number shares the word's action and fits below its text, including the 24-point setting.
-        let rowHeight = TreeButton.preferredHeight(fontSize: fontSize, hasNumber: layoutShowsNumbers)
+        let rowHeight = TreeButton.preferredHeight(fontSize: fontSize)
         let scoreHeight = showsScores ? CandidateScoreBadge.lineHeight : 0
-        let rowGap: CGFloat = 4 // Separate candidate actions even when the score line is hidden.
+        let rowGap: CGFloat = 2 // Separate candidate actions even when the score line is hidden.
         let rowPitch: CGFloat = rowHeight + scoreHeight + rowGap
         for (depth, column) in displayedColumns.enumerated() {
             for (row, id) in column.enumerated() {
@@ -311,9 +271,9 @@ final class CandidateTreeView: NSView {
             x += (widths[depth] ?? rowHeight) + (aligned ? 0 : 12)
         }
         let rowCount = displayedColumns.map(\.count).max() ?? 0
-        let contentSize = NSSize(width: max(60, x), height: max(44, CGFloat(rowCount) * rowPitch + 6))
+        let contentSize = NSSize(width: max(60, x), height: max(26, CGFloat(rowCount) * rowPitch + 6))
         canvas.frame = NSRect(origin: .zero, size: contentSize)
-        treePreferredSize = NSSize(width: max(minimumDetailWidth, aligned ? contentSize.width : min(760, contentSize.width)),
+        treePreferredSize = NSSize(width: aligned ? contentSize.width : min(640, contentSize.width),
                                   height: contentSize.height)
         canvas.edges = []
         for id in displayedColumns.flatMap({ $0 }) {
@@ -342,14 +302,6 @@ final class CandidateTreeView: NSView {
         return columns
     }
 
-    private func candidateNumber(nodeID: Int) -> String? {
-        // A shared word may preserve a full candidate; its badge must name that same action.
-        guard let index = tree.preferredCandidate(at: nodeID, preserving: selection.selectedCandidateIndex) else {
-            return nil
-        }
-        return numberLabels[index]
-    }
-
     private func retireTreeControls() {
         nodeButtons.values.forEach { $0.removeFromSuperview() }
         nodeButtons.removeAll()
@@ -362,7 +314,6 @@ final class CandidateTreeView: NSView {
         guard showsTree else {
             retireTreeControls()
             setAccessibilitySelectedChildren(enterConfirmsCandidate ? navigation.selectedCandidateControls : [])
-            refreshDetails()
             return
         }
         let viewport = canvas.visibleRect.isEmpty ? NSRect(origin: .zero, size: preferredSize) : canvas.visibleRect
@@ -386,12 +337,10 @@ final class CandidateTreeView: NSView {
                 }
                 self.selectNode(node.id)
             }
-            observeDetailHover(button, target: .node(node.id))
             canvas.addSubview(button)
             nodeButtons[id] = button
         }
         refreshControlAppearance()
-        refreshDetails()
     }
 
     private func refreshControlAppearance() {
@@ -403,10 +352,6 @@ final class CandidateTreeView: NSView {
             button.font = .systemFont(ofSize: fontSize)
             button.toolTip = token.reading.isEmpty ? token.text : "\(token.text)（\(token.reading)）"
             button.setAccessibilityLabel(button.toolTip)
-            button.candidateNumber = candidateNumber(nodeID: id)
-            if let number = button.candidateNumber {
-                button.toolTip! += "\n" + String(format: Localization.text("candidate.numberBadge"), number)
-            }
             if let presentation = scorePresentations[id] {
                 button.toolTip! += "\n" + presentation.detailDescription
             }
@@ -429,15 +374,10 @@ final class CandidateTreeView: NSView {
                                       pageStart: numberLabels.keys.min())
         navigation.update(page: candidatePage, numbers: numberLabels, fontSize: fontSize, generation: generation)
         navigation.isHidden = !enterConfirmsCandidate || entries.isEmpty
-        let currentEntry = selection.selectedCandidateIndex.flatMap { tree.entry(candidateIndex: $0) }
-        composition.update(entry: currentEntry, fontSize: fontSize, enterConfirmsCandidate: enterConfirmsCandidate)
-        composition.isHidden = !enterConfirmsCandidate
-        actions.update(candidateIndex: selection.selectedCandidateIndex, generation: generation,
-                       treeExpanded: treeExpanded, detailsExpanded: detailsExpanded, enterConfirmsCandidate: enterConfirmsCandidate)
         scrollView.isHidden = !showsTree
-        details.isHidden = !detailsExpanded
+        updateDefinitions()
         needsLayout = true
-        if displayedColumns != presentationColumns || layoutShowsNumbers != !numberLabels.isEmpty { rebuild() }
+        if displayedColumns != presentationColumns { rebuild() }
         scores = tree.relativeScores(candidateIndex: selection.selectedCandidateIndex)
         scorePresentations = showsScores ? Dictionary(uniqueKeysWithValues: nodeFrames.keys.map {
             ($0, CandidateScorePresentation(relativeScore: scores[$0]))
@@ -466,71 +406,22 @@ final class CandidateTreeView: NSView {
         announcedNode = selection.focusedNodeID
     }
 
-    private func observeDetailHover(_ button: TreeButton, target: DetailTarget) {
-        button.hovered = { [weak self, weak button] hovered in
-            guard let self, let button else {
-                return
-            }
-            self.changeDetailHover(target, control: button, hovered: hovered)
-        }
+    private func updateDefinitions() {
+        let targets: [WordDefinitionsModel.Target] = enterConfirmsCandidate ? candidatePage.items.map {
+            .init(generation: generation, candidateIndex: $0.index, nodeID: 0, word: $0.text, reading: $0.reading)
+        } : []
+        definitions.availability.update(targets: targets)
+        definitions.update(target: targets.first { $0.candidateIndex == selection.selectedCandidateIndex })
+        navigation.updateDefinitions(availableIndices: definitions.availability.availableCandidateIndices)
+        refreshDefinitionCard()
     }
 
-    private func isCurrentDetailControl(_ control: NSButton, target: DetailTarget) -> Bool {
-        switch target {
-        case .node(let id):
-            return showsTree && nodeButtons[id] === control
-        case .candidate(let index):
-            return navigation.isCurrentCandidateButton(control, candidateIndex: index)
-        }
-    }
-
-    private func changeDetailHover(_ target: DetailTarget, control: NSButton, hovered: Bool) {
-        if hovered {
-            guard isCurrentDetailControl(control, target: target) else {
-                return
-            }
-            hoveredDetail = target
-            hoveredControl = control
-        } else {
-            // A late exit from the previous control must not clear a newer hover.
-            guard hoveredControl === control else {
-                return
-            }
-            hoveredDetail = nil
-            hoveredControl = nil
-        }
-        refreshDetails()
-    }
-
-    private func refreshDetails() {
-        if let target = hoveredDetail, let control = hoveredControl, isCurrentDetailControl(control, target: target) {
-            switch target {
-            case .node(let id): showDetails(nodeID: id)
-            case .candidate(let index): showCandidateDetails(candidateIndex: index)
-            }
-        } else {
-            hoveredDetail = nil
-            hoveredControl = nil
-            showDetails(nodeID: selection.focusedNodeID ?? displayedColumns.first?.first)
-        }
-    }
-
-    private func showDetails(nodeID: Int?) {
-        guard let nodeID, tree.nodes.indices.contains(nodeID) else {
-            details.update(text: "", fontSize: CGFloat(fontSize))
-            return
-        }
-        let token = tree.nodes[nodeID].token
-        let word = token.reading.isEmpty ? token.text : "\(token.text)\n\(token.reading)"
-        let preview = tree.preview(at: nodeID, preserving: selection.selectedCandidateIndex)?.detailDescription
-        let description = [word, preview, scorePresentations[nodeID]?.detailDescription, Localization.text("candidate.detailKeys")]
-            .compactMap { $0 }.joined(separator: "\n")
-        details.update(text: description, fontSize: CGFloat(fontSize))
-    }
-
-    private func showCandidateDetails(candidateIndex: Int) {
-        // A shared word and its adjacent number may commit different entries.
-        let preview = candidatePage.items.first { $0.index == candidateIndex }?.detailDescription ?? ""
-        details.update(text: preview, fontSize: CGFloat(fontSize))
+    private func refreshDefinitionCard() {
+        let previousSize = preferredSize
+        definitionCard.update(word: definitions.target?.word, result: definitions.result, fontSize: fontSize)
+        definitionCard.isHidden = !showsDefinition
+        needsLayout = true
+        needsDisplay = true
+        if preferredSize != previousSize { onLayoutChanged?() }
     }
 }
