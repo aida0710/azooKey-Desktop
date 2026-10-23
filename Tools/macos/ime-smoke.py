@@ -21,6 +21,7 @@ import time
 
 from smoke_evidence import Evidence, require_success
 from smoke_package import install_package
+from smoke_input_diagnostics import diagnose_input
 
 JAPANESE_SOURCE = "dev.ensan.inputmethod.azooKeyMac.Japanese"
 # Registration and app startup are asynchronous; poll their state up to a deadline.
@@ -181,6 +182,8 @@ def main():
         launched = evidence.run("launch-ime", ["open", "-a", str(app)])
         outcome["explicitLaunchRequested"] = launched.returncode == 0
         exercise_input(evidence, input_source, send_keys, outcome=outcome)
+        if not outcome.get("japaneseConversionPassed"):
+            diagnose_input(evidence, input_source, send_keys)
     except Exception as error:
         outcome["error"] = str(error)
         print(f"Smoke test error: {error}", flush=True)
