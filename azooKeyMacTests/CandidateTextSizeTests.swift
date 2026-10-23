@@ -20,7 +20,8 @@ final class CandidateTextSizeTests: XCTestCase {
         var previousWidth: CGFloat?
         var previousRowHeight: CGFloat?
 
-        for (size, expectedPoints) in [(Config.CandidateTextSize.Value.standard, CGFloat(18)), (.large, CGFloat(24))] {
+        for size in [Config.CandidateTextSize.Value.standard, .large] {
+            let expectedPoints = CGFloat(CandidateTextMetrics.baseFontSize(size))
             preference.value = size
             controller.updateCandidatePresentations(presentations, selectionIndex: 0, cursorLocation: .zero)
             let width = controller.getWindowWidth(maxContentWidth: controller.getMaxTextWidth(candidates: words))
