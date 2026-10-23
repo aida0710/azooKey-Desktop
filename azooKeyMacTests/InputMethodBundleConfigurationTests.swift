@@ -12,7 +12,7 @@ final class InputMethodBundleConfigurationTests: XCTestCase {
         let propertiesURL = repositoryURL.appendingPathComponent("azooKeyMac/Info.plist")
         let properties = try XCTUnwrap(
             PropertyListSerialization.propertyList(
-                from: Data(contentsOf: propertiesURL), options: [], format: nil
+                from: Data(contentsOf: propertiesURL), options: .init(), format: nil
             ) as? [String: Any]
         )
         let controllerName = try XCTUnwrap(properties["InputMethodServerControllerClass"] as? String)

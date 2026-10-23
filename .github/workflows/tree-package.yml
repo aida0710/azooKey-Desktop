@@ -8,6 +8,7 @@ on:
         default: '0.1.0'
 permissions:
   contents: read
+  actions: read
 jobs:
   linux:
     strategy:

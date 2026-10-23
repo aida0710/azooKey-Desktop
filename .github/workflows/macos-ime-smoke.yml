@@ -8,11 +8,14 @@ on:
   workflow_dispatch:
     inputs:
       source:
-        description: Build this revision or install a published release
+        description: Build this revision, install a release, or retest a workflow artifact
         required: true
         default: build
         type: choice
-        options: [build, release]
+        options: [build, release, artifact]
+      artifact-run-id:
+        description: Workflow run containing macos-arm64 (used only with source=artifact)
+        type: string
       version:
         description: Version to use when building this revision
         required: true
@@ -54,6 +57,7 @@ on:
         default: both
 permissions:
   contents: read
+  actions: read
 jobs:
   build:
     if: github.event_name != 'push' && inputs.source == 'build'
@@ -101,6 +105,8 @@ jobs:
         with:
           name: ${{ inputs.artifact || 'macos-arm64' }}
           path: ${{ runner.temp }}/packages
+          run-id: ${{ inputs.artifact-run-id || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Install package and exercise the input method
         env:
           GH_TOKEN: ${{ github.token }}

@@ -31,11 +31,28 @@ func select(_ identifier: String) -> Bool {
         return false
     }
     let alreadyEnabled = property(source, kTISPropertyInputSourceIsEnabled) as? Bool == true
+    let alreadySelected = property(source, kTISPropertyInputSourceIsSelected) as? Bool == true
+    var notificationObserved = false
+    let center = DistributedNotificationCenter.default()
+    let observer = center.addObserver(
+        forName: Notification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),
+        object: nil, queue: .main
+    ) { _ in notificationObserved = true }
+    defer { center.removeObserver(observer) }
     let enableStatus = alreadyEnabled ? noErr : TISEnableInputSource(source)
     let selectStatus = TISSelectInputSource(source)
+    // Keep the selecting process alive until the distributed change is delivered.
+    // Merely reading its own TIS cache does not establish delivery to the editor.
+    let notificationTimeout: TimeInterval = 5
+    let deadline = Date().addingTimeInterval(notificationTimeout)
+    while selectStatus == noErr && !alreadySelected && !notificationObserved && Date() < deadline {
+        RunLoop.current.run(mode: .default, before: deadline)
+    }
     let current = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
-    printJSON(["enableStatus": enableStatus, "selectStatus": selectStatus, "current": describe(current)])
+    printJSON(["enableStatus": enableStatus, "selectStatus": selectStatus, "current": describe(current),
+               "notificationObserved": notificationObserved, "alreadySelected": alreadySelected])
     return enableStatus == noErr && selectStatus == noErr
+        && (alreadySelected || notificationObserved)
         && property(current, kTISPropertyInputSourceID) as? String == identifier
 }
 

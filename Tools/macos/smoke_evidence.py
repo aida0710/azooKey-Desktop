@@ -130,7 +130,9 @@ class Evidence:
         self.run("inputmethod-system-log", ["/usr/bin/log", "show", "--start", start,
                  "--style", "compact", "--info", "--debug", "--predicate",
                  'process == "tccd" OR process == "TextEdit" OR '
-                 '(eventMessage CONTAINS[c] "azooKey") OR subsystem CONTAINS[c] "InputMethod"'])
+                 'process == "imklaunchagent" OR process == "TextInputMenuAgent" OR '
+                 '(eventMessage CONTAINS[c] "azooKey") OR subsystem CONTAINS[c] "InputMethod" OR '
+                 'subsystem CONTAINS[c] "HIToolbox"'])
         self.run("input-source-preferences", ["defaults", "read", "com.apple.HIToolbox"])
         self.screenshot("screen-final")
         crash_directory = self.directory / "DiagnosticReports"

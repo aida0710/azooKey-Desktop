@@ -74,6 +74,11 @@ def register_source(evidence, input_source, app):
             parent_enabled = any(source["id"] == "dev.ensan.inputmethod.azooKeyMac" and source["enabled"] for source in sources)
             japanese_available = any(source["id"] == JAPANESE_SOURCE for source in sources)
             if parent_enabled and japanese_available:
+                # The initial helper can exit before the consent sheet is approved.
+                # Repeat the enable request with consent already granted.
+                require_success(evidence.run("register-after-consent", [input_source, "register", app]),
+                                "Enable input method after consent")
+                evidence.run("preferences-after-registration", ["defaults", "read", "com.apple.HIToolbox"])
                 evidence.screenshot("screen-registration-enabled")
                 return
         if time.monotonic() >= deadline:
