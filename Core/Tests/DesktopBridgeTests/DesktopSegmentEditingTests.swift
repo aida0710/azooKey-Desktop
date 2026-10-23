@@ -144,8 +144,10 @@ import Testing
     @Test func unavailableNumberOnTheLastPagePreservesSelectionAndInputState() throws {
         try withSession(liveConversion: false, treeCandidates: true) { session in
             var snapshot = try beginSelecting(session)
-            let last = try #require(snapshot.candidates.last)
-            snapshot = session.select(candidateIndex: last.index, submit: false, expectedGeneration: snapshot.generation)
+            while let last = snapshot.candidates.last, last.index != snapshot.selection {
+                snapshot = session.select(candidateIndex: last.index, submit: false, expectedGeneration: snapshot.generation)
+            }
+            #expect(snapshot.candidatePage.nextIndex == nil)
             #expect(snapshot.candidatePage.items.count < CandidatePage.size, "The fixture needs a partial last page")
             let unchanged = session.key(.init(modifierFlags: [], characters: "9",
                                                charactersIgnoringModifiers: "9", keyCode: 25))

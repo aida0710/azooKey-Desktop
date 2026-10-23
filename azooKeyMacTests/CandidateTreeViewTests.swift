@@ -381,4 +381,36 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertEqual(submitted, [0])
     }
 
+    func testLiveTreeDrawsBothAlternativeContinuationsWithSeparateTargets() throws {
+        let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 900, height: 400))
+        let paths = [
+            ["今日は", "学会", "に行こうと", "思っています"],
+            ["きょうは", "学会", "に行こうと", "思っています"],
+            ["キョウハ", "学会", "に行こうと", "思っています"],
+            ["今日は", "学界", "に行こうと", "思っています"],
+            ["今日は", "がっかい", "に行こうと", "思っています"]
+        ]
+        let entries = paths.enumerated().map { index, words in
+            CandidateTree.Entry(text: words.joined(), tokens: words.map { .init(text: $0) }, candidateIndex: index)
+        }
+        view.update(entries: entries, selectionIndex: 0)
+        view.setFrameSize(view.preferredSize)
+        view.layoutSubtreeIfNeeded()
+        let controls = candidateButtons(in: view)
+        // Three distinct parent paths carry 学会, and two local alternatives
+        // share the selected parent. All five must have their own hit targets.
+        XCTAssertEqual(controls.filter { $0.title == "学会" }.count, 3)
+        XCTAssertEqual(controls.filter { $0.title == "に行こうと" }.count, 3)
+        XCTAssertEqual(controls.filter { $0.title == "思っています" }.count, 3)
+        XCTAssertTrue(controls.contains { $0.title == "学界" })
+        XCTAssertTrue(controls.contains { $0.title == "がっかい" })
+        for control in controls {
+            for other in controls where control !== other {
+                XCTAssertFalse(control.frame.intersects(other.frame))
+            }
+        }
+        let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        XCTAssertGreaterThan(bitmap.pixelsHigh, 0)
+    }
 }

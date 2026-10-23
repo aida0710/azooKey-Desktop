@@ -109,8 +109,17 @@ public struct CandidateDisplay: Encodable, Equatable, Sendable {
             return mode == .tree ? input.columns : []
         }
         let focusedColumn = input.columns.firstIndex { $0.contains(input.focusedNode ?? -1) } ?? 0
+        let nodes = Dictionary(input.nodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return input.columns.enumerated().map { depth, column in
-            depth == focusedColumn ? column : [input.selectedPath.indices.contains(depth) ? input.selectedPath[depth] : column[0]]
+            let selected = input.selectedPath.indices.contains(depth) ? input.selectedPath[depth] : column.first
+            guard let selected else {
+                return []
+            }
+            // Other paths' parents are collapsed in list mode, so their
+            // continuations must not appear to branch from the selected word.
+            return depth == focusedColumn
+                ? column.filter { nodes[$0]?.parent == nodes[selected]?.parent }
+                : [selected]
         }
     }
 

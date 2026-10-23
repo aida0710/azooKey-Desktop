@@ -33,18 +33,20 @@ public struct CandidateDisplayInput: Decodable, Sendable {
         public var relativeScore: Int?
         public var preview: Preview?
         public var previewDescription: String?
+        public var parent: Int?
 
-        public init(id: Int, text: String, reading: String, relativeScore: Int?, preview: Preview?, previewDescription: String?) {
+        public init(id: Int, text: String, reading: String, relativeScore: Int?, preview: Preview?, previewDescription: String?, parent: Int? = nil) {
             self.id = id
             self.text = text
             self.reading = reading
             self.relativeScore = relativeScore
             self.preview = preview
             self.previewDescription = previewDescription
+            self.parent = parent
         }
 
         private enum CodingKeys: String, CodingKey {
-            case id, text, reading, relativeScore, preview, previewDescription
+            case id, text, reading, relativeScore, preview, previewDescription, parent
         }
 
         public init(from decoder: any Decoder) throws {
@@ -55,6 +57,7 @@ public struct CandidateDisplayInput: Decodable, Sendable {
             relativeScore = try container.decodeIfPresent(Int.self, forKey: .relativeScore)
             preview = try container.decodeIfPresent(Preview.self, forKey: .preview)
             previewDescription = try container.decodeIfPresent(String.self, forKey: .previewDescription)
+            parent = try container.decodeIfPresent(Int.self, forKey: .parent)
         }
     }
 

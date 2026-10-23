@@ -72,7 +72,7 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     let list = CandidateDisplay(try input())
     #expect(list.mode == .list)
     #expect(list.columns == [[10, 11], [12]])
-    #expect(CandidateDisplay(try input(["focusedNode": 12])).columns == [[10], [12, 13]])
+    #expect(CandidateDisplay(try input(["focusedNode": 12])).columns == [[10], [12]])
     #expect(CandidateDisplay(try input(["columns": [[Int]](), "inputState": "composing"])).mode == .hidden)
     #expect(CandidateDisplay(try input(["nodes": [Any](), "inputState": "selecting"])).mode == .hidden)
 }

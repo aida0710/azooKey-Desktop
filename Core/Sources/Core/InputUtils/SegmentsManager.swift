@@ -65,6 +65,8 @@ public final class SegmentsManager {
         Config.ZenzaiPersonalizationLevel().value
     }
     private var rawCandidates: ConversionResult?
+    private let wordAlternatives = CandidateWordAlternatives()
+    private var wordAlternativeOptions: ConvertRequestOptions?
 
     private var selectionIndex: Int?
     private var conversionRangeEnd: Int?
@@ -98,18 +100,13 @@ public final class SegmentsManager {
 
     public func makeCandidatePresentations(_ candidates: [Candidate]) -> [CandidatePresentation] {
         let additionalPresentations = self.additionalCandidatePresentationsForSelectionIndex
+        var scopes = CandidatePresentationScopes(composingText: self.composingText)
         return candidates.indices.map { index in
-            var remaining = self.composingText
-            remaining.prefixComplete(composingCount: candidates[index].composingCount)
-            let consumed = self.composingText.input.count - remaining.input.count
-            let reading = self.composingText.convertTarget
-            let scope = reading.hasSuffix(remaining.convertTarget) ? CandidateCommitScope(
-                consumedReading: String(reading.dropLast(remaining.convertTarget.count)),
-                remainingReading: remaining.convertTarget
-            ) : nil
+            let scope = scopes.resolve(composingCount: candidates[index].composingCount)
             let displayContext = index < additionalPresentations.count ? additionalPresentations[index].displayContext : .init()
             return .init(candidate: candidates[index], displayContext: displayContext,
-                         consumedInputCount: consumed, commitScope: scope)
+                         consumedInputCount: scope.consumedInputCount, commitScope: scope.commitScope,
+                         treeTokens: wordAlternatives.tokens(for: candidates[index]))
         }
     }
 
@@ -277,6 +274,7 @@ public final class SegmentsManager {
 
     @MainActor
     public func reloadUserDictionary() {
+        self.wordAlternatives.invalidateCache()
         self.withConverter { converter in
             converter.updateUserDictionaryURL(
                 CompiledUserDictionaryStore.directoryURL(memoryDirectoryURL: self.azooKeyMemoryDir),
@@ -303,6 +301,7 @@ public final class SegmentsManager {
             self.withConverter { $0.commitUpdateLearningData() }
         }
         self.rawCandidates = nil
+        self.wordAlternatives.reset()
         self.conversionRangeEnd = nil
         self.isEditingReading = false
         self.lastOperation = .other
@@ -321,6 +320,7 @@ public final class SegmentsManager {
         self.composingText.stopComposition()
         self.withConverter { $0.stopComposition() }
         self.rawCandidates = nil
+        self.wordAlternatives.reset()
         self.conversionRangeEnd = nil
         self.isEditingReading = false
         self.lastOperation = .other
@@ -336,6 +336,7 @@ public final class SegmentsManager {
     /// 日本語入力自体をやめる
     public func stopJapaneseInput() {
         self.rawCandidates = nil
+        self.wordAlternatives.reset()
         self.conversionRangeEnd = nil
         self.isEditingReading = false
         self.lastOperation = .other
@@ -490,6 +491,7 @@ public final class SegmentsManager {
     public func forgetMemory() {
         if let selectedCandidate {
             self.withConverter { $0.forgetMemory(selectedCandidate) }
+            self.wordAlternatives.invalidateCache()
             self.appendDebugMessage("\(#function): forget \(selectedCandidate.data.map {$0.word})")
         }
     }
@@ -506,6 +508,10 @@ public final class SegmentsManager {
     }
 
     private var rawCandidatesList: [Candidate]? {
+        baseCandidatesList.map { $0 + wordAlternatives.alternatives.map(\.candidate) }
+    }
+
+    private var baseCandidatesList: [Candidate]? {
         guard let rawCandidates else {
             return nil
         }
@@ -625,9 +631,11 @@ public final class SegmentsManager {
             self.backspaceTypoCorrectionLock = nil
         }
         self.resetAdditionalCandidates()
+        self.wordAlternatives.beginConversion()
         // 不要
         if composingText.isEmpty {
             self.rawCandidates = nil
+            self.wordAlternatives.reset()
             self.conversionRangeEnd = nil
             self.isEditingReading = false
             self.withConverter { $0.stopComposition() }
@@ -670,18 +678,17 @@ public final class SegmentsManager {
         // 文節の後半は未確定の読みとして保持し、候補の消費範囲を指定した文節に揃える。
         let conversionTarget = self.conversionRangeEnd.map { self.composingText.prefix(toReadingPosition: $0) }
             ?? self.composingText
+        let requestOptions = options(
+            leftSideContext: leftSideContext,
+            rightSideContext: rightSideContext,
+            requestRichCandidates: requestRichCandidates,
+            requireJapanesePrediction: Config.DebugPredictiveTyping().value ? .manualMix : .disabled,
+            requireEnglishPrediction: Config.DebugPredictiveTyping().value ? .manualMix : .disabled
+        )
         var conversionResults = self.withConverter { converter in
-            converter.requestCandidates(
-                conversionTarget,
-                options: options(
-                    leftSideContext: leftSideContext,
-                    rightSideContext: rightSideContext,
-                    requestRichCandidates: requestRichCandidates,
-                    requireJapanesePrediction: Config.DebugPredictiveTyping().value ? .manualMix : .disabled,
-                    requireEnglishPrediction: Config.DebugPredictiveTyping().value ? .manualMix : .disabled
-                )
-            )
+            converter.requestCandidates(conversionTarget, options: requestOptions)
         }
+        self.wordAlternativeOptions = requestOptions
         if self.conversionRangeEnd != nil {
             // 「き|ょ」のような境界ではprefixToCursorPositionが入力要素を書き換えるため、
             // 切り出した入力の要素数ではなく、元の読みに対する消費範囲へ戻す。
@@ -700,6 +707,23 @@ public final class SegmentsManager {
             conversionResults.englishPredictionResults = conversionResults.englishPredictionResults.map(restoreOriginalRange)
         }
         self.rawCandidates = conversionResults
+        if let candidate = conversionResults.mainResults.first {
+            self.appendWordAlternatives(for: candidate)
+        }
+    }
+
+    @MainActor
+    private func appendWordAlternatives(for candidate: Candidate) {
+        guard Config.TreeCandidates().value else {
+            return
+        }
+        let target = conversionRangeEnd.map { composingText.prefix(toReadingPosition: $0) } ?? composingText
+        guard target.isWholeComposingText(composingCount: candidate.composingCount),
+              let options = wordAlternativeOptions, let existing = rawCandidatesList else {
+            return
+        }
+        wordAlternatives.append(for: candidate, existing: existing,
+                                request: .init(converter: kanaKanjiConverter, options: options))
     }
 
     @MainActor public func update(requestRichCandidates: Bool) {
@@ -721,6 +745,7 @@ public final class SegmentsManager {
             converter.setCompletedData(candidate)
             if shouldUpdateLearning { converter.updateLearningData(candidate) }
         }
+        self.wordAlternatives.invalidateCache()
         self.composingText.prefixComplete(composingCount: candidate.composingCount)
         // 読みの途中から全文を確定した場合も、残った入力に対する有効な位置へ戻す。
         _ = self.composingText.moveCursorFromCursorPosition(count: self.composingText.convertTarget.count - self.composingText.convertTargetCursorPosition)
@@ -758,6 +783,7 @@ public final class SegmentsManager {
     public func requestSelectingNextCandidate() {
         self.isFixingAdditionalCandidateTop = false
         self.selectionIndex = (self.selectionIndex ?? -1) + 1
+        self.appendWordAlternativesForSelection()
     }
 
     @MainActor
@@ -788,14 +814,26 @@ public final class SegmentsManager {
             return
         }
         self.selectionIndex = max(0, selectionIndex - 1)
+        self.appendWordAlternativesForSelection()
     }
 
+    @MainActor
     public func requestSelectingRow(_ index: Int) {
         self.shouldShowCandidateWindow = true
         if self.isFixingAdditionalCandidateTop, index != 0 {
             self.isFixingAdditionalCandidateTop = false
         }
         self.selectionIndex = max(0, index)
+        self.appendWordAlternativesForSelection()
+    }
+
+    @MainActor
+    private func appendWordAlternativesForSelection() {
+        guard let candidates, !candidates.isEmpty else {
+            return
+        }
+        let index = min(max(0, selectionIndex ?? 0), candidates.count - 1)
+        self.appendWordAlternatives(for: candidates[index])
     }
 
     public func requestSelectingSuggestionRow(_ row: Int) {
@@ -1328,18 +1366,4 @@ public final class SegmentsManager {
 public protocol SegmentManagerDelegate: AnyObject {
     func getLeftSideContext(maxCount: Int) -> String?
     func getRightSideContext(maxCount: Int) -> String?
-}
-
-private extension ComposingText {
-    func prefix(toReadingPosition position: Int) -> ComposingText {
-        var prefix = self
-        _ = prefix.moveCursorFromCursorPosition(count: position - prefix.convertTargetCursorPosition)
-        return prefix.prefixToCursorPosition()
-    }
-
-    func isWholeComposingText(composingCount: ComposingCount) -> Bool {
-        var c = self
-        c.prefixComplete(composingCount: composingCount)
-        return c.isEmpty
-    }
 }

@@ -11,7 +11,7 @@ extension DesktopSnapshot {
             nodes: nodes.map { node in
                 .init(id: node.id, text: node.text, reading: node.reading, relativeScore: node.relativeScore,
                       preview: node.preview.map { .init(candidateIndex: $0.candidateIndex, text: $0.text, scope: $0.scope) },
-                      previewDescription: node.previewDescription)
+                      previewDescription: node.previewDescription, parent: node.parent)
             },
             columns: columns, selectedPath: selectedPath, focusedNode: focusedNode,
             candidatePage: .init(candidatePage), showCandidateIndex: showCandidateIndex,
