@@ -95,8 +95,11 @@ Windows の TSF は入力 context が文書ごとに分かれますが、適用�
 
 ```json
 {"operation": "key", "context": "<入力欄>", "event": {"keyCode": 0, "characters": "e", "charactersIgnoringModifiers": "e", "modifierFlags": 6},
- "doubleTap": false, "privateInput": false, "leftContext": "…", "rightContext": "…", "ai": {"hasSelection": true}}
+ "doubleTap": false, "privateInput": false, "leftContext": "…", "rightContext": "…", "ai": {"hasSelection": true},
+ "candidateDisplay": {"treeShown": false}}
 ```
+
+`candidateDisplay` は候補画面が木を出しているかで、変換中の↑↓の動きに使います（[候補表示の共通形式](candidate-display.md)）。AI の判断には使いません。
 
 応答はふだんのスナップショットで、AI について次のどちらかが `ai` に入ることがあります。
 
