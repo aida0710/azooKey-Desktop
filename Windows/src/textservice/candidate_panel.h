@@ -1,6 +1,8 @@
 // The candidate popup, drawn with Direct2D. Core decides what it shows
 // (candidateDisplay) and where everything goes (candidate-layout); the panel
 // measures text, draws, hit-tests and reports actions. It never takes focus.
+// It is a layered window, so each update changes its size and its picture
+// together, and it draws its own rounded corners and shadow.
 #pragma once
 
 #include <windows.h>
@@ -15,6 +17,7 @@
 
 #include "candidate_accessibility.h"
 #include "candidate_theme.h"
+#include "layered_window_surface.h"
 #include "shared/bridge_protocol.h"
 #include "shared/candidate_display.h"
 
@@ -71,10 +74,19 @@ private:
         int value = 0;
     };
 
+    // Room for the shadow around the panel inside the window, in physical pixels.
+    struct ShadowMargins {
+        int left = 0;
+        int top = 0;
+        int right = 0;
+        int bottom = 0;
+    };
+
     static LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
     bool EnsureWindow();
-    bool EnsureDeviceResources();
-    void ReleaseDeviceResources();
+    // Draws the panel and moves the window to frame_ in one step.
+    bool Present();
+    bool IsOnPanel(POINT clientPixels) const;
     IDWriteTextFormat* TextFormat(float size);
     void LayoutSections(const PanelContent& content, float width);
     void UpdateAccessibility();
@@ -82,7 +94,8 @@ private:
     void KeepFocusVisible();
     void ScrollBy(float dips);
 
-    void Paint();
+    void Paint(ID2D1RenderTarget* target);
+    void PaintShadow(const D2D1_RECT_F& panel);
     void PaintList();
     void PaintTree();
     void DrawText(const std::wstring& text, IDWriteTextFormat* format, const D2D1_RECT_F& frame, uint32_t color,
@@ -95,11 +108,15 @@ private:
 
     Actions actions_;
     HWND window_ = nullptr;
+    std::unique_ptr<LayeredWindowSurface> surface_;
     std::unique_ptr<CandidateAccessibility> accessibility_;
     UINT dpi_ = 96;
     CandidateAppearance appearance_ = CandidateAppearance::Light;
+    RECT frame_{};  // where Core placed the panel, physical screen pixels
+    ShadowMargins shadowMargins_;
 
-    ID2D1HwndRenderTarget* target_ = nullptr;
+    // Set only while Paint runs; the brush belongs to that frame's target.
+    ID2D1RenderTarget* target_ = nullptr;
     ID2D1SolidColorBrush* brush_ = nullptr;
     ID2D1StrokeStyle* dashed_ = nullptr;
     // Formats by point size; candidate text and the small labels.
