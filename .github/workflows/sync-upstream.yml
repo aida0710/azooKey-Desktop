@@ -13,8 +13,21 @@ concurrency:
 jobs:
   sync:
     if: github.repository == 'aida0710/azooKey-Desktop'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.actor == github.repository_owner && github.triggering_actor == github.repository_owner) && 'r540-linux' || 'ubuntu-24.04' }}
     steps:
+      - name: GitHub CLIを用意する
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        env:
+          # 公開処理のCLIを固定し、公式配布物のSHA-256で検証する。
+          GH_VERSION: 2.103.1
+          GH_SHA256: 57500f347b5e84efb6578c9b644eeb3b4e54046762635a939dd0ee2cca1c1add
+        run: |
+          archive="gh_${GH_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${archive}" -o "$RUNNER_TEMP/$archive"
+          printf '%s  %s\n' "$GH_SHA256" "$RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          printf '%s\n' "$RUNNER_TEMP/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0

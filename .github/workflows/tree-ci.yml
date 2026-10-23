@@ -11,13 +11,16 @@ concurrency:
   cancel-in-progress: true
 jobs:
   select-checks:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.actor == github.repository_owner && github.triggering_actor == github.repository_owner) && 'r540-linux' || 'ubuntu-24.04' }}
     permissions:
       contents: read
       pull-requests: read
     outputs:
       run-checks: ${{ steps.decision.outputs.result }}
     steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
       - uses: actions/checkout@v4
       - run: node --test Tools/tests/ci-should-run-checks.test.cjs
       - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
@@ -28,7 +31,7 @@ jobs:
             return await shouldRunChecks({ github, context, warning: core.warning, info: core.info });
   # Generated messages and palettes are committed; a stale copy must not ship.
   generated-data:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.actor == github.repository_owner && github.triggering_actor == github.repository_owner) && 'r540-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +49,8 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
-    runs-on: ${{ matrix.runner }}
+    # ARM64専用の試験とmacOS・Windowsは元のランナーを使う。
+    runs-on: ${{ (matrix.runner == 'ubuntu-24.04' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner) && 'r540-linux' || matrix.runner }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
