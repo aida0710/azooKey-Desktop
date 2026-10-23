@@ -252,7 +252,7 @@ final class CandidateTreeView: NSView {
         let aligned = documentWidths?.count == displayedColumns.count
         let rowHeight = TreeButton.preferredHeight(fontSize: fontSize)
         let scoreHeight = showsScores ? CandidateScoreBadge.lineHeight : 0
-        let rowGap: CGFloat = 2 // Separate candidate actions even when the score line is hidden.
+        let rowGap: CGFloat = 1 // Separate candidate actions even when the score line is hidden.
         let rowPitch: CGFloat = rowHeight + scoreHeight + rowGap
         for (depth, column) in displayedColumns.enumerated() {
             for (row, id) in column.enumerated() {
@@ -260,13 +260,13 @@ final class CandidateTreeView: NSView {
             }
             guard let chosen = column.first else { continue }
             let textWidth = (tree.nodes[chosen].token.text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: fontSize)]).width
-            widths[depth] = aligned ? documentWidths?[depth] : max(CGFloat(fontSize) + 12, min(240, textWidth + 12))
+            widths[depth] = aligned ? documentWidths?[depth] : max(CGFloat(fontSize) + 8, min(200, textWidth + 8))
         }
         var xPositions: [Int: CGFloat] = [:]
         var x: CGFloat = 12
         for depth in widths.keys.sorted() {
             xPositions[depth] = x
-            x += (widths[depth] ?? rowHeight) + (aligned ? 0 : 12)
+            x += (widths[depth] ?? rowHeight) + (aligned ? 0 : 8)
         }
         let rowCount = displayedColumns.map(\.count).max() ?? 0
         let contentSize = NSSize(width: max(60, x), height: max(MacCandidateMetrics.minimumTreeHeight, CGFloat(rowCount) * rowPitch + 6))

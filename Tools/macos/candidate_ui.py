@@ -94,7 +94,9 @@ def capture_candidates(evidence, send_keys, *, compact, outcome):
     evidence.screenshot("candidate-definition")
 
     clear("no-definition")
-    keys("type-missing-dictionary-word", "qzxv")
+    # Kana nonsense: the English dictionaries of the runner and the Japanese ones
+    # of a user both lack it, and every candidate is the whole reading.
+    keys("type-missing-dictionary-word", "papipupepo")
     keys("convert-missing-dictionary-word", "space")
     missing = wait_snapshot(evidence, "candidate-no-definition", lambda observed:
                             has_buttons(observed) and identifier(observed, "candidate-definition") is None)

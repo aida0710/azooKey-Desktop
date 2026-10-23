@@ -21,8 +21,8 @@ final class CandidateNavigationView: NSView {
     private var generation: UInt = 0
     private var revealSelection = false
     // The list scrolls instead of hiding long candidates behind ellipses.
-    private let statusHeight: CGFloat = 18
-    private let inset: CGFloat = 3
+    private let statusHeight: CGFloat = 14
+    private let inset: CGFloat = 2
     var selectedCandidateControls: [NSButton] { rows.filter(\.selected) }
 
     func preferredHeight(width: CGFloat) -> CGFloat {
@@ -41,7 +41,7 @@ final class CandidateNavigationView: NSView {
         super.init(frame: frame)
         isHidden = true
         for view in [status, scroll] { addSubview(view) }
-        status.font = CandidateNumberFont.make(size: 11, weight: .regular)
+        status.font = CandidateNumberFont.make(size: 10, weight: .regular)
         status.alignment = .right
         status.setAccessibilityIdentifier("candidate-position")
         setAccessibilityIdentifier("candidate-list")

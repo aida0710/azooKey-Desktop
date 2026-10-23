@@ -53,6 +53,43 @@ final class CandidateTreeViewTests: XCTestCase {
         XCTAssertFalse(buttons(in: view).contains { $0.toolTip?.contains(scoreLabel) == true })
     }
 
+    func testHidingScoresKeepsTheFocusedWordAndShrinksTheTree() throws {
+        let preference = Config.ShowRelativeScores()
+        let previous = preference.value
+        defer { preference.value = previous }
+        preference.value = true
+        let view = CandidateTreeView()
+        let entries: [CandidateTree.Entry] = [
+            .init(text: "選択", tokens: [], candidateIndex: 0, score: log(69)),
+            .init(text: "洗濯", tokens: [], candidateIndex: 1, score: log(31))
+        ]
+        var selections: [Int] = []
+        view.onSelectionChanged = { selections.append($0) }
+        view.update(entries: entries, selectionIndex: 0)
+        let word = try XCTUnwrap(candidateButtons(in: view).first { $0.title == "選択" })
+        let height = view.preferredSize.height
+        XCTAssertTrue(word.accessibilityHelp()?.contains(CandidateScorePresentation.explanation) == true)
+        preference.value = false
+        view.update(entries: entries, selectionIndex: 0)
+        XCTAssertTrue(candidateButtons(in: view).contains { $0 === word })
+        XCTAssertTrue(word.isAccessibilitySelected())
+        XCTAssertFalse(word.accessibilityHelp()?.contains(CandidateScorePresentation.explanation) == true)
+        XCTAssertLessThan(view.preferredSize.height, height)
+        XCTAssertTrue(selections.isEmpty)
+    }
+
+    func testDocumentAlignmentReservesOnlyTheCompactTreeWidthAtScreenEdges() throws {
+        let geometry = try XCTUnwrap(CandidateDocumentGeometry(words: ["語"], preedit: "語") { offset in
+            NSRect(x: 760 + offset * 32, y: 200, width: 1, height: 24)
+        })
+        XCTAssertFalse(geometry.fits(in: CGRect(x: 0, y: 0, width: 800, height: 600)))
+        XCTAssertTrue(geometry.fits(in: CGRect(x: 0, y: 0, width: 900, height: 600)))
+        let secondScreen = try XCTUnwrap(CandidateDocumentGeometry(words: ["語"], preedit: "語") { offset in
+            NSRect(x: -600 + offset * 32, y: 200, width: 1, height: 24)
+        })
+        XCTAssertTrue(secondScreen.fits(in: CGRect(x: -800, y: 0, width: 800, height: 600)))
+    }
+
     func testLongAlternativeDoesNotMoveFollowingWords() throws {
         let view = CandidateTreeView(frame: NSRect(x: 0, y: 0, width: 600, height: 160))
         updateLiveTree(view, entries: entries, selectionIndex: 0)

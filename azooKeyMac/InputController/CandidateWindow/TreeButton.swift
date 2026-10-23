@@ -11,7 +11,7 @@ final class TreeButton: NSButton {
     var documentAligned = false
     static func preferredHeight(fontSize: CGFloat) -> CGFloat {
         let font = NSFont.systemFont(ofSize: fontSize)
-        let verticalPadding: CGFloat = 6 // Keep Japanese glyphs inside a compact single line.
+        let verticalPadding: CGFloat = 4 // Keep Japanese glyphs inside a compact single line.
         return ceil(font.ascender - font.descender) + verticalPadding
     }
     var candidateTextFrame: NSRect {

@@ -7,10 +7,10 @@ final class CandidateRowButton: CandidatePresentationButton {
     let candidateIndex: Int
     private let candidateText: String
     private let number: String?
-    private let horizontalInset: CGFloat = 5
+    private let horizontalInset: CGFloat = 4
     private let numberWidth: CGFloat = 16
     private let definitionIconWidth: CGFloat = 16
-    private let verticalInset: CGFloat = 3
+    private let verticalInset: CGFloat = 2
     var hasDefinition = false {
         didSet { needsDisplay = true }
     }
@@ -68,7 +68,7 @@ final class CandidateRowButton: CandidatePresentationButton {
                                        attributes: attributes)
         if let number {
             let numberAttributes: [NSAttributedString.Key: Any] = [
-                .font: CandidateNumberFont.make(size: max(11, (font?.pointSize ?? 14) - 3), weight: .regular),
+                .font: CandidateNumberFont.make(size: max(10, (font?.pointSize ?? 12) - 2), weight: .regular),
                 .foregroundColor: selected ? foreground : palette.secondaryText
             ]
             let size = (number as NSString).size(withAttributes: numberAttributes)

@@ -4,10 +4,10 @@ import AppKit
 final class WordDefinitionsSideView: NSView {
     private let heading = NSTextField(labelWithString: "")
     private let summary = NSTextField(wrappingLabelWithString: "")
-    private let inset: CGFloat = 8
+    private let inset: CGFloat = 6
     // Only a short excerpt belongs beside a candidate; the full dictionary stays in Dictionary.app.
     private let maximumSummaryCharacters = 180
-    private let maximumSummaryLines = 4
+    private let maximumSummaryLines = 3
     private(set) var hasDefinition = false
 
     var preferredHeight: CGFloat {
@@ -44,7 +44,7 @@ final class WordDefinitionsSideView: NSView {
         heading.font = .systemFont(ofSize: fontSize, weight: .medium)
         let normalized = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         summary.stringValue = String(normalized.prefix(maximumSummaryCharacters)) + (normalized.count > maximumSummaryCharacters ? "…" : "")
-        summary.font = .systemFont(ofSize: max(12, fontSize - 2))
+        summary.font = .systemFont(ofSize: max(10, fontSize - 1))
         setAccessibilityLabel(word + "\n" + summary.stringValue)
         needsLayout = true
     }

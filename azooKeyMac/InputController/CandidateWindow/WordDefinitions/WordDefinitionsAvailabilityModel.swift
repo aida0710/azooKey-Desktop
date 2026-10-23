@@ -1,6 +1,6 @@
 import Foundation
 
-/// Matches a bounded background availability result to the exact visible page and word depth.
+/// Matches a bounded background availability result to the exact visible page and candidate spelling.
 @MainActor
 final class WordDefinitionsAvailabilityModel {
     typealias Check = ([String], @escaping WordDefinitionsService.AvailabilityCompletion) -> Void
