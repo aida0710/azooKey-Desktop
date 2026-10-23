@@ -45,7 +45,7 @@ azookey::protocol::DocumentContext FieldWithCaret() {
     field.after = L"後";
     field.cursorUTF16 = field.anchorUTF16 = 10;
     field.canReplace = true;
-    return {L"前", false, field};
+    return {.leftContext = L"前", .reconversion = field};
 }
 
 azookey::protocol::DocumentContext FieldWithSelection(const std::wstring& selected) {
