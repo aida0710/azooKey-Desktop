@@ -318,6 +318,7 @@ InputField CompositionWriter::ReadInputField(TfEditCookie cookie, ITfContext* co
     text.after = ReadBeside(cookie, caret.pointer, TF_ANCHOR_END, kSurroundingReadUnits);
     text.caretAtStart = selection.style.ase == TF_AE_START;
     field.document.leftContext = LastUnits(text.before, kLeftContextUnits);
+    field.document.rightContext = text.after;
     field.caret = ScreenRectangle(cookie, context, caret.pointer);
     field.hasSelection = !text.selected.empty();
     // A selection longer than the read is described by nothing below.
