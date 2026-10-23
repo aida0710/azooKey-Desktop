@@ -24,6 +24,7 @@ $cases = @(
     # The panel grows from the tree to the list; its first frame at the new size must already show the list.
     @{ Name = 'the list replaces the tree in one frame'; Keys = 'nihongo{SPACE}{FIRSTFRAME:tree-to-list}{ENTER}'; Expected = '日本語' },
     @{ Name = 'punctuation in a sentence'; Keys = 'kyouha,iitennkidesune.{ENTER}'; Expected = '今日は、いい天気ですね。' },
+    @{ Name = 'live tree continues alternative words'; Keys = 'kyouhagakkainiikoutoomotteimasu{SHOT:word-branches}{ENTER}'; Expected = '今日は学会に行こうと思っています' },
     @{ Name = 'long vowel mark'; Keys = 'tesuto-{ENTER}'; Expected = 'てすとー' },
     @{ Name = 'Esc then typing again'; Keys = 'nihongo{ESC}kanji{ENTER}'; Expected = '感じ' },
     @{ Name = 'Hankaku/Zenkaku turns Japanese input off'; Keys = '{KANJI}abc'; Expected = 'abc' },

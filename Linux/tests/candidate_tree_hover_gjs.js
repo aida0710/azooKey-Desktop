@@ -548,4 +548,27 @@ extension._render({contextId: 'synthetic-field', location: [0, 0, 0, 0]});
 equal(extension._popup.visible, false);
 equal(extension._buttons.size, 0);
 print('GNOME empty snapshot: hides the popup without disabling the renderer PASS');
+const branched = {
+    contextId: 'continued-branches', generation: 100, inputState: 'composing', selection: 0,
+    columns: [[0, 1, 2], [3, 4, 5, 6, 7]], selectedPath: [0, 3],
+    nodes: [
+        {id: 0, text: '今日は', parent: null}, {id: 1, text: 'きょうは', parent: null},
+        {id: 2, text: 'キョウハ', parent: null}, {id: 3, text: '学会', parent: 0},
+        {id: 4, text: '学界', parent: 0}, {id: 5, text: 'がっかい', parent: 0},
+        {id: 6, text: '学会', parent: 1}, {id: 7, text: '学会', parent: 2},
+    ].map(node => ({...node, reading: '', children: [], terminals: [], depth: node.parent === null ? 0 : 1,
+        preview: {candidateIndex: node.id}})),
+};
+render(branched);
+const branchButtons = branched.columns.flat().map(id => extension._buttons.get(JSON.stringify(['node', id])));
+equal(branchButtons.every(Boolean), true);
+for (const button of branchButtons) {
+    for (const other of branchButtons.filter(other => other !== button)) {
+        equal(button.x + button.width <= other.x || other.x + other.width <= button.x ||
+              button.y + button.height <= other.y || other.y + other.height <= button.y, true);
+    }
+}
+branchButtons.at(-1).emit('clicked');
+equal(submitted.pop(), ['Select', 'node', 7, false, 100, 'continued-branches']);
+print('GNOME continued branches: five distinct word targets preserve their node selection PASS');
 closeCoreBridge();

@@ -25,6 +25,32 @@ private func frames(_ layout: CandidateLayout) -> [Int: CandidateRect] {
     Dictionary(uniqueKeysWithValues: layout.tree.nodes.map { ($0.id, $0.frame) })
 }
 
+@Test func continuedBranchesHaveSeparateTargetsAndEdgesFromTheirOwnParents() throws {
+    let columns = [
+        Column(nodes: [Node(id: 0, parent: nil), Node(id: 1, parent: nil), Node(id: 2, parent: nil)], textWidth: 80),
+        Column(nodes: [Node(id: 3, parent: 0), Node(id: 4, parent: 0), Node(id: 5, parent: 0),
+                       Node(id: 6, parent: 1), Node(id: 7, parent: 2)], textWidth: 80)
+    ]
+    let layout = CandidateLayout(request(mode: .tree, columns: columns))
+    let words = frames(layout)
+    #expect(words.count == 8)
+    #expect(layout.tree.nodes.filter { $0.column == 1 }.map(\.row) == [0, 1, 2, 3, 4])
+    for node in layout.tree.nodes {
+        #expect(node.frame.maxY <= layout.tree.contentSize.height)
+        for other in layout.tree.nodes where other.id != node.id {
+            #expect(node.frame.maxX <= other.frame.x || other.frame.maxX <= node.frame.x
+                    || node.frame.maxY <= other.frame.y || other.frame.maxY <= node.frame.y)
+        }
+    }
+    for (child, parent) in [(6, 1), (7, 2)] {
+        let edge = try #require(layout.tree.edges.first { $0.node == child })
+        let parentFrame = try #require(words[parent])
+        #expect(edge.start.x == parentFrame.maxX)
+        #expect(edge.start.y == parentFrame.y + parentFrame.height / 2)
+        #expect(edge.end.x == words[child]?.x)
+    }
+}
+
 @Test func wordColumnsStayUnderDocumentWords() {
     var aligned = request(columns: documentColumns)
     aligned.documentWordWidths = [75, 60]

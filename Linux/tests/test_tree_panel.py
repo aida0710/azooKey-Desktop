@@ -66,7 +66,7 @@ class TreePanelTests(unittest.TestCase):
             original_settings = bridge.request("settings")["settings"]
             try:
                 bridge.request("configure", settings={**original_settings, "tree": True, "live": True})
-                for character in "watashihanihongowobenkyoushiteimasu":
+                for character in "kyouhagakkainiikoutoomotteimasu":
                     snapshot = bridge.request("key", event=translate(ord(character), 0))
                 self.assertTrue(snapshot["columns"])
                 submitted = []
@@ -86,10 +86,10 @@ class TreePanelTests(unittest.TestCase):
                 while context.pending():
                     context.iteration(False)
                 words = {item[1]: item for item in panel.rectangles if item[0] == "node"}
-                self.assertLessEqual(len(words), len(snapshot["columns"]) * 3)
+                self.assertLessEqual(len(words), len(snapshot["columns"]) * 5)
                 self.assertEqual({words[column[0]][3] for column in snapshot["columns"]}, {6})
                 width, height = panel.canvas.get_size_request()
-                self.assertLessEqual(height, 260)
+                self.assertLessEqual(height, 356, "At most five 66px rows, 4px gaps and a 6px inset")
                 surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
                 panel.draw(panel.canvas, cairo.Context(surface))
                 surface.flush()
@@ -99,15 +99,23 @@ class TreePanelTests(unittest.TestCase):
                                  "The candidate region must cover the document behind it")
                 if output := os.environ.get("AZOOKEY_TREE_SNAPSHOT_DIR"):
                     surface.write_to_png(str(pathlib.Path(output) / "ubuntu-compact.png"))
-                alternatives = [column[1] for column in snapshot["columns"] if len(column) > 1]
-                self.assertTrue(alternatives)
-                rect = words[alternatives[0]]
+                nodes = {node["id"]: node for node in snapshot["nodes"]}
+                conference = next(nodes[node] for node in snapshot["selectedPath"] if nodes[node]["text"] == "学会")
+                column = next(column for column in snapshot["columns"] if conference["id"] in column)
+                alternative = next(nodes[node] for node in column
+                                   if nodes[node]["text"] == "学界" and nodes[node]["parent"] == conference["parent"])
+                self.assertEqual(alternative["preview"]["text"], "今日は学界に行こうと思っています")
+                visible = {node for column in snapshot["columns"] for node in column}
+                for root in snapshot["columns"][0][1:]:
+                    self.assertTrue(any(node.get("parent") == root and node["id"] in visible for node in nodes.values()))
+                rect = words[alternative["id"]]
                 self.assertTrue(panel.click(None, types.SimpleNamespace(button=1, x=rect[2] + 4, y=rect[3] + 4)))
                 self.assertEqual(submitted, [])
                 candidates = [candidate["text"] for candidate in snapshot["candidates"]]
                 panel.navigation.confirm.clicked()
                 self.assertEqual(len(submitted), 1)
                 self.assertIn(submitted[0], candidates)
+                self.assertEqual(submitted[0], "今日は学界に行こうと思っています")
             finally:
                 if panel:
                     panel.destroy()

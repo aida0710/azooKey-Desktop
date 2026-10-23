@@ -6,13 +6,13 @@ private func treeToken(_ text: String, _ reading: String = "") -> CandidateTree.
     .init(text: text, reading: reading)
 }
 
-@Test func candidateTreePreviewIncludesTheUnseenContinuationOfTheActualCandidate() throws {
+@Test func candidateTreePreviewIncludesTheDisplayedContinuationOfTheActualCandidate() throws {
     let tree = CandidateTree(entries: [
         .init(text: "日本語入力", tokens: [treeToken("日本語"), treeToken("入力")], candidateIndex: 4),
         .init(text: "日本画鑑賞", tokens: [treeToken("日本画"), treeToken("鑑賞")], candidateIndex: 7)
     ])
     let target = try #require(tree.paths[7]?.first)
-    #expect(!tree.compactColumns(candidateIndex: 4).flatMap { $0 }.contains(tree.paths[7]![1]))
+    #expect(tree.compactColumns(candidateIndex: 4).flatMap { $0 }.contains(tree.paths[7]![1]))
     let preview = try #require(tree.preview(at: target, preserving: 4))
     #expect(preview.candidateIndex == 7)
     #expect(preview.text == "日本画鑑賞")
@@ -271,4 +271,38 @@ private func treeToken(_ text: String, _ reading: String = "") -> CandidateTree.
     selection.synchronize(tree: next, candidateIndex: 3)
     #expect(selection.selectedCandidateIndex == 3)
     #expect(selection.focusedNodeID == 0)
+}
+
+@Test func candidateTreeContinuesBothAlternativePathsWithoutExpandingTheirSiblings() throws {
+    var entries = (0..<20).map { index in
+        CandidateTree.Entry(text: "頭\(index)中終", tokens: [treeToken("頭\(index)"), treeToken("中"), treeToken("終")], candidateIndex: index)
+    }
+    for index in 20..<40 {
+        entries.append(.init(text: "頭0中\(index)終", tokens: [treeToken("頭0"), treeToken("中\(index)"), treeToken("終")], candidateIndex: index))
+    }
+    let tree = CandidateTree(entries: entries)
+    let columns = tree.compactColumns(candidateIndex: 0)
+    #expect(columns.count == 3)
+    #expect(columns.compactMap(\.first) == tree.paths[0])
+    for index in [1, 2] {
+        let path = try #require(tree.paths[index])
+        for depth in path.indices {
+            #expect(columns[depth].contains(path[depth]))
+        }
+    }
+    let limit = 1 + CandidateTree.maximumSiblingsPerWord + CandidateTree.maximumContinuationsPerColumn
+    #expect(columns[1].count == limit)
+    #expect(columns.allSatisfy { $0.count <= limit })
+    #expect(!columns.flatMap { $0 }.contains(tree.paths[3]![0]))
+}
+
+@Test func candidateTreePrefersTheWordEditOverAWholeSentenceWithOtherChanges() throws {
+    let tree = CandidateTree(entries: [
+        .init(text: "今日は学会です", tokens: [treeToken("今日は", "キョウハ"), treeToken("学会", "ガッカイ"), treeToken("です", "デス")], candidateIndex: 0),
+        .init(text: "今日は学界デス", tokens: [treeToken("今日は", "キョウハ"), treeToken("学界", "ガッカイ"), treeToken("デス", "デス")], candidateIndex: 1),
+        .init(text: "今日は学界です", tokens: [treeToken("今日は", "キョウハ"), treeToken("学界", "ガッカイ"), treeToken("です", "デス")], candidateIndex: 2)
+    ])
+    let node = try #require(tree.paths[1]?[1])
+    #expect(tree.preferredCandidate(at: node, preserving: 0) == 2)
+    #expect(tree.preview(at: node, preserving: 0)?.text == "今日は学界です")
 }
