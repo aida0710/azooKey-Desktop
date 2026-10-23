@@ -77,6 +77,8 @@ macOS・Ubuntu版と同じZenzaiを、CPUだけで動かします。ブリッジ
 | モデル | `ggml-model-Q5_K_M.gguf`（73,871,936バイト、SHA-256 `29c223d4c23327b80fd13ebb5ab2555057a46317997d5da391584ffbef0db673`）。取得元とハッシュはmacOS・Ubuntu版と同じで、`Tools\fetch-models.py --model gguf`が照合します |
 | ブリッジへの渡し方 | 変換エンジン（AzooKeyKanaKanjiConverter）はWindowsでllama.cppを`systemLibrary`として扱い、自分の持つヘッダーで`llama.lib`をリンクします。CPUデバイスの取得に`ggml.lib`も要るので、`swift build --traits ZenzaiCPU -Xswiftc -L<llama.cppのlib> -Xswiftc -lggml`でビルドします。変換エンジンのヘッダーはb4846よりわずかに古い版ですが、変換エンジンが使う構造体と関数の宣言はすべて同じです（Ubuntu版も同じ組み合わせ） |
 
+変換では、カーソルの前の文（最大100単位）と後ろの文（最大100文字）を、Zenzai に文脈として渡します（Linux・macOS と同じ）。後ろの文は、選択があればその後ろからです。例えば「kaitei」は、後ろが「に沈んだ船を調べる」なら「海底」、「された法律が施行された」なら「改定」、文脈が無ければ「書いてい」になりました（開発機のメモ帳で確認）。
+
 使えないもの: 個人化（プロファイルの言語モデル）と誤字補正の重みは、marisa形式のファイルをWindows版の変換エンジンが読めないため使えません。
 
 ### 応答時間とメモリ

@@ -12,6 +12,7 @@ namespace {
 // The bridge keeps only this much surrounding text (DesktopSession), so sending
 // more would only enlarge every request.
 constexpr size_t kMaximumLeftContextUnits = 100;
+constexpr size_t kMaximumRightContextScalars = 100;
 
 std::string ReconversionContextField(const ReconversionContext& reconversion) {
     return ",\"reconversionContext\":{\"before\":" + json::Quote(text::Utf16ToUtf8(reconversion.before)) +
@@ -30,8 +31,9 @@ std::wstring LastUnits(const std::wstring& text, size_t units) {
 std::string CommonFields(const RequestContext& context) {
     const DocumentContext& document = context.document;
     std::wstring left = LastUnits(document.leftContext, kMaximumLeftContextUnits);
+    std::wstring right = text::FirstScalars(document.rightContext, kMaximumRightContextScalars);
     return ",\"context\":" + json::Quote(context.context) + ",\"leftContext\":" + json::Quote(text::Utf16ToUtf8(left)) +
-           ",\"privateInput\":" + (document.privateInput ? "true" : "false") +
+           ",\"rightContext\":" + json::Quote(text::Utf16ToUtf8(right)) + ",\"privateInput\":" + (document.privateInput ? "true" : "false") +
            (document.reconversion ? ReconversionContextField(*document.reconversion) : "");
 }
 
