@@ -32,6 +32,7 @@ struct BridgeRequest: Decodable {
     var importEncoding: UserDictionaryExchange.TextEncoding?
     var layout: CandidateLayoutRequest?
     var snapshot: CandidateDisplayInput?
+    var candidateDisplay: DesktopCandidateDisplayRequest?
     var ai: DesktopAIRequest?
 }
 

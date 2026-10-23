@@ -89,8 +89,10 @@ final class DesktopSession: SegmentManagerDelegate {
     private var treeSelection = CandidateTreeSelection(tree: CandidateTree(entries: []), candidateIndex: nil)
     /// Whether the candidate list shows the tree in this selection. Until it
     /// does, ↑/↓ step through the list rows on screen, as macOS's candidate
-    /// window does; once a response has asked for the tree, they move between
-    /// a word's siblings.
+    /// window does; once it does, they move between a word's siblings. A
+    /// window that sends `treeShown` with its keys decides it, since its
+    /// button can open or close the tree; otherwise the tree is shown from
+    /// the response that asks for it.
     private var listShowsTree = false
     private(set) var generation = 0
     private var pageStart = 0
@@ -379,7 +381,7 @@ final class DesktopSession: SegmentManagerDelegate {
 
     // Keep the upstream ClientAction mapping exhaustive, as in InputState.event.
     // swiftlint:disable:next cyclomatic_complexity
-    func key(_ event: KeyEventCore, doubleTap: Bool = false) -> DesktopSnapshot {
+    func key(_ event: KeyEventCore, doubleTap: Bool = false, treeShown: Bool? = nil) -> DesktopSnapshot {
         if let shortcut = ReconversionShortcut.resolve(event) {
             return prepareReconversion(undo: shortcut == .undoCommit)
         }
@@ -404,6 +406,7 @@ final class DesktopSession: SegmentManagerDelegate {
         let action = UserAction.getUserAction(eventCore: event, inputLanguage: language)
         if state == .selecting, event.modifierFlags.isEmpty, Config.TreeCandidates().value,
            case .navigation(let direction) = action {
+            if let treeShown { listShowsTree = treeShown }
             if !listShowsTree, direction == .up || direction == .down {
                 if direction == .up {
                     segments.requestSelectingPrevCandidate()
@@ -622,8 +625,8 @@ final class DesktopSession: SegmentManagerDelegate {
         return result
     }
 
-    /// The windows keep the tree open from the response that asks for it
-    /// until the selection ends.
+    /// A window that does not send `treeShown` keeps the tree open from the
+    /// response that asks for it until the selection ends.
     private func updateListShowsTree(expandTree: Bool) {
         if state != .selecting {
             listShowsTree = false

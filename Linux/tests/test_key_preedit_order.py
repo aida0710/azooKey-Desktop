@@ -48,10 +48,10 @@ class KeyPreeditOrderTests(unittest.TestCase):
             get_connection=lambda: connection, current_reconversion_context=lambda: None,
             transformation=Mock(), ai_review=SimpleNamespace(confirmation=None, key=lambda _: False, cancel=Mock()),
             reconversion=SimpleNamespace(active=False, process=lambda *_, **__: False),
-            reload_settings=lambda: None,
+            reload_settings=lambda: None, candidate_display_facts=lambda: {"treeShown": False},
         )
         for name in ("do_process_key_event", "do_service_method_call", "finish_native_key",
-                     "defer_native_key", "request"):
+                     "defer_native_key", "request", "request_key"):
             setattr(self.engine, name, MethodType(getattr(self.engine_type, name), self.engine))
         self.engine.emit = lambda _signal, *key: self.engine.do_process_key_event(*key)
 
@@ -85,6 +85,15 @@ class KeyPreeditOrderTests(unittest.TestCase):
         self.assertEqual(self.effects[-2:], [("render", snapshot), ("reply", ord("a"), True)])
         self.input.cancel()
         invocation.return_value.assert_called_once()
+
+    def test_key_request_carries_what_the_candidate_window_shows(self):
+        self.input.snapshot = {"inputState": "selecting", "preedit": "日本語", "language": "japanese"}
+        for shown in (False, True):
+            with self.subTest(shown=shown):
+                self.engine.candidate_display_facts = lambda shown=shown: {"treeShown": shown}
+                request_index = len(self.worker.requests)
+                self.send(0xFF54)
+                self.assertEqual(self.worker.requests[request_index].payload["candidateDisplay"], {"treeShown": shown})
 
     def test_commit_reply_follows_the_commit_and_empty_preedit(self):
         for key in (0xFF0D, 0xFFC7):

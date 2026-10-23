@@ -30,6 +30,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._buttons = new Map();
         this._hoveredAction = null;
         this._treeExpanded = false;
+        this._lastTreeReport = null;
         this._presentationMode = null;
         this._layoutGeneration = 0;
         this._popup = new St.BoxLayout({vertical: true, can_focus: false});
@@ -119,6 +120,8 @@ export default class AzooKeyTreeExtension extends Extension {
         this._layoutDiagnostics.clear();
         this._treeExpanded = false;
         this._treeExpandedFor = null;
+        // The engine forgets the tree with Hide; the next card reports it again.
+        this._lastTreeReport = null;
         this._presentationMode = null;
         this._navigation.reset();
         this._details.reset();
@@ -153,6 +156,16 @@ export default class AzooKeyTreeExtension extends Extension {
             2000, null, (connection, result) => {
                 try { connection.call_finish(result); } catch { /* Engine may be shutting down. */ }
             });
+    }
+
+    // Core moves ↑/↓ between a word's siblings only while the tree is shown.
+    // The tree button and expandTree change it here, so the engine learns it
+    // from this report and sends it with each key.
+    _reportTreeShown(contextId) {
+        const report = JSON.stringify([contextId, this._treeExpanded]);
+        if (report === this._lastTreeReport) return;
+        this._lastTreeReport = report;
+        this._call('SetTreeShown', new GLib.Variant('(bs)', [this._treeExpanded, contextId]));
     }
 
     // Core lays out candidates after the conversion requests queued before it.
@@ -217,6 +230,7 @@ export default class AzooKeyTreeExtension extends Extension {
             this._treeExpanded = true;
             this._treeExpandedFor = expansion;
         }
+        this._reportTreeShown(data.contextId);
         const actionIdentity = JSON.stringify([candidateIdentity, data.generation, data.selection, data.focusedNode,
             presentationMode, this._treeExpanded]);
         if (actionIdentity !== this._actionIdentity) {

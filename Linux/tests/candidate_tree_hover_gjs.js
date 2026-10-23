@@ -49,6 +49,7 @@ extension._buttons = new Map();
 extension._layoutGeneration = 0;
 extension._hoveredAction = null;
 extension._treeExpanded = true;
+extension._lastTreeReport = null;
 extension._popup = new Actor();
 extension._canvas = new Actor();
 extension._treeScroll = new ScrollViewActor();
@@ -70,7 +71,10 @@ extension._composition = new Composition(value => extension._call('Select', valu
 extension._popup.add_child(extension._composition.actor);
 extension._popup.add_child(extension._navigation.actor);
 const submitted = [];
-extension._call = (method, variant) => submitted.push([method, ...variant.values]);
+// The tree report is state for the engine's keys, kept apart from the selections these checks count.
+const treeReports = [];
+extension._call = (method, variant) =>
+    (method === 'SetTreeShown' ? treeReports : submitted).push([method, ...variant.values]);
 extension._requestLayout = requestLayout;
 // Synthetic snapshots receive the display and layout Core gives every reply.
 const render = data => extension._render(withDisplay(data));
@@ -510,6 +514,34 @@ equal(composition._remainingScroll.get_vadjustment().value, 0);
 equal(composition._remaining.text.includes('つづき'), true);
 equal(submitted, []);
 print('GNOME long partial proposal: remaining reading has a separate bounded viewport and sentence scrolling never hides its region PASS');
+// The engine sends whether the tree is shown with each key; Core moves ↑/↓
+// between a word's siblings only while it is.
+extension._hideCandidates();
+treeReports.length = 0;
+render(snapshot({generation: 90}));
+equal(treeReports, [['SetTreeShown', false, 'synthetic-field']]);
+render(snapshot({generation: 91, selection: 2}));
+equal(treeReports.length, 1);
+extension._details._tree.get_accessible().do_action();
+drainActions();
+equal(extension._treeExpanded, true);
+equal(treeReports.at(-1), ['SetTreeShown', true, 'synthetic-field']);
+extension._details._tree.get_accessible().do_action();
+drainActions();
+equal(extension._treeExpanded, false);
+equal(treeReports.at(-1), ['SetTreeShown', false, 'synthetic-field']);
+const focusMoved = withDisplay({...snapshot({generation: 92}), focusedNode: 0}, {selection: 1, focusedNode: 1});
+equal(focusMoved.candidateDisplay.expandTree, true);
+extension._render(focusMoved);
+equal(treeReports.at(-1), ['SetTreeShown', true, 'synthetic-field']);
+const reportsBeforeHide = treeReports.length;
+extension._hideCandidates();
+render(snapshot({generation: 93}));
+equal(treeReports.length, reportsBeforeHide + 1);
+equal(treeReports.at(-1), ['SetTreeShown', false, 'synthetic-field']);
+equal(submitted, []);
+print('GNOME tree report: the tree button, expandTree and a new card tell the engine whether the tree is shown, once per change PASS');
+
 // After focus moves away the engine sends an empty snapshot; it only hides.
 render(snapshot());
 extension._render({contextId: 'synthetic-field', location: [0, 0, 0, 0]});

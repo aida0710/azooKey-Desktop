@@ -142,6 +142,15 @@ class Engine(IBus.Engine):
         }, key=original_key, key_reply=self.defer_native_key(original_key))
         return True
 
+    def request_key(self, event, **values):
+        return self.request("key", event=event, candidateDisplay=self.candidate_display_facts(), **values)
+
+    def candidate_display_facts(self):
+        """What the candidate window shows when the key is pressed. Core moves
+        ↑/↓ between a word's siblings only while the tree is shown, and the
+        tree button opens or closes it without Core."""
+        return {"treeShown": bool(self.panel.tree_expanded or surface().shows_tree(self))}
+
     def request_layout(self, layout, completion):
         """Ask Core to lay out candidates after the conversion requests before it.
 
@@ -322,8 +331,8 @@ class Engine(IBus.Engine):
             if (not input_was_pending and is_native_key(event, self.input.snapshot)
                     and not (has_selection and opens_prompt(event))):
                 return False
-            return self.request("key", event=event, doubleTap=double_tap, original_key=original_key,
-                                ai={"hasSelection": has_selection})
+            return self.request_key(event, doubleTap=double_tap, original_key=original_key,
+                                    ai={"hasSelection": has_selection})
         except (OSError, RuntimeError, ValueError):
             self.input.recover_pending(key=original_key, key_reply=self.defer_native_key(original_key))
             return True
@@ -407,7 +416,7 @@ class Engine(IBus.Engine):
             subprocess.Popen(["/usr/bin/python3", str(pathlib.Path(__file__).resolve().parents[1] / "ibus-azookey-tree.py"), "--setup"])
         elif name == "InputMode":
             keyval = 0xFF22 if self.snapshot.get("language", "japanese") == "japanese" else 0xFF23
-            self.request("key", event=translate(keyval, 0))
+            self.request_key(translate(keyval, 0))
         elif name in ("undo-commit", "reconvert"):
             self.reconversion.prompt_menu(undo=name == "undo-commit")
 
@@ -468,10 +477,10 @@ class Engine(IBus.Engine):
             self.choose("select", min(len(candidates) - 1, (self.snapshot.get("selection") or 0) + 9), False)
 
     def do_cursor_up(self):
-        self.request("key", event=translate(0xFF52, 0))
+        self.request_key(translate(0xFF52, 0))
 
     def do_cursor_down(self):
-        self.request("key", event=translate(0xFF54, 0))
+        self.request_key(translate(0xFF54, 0))
 
     def choose(self, operation, index, submit):
         if self.input.pending or self.reconversion.active or not self.focused:
