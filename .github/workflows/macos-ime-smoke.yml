@@ -15,6 +15,10 @@ on:
         type: choice
         default: compact
         options: [compact, legacy, none]
+      reference-ime:
+        description: Also capture Apple's Japanese input method as a size reference
+        type: boolean
+        default: false
       source:
         description: Build this revision, install a release, or retest a workflow artifact
         required: true
@@ -121,6 +125,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_UI: ${{ inputs.candidate-ui }}
+          REFERENCE_IME: ${{ inputs.reference-ime }}
           PACKAGE_SOURCE: ${{ inputs.source }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_VERSION: ${{ inputs.version }}
@@ -137,6 +142,9 @@ jobs:
           capture=()
           if [[ -n "$CANDIDATE_UI" && "$CANDIDATE_UI" != none ]]; then
             capture=(--candidate-ui "$CANDIDATE_UI")
+          fi
+          if [[ "$REFERENCE_IME" == true ]]; then
+            capture+=(--reference-ime)
           fi
           python3 Tools/macos/ime-smoke.py "${package[@]}" \
             --backend "$INFERENCE_BACKEND" --output "$RUNNER_TEMP/ime-smoke" "${capture[@]}"

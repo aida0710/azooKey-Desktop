@@ -155,6 +155,8 @@ def main():
     package.add_argument("--archive", type=Path, help="ZIP with an adjacent .zip.sha256 file")
     parser.add_argument("--backend", choices=["cpu", "metal"], default="cpu")
     parser.add_argument("--candidate-ui", choices=["legacy", "compact"])
+    parser.add_argument("--reference-ime", action="store_true",
+                        help="also capture Apple's Japanese input method as a size reference")
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
     if arguments.tag and not re.fullmatch(r"tree-v\d+\.\d+\.\d+", arguments.tag):
@@ -187,6 +189,9 @@ def main():
         if arguments.candidate_ui:
             from candidate_ui import capture_candidates
             capture_candidates(evidence, send_keys, compact=arguments.candidate_ui == "compact", outcome=outcome)
+        if arguments.reference_ime:
+            from reference_ime import capture_reference_ime
+            capture_reference_ime(evidence, input_source, send_keys, outcome=outcome)
     except Exception as error:
         outcome["error"] = str(error)
         print(f"Smoke test error: {error}", flush=True)
