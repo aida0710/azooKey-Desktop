@@ -53,18 +53,19 @@ private func frames(_ layout: CandidateLayout) -> [Int: CandidateRect] {
 
 @Test func wordColumnsStayUnderDocumentWords() {
     var aligned = request(columns: documentColumns)
-    aligned.documentWordWidths = [75, 60]
+    // Each selected word (90 and 72) with its text insets and the gap fits.
+    aligned.documentWordWidths = [100, 84]
     aligned.columnAnchorX = 100
     aligned.showScores = true
     let layout = CandidateLayout(aligned)
     let words = frames(layout)
     #expect(layout.tree.aligned && layout.tree.reason == .estimatedInline)
     #expect(layout.tree.textAlignment == .leading)
-    #expect(words[1]!.x - words[0]!.x == 75)
+    #expect(words[1]!.x - words[0]!.x == 100)
     #expect(words[1]!.x - words[0]!.maxX == 6, "Neighboring words keep a gap")
     #expect(words[0]!.x == words[2]!.x)
     // Long alternatives must not cover the next word.
-    #expect(words[2]!.width <= 75)
+    #expect(words[2]!.width <= 100 - 6)
     #expect(words[1]!.height >= 24)
     #expect(layout.placementStatus == .notRequested && layout.placement == nil)
 
@@ -75,7 +76,8 @@ private func frames(_ layout: CandidateLayout) -> [Int: CandidateRect] {
 }
 
 @Test func narrowOrMismatchedDocumentWordsUseCompactColumns() {
-    for widths in [[75.0], [75, 20], [75, 60, 40]] {
+    // [75, 60] would cut both selected words short.
+    for widths in [[100.0], [100, 20], [75, 60], [100, 84, 40]] {
         var compact = request(columns: documentColumns)
         compact.documentWordWidths = widths
         compact.columnAnchorX = 100
@@ -173,7 +175,7 @@ private func frames(_ layout: CandidateLayout) -> [Int: CandidateRect] {
 @Test func sidewaysPlacementGivesUpDocumentAlignment() throws {
     var aligned = request(columns: documentColumns, cursor: .init(x: 600, y: 350, width: 0, height: 35),
                           workArea: .init(x: 0, y: 0, width: 1280, height: 800))
-    aligned.documentWordWidths = [75, 60]
+    aligned.documentWordWidths = [100, 84]
     aligned.columnAnchorX = 100
     #expect(CandidateLayout(aligned).tree.aligned)
     aligned.popupHeight = 505

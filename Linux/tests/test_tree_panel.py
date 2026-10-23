@@ -33,13 +33,14 @@ class TreePanelTests(unittest.TestCase):
                     {"id": 2, "text": "このようにかくりつてきに", "reading": "", "parent": None, "terminals": [1]},
                 ],
                 "columns": [[0, 2], [1]], "selectedPath": [0, 1], "showRelativeScores": True,
-                "wordGeometry": {"widths": [75, 60], "fontSize": 15},
+                # An 18px document leaves room for the 14px selected words and the gap after each.
+                "wordGeometry": {"widths": [90, 72], "fontSize": 18},
             }
             panel.update(snapshot)
             words = {r[1]: r for r in panel.rectangles if r[0] == "node"}
-            self.assertEqual(words[1][2] - words[0][2], 75)
+            self.assertEqual(words[1][2] - words[0][2], 90)
             self.assertEqual(words[0][2], words[2][2])
-            self.assertLessEqual(words[2][4], 75, "Long alternatives must not cover the next word")
+            self.assertLessEqual(words[2][4], 90 - 6, "Long alternatives must not cover the next word")
             panel.update({**snapshot, "showCandidateIndex": True})
             word = next(r for r in panel.rectangles if r[:2] == ("node", 1))
             self.assertFalse(any(rectangle[0] == "select" for rectangle in panel.rectangles))

@@ -83,11 +83,16 @@ extension CandidateTreeLayout {
         max(minimumNodeSize, metrics.fontSize + minimumTextAllowance)
     }
 
-    /// Document word widths are used only when every column has one that is
-    /// wide enough for a readable node and the gap after it.
-    static func alignedColumnWidths(_ widths: [Double]?, columnCount: Int, metrics: CandidateTextMetrics) -> [Double]? {
-        guard let widths, widths.count == columnCount, columnCount > 0,
-              widths.allSatisfy({ $0 >= minimumColumnWidth(metrics) + alignedColumnGap }) else {
+    /// Document word widths are used only when every column's selected word
+    /// fits its document word with the gap after it. Otherwise the selected
+    /// words would be cut short, and compact columns read better.
+    static func alignedColumnWidths(_ widths: [Double]?, columns: [CandidateLayoutRequest.Column],
+                                    textWidthScale: Double, metrics: CandidateTextMetrics) -> [Double]? {
+        guard let widths, widths.count == columns.count, !columns.isEmpty,
+              zip(widths, columns).allSatisfy({ width, column in
+                  let node = max(minimumColumnWidth(metrics), column.textWidth * textWidthScale + alignedTextInset * 2)
+                  return width >= node + alignedColumnGap
+              }) else {
             return nil
         }
         return widths

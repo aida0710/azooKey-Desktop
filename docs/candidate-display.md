@@ -143,7 +143,7 @@ Linux では、エンジンがすべての `key` の要求にこの値を付け�
 | `measuredFontSize` | `textWidth` と `lineHeight` を測った文字の大きさ。Core が候補の文字の大きさへ比例で直す |
 | `columns` | `candidateDisplay.columns` の順の節点（`id` と、描く木の上での親 `parent`）と、列の先頭の節点の文字の幅 |
 | `lineHeight` | 任意。`measuredFontSize` で1行を測った高さ（節点の中に枠線を描くならその分も含める）。語の行は「文字 + 12」を最小に、この比率より低くしない |
-| `documentWordWidths` | 任意。文書上の語の幅が分かるとき（GTK の推定語幅、Windows の文字矩形）。全列の幅が揃い、どれも読める幅のときだけ整列する |
+| `documentWordWidths` | 任意。文書上の語の幅が分かるとき（GTK の推定語幅、Windows の文字矩形）。全列の幅が揃い、どの列も選択中の語（`textWidth` と左右の余白）に隙間 6 を足した幅があるときだけ整列する。足りない列があれば、語が切れないよう語の長さに合わせた列にする |
 | `columnAnchorX` | 任意。整列するときの文頭の x |
 | `showScores` | スコアの行を確保するか（`showRelativeScores`） |
 | `cursor` | 実際のキャレット。ポップアップはこれを覆わない |

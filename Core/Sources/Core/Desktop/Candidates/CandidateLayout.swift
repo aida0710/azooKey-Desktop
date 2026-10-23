@@ -122,7 +122,7 @@ public struct CandidateLayout: Codable, Equatable, Sendable {
         )
         guard allowAlignment, request.columnAnchorX != nil,
               let widths = CandidateTreeLayout.alignedColumnWidths(
-                request.documentWordWidths, columnCount: request.columns.count, metrics: metrics) else {
+                request.documentWordWidths, columns: request.columns, textWidthScale: measurementScale, metrics: metrics) else {
             input.reason = allowAlignment ? .unavailableOrNarrow : .outsideWorkArea
             return CandidateTreeLayout(input)
         }
