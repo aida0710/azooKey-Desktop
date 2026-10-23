@@ -78,7 +78,7 @@ final class DesktopAIController {
             snapshot.ai = DesktopAIKeyResult(prompt: .init(initialPrompt: initialPrompt))
             return snapshot
         }
-        var snapshot = session.key(event, doubleTap: doubleTap)
+        var snapshot = session.key(event, doubleTap: doubleTap, treeShown: request.candidateDisplay?.treeShown)
         switch snapshot.request {
         case "prompt"? where hasSelection:
             snapshot.ai = DesktopAIKeyResult(prompt: .init(initialPrompt: ""))

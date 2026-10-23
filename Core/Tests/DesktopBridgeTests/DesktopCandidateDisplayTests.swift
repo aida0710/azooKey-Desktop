@@ -60,26 +60,36 @@ extension DesktopSegmentEditingTests {
         }
     }
 
+    func focusedWord(of snapshot: DesktopSnapshot) throws -> DesktopSnapshot.Node {
+        try #require(snapshot.nodes.first { $0.id == snapshot.focusedNode })
+    }
+
+    func isSibling(_ node: DesktopSnapshot.Node, of other: DesktopSnapshot.Node) -> Bool {
+        node.id != other.id && node.parent == other.parent && node.depth == other.depth
+    }
+
+    /// Converts a sentence and moves to its following words, which asks to
+    /// show the tree, then returns to the first word, whose alternatives such
+    /// as 私 and 渡し are siblings.
+    func expandTreeOnTheFirstWord(_ session: DesktopSession) throws -> DesktopSnapshot {
+        _ = type("watashihanihongowobenkyoushiteimasu", into: session)
+        _ = session.key(key(49))
+        _ = session.key(key(49))
+        _ = session.key(key(124))
+        try #require(session.key(key(124)).candidateDisplay?.expandTree == true)
+        var shown = session.key(key(123))
+        for _ in 0..<4 where shown.nodes.first(where: { $0.id == shown.focusedNode })?.depth != 0 {
+            shown = session.key(key(123))
+        }
+        let focused = try focusedWord(of: shown)
+        try #require(shown.nodes.contains { isSibling($0, of: focused) })
+        return shown
+    }
+
     @Test func upAndDownMoveBetweenSiblingsOnceTheListShowsTheTree() throws {
         try withSession(liveConversion: true, treeCandidates: true) { session in
-            _ = type("watashihanihongowobenkyoushiteimasu", into: session)
-            _ = session.key(key(49))
-            _ = session.key(key(49))
-            _ = session.key(key(124))
-            try #require(session.key(key(124)).candidateDisplay?.expandTree == true)
-            // Back on the first word, which has alternatives such as 私 and 渡し.
-            var shown = session.key(key(123))
-            for _ in 0..<4 where shown.nodes.first(where: { $0.id == shown.focusedNode })?.depth != 0 {
-                shown = session.key(key(123))
-            }
-            let focused = try #require(shown.nodes.first { $0.id == shown.focusedNode })
-            let siblings = shown.nodes.filter { $0.parent == focused.parent && $0.depth == focused.depth }
-            try #require(siblings.count > 1)
-
-            let moved = session.key(key(125))
-            let movedFocus = try #require(moved.nodes.first { $0.id == moved.focusedNode })
-            #expect(movedFocus.id != focused.id)
-            #expect(movedFocus.parent == focused.parent && movedFocus.depth == focused.depth)
+            let focused = try focusedWord(of: try expandTreeOnTheFirstWord(session))
+            #expect(isSibling(try focusedWord(of: session.key(key(125))), of: focused))
 
             // Leaving the selection closes the tree; the next list starts on its rows again.
             _ = session.key(key(53))
@@ -87,6 +97,55 @@ extension DesktopSegmentEditingTests {
             let relisted = session.key(key(49))
             let first = try #require(relisted.selection)
             #expect(session.key(key(125)).selection == first + 1)
+        }
+    }
+
+    @Test func upAndDownStepThroughTheListRowsOnceTheWindowClosesTheTree() throws {
+        try withSession(liveConversion: true, treeCandidates: true) { session in
+            let shown = try expandTreeOnTheFirstWord(session)
+            let first = try #require(shown.selection)
+            let focused = try focusedWord(of: shown)
+            try #require(shown.candidates.count > first + 1)
+
+            // The user closed the tree with the window's button.
+            #expect(session.key(key(125), treeShown: false).selection == first + 1)
+            #expect(session.key(key(126), treeShown: false).selection == first)
+
+            // Opened again with the button, the same key reaches a sibling instead of the next row.
+            let opened = session.key(key(125), treeShown: true)
+            #expect(isSibling(try focusedWord(of: opened), of: focused))
+            #expect(opened.selection != first + 1)
+        }
+    }
+
+    @Test func upAndDownMoveBetweenSiblingsOnceTheWindowOpensTheTree() throws {
+        try withSession(liveConversion: true, treeCandidates: true) { session in
+            _ = type("watashihanihongowobenkyoushiteimasu", into: session)
+            _ = session.key(key(49))
+            _ = session.key(key(49))
+            // The first move enters the following words without asking for the tree.
+            // There the next row's word follows another first word, so it is no sibling.
+            let entered = session.key(key(124))
+            try #require(entered.candidateDisplay?.expandTree == false)
+            let focused = try focusedWord(of: entered)
+            try #require(focused.depth > 0 && entered.nodes.contains { isSibling($0, of: focused) })
+
+            // The user opened the tree with the window's button before any response asked for it.
+            #expect(isSibling(try focusedWord(of: session.key(key(125), treeShown: true)), of: focused))
+        }
+    }
+
+    @Test func theTreeShownFactOfAKeyRequestReachesTheSession() throws {
+        try withSession(liveConversion: true, treeCandidates: true) { session in
+            let first = try #require(try expandTreeOnTheFirstWord(session).selection)
+            let request = try JSONDecoder().decode(BridgeRequest.self, from: Data("""
+            {"operation":"key","event":{"keyCode":125,"modifierFlags":0},"candidateDisplay":{"treeShown":false}}
+            """.utf8))
+            let history = AIPromptHistory(fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("tree-shown-\(UUID().uuidString)/prompts.json"))
+            let controller = DesktopAIController(promptHistory: history)
+            let moved = controller.key(try #require(request.event), request: request, session: session, context: "field")
+            #expect(moved.selection == first + 1)
         }
     }
 
