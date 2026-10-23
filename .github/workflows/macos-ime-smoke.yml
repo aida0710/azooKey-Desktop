@@ -1,6 +1,11 @@
 name: macOS release IME smoke
 run-name: macOS IME ${{ inputs.tag }} (${{ inputs.backend }})
 on:
+  # Register this workflow before it reaches the default branch. The push run
+  # skips the test; workflow_dispatch runs the requested release explicitly.
+  push:
+    branches: [test/macos-ime-smoke]
+    paths: [.github/workflows/macos-ime-smoke.yml]
   workflow_dispatch:
     inputs:
       tag:
@@ -18,6 +23,7 @@ permissions:
   contents: read
 jobs:
   smoke:
+    if: github.event_name == 'workflow_dispatch'
     name: Input and diagnostics (${{ matrix.backend }})
     runs-on: macos-26
     timeout-minutes: 15
