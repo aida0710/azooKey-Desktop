@@ -27,8 +27,6 @@ JAPANESE_SOURCE = "dev.ensan.inputmethod.azooKeyMac.Japanese"
 # Registration and app startup are asynchronous; poll their state up to a deadline.
 STATE_WAIT_SECONDS = 20
 POLL_INTERVAL_SECONDS = 0.5
-# Allow asynchronous conversion to finish before confirming the candidate.
-CONVERSION_WAIT_SECONDS = 5
 
 
 def require_success(completed, description):
@@ -132,13 +130,13 @@ def exercise_input(evidence, input_source, send_keys, outcome):
     selected = evidence.run("select-japanese", [input_source, "select", JAPANESE_SOURCE])
     outcome["japaneseSourceSelected"] = selected.returncode == 0
     # Even with denied event permissions, selecting an IME can launch it and crash.
-    evidence.run("process-after-select", ["pgrep", "-fl", "azooKeyMac"])
+    evidence.run("process-after-select", ["pgrep", "-lx", "azooKeyMac"])
     typed = evidence.run("type-japanese", [send_keys, "nihongo"])
     outcome["keyPostingSucceeded"] = typed.returncode == 0
     outcome["preeditText"] = wait_for_text(evidence, "preedit-text", bool)
     evidence.screenshot("screen-preedit")
     converted = evidence.run("convert", [send_keys, "space"])
-    time.sleep(CONVERSION_WAIT_SECONDS)
+    outcome["convertedText"] = wait_for_text(evidence, "converted-text", lambda text: "日本語" in text)
     evidence.screenshot("screen-candidates")
     confirmed = evidence.run("confirm", [send_keys, "return"])
     outcome["conversionKeysPosted"] = converted.returncode == 0 and confirmed.returncode == 0
@@ -152,6 +150,8 @@ def exercise_input(evidence, input_source, send_keys, outcome):
         time.sleep(POLL_INTERVAL_SECONDS)
     outcome["savedDocumentText"] = document_path.read_text()
     outcome["documentSaved"] = saved.returncode == 0 and outcome["savedDocumentText"] == outcome["documentText"]
+    running = evidence.run("process-after-input", ["pgrep", "-x", "azooKeyMac"])
+    outcome["processAliveAfterInput"] = running.returncode == 0
     outcome["japaneseConversionPassed"] = (outcome["documentText"] is not None and outcome["documentText"].strip() == "日本語"
         and outcome["conversionKeysPosted"] and outcome["japaneseSourceRetained"] and outcome["documentSaved"])
 
@@ -217,6 +217,8 @@ def main():
                 outcome["status"] = "input-unverified"
             elif not outcome.get("japaneseSourceSelected"):
                 outcome["status"] = "selection-failed"
+            elif not outcome.get("processAliveAfterInput"):
+                outcome["status"] = "process-exited"
             elif not outcome.get("japaneseConversionPassed"):
                 outcome["status"] = "conversion-failed"
             else:

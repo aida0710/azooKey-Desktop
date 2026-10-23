@@ -50,9 +50,22 @@ case "list":
 case "current":
     emit(describe(TISCopyCurrentKeyboardInputSource().takeRetainedValue()))
 case "register" where arguments.count == 2:
-    let status = TISRegisterInputSource(URL(fileURLWithPath: arguments[1]) as CFURL)
-    emit(["registerStatus": status])
-    exit(status == noErr ? 0 : 1)
+    let appURL = URL(fileURLWithPath: arguments[1])
+    let status = TISRegisterInputSource(appURL as CFURL)
+    let bundleIdentifier = Bundle(url: appURL)?.bundleIdentifier
+    let registered = sources().filter {
+        property($0, kTISPropertyBundleID) as? String == bundleIdentifier
+    }
+    // Enable the input method itself before its modes. Merely registering it
+    // leaves the parent disabled and its modes can disappear on app activation.
+    var enableRecords: [[String: Any]] = []
+    for source in registered where property(source, kTISPropertyInputSourceIsEnableCapable) as? Bool == true {
+        let enableStatus = TISEnableInputSource(source)
+        enableRecords.append(["source": describe(source), "enableStatus": enableStatus])
+    }
+    emit(["registerStatus": status, "enabledSources": enableRecords])
+    let enabled = !enableRecords.isEmpty && enableRecords.allSatisfy { $0["enableStatus"] as? OSStatus == noErr }
+    exit(status == noErr && enabled ? 0 : 1)
 case "select" where arguments.count == 2:
     exit(select(arguments[1]) ? 0 : 1)
 case "ascii":

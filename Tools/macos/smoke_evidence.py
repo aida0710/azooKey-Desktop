@@ -71,7 +71,7 @@ class Evidence:
         with (self.directory / "process-timeline.jsonl").open("w") as timeline:
             while not self.stop_sampling.is_set():
                 try:
-                    processes = subprocess.run(["pgrep", "-fl", "azooKeyMac.app/Contents/MacOS/azooKeyMac"],
+                    processes = subprocess.run(["pgrep", "-lx", "azooKeyMac"],
                                                capture_output=True, text=True, timeout=5)
                     snapshot = {"time": datetime.datetime.now().astimezone().isoformat(),
                                 "returncode": processes.returncode, "processes": processes.stdout.strip()}
@@ -111,7 +111,7 @@ class Evidence:
                 self.log_process.kill()
                 self.log_process.wait()
             self.log_file.close()
-        self.run("process-final", ["pgrep", "-fl", "azooKeyMac"])
+        self.run("process-final", ["pgrep", "-lx", "azooKeyMac"])
         self.run("process-table", ["ps", "-axo", "pid,ppid,stat,lstart,command"])
         start = self.started_at.strftime("%Y-%m-%d %H:%M:%S")
         self.run("azooKeyMac-log-show", ["/usr/bin/log", "show", "--start", start,
