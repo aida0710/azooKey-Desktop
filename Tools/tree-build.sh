@@ -4,46 +4,51 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="${1:-0.1.0}"
 BACKEND="${2:-metal}"
 case "$BACKEND" in
-    metal) SUFFIX='' ;;
-    cpu) SUFFIX='-cpu' ;;
+    metal) SUFFIX=''; COMPILATION_CONDITION=Zenzai ;;
+    cpu) SUFFIX='-cpu'; COMPILATION_CONDITION=ZenzaiCPU ;;
     *) echo 'Usage: tree-build.sh MAJOR.MINOR.PATCH [metal|cpu]' >&2; exit 2 ;;
 esac
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Version must be MAJOR.MINOR.PATCH' >&2; exit 2; }
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || { echo 'This package currently requires an Apple Silicon Mac.' >&2; exit 2; }
 python3 "$ROOT/Tools/fetch-models.py" --verify-only
-AZOOKEY_INFERENCE_BACKEND="$BACKEND" bash "$ROOT/Tools/test-macos-app.sh" build -c release -j 4
-PRODUCTS="$(swift build --package-path "$ROOT/build/macos-app" -c release --show-bin-path)"
+# Xcode generates Bundle.module accessors that search Contents/Resources.
+# Separate build directories keep the CPU and Metal compiler conditions isolated.
+# Both variants use the same dependency graph and framework; ZenzaiCPU selects
+# the converter's CPU device list and disables GPU offloading at compile time.
+DERIVED_DATA="$ROOT/build/tree-xcode-$BACKEND"
+xcodebuild -project "$ROOT/azooKeyMac.xcodeproj" -scheme azooKeyMac \
+    -configuration Release -destination 'generic/platform=macOS' \
+    -derivedDataPath "$DERIVED_DATA" -skipPackagePluginValidation -jobs 4 \
+    ARCHS=arm64 MACOSX_DEPLOYMENT_TARGET=14.0 \
+    CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
+    "SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) $COMPILATION_CONDITION" build
+PRODUCTS="$DERIVED_DATA/Build/Products/Release"
 STAGE="$(mktemp -d "$ROOT/build/tree-package.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 APP="$STAGE/azooKeyMac.app"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
-cp "$PRODUCTS/azooKeyMac" "$APP/Contents/MacOS/azooKeyMac"
-ditto "$PRODUCTS/llama.framework" "$APP/Contents/Frameworks/llama.framework"
-for resource in "$PRODUCTS"/*.bundle; do
-    ditto "$resource" "$APP/Contents/Resources/$(basename "$resource")"
-done
-cp "$ROOT"/azooKeyMac/*.tiff "$APP/Contents/Resources/"
+ditto "$PRODUCTS/azooKeyMac.app" "$APP"
+mkdir -p "$APP/Contents/Frameworks"
+if [[ ! -d "$APP/Contents/Frameworks/llama.framework" ]]; then
+    FRAMEWORKS=()
+    while IFS= read -r -d '' framework; do
+        FRAMEWORKS+=("$framework")
+    done < <(find "$PRODUCTS" -type d -name llama.framework -prune -print0)
+    [[ ${#FRAMEWORKS[@]} == 1 ]] || { echo 'Expected one built llama.framework' >&2; exit 1; }
+    ditto "${FRAMEWORKS[0]}" "$APP/Contents/Frameworks/llama.framework"
+fi
 cp "$ROOT"/build/models/* "$APP/Contents/Resources/"
-python3 "$ROOT/Tools/collect-licenses.py" "$ROOT/build/macos-app/.build/checkouts" "$APP/Contents/Resources/Licenses"
+python3 "$ROOT/Tools/collect-licenses.py" "$DERIVED_DATA/SourcePackages/checkouts" "$APP/Contents/Resources/Licenses"
 python3 - "$ROOT" "$APP" "$VERSION" "$BACKEND" <<'PY'
-import json, pathlib, plistlib, shutil, subprocess, sys
+import pathlib, plistlib, shutil, subprocess, sys
 root, app, version = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
 resources = app / 'Contents/Resources'
 for localization in (root / 'azooKeyMac').glob('*.lproj'):
     destination = resources / localization.name
-    shutil.copytree(localization, destination)
+    shutil.copytree(localization, destination, dirs_exist_ok=True)
     strings = destination / 'InfoPlist.strings'
     if strings.exists():
         strings.write_text(strings.read_text().replace('CFBundleName = "azooKey";', 'CFBundleName = "azooKey Tree";'))
-# Reuse the upstream catalog's exact PNGs without requiring an Xcode archive.
-icons = root / 'azooKeyMac/Assets.xcassets/AppIcon.appiconset'
-iconset = app.parent / 'AppIcon.iconset'
-iconset.mkdir()
-for item in json.loads((icons / 'Contents.json').read_text())['images']:
-    suffix = '@2x' if item['scale'] == '2x' else ''
-    shutil.copyfile(icons / item['filename'], iconset / f"icon_{item['size']}{suffix}.png")
-subprocess.run(['iconutil', '-c', 'icns', str(iconset), '-o', str(resources / 'AppIcon.icns')], check=True)
-with (root / 'azooKeyMac/Info.plist').open('rb') as source:
+with (app / 'Contents/Info.plist').open('rb') as source:
     info = plistlib.load(source)
 def substitute(value):
     if isinstance(value, str):
@@ -66,12 +71,15 @@ entitlements.pop('com.apple.security.application-groups', None)
 with (app.parent / 'entitlements.plist').open('wb') as target: plistlib.dump(entitlements, target)
 binary = str(app / 'Contents/MacOS/azooKeyMac')
 lines = subprocess.check_output(['otool', '-l', binary], text=True).splitlines()
+rpaths = []
 for i, line in enumerate(lines):
     if line.strip() == 'cmd LC_RPATH':
         rpath = lines[i+2].strip().split('path ', 1)[1].split(' (offset', 1)[0]
+        rpaths.append(rpath)
         if rpath.startswith(str(root)):
             subprocess.run(['install_name_tool', '-delete_rpath', rpath, binary], check=True)
-subprocess.run(['install_name_tool', '-add_rpath', '@executable_path/../Frameworks', binary], check=True)
+if '@executable_path/../Frameworks' not in rpaths:
+    subprocess.run(['install_name_tool', '-add_rpath', '@executable_path/../Frameworks', binary], check=True)
 PY
 codesign --force --sign - "$APP/Contents/Frameworks/llama.framework"
 codesign --force --sign - --entitlements "$STAGE/entitlements.plist" "$APP"

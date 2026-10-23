@@ -30,7 +30,11 @@ bash Tools/tree-build.sh 0.1.0 cpu # macOS VM向け。別名のarm64-cpu.zip
 bash Tools/package-linux-docker.sh 0.1.0
 ```
 
-macOSビルドはアプリの実ソースをSwiftPMからコンパイルします。Xcodeのプロジェクト構成とは別なので、Xcode固有の問題を解消した場合はXcodeのビルド・テストも実行します。モデルは固定されたサブモジュールのLFSポインタで検証します。git-lfsを新規導入する必要はありません。
+macOS の配布物は、`tree-build.sh` が `azooKeyMac.xcodeproj` を Release でビルドして作ります。Xcode が必要です。資源の束は `Contents/Resources` に置き、Xcode が生成する `Bundle.module` で読み込みます。CPU 版と Metal 版は別々の DerivedData で組み立て、ad-hoc 署名後に `codesign --verify --deep --strict` を実行します。
+
+`test-macos-app.sh` は引き続き SwiftPM でアプリの実ソースをコンパイルし、単体試験を実行します。モデルは固定されたサブモジュールの LFS ポインタで検証します。git-lfs を新規導入する必要はありません。
+
+`tree-package.yml` は macOS の ZIP を作った後、別の新しいランナーに ZIP と SHA256 ファイルを渡し、TextEdit で「nihongo」→Space→Enter が「日本語」として確定・保存されること、入力方式が存続すること、異常終了報告がないことを CPU・Metal の両版で検査します。`macos-ime-smoke.yml` は単独でも実行でき、`source=build` で対象リビジョンを組み立てて検証、`source=release` で公開タグを検証、`source=artifact` と `artifact-run-id` で既存の配布 artifact を再検証できます。
 
 配布前に専用macOS VMとUbuntuデスクトップVMで実際の入力を確認します。`build/dist` のzipを確認してから同名のGitHub Releaseへ登録し、実在するアーカイブからcaskを生成します。
 
