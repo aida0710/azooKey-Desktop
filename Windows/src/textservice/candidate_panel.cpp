@@ -19,14 +19,19 @@ constexpr float kRowExtraHeight = 14;  // a row is its text plus 7 above and bel
 constexpr float kRowGap = 2;
 constexpr float kCornerRadius = 8;
 constexpr float kNodeRadius = 4;
-// The system gives rounded popups a soft shadow but cannot give one to a
-// per-pixel alpha window, so the panel draws its own: rounded rectangles one
-// DIP larger each, lowered by kShadowDrop. Where more of them overlap the
-// shadow is darker (about 5% black next to the panel), fading out at
-// kShadowSpread. Like the system's, it falls below the panel and not above it.
-constexpr int kShadowSpread = 10;
-constexpr int kShadowDrop = 10;
-constexpr float kShadowLayerOpacity = 0.005f;
+// Windows 11 draws a soft shadow under rounded popups. A per-pixel alpha
+// window is not rounded, so the panel draws its own shadow, close to the one
+// Windows 11 drew under the panel before it was layered: about 3% black beside
+// the panel fading out over 10 DIPs, about 10% below it fading out over 20,
+// none above. It is two stacks of translucent rounded rectangles; where more
+// of them overlap it is darker.
+// The first grows one DIP each on every side and is lowered so none shows above;
+constexpr int kAroundShadowSpread = 10;
+constexpr int kAroundShadowDrop = 10;
+constexpr float kAroundShadowLayerOpacity = 0.003f;
+// the second keeps the panel's width and moves one DIP further down each.
+constexpr int kBelowShadowDepth = 16;
+constexpr float kBelowShadowLayerOpacity = 0.0045f;
 // A kanji reaches as high and low as Japanese candidate text does.
 constexpr wchar_t kLineSample[] = L"漢";
 
@@ -232,9 +237,10 @@ void CandidatePanel::Show(const PanelContent& content, const RECT& frame, UINT d
 bool CandidatePanel::Present() {
     shadowMargins_ = {};
     if (SystemShowsShadows()) {
-        int side = ScaleForDpi(kShadowSpread, dpi_);
-        shadowMargins_ = {side, ScaleForDpi(std::max(0, kShadowSpread - kShadowDrop), dpi_), side,
-                          ScaleForDpi(kShadowSpread + kShadowDrop, dpi_)};
+        int side = ScaleForDpi(kAroundShadowSpread, dpi_);
+        int top = ScaleForDpi(std::max(0, kAroundShadowSpread - kAroundShadowDrop), dpi_);
+        int bottom = ScaleForDpi(std::max(kAroundShadowSpread + kAroundShadowDrop, kBelowShadowDepth), dpi_);
+        shadowMargins_ = {side, top, side, bottom};
     }
     LayeredWindowPlacement placement;
     placement.position = {frame_.left - shadowMargins_.left, frame_.top - shadowMargins_.top};
@@ -434,12 +440,17 @@ void CandidatePanel::PaintTree() {
 }
 
 void CandidatePanel::PaintShadow(const D2D1_RECT_F& panel) {
-    brush_->SetColor(D2D1::ColorF(0, 0, 0, kShadowLayerOpacity));
-    for (int spread = 1; spread <= kShadowSpread; ++spread) {
+    brush_->SetColor(D2D1::ColorF(0, 0, 0, kAroundShadowLayerOpacity));
+    for (int spread = 1; spread <= kAroundShadowSpread; ++spread) {
         float grow = static_cast<float>(spread);
-        D2D1_RECT_F layer = D2D1::RectF(panel.left - grow, panel.top + kShadowDrop - grow, panel.right + grow,
-                                        panel.bottom + kShadowDrop + grow);
+        D2D1_RECT_F layer = D2D1::RectF(panel.left - grow, panel.top + kAroundShadowDrop - grow, panel.right + grow,
+                                        panel.bottom + kAroundShadowDrop + grow);
         target_->FillRoundedRectangle(D2D1::RoundedRect(layer, kCornerRadius + grow, kCornerRadius + grow), brush_);
+    }
+    brush_->SetColor(D2D1::ColorF(0, 0, 0, kBelowShadowLayerOpacity));
+    for (int depth = 1; depth <= kBelowShadowDepth; ++depth) {
+        D2D1_RECT_F layer = D2D1::RectF(panel.left, panel.top + depth, panel.right, panel.bottom + depth);
+        target_->FillRoundedRectangle(D2D1::RoundedRect(layer, kCornerRadius, kCornerRadius), brush_);
     }
 }
 
