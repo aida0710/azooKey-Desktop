@@ -14,6 +14,7 @@ XML = """<node><interface name="org.azookey.Tree">
   <method name="Layout"><arg type="s" direction="in"/><arg type="s" direction="out"/></method>
   <method name="Select"><arg type="s" direction="in"/><arg type="i" direction="in"/>
     <arg type="b" direction="in"/><arg type="i" direction="in"/><arg type="s" direction="in"/></method>
+  <method name="SetTreeShown"><arg type="b" direction="in"/><arg type="s" direction="in"/></method>
   <signal name="Update"><arg type="s"/></signal>
   <signal name="Hide"/>
   <signal name="Suspend"/>
@@ -27,6 +28,8 @@ class ShellSurface:
         self.renderer = None
         self.watch = 0
         self.engine = None
+        # The input context whose candidates the renderer shows with the tree open.
+        self.tree_context = None
         self.owner = Gio.bus_own_name(Gio.BusType.SESSION, NAME, Gio.BusNameOwnerFlags.NONE,
                                       self.acquired, None, None)
 
@@ -57,6 +60,7 @@ class ShellSurface:
                 Gio.bus_unwatch_name(self.watch)
                 self.watch = 0
             self.renderer = sender if values[0] else None
+            self.tree_context = None
             if self.renderer:
                 self.watch = Gio.bus_watch_name_on_connection(self.connection, sender, Gio.BusNameWatcherFlags.NONE,
                                                               None, lambda *_: self.lost())
@@ -76,6 +80,9 @@ class ShellSurface:
             if engine and engine.focused and context == engine.context_id and generation == engine.snapshot.get("generation"):
                 if operation in ("node", "select"):
                     engine.choose(operation, index, submit)
+        elif name == "SetTreeShown" and sender == self.renderer:
+            shown, context = values
+            self.tree_context = context if shown else None
         else:
             invocation.return_dbus_error(NAME + ".Invalid", "Invalid method")
             return
@@ -83,6 +90,7 @@ class ShellSurface:
 
     def lost(self):
         self.renderer = None
+        self.tree_context = None
         if self.watch:
             Gio.bus_unwatch_name(self.watch)
         self.watch = 0
@@ -101,7 +109,14 @@ class ShellSurface:
         self.connection.emit_signal(self.renderer, PATH, NAME, "Update", GLib.Variant("(s)", (json.dumps(data, ensure_ascii=False),)))
         return True
 
+    def shows_tree(self, engine):
+        """Whether the renderer shows this engine's candidates with the tree open."""
+        return self.renderer is not None and self.tree_context == engine.context_id
+
     def hide(self, engine):
+        # The renderer closes its tree with the candidates.
+        if self.tree_context == engine.context_id:
+            self.tree_context = None
         self._emit_for_engine(engine, "Hide")
 
     def suspend(self, engine):
