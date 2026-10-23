@@ -28,7 +28,20 @@ public struct DesktopSettingsFileStamp: Hashable, Sendable, Codable {
 
     /// Follows a symbolic link to the file it names, as reading the file does.
     public static func read(_ url: URL) -> DesktopSettingsFileStamp {
-        #if os(Windows)
+        #if os(Linux)
+        // Resolve explicitly: Foundation's attributes describe the link itself.
+        // realpath also distinguishes a missing target from access errors or loops.
+        guard let resolvedPath = realpath(url.path, nil) else {
+            let failure = errno
+            guard failure == ENOENT else {
+                return .init(token: "unreadable:\(failure)")
+            }
+            // A link to a missing file is a damaged settings file, not an absent one.
+            return readLinuxAttributes(atPath: url.path, prefix: "link")
+        }
+        defer { free(resolvedPath) }
+        return readLinuxAttributes(atPath: String(cString: resolvedPath), prefix: "file")
+        #elseif os(Windows)
         do {
             let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
             let size = (attributes[.size] as? NSNumber)?.int64Value ?? -1
@@ -56,7 +69,27 @@ public struct DesktopSettingsFileStamp: Hashable, Sendable, Codable {
         #endif
     }
 
-    #if !os(Windows)
+    #if os(Linux)
+    private static func readLinuxAttributes(atPath path: String, prefix: String) -> DesktopSettingsFileStamp {
+        do {
+            // Avoid naming Glibc's stat type: Swift 6.2 can hide it after importing FoundationNetworking.
+            let attributes = try FileManager.default.attributesOfItem(atPath: path)
+            guard let device = attributes[.systemNumber] as? NSNumber,
+                  let inode = attributes[.systemFileNumber] as? NSNumber,
+                  let modified = attributes[.modificationDate] as? Date,
+                  let size = attributes[.size] as? NSNumber,
+                  let type = attributes[.type] as? FileAttributeType,
+                  let permissions = attributes[.posixPermissions] as? NSNumber else {
+                return .init(token: "unreadable")
+            }
+            return .init(token: "\(prefix):\(device):\(inode):\(modified.timeIntervalSince1970):\(size):\(type.rawValue):\(permissions)")
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return .absent
+        } catch {
+            return .init(token: "unreadable")
+        }
+    }
+    #elseif !os(Windows)
     private static func modification(of status: stat) -> String {
         #if canImport(Darwin)
         "\(status.st_mtimespec.tv_sec).\(status.st_mtimespec.tv_nsec)"

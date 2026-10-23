@@ -74,10 +74,7 @@ public struct AIPromptHistory: Sendable {
         try save(prompt, pinned: pinned, shortcut: shortcut, usedAt: Date())
     }
 
-    /// `usedAt` orders the unpinned history. This is an overload, not a
-    /// `Date()` default argument: on Linux, type-checking that default while
-    /// the module interface is emitted loads Foundation's C headers before
-    /// Glibc's, and `stat` in Desktop/Settings can then no longer be found.
+    /// `usedAt` orders the unpinned history.
     public func save(_ prompt: String, pinned: Bool, shortcut: KeyboardShortcut?, usedAt: Date) throws(Failure) {
         var items = load().filter { !$0.prompt.hasSameScalars(as: prompt) }
         if let shortcut, items.contains(where: { $0.shortcut == shortcut }) {

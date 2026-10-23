@@ -63,6 +63,9 @@ public enum PlatformFileOperations {
         }
         let excluded = DWORD(FILE_ATTRIBUTE_DIRECTORY) | DWORD(FILE_ATTRIBUTE_REPARSE_POINT) | DWORD(FILE_ATTRIBUTE_DEVICE)
         return attributes.dwFileAttributes & excluded == 0
+        #elseif os(Linux)
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return attributes[.type] as? FileAttributeType == .typeRegular
         #else
         var fileStatus = stat()
         guard lstat(url.path, &fileStatus) == 0 else {
