@@ -29,13 +29,13 @@ final class WordDefinitionsModelTests: XCTestCase {
         XCTAssertEqual(fixture.model.result, .definition("現在の橋の説明"))
     }
 
-    func testNewGenerationAndRealCandidateOrNodeIdentityInvalidateOldResults() {
+    func testNewGenerationCandidateAndReadingInvalidateOldResults() {
         let fixture = Fixture()
         let targets = [
             fixture.target(word: "生", generation: 1),
             fixture.target(word: "生", generation: 2),
             fixture.target(word: "生", generation: 2, candidateIndex: 42),
-            fixture.target(word: "生", generation: 2, candidateIndex: 42, nodeID: 3)
+            fixture.target(word: "生", reading: "セイ", generation: 2, candidateIndex: 42)
         ]
         targets.forEach { fixture.model.update(target: $0) }
         for completion in fixture.completions.dropLast() { completion("古い説明") }
@@ -43,7 +43,7 @@ final class WordDefinitionsModelTests: XCTestCase {
         fixture.completions.last?("現在の説明")
         XCTAssertEqual(fixture.model.result, .definition("現在の説明"))
         XCTAssertEqual(fixture.model.target?.candidateIndex, 42)
-        XCTAssertEqual(fixture.model.target?.nodeID, 3)
+        XCTAssertEqual(fixture.model.target?.reading, "セイ")
     }
 
     func testHidingDiscardsRunningAndWaitingResultsBeforeTheSameWordIsShownAgain() {
@@ -101,8 +101,8 @@ final class WordDefinitionsModelTests: XCTestCase {
             self?.completions.append($1)
         }, cancelPending: { [weak self] in self?.cancellations += 1 })
 
-        func target(word: String, reading: String = "", generation: UInt = 0, candidateIndex: Int = 7, nodeID: Int = 0) -> WordDefinitionsModel.Target {
-            .init(generation: generation, candidateIndex: candidateIndex, nodeID: nodeID, word: word, reading: reading)
+        func target(word: String, reading: String = "", generation: UInt = 0, candidateIndex: Int = 7) -> WordDefinitionsModel.Target {
+            .init(generation: generation, candidateIndex: candidateIndex, word: word, reading: reading)
         }
     }
 }

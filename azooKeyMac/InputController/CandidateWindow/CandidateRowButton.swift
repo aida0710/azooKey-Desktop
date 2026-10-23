@@ -79,6 +79,7 @@ final class CandidateRowButton: CandidatePresentationButton {
             let iconSize: CGFloat = 11 // An availability mark stays secondary to the candidate word.
             let attachment = NSTextAttachment()
             attachment.image = icon
+            attachment.bounds = NSRect(x: 0, y: 0, width: iconSize, height: iconSize)
             let iconText = NSMutableAttributedString(attachment: attachment)
             iconText.addAttribute(.foregroundColor, value: foreground, range: NSRange(location: 0, length: iconText.length))
             iconText.draw(in: NSRect(x: bounds.width - definitionIconWidth, y: (bounds.height - iconSize) / 2,

@@ -84,7 +84,6 @@ final class CandidateConfirmationAdapterTests: XCTestCase {
         )
 
         assertNoConfirmButton()
-        assertNoConfirmButton()
         XCTAssertTrue(delegate.selectedRows.isEmpty)
         XCTAssertEqual(delegate.submittedCount, 0)
     }
@@ -123,7 +122,7 @@ final class CandidateConfirmationAdapterTests: XCTestCase {
         XCTAssertEqual(delegate.submittedCount, 0)
     }
 
-    func testMenuNumberVisibilityStillFollowsTheExistingFlagAfterLiveReferenceNumbers() throws {
+    func testMenuNumberVisibilityFollowsTheExistingFlagAfterLiveSelection() throws {
         let candidates = candidatePresentations(count: 12)
         for showsPhysicalNumbers in [false, true] {
             controller.showCandidateIndex = showsPhysicalNumbers
@@ -142,7 +141,7 @@ final class CandidateConfirmationAdapterTests: XCTestCase {
         XCTAssertEqual(delegate.submittedCount, 0)
     }
 
-    func testPressingALiveReferenceNumberSelectsItsActualCandidateWithoutSubmittingOrChangingTheNumberFlag() throws {
+    func testClickingALiveWordSelectsItsActualCandidateWithoutSubmittingOrChangingTheNumberFlag() throws {
         controller.showCandidateIndex = false
         controller.updateCandidatePresentations(
             candidatePresentations(count: 12), selectionIndex: 9, cursorLocation: .zero
@@ -156,7 +155,7 @@ final class CandidateConfirmationAdapterTests: XCTestCase {
         XCTAssertFalse(controller.showCandidateIndex)
     }
 
-    func testHidingLiveCandidatesDiscardsThePreviousReferencePage() throws {
+    func testHidingLiveCandidatesDiscardsThePreviousPage() throws {
         controller.showCandidateIndex = false
         controller.updateCandidatePresentations(
             candidatePresentations(count: 12), selectionIndex: 9, cursorLocation: .zero
@@ -175,7 +174,7 @@ final class CandidateConfirmationAdapterTests: XCTestCase {
         XCTAssertEqual(delegate.submittedCount, 0)
     }
 
-    func testSharedPrefixReferenceNumberMatchesItsActualWordAction() throws {
+    func testSharedPrefixPreservesTheSelectedCandidate() throws {
         let view = CandidateTreeView()
         let entries: [CandidateTree.Entry] = [
             .init(text: "日本語", tokens: [.init(text: "日本"), .init(text: "語")], candidateIndex: 7),

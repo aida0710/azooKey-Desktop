@@ -55,6 +55,7 @@ def capture_candidates(evidence, send_keys, *, compact, outcome):
     def has_buttons(observed):
         return any(element.get("AXRole") == "AXButton" for element in elements(observed))
 
+    evidence.run("active-dictionaries", ["defaults", "read", "com.apple.DictionaryServices", "DCSActiveDictionaries"])
     clear("tree")
     keys("type-long-composition", "kyouhagakkainiikoutoomotteimasu")
     tree = wait_snapshot(evidence, "candidate-tree", has_buttons)
@@ -72,7 +73,7 @@ def capture_candidates(evidence, send_keys, *, compact, outcome):
     def english_selected(observed):
         for element in elements(observed):
             label = element.get("AXTitle", "") + " " + element.get("AXDescription", "")
-            if element.get("AXRole") == "AXButton" and "test" in label.lower() and element.get("AXSelected"):
+            if element.get("AXRole") == "AXButton" and "test" in label.lower() and (element.get("AXSelected") or element.get("AXValue") in [1, "Selected", "選択中"]):
                 return True
         return False
 

@@ -45,14 +45,12 @@ final class CandidateTreeView: NSView {
         var generation: UInt
         var isEditing: Bool
     }
-    // Long paths remain scrollable inside the small input window.
-    private let maximumTreeHeight: CGFloat = 160
     var hasDocumentAlignment: Bool { documentWidths != nil }
-    private var treePreferredSize = NSSize(width: 80, height: 26)
+    private var treePreferredSize = NSSize(width: 80, height: MacCandidateMetrics.minimumTreeHeight)
     private var showsTree: Bool { !tree.nodes.isEmpty && !enterConfirmsCandidate }
     private var candidateWidth: CGFloat { enterConfirmsCandidate ? navigation.preferredWidth : treePreferredSize.width }
     private var candidateHeight: CGFloat {
-        enterConfirmsCandidate ? navigation.preferredHeight(width: candidateWidth) : min(maximumTreeHeight, treePreferredSize.height)
+        enterConfirmsCandidate ? navigation.preferredHeight(width: candidateWidth) : min(MacCandidateMetrics.maximumTreeHeight, treePreferredSize.height)
     }
     private var showsDefinition: Bool { enterConfirmsCandidate && definitionCard.hasDefinition }
     var preferredSize: NSSize {
@@ -188,7 +186,7 @@ final class CandidateTreeView: NSView {
 
     @discardableResult
     func navigate(_ direction: CandidateTreeSelection.Direction) -> Bool {
-        if !treeExpanded && (direction == .up || direction == .down) {
+        if (enterConfirmsCandidate || !treeExpanded) && (direction == .up || direction == .down) {
             guard !entries.isEmpty else {
                 return false
             }
@@ -271,9 +269,9 @@ final class CandidateTreeView: NSView {
             x += (widths[depth] ?? rowHeight) + (aligned ? 0 : 12)
         }
         let rowCount = displayedColumns.map(\.count).max() ?? 0
-        let contentSize = NSSize(width: max(60, x), height: max(26, CGFloat(rowCount) * rowPitch + 6))
+        let contentSize = NSSize(width: max(60, x), height: max(MacCandidateMetrics.minimumTreeHeight, CGFloat(rowCount) * rowPitch + 6))
         canvas.frame = NSRect(origin: .zero, size: contentSize)
-        treePreferredSize = NSSize(width: aligned ? contentSize.width : min(640, contentSize.width),
+        treePreferredSize = NSSize(width: aligned ? contentSize.width : min(MacCandidateMetrics.maximumTreeWidth, contentSize.width),
                                   height: contentSize.height)
         canvas.edges = []
         for id in displayedColumns.flatMap({ $0 }) {
@@ -408,7 +406,7 @@ final class CandidateTreeView: NSView {
 
     private func updateDefinitions() {
         let targets: [WordDefinitionsModel.Target] = enterConfirmsCandidate ? candidatePage.items.map {
-            .init(generation: generation, candidateIndex: $0.index, nodeID: 0, word: $0.text, reading: $0.reading)
+            .init(generation: generation, candidateIndex: $0.index, word: $0.text, reading: $0.reading)
         } : []
         definitions.availability.update(targets: targets)
         definitions.update(target: targets.first { $0.candidateIndex == selection.selectedCandidateIndex })

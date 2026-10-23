@@ -45,6 +45,8 @@ final class CandidateNavigationView: NSView {
         status.alignment = .right
         status.setAccessibilityIdentifier("candidate-position")
         setAccessibilityIdentifier("candidate-list")
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
         scroll.documentView = document
         scroll.hasVerticalScroller = true
         scroll.scrollerStyle = .overlay
@@ -107,10 +109,13 @@ final class CandidateNavigationView: NSView {
     }
 
     var selectedRowTop: CGFloat {
-        guard let row = rows.first(where: \.selected) else {
-            return inset
-        }
-        return inset + max(0, row.frame.minY - scroll.documentVisibleRect.minY)
+        let width = preferredWidth - inset * 2
+        let preceding = rows.prefix(while: { !$0.selected }).reduce(CGFloat.zero) { $0 + $1.preferredHeight(width: width) }
+        let rowHeight = rows.first(where: \.selected)?.preferredHeight(width: width) ?? 0
+        let viewportHeight = preferredHeight(width: preferredWidth) - statusHeight - inset * 2
+        // Match scrollToVisible when a keyboard selection moves below the viewport.
+        let scrollOffset = max(scroll.documentVisibleRect.minY, preceding + rowHeight - viewportHeight)
+        return inset + max(0, preceding - scrollOffset)
     }
 
     func updateDefinitions(availableIndices: Set<Int>) {

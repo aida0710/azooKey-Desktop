@@ -5,12 +5,11 @@ final class WordDefinitionsModel {
     struct Target: Equatable, Sendable {
         let generation: UInt
         let candidateIndex: Int
-        let nodeID: Int
         let word: String
         let reading: String
 
         static func == (left: Self, right: Self) -> Bool {
-            left.generation == right.generation && left.candidateIndex == right.candidateIndex && left.nodeID == right.nodeID &&
+            left.generation == right.generation && left.candidateIndex == right.candidateIndex &&
             left.word.utf8.elementsEqual(right.word.utf8) && left.reading.utf8.elementsEqual(right.reading.utf8)
         }
     }

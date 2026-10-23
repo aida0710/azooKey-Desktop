@@ -10,6 +10,10 @@ enum MacCandidateMetrics {
     static let minimumListWidth: CGFloat = 120
     static let maximumListWidth: CGFloat = 360
     static let visibleRows = 7
+    // Limit the live tree to a small area while keeping longer paths scrollable.
+    static let maximumTreeWidth: CGFloat = 640
+    static let maximumTreeHeight: CGFloat = 160
+    static let minimumTreeHeight: CGFloat = 26
     static let cardGap: CGFloat = 8
     static let definitionWidth: CGFloat = 240
     static let cornerRadius: CGFloat = 6

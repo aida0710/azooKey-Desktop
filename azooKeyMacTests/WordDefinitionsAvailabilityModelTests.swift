@@ -23,10 +23,10 @@ final class WordDefinitionsAvailabilityModelTests: XCTestCase {
         XCTAssertTrue(fixture.model.availableCandidateIndices.isEmpty)
     }
 
-    func testWordDepthReadingAndUTF8SpellingEachRetireThePreviousResult() {
+    func testGenerationReadingAndUTF8SpellingEachRetireThePreviousResult() {
         let fixture = Fixture()
         let original = target(42, word: "が")
-        let alternatives = [target(42, word: "か\u{3099}"), target(42, word: "が", nodeID: 2),
+        let alternatives = [target(42, word: "か\u{3099}"), target(42, word: "が", generation: 2),
                             target(42, word: "が", reading: "ガ")]
         for next in alternatives {
             fixture.model.update(targets: [original])
@@ -62,8 +62,8 @@ final class WordDefinitionsAvailabilityModelTests: XCTestCase {
         XCTAssertTrue(fixture.model.availableCandidateIndices.isEmpty)
     }
 
-    private func target(_ index: Int, word: String, generation: UInt = 1, nodeID: Int = 0, reading: String = "") -> WordDefinitionsModel.Target {
-        .init(generation: generation, candidateIndex: index, nodeID: nodeID, word: word, reading: reading)
+    private func target(_ index: Int, word: String, generation: UInt = 1, reading: String = "") -> WordDefinitionsModel.Target {
+        .init(generation: generation, candidateIndex: index, word: word, reading: reading)
     }
 
     @MainActor

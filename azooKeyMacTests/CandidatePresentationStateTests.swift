@@ -53,7 +53,8 @@ final class CandidatePresentationStateTests: XCTestCase {
             let points = MacCandidateMetrics.fontSize(size)
             let row = CandidateRowButton(item: try XCTUnwrap(page.items.first), number: "1", fontSize: points)
             let height = row.preferredHeight(width: 180)
-            XCTAssertGreaterThan(height, try XCTUnwrap(row.font).ascender - try XCTUnwrap(row.font).descender)
+            let font = try XCTUnwrap(row.font)
+            XCTAssertGreaterThan(height, font.ascender - font.descender)
             XCTAssertLessThan(height, 36)
             heights.append(height)
         }
