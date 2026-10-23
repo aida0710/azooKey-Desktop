@@ -167,7 +167,7 @@ if(NOT AZOOKEY_X86)
 endif()
 
 add_executable(tsf-harness tests/tsf_harness.cpp tests/screen_capture.cpp)
-target_link_libraries(tsf-harness PRIVATE ole32 oleaut32 user32 gdi32 uuid windowscodecs)
+target_link_libraries(tsf-harness PRIVATE ole32 oleaut32 user32 gdi32 uuid windowscodecs dwmapi)
 
 if(NOT AZOOKEY_X86)
     enable_testing()

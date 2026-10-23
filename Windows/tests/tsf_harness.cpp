@@ -10,12 +10,18 @@
 // With --expect the exit code is 0 only when the document equals that text.
 // {SHOT:name} saves the screen as <directory>\name.png at that point, so the
 // candidate windows can be reviewed from machines without a desktop session.
+// {FIRSTFRAME:name} checks the candidate panel as the screen showed it right
+// after the previous key, before any window message ran: it must already look
+// as it does once settled (name.png and name-settled.png). Any difference fails.
 // --ui-less makes the harness behave like a full-screen game: it refuses the
 // IME's own candidate window and reads the list through ITfCandidateListUIElement.
 #include <windows.h>
+#include <dwmapi.h>
 #include <msctf.h>
 #include <richedit.h>
 #include <cstdio>
+#include <cstring>
+#include <cwchar>
 #include <optional>
 #include <string>
 #include <vector>
@@ -23,6 +29,13 @@
 #include "screen_capture.h"
 
 namespace {
+
+constexpr wchar_t kCandidatePanelClass[] = L"azooKeyTreeCandidatePanel";
+// Long enough for the text service's windows to repaint after a key.
+constexpr DWORD kScreenshotSettleMilliseconds = 300;
+// The edit control is tall enough that the candidate list lies over its plain
+// background, so nothing else changes under the panel between two captures.
+constexpr SIZE kFrameSize{900, 600};
 
 struct Options {
     CLSID clsid{};
@@ -40,6 +53,7 @@ struct KeyStroke {
     bool shift;
     bool control;
     std::wstring screenshot;  // non-empty: capture the screen instead of a key
+    bool checksFirstFrame = false;  // with `screenshot`: {FIRSTFRAME:name} rather than {SHOT:name}
 };
 
 void Fail(const char* step, HRESULT result) {
@@ -70,6 +84,11 @@ bool ParseKeys(const std::wstring& text, std::vector<KeyStroke>* out) {
             std::wstring name = text.substr(i + 1, end - i - 1);
             if (name.rfind(L"SHOT:", 0) == 0) {
                 out->push_back({0, false, false, name.substr(5)});
+                i = end + 1;
+                continue;
+            }
+            if (name.rfind(L"FIRSTFRAME:", 0) == 0) {
+                out->push_back({0, false, false, name.substr(11), true});
                 i = end + 1;
                 continue;
             }
@@ -111,6 +130,40 @@ void PumpMessages(DWORD milliseconds) {
         }
         Sleep(1);
     } while (GetTickCount64() < deadline);
+}
+
+struct CandidatePanelSearch {
+    DWORD process;
+    HWND panel;
+};
+
+BOOL CALLBACK MatchCandidatePanel(HWND window, LPARAM parameter) {
+    auto* search = reinterpret_cast<CandidatePanelSearch*>(parameter);
+    DWORD process = 0;
+    GetWindowThreadProcessId(window, &process);
+    wchar_t className[64] = {};
+    if (process != search->process || !GetClassNameW(window, className, ARRAYSIZE(className)) ||
+        wcscmp(className, kCandidatePanelClass) != 0) {
+        return TRUE;
+    }
+    search->panel = window;
+    return FALSE;
+}
+
+// The panel of the text service loaded into this process; other applications may have their own.
+HWND FindCandidatePanel() {
+    CandidatePanelSearch search{GetCurrentProcessId(), nullptr};
+    EnumWindows(MatchCandidatePanel, reinterpret_cast<LPARAM>(&search));
+    return search.panel;
+}
+
+size_t CountDifferentPixels(const azookey::tests::ScreenImage& first, const azookey::tests::ScreenImage& second) {
+    if (first.width != second.width || first.height != second.height) return first.pixels.size() / 4;
+    size_t different = 0;
+    for (size_t i = 0; i < first.pixels.size(); i += 4) {
+        if (memcmp(&first.pixels[i], &second.pixels[i], 4) != 0) ++different;
+    }
+    return different;
 }
 
 void SetModifierState(bool shift, bool control) {
@@ -186,6 +239,35 @@ std::string ToUtf8(const std::wstring& text) {
     return out;
 }
 
+// Runs for {FIRSTFRAME:name}: right after the previous key, before any window message.
+bool CheckFirstFrame(const std::wstring& directory, const std::wstring& name) {
+    // Waits for the next composition, so the capture shows what the key left on the screen.
+    DwmFlush();
+    HWND panel = FindCandidatePanel();
+    RECT bounds{};
+    if (!panel || !IsWindowVisible(panel) || !GetWindowRect(panel, &bounds)) {
+        std::printf("FAIL first frame %s: no candidate panel is shown\n", ToUtf8(name).c_str());
+        return false;
+    }
+    azookey::tests::ScreenImage first = azookey::tests::CaptureScreenRegion(bounds);
+    PumpMessages(kScreenshotSettleMilliseconds);
+    DwmFlush();
+    RECT settledBounds{};
+    GetWindowRect(panel, &settledBounds);
+    azookey::tests::ScreenImage settled = azookey::tests::CaptureScreenRegion(bounds);
+    azookey::tests::SavePng(directory + L"\\" + name + L".png", first);
+    azookey::tests::SavePng(directory + L"\\" + name + L"-settled.png", settled);
+    size_t different = CountDifferentPixels(first, settled);
+    if (!EqualRect(&bounds, &settledBounds) || different > 0) {
+        std::printf("FAIL first frame %s: the panel changed after its first frame (moved: %s, %zu of %zu pixels differ)\n",
+                    ToUtf8(name).c_str(), EqualRect(&bounds, &settledBounds) ? "no" : "yes", different, first.pixels.size() / 4);
+        return false;
+    }
+    std::printf("FIRSTFRAME %s: the first frame already shows the settled panel (%ldx%ld)\n", ToUtf8(name).c_str(),
+                bounds.right - bounds.left, bounds.bottom - bounds.top);
+    return true;
+}
+
 std::wstring EditText(HWND edit) {
     int length = GetWindowTextLengthW(edit);
     std::wstring text(length + 1, L'\0');
@@ -235,8 +317,12 @@ int wmain(int argc, wchar_t** argv) {
     std::printf("thread manager active client=%lu\n", static_cast<unsigned long>(clientId));
 
     LoadLibraryW(L"Msftedit.dll");
-    HWND frame = CreateWindowExW(0, L"STATIC", L"tsf-harness", WS_OVERLAPPEDWINDOW, 80, 80, 900, 240, nullptr, nullptr, nullptr, nullptr);
-    HWND edit = CreateWindowExW(0, MSFTEDIT_CLASS, L"", WS_CHILD | WS_VISIBLE | ES_MULTILINE, 0, 0, 880, 200, frame, nullptr, nullptr, nullptr);
+    HWND frame = CreateWindowExW(0, L"STATIC", L"tsf-harness", WS_OVERLAPPEDWINDOW, 80, 80, kFrameSize.cx, kFrameSize.cy, nullptr,
+                                 nullptr, nullptr, nullptr);
+    RECT client{};
+    if (frame) GetClientRect(frame, &client);
+    HWND edit = CreateWindowExW(0, MSFTEDIT_CLASS, L"", WS_CHILD | WS_VISIBLE | ES_MULTILINE, 0, 0, client.right, client.bottom, frame,
+                                nullptr, nullptr, nullptr);
     if (!frame || !edit) Fail("CreateWindow", HRESULT_FROM_WIN32(GetLastError()));
     // RichEdit talks to TSF only when asked to; without this it uses IMM32.
     SendMessageW(edit, EM_SETEDITSTYLE, SES_USECTF | SES_CTFALLOWEMBED | SES_CTFALLOWSMARTTAG | SES_CTFALLOWPROOFING,
@@ -286,9 +372,15 @@ int wmain(int argc, wchar_t** argv) {
     hr = threadManager->QueryInterface(IID_ITfKeystrokeMgr, reinterpret_cast<void**>(&keystrokes));
     if (FAILED(hr)) Fail("QueryInterface(KeystrokeMgr)", hr);
     int eatenCount = 0;
-    for (const auto& stroke : strokes) {
+    bool firstFramesPassed = true;
+    for (size_t index = 0; index < strokes.size(); ++index) {
+        const KeyStroke& stroke = strokes[index];
+        if (stroke.checksFirstFrame) {
+            if (!CheckFirstFrame(options.screenshotDirectory, stroke.screenshot)) firstFramesPassed = false;
+            continue;
+        }
         if (!stroke.screenshot.empty()) {
-            PumpMessages(300);
+            PumpMessages(kScreenshotSettleMilliseconds);
             std::wstring path = options.screenshotDirectory + L"\\" + stroke.screenshot + L".png";
             std::printf("screenshot %s: %s\n", ToUtf8(stroke.screenshot).c_str(), azookey::tests::SaveScreenPng(path) ? "saved" : "failed");
             continue;
@@ -321,14 +413,16 @@ int wmain(int argc, wchar_t** argv) {
             SendMessageW(edit, WM_KEYUP, stroke.virtualKey, up);
         }
         SetModifierState(false, false);
-        PumpMessages(options.settleMilliseconds);
+        // A first-frame check must see the screen before any window message runs.
+        bool nextChecksFirstFrame = index + 1 < strokes.size() && strokes[index + 1].checksFirstFrame;
+        if (!nextChecksFirstFrame) PumpMessages(options.settleMilliseconds);
     }
     PumpMessages(300);
     std::wstring text = EditText(edit);
     std::printf("eaten=%d/%zu\n", eatenCount, strokes.size());
     bool uiLessPassed = true;
     if (options.uiLess) {
-        HWND panel = FindWindowW(L"azooKeyTreeCandidatePanel", nullptr);
+        HWND panel = FindCandidatePanel();
         bool panelVisible = panel && IsWindowVisible(panel);
         std::printf("UIELEMENT begun=%d count=%u first=%s panelVisible=%s\n", observer.begun(), observer.count(),
                     ToUtf8(observer.first()).c_str(), panelVisible ? "yes" : "no");
@@ -355,10 +449,10 @@ int wmain(int argc, wchar_t** argv) {
         std::printf("FAIL ui-less: the candidates were not offered as a UI element, or our panel was shown\n");
         return 1;
     }
+    bool matched = true;
     if (options.expected) {
-        bool matched = text == *options.expected;
+        matched = text == *options.expected;
         std::printf("%s expected=%s\n", matched ? "PASS" : "FAIL", ToUtf8(*options.expected).c_str());
-        return matched ? 0 : 1;
     }
-    return 0;
+    return matched && firstFramesPassed ? 0 : 1;
 }
