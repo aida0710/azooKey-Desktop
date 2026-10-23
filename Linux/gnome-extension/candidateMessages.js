@@ -6,11 +6,9 @@ export const messages = {
     closeList: "閉じる",
     closeTree: "文節を閉じる",
     detail: "候補の詳細",
-    nextPage: "次へ",
     openDetails: "詳細を表示",
     openList: "一覧",
     openTree: "文節を調整",
-    previousPage: "前へ",
     selectHint: "候補を選び、Enterで確定",
     selected: "選択中",
 };

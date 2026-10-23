@@ -147,7 +147,7 @@ showsSelectedDetails();
 equal(submitted, []);
 print('GNOME block numbers: real page badges share the 44px node action; paging/settings do not invent numbers or separate targets PASS');
 
-// The same product renderer now gives selection and committing distinct controls.
+// Rows select without committing and the sentence preview follows the selection.
 submitted.length = 0;
 extension._hideCandidates();
 render(snapshot());
@@ -165,14 +165,11 @@ submitted.length = 0;
 render(snapshot({selection: 0}));
 equal(extension._composition._sentence.text, '日本語');
 equal(extension._composition._remaining.text.includes('にゅうりょく'), true);
-const confirm = extension._composition._confirm;
-confirm.get_accessible().do_action();
-confirm.get_accessible().do_action();
-drainActions();
-equal(submitted, [['Select', 'select', 0, true, 2, 'synthetic-field']]);
-confirm.emit('clicked');
-equal(submitted.length, 1);
-print('GNOME sentence card: hover leaves selection untouched, AT row selects, confirm commits once with remaining reading PASS');
+equal(extension._composition._confirm, undefined);
+equal(extension._composition._header.get_children().length, 1);
+equal(extension._composition._header.get_children()[0] === extension._composition._title, true);
+equal(submitted, []);
+print('GNOME sentence card: hover preserves selection, AT row selects without committing, and no confirm button remains PASS');
 
 submitted.length = 0;
 render(snapshot({selection: 10}));
@@ -188,9 +185,7 @@ beforeSuspendRow.emit('notify::allocation');
 navigationScroll.value = 37;
 extension._treeScroll.get_vadjustment().value = 83;
 extension._details._scroll.get_vadjustment().value = 29;
-const queuedConfirm = extension._composition._confirm;
 const queuedRow = extension._navigation._rows.get_children()[0];
-queuedConfirm.get_accessible().do_action();
 queuedRow.get_accessible().do_action();
 hover(queuedRow, true);
 extension._suspendCandidates();
@@ -215,7 +210,6 @@ equal(extension._treeScroll.get_vadjustment().value, 83);
 equal(extension._details._scroll.get_vadjustment().value, 0);
 equal(pendingReveals.size, 0);
 queuedRow.emit('clicked');
-queuedConfirm.emit('clicked');
 equal(submitted, []);
 extension._details._scroll.get_vadjustment().value = 29;
 render(snapshot({selection: 10, generation: 3}));
@@ -263,12 +257,12 @@ equal(extension._navigation._rows.get_children()[1]._candidateLabel.text, longTe
 equal(extension._navigation._rows.get_children()[1]._candidateLabel.wrap, true);
 equal(extension._navigation._rows.get_children()[1]._selectionMark.text, '✓');
 
-const selectedBeforeHover = extension._composition._confirm;
+const selectedBeforeHover = extension._composition._sentence.text;
 hover(extension._navigation._rows.get_children()[0], true);
-equal(extension._composition._confirm === selectedBeforeHover, true);
+equal(extension._composition._sentence.text, selectedBeforeHover);
 equal(extension._composition._sentence.text, longText);
 equal(submitted, []);
-print('GNOME readable sentence/list: complete Unicode text is wrapped, selected row is marked and hover never retargets confirm PASS');
+print('GNOME readable sentence/list: complete Unicode text is wrapped, selected row is marked and hover preserves the selected sentence PASS');
 
 function reverseObjectMembers(value) {
     if (Array.isArray(value)) return value.map(reverseObjectMembers);
@@ -289,7 +283,7 @@ extension._details._scroll.get_vadjustment().value = 29;
 extension._treeScroll.get_vadjustment().value = 83;
 extension._navigation._scroll.get_vadjustment().value = 37;
 submitted.length = 0;
-extension._composition._confirm.get_accessible().do_action();
+extension._buttons.values().next().value.get_accessible().do_action();
 render(reverseObjectMembers(snapshot({generation: 81, selection: 2})));
 drainActions();
 equal(submitted, []);
@@ -299,7 +293,7 @@ equal(extension._treeExpanded, true);
 equal(extension._details._scroll.get_vadjustment().value, 29);
 equal(extension._treeScroll.get_vadjustment().value, 83);
 equal(extension._navigation._scroll.get_vadjustment().value, 37);
-print('GNOME dictionary order: selection preserves details/list/tree preferences and viewport, but retires the old confirm PASS');
+print('GNOME dictionary order: selection preserves details/list/tree preferences and viewport, but retires the old word action PASS');
 
 extension._navigation.expanded = true;
 render(snapshot({generation: 82, selection: 2}));
@@ -439,7 +433,7 @@ extension._hideCandidates();
 const composing = {...snapshot({selection: 0, numbers: false}), inputState: 'composing', preedit: 'にほんご', reading: 'にほんご'};
 render(composing);
 equal(extension._composition.actor.visible, false);
-equal(extension._composition._confirm, null);
+equal(extension._composition._confirm, undefined);
 equal(extension._navigation.actor.visible, false);
 equal(extension._details.actor.visible, false);
 equal(extension._treeScroll.visible, true);
@@ -449,20 +443,22 @@ render({...composing, inputState: 'selecting'});
 drainActions();
 equal(submitted, []);
 equal(extension._composition._title.text, '確定する文章');
-equal(extension._composition._confirm.label, '確定 ↵');
-const selectedConfirm = extension._composition._confirm;
-selectedConfirm.get_accessible().do_action();
+equal(extension._composition._header.get_children().length, 1);
+equal(extension._composition._header.get_children()[0] === extension._composition._title, true);
+const selectedRow = extension._navigation._rows.get_children()[0];
+selectedRow.get_accessible().do_action();
 render(composing);
 drainActions();
 equal(submitted, []);
-equal(extension._composition._confirm, null);
+equal(extension._composition._confirm, undefined);
 for (const inputState of ['previewing', 'replaceSuggestion']) {
     render({...composing, inputState});
     equal(extension._composition.actor.visible, true);
     equal(extension._navigation.actor.visible, true);
     equal(extension._treeScroll.visible, false);
     equal(extension._composition._title.text, '確定する文章');
-    equal(extension._composition._confirm.label, '確定 ↵');
+    equal(extension._composition._header.get_children().length, 1);
+    equal(extension._composition._header.get_children()[0] === extension._composition._title, true);
 }
 print('GNOME input modes: live input shows only tree; conversion states show the menu and retire old actions on each transition PASS');
 

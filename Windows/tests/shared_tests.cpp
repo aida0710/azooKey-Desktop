@@ -409,9 +409,8 @@ void TestCandidateDisplayParsing() {
         R"({"preedit":"にほんご","candidateDisplay":{"mode":"list","columns":[[1,0,3],[2]],"baseFontSize":14,)"
         R"("detailNode":1,"expandTree":false,"announcement":"変換候補 2 / 56。にほん",)"
         R"("nodes":[{"id":1,"selected":true,"focused":true,"accessibleName":"にほん（ニホン）","accessibleDescription":"操作対象","detailText":"にほん"}],)"
-        R"("list":{"title":"確定する文章","commitText":"にほんご","readingText":"読み にほんご","positionText":"変換候補 2 / 56",)"
-        R"("keyboardConfirmsCandidate":true,"confirmLabel":"確定 ↵","confirmAccessibleName":"確定 にほんご","confirmAccessibleDescription":"押すと候補を確定",)"
-        R"("confirmIndex":1,"previousIndex":null,"nextIndex":9,"items":[{"index":0,"number":1,"text":"日本語","selected":false,)"
+        R"("list":{"title":"確定する文章","commitText":"にほんご","readingText":"読み にほんご","positionLabel":"2/56","positionText":"変換候補 2 / 56",)"
+        R"("items":[{"index":0,"number":1,"text":"日本語","selected":false,)"
         R"("accessibleName":"日本語（にほんご）","accessibleDescription":"押すと候補を選択","detailText":"確定予定: 日本語"}]}}})");
     Check(snapshot.has_value(), "a snapshot with candidateDisplay parses");
     const auto& shown = snapshot->display;
@@ -421,10 +420,9 @@ void TestCandidateDisplayParsing() {
     Check(shown.announcement == L"変換候補 2 / 56。にほん", "the announcement is read");
     const auto* node = shown.FindNode(1);
     Check(node && node->selected && node->focused && node->accessibleName == L"にほん（ニホン）", "display nodes are read");
-    Check(shown.list && shown.list->confirmIndex == 1 && !shown.list->previousIndex && shown.list->nextIndex == 9, "list buttons are read");
     Check(shown.list && shown.list->items.size() == 1 && shown.list->items[0].number == 1 && shown.list->items[0].text == L"日本語",
           "list items are read");
-    Check(shown.list && shown.list->confirmLabel == L"確定 ↵" && shown.list->positionText == L"変換候補 2 / 56", "list wording is Core's");
+    Check(shown.list && shown.list->positionLabel == L"2/56" && shown.list->positionText == L"変換候補 2 / 56", "list wording is Core's");
     auto hidden = azookey::protocol::ParseSnapshot(R"({"preedit":""})");
     Check(hidden && hidden->display.mode == azookey::display::DisplayMode::Hidden, "a reply without candidateDisplay shows nothing");
 }

@@ -88,8 +88,8 @@ class RelativeScorePanelTests(unittest.TestCase):
             self.assertEqual(commits, [])
             focused_action.clicked()
             self.assertEqual(commits, [("node", 0, False)])
-            panel.navigation.confirm.clicked()
-            self.assertEqual(commits, [("node", 0, False), ("select", 0, True)])
+            self.assertFalse(hasattr(panel.navigation, "confirm"))
+            self.assertEqual(commits, [("node", 0, False)])
         finally:
             panel.destroy()
 

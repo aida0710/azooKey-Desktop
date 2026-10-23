@@ -112,10 +112,12 @@ class TreePanelTests(unittest.TestCase):
                 self.assertTrue(panel.click(None, types.SimpleNamespace(button=1, x=rect[2] + 4, y=rect[3] + 4)))
                 self.assertEqual(submitted, [])
                 candidates = [candidate["text"] for candidate in snapshot["candidates"]]
-                panel.navigation.confirm.clicked()
+                self.assertFalse(hasattr(panel.navigation, "confirm"))
+                submitted.extend(bridge.request("key", event=translate(0xFF0D, 0))["commits"])
                 self.assertEqual(len(submitted), 1)
                 self.assertIn(submitted[0], candidates)
                 self.assertEqual(submitted[0], "今日は学界に行こうと思っています")
+                self.assertEqual(bridge.request("key", event=translate(0xFF0D, 0))["commits"], [])
             finally:
                 if panel:
                     panel.destroy()
@@ -126,7 +128,7 @@ class TreePanelTests(unittest.TestCase):
                 else:
                     os.environ["AZOOKEY_DATA_DIR"] = previous
 
-    def test_composing_enter_commits_reading_while_candidate_button_explicitly_commits_the_preview(self):
+    def test_composing_enter_commits_reading_and_selecting_a_row_then_enter_commits_the_preview(self):
         from azookey.bridge import Bridge
         from azookey.keymap import translate
         from candidate_core import core_tree_panel
@@ -169,8 +171,11 @@ class TreePanelTests(unittest.TestCase):
                 panel.update(snapshot)
                 self.assertEqual(panel.composition_title.get_text(), "候補のプレビュー")
                 self.assertEqual(panel.composition.displayed_text, selected_candidate)
-                self.assertEqual(panel.navigation.confirm.get_label(), "この候補を確定")
-                panel.navigation.confirm.clicked()
+                self.assertFalse(hasattr(panel.navigation, "confirm"))
+                panel.navigation.toggle.clicked()
+                panel.navigation.row_buttons[0].clicked()
+                snapshot = bridge.request("key", event=translate(0xFF0D, 0))
+                commits.extend(snapshot["commits"])
                 self.assertEqual(commits, [selected_candidate])
                 self.assertEqual(snapshot["preedit"], "")
             finally:

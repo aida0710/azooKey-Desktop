@@ -110,25 +110,21 @@ class CandidateScalingTests(unittest.TestCase):
         self.assertEqual(self.panel.location, tuple(value * self.scale for value in logical_start))
         self.assertEqual(self.panel.caret_location, tuple(value * self.scale for value in logical_caret))
 
-    def test_scaled_selection_preserves_focus_and_commits_only_once(self):
+    def test_scaled_selection_preserves_focus_without_a_confirm_button(self):
         cursor = self.place_physical_caret((
             self.area.x + self.area.width * 4 // 5, self.area.y + self.area.height * 3 // 5, 0, 35))
         self.panel.update(self.snapshot)
         self.assert_physical_placement(cursor)
-        old_confirm = self.panel.navigation.confirm
+        old_toggle = self.panel.navigation.toggle
         self.panel.navigation.row_buttons[1].clicked()
         self.assertEqual(self.actions, [("select", 1, False)])
         self.panel.update({**self.snapshot, "selection": 1, "focusedNode": 1,
                            "selectedPath": [1], "generation": 2})
         self.assert_physical_placement(cursor)
-        old_confirm.clicked()
+        old_toggle.clicked()
         self.assertEqual(self.actions, [("select", 1, False)])
-        confirm = self.panel.navigation.confirm.get_accessible()
-        confirm.do_action(0)
-        self.paint()
-        confirm.do_action(0)
-        self.paint()
-        self.assertEqual(self.actions, [("select", 1, False), ("select", 1, True)])
+        self.assertTrue(self.panel.navigation.expanded)
+        self.assertFalse(hasattr(self.panel.navigation, "confirm"))
 
     def test_monitor_lookup_converts_global_origins_before_choosing_the_work_area(self):
         # Model monitor origins separately from the actual single-display GTK test.

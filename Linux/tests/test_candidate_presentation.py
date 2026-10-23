@@ -94,26 +94,19 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertEqual(self.panel.composition_title.get_text(), "候補のプレビュー")
         self.assertEqual(self.panel.composition.get_accessible().get_name(), "候補のプレビュー")
         self.assertEqual(self.panel.composition.displayed_text, self.snapshot["candidates"][0]["text"])
-        self.assertEqual(self.panel.navigation.confirm.get_label(), "この候補を確定")
-        self.assertNotIn("↵", self.panel.navigation.confirm.get_accessible().get_name())
-        self.panel.navigation.confirm.clicked()
-        self.assertEqual(self.actions, [("select", 0, True)])
+        self.assertFalse(hasattr(self.panel.navigation, "confirm"))
+        self.assertEqual(self.actions, [])
         self.assertIs(self.document.get_focus(), self.entry)
 
-    def test_enter_label_matches_selection_state_and_retires_previous_state_confirmation(self):
+    def test_conversion_states_show_position_without_confirm_or_page_buttons(self):
         for state in ("selecting", "previewing", "replaceSuggestion"):
             with self.subTest(state=state):
-                self.panel.update({**self.snapshot, "inputState": "composing"})
-                old_confirm = self.panel.navigation.confirm
                 self.panel.update({**self.snapshot, "inputState": state})
                 self.assertEqual(self.panel.composition_title.get_text(), "確定する文章")
                 self.assertEqual(self.panel.composition.get_accessible().get_name(), "確定する文章")
-                self.assertEqual(self.panel.navigation.confirm.get_label(), "確定 ↵")
-                old_confirm.clicked()
+                self.assertEqual(self.panel.navigation.footer.get_children(), [self.panel.navigation.status])
+                self.assertEqual(set(self.panel.navigation.controls), {"toggle"})
                 self.assertEqual(self.actions, [])
-        self.panel.update({**self.snapshot, "inputState": "composing"})
-        self.assertEqual(self.panel.navigation.confirm.get_label(), "この候補を確定")
-        self.assertEqual(self.actions, [])
 
     def test_live_tree_hides_the_sentence_menu_until_conversion_state_changes(self):
         live = {**self.snapshot, "inputState": "composing", "showCandidateIndex": False}
@@ -223,15 +216,19 @@ class CandidatePresentationTests(unittest.TestCase):
                 self.panel.update({**self.snapshot, "candidateTextSize": size})
                 CandidateThemeTests.wait_for_paint(self.panel, GLib)
                 self.assertEqual(self.panel.font_size, expected_font_size)
-                for button in (*self.panel.navigation.row_buttons, self.panel.navigation.confirm):
+                for button in self.panel.navigation.row_buttons:
                     self.assertGreaterEqual(button.get_allocation().height, 44)
+                footer = self.panel.navigation.footer.get_allocation()
+                position = self.panel.navigation.status.get_allocation()
+                self.assertEqual(footer.height, position.height)
+                self.assertLess(footer.height, self.panel.navigation.MINIMUM_CANDIDATE_HEIGHT)
                 area = self.panel.get_display().get_monitor(0).get_workarea()
                 width, height = self.panel.get_size()
                 self.assertLessEqual(width, area.width)
                 self.assertLessEqual(height, area.height)
         self.assertEqual(self.actions, [])
 
-    def test_selection_updates_commit_preview_and_remaining_reading_before_confirming_once(self):
+    def test_selection_updates_commit_preview_and_remaining_reading_without_committing(self):
         self.panel.navigation.row_buttons[2].clicked()
         self.assertEqual(self.actions, [("select", 2, False)])
         self.assertEqual(self.panel.composition.displayed_text, "私")
@@ -241,10 +238,8 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertTrue(self.panel.remaining.get_visible())
         self.assertFalse(self.panel.details.get_visible())
         self.assertFalse(self.panel.scroll.get_visible())
-        confirm = self.panel.navigation.confirm
-        confirm.clicked()
-        confirm.clicked()
-        self.assertEqual(self.actions, [("select", 2, False), ("select", 2, True)])
+        self.assertFalse(hasattr(self.panel.navigation, "confirm"))
+        self.assertEqual(self.actions, [("select", 2, False)])
         self.assertIs(self.document.get_focus(), self.entry)
 
     def test_hover_changes_details_without_changing_selection_or_commit_preview(self):
@@ -265,12 +260,12 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertEqual(adjustment.get_page_size(), adjustment.get_upper())
         self.assertEqual(len(self.panel.navigation.row_buttons), 3)
 
-    def test_pending_at_confirm_does_not_confirm_the_next_selection_or_replaced_text(self):
+    def test_pending_at_toggle_cannot_close_the_next_selection_or_replaced_text(self):
         from gi.repository import GLib
 
         for replace_text in (False, True):
             with self.subTest(replace_text=replace_text):
-                old = self.panel.navigation.confirm
+                old = self.panel.navigation.toggle
                 accessible = old.get_accessible()
                 # Model a request still awaiting delivery, not an already
                 # completed synchronous native do_action on the valid target.
@@ -283,8 +278,9 @@ class CandidatePresentationTests(unittest.TestCase):
                     changed["selection"] = 1
                 self.panel.update(changed)
                 self.flush()
-                self.assertIsNot(old, self.panel.navigation.confirm)
+                self.assertIsNot(old, self.panel.navigation.toggle)
                 self.assertEqual(self.actions, [])
+                self.assertTrue(self.panel.navigation.expanded)
                 self.panel.update(self.snapshot)
                 self.flush()
 
@@ -295,9 +291,9 @@ class CandidatePresentationTests(unittest.TestCase):
         navigation = self.panel.navigation
         old_row = navigation.row_buttons[1]
         old_word = self.panel.actions[("node", 1)]
-        old_confirm = navigation.confirm
+        old_toggle = navigation.toggle
         navigation.preview_current(navigation.listing["items"][1], old_row)
-        for button in (old_row, old_word, old_confirm):
+        for button in (old_row, old_word, old_toggle):
             accessible = button.get_accessible()
             GLib.idle_add(lambda accessible=accessible: accessible.do_action(0) and GLib.SOURCE_REMOVE)
         self.panel.suspend()
@@ -317,7 +313,7 @@ class CandidatePresentationTests(unittest.TestCase):
     def test_closed_list_stays_closed_while_pending_but_dismiss_resets_even_when_hidden(self):
         navigation = self.panel.navigation
         navigation.toggle.clicked()
-        old_confirm = navigation.confirm
+        old_toggle = navigation.toggle
         self.panel.suspend()
         self.panel.update(self.snapshot)
         self.assertFalse(navigation.expanded)
@@ -328,7 +324,7 @@ class CandidatePresentationTests(unittest.TestCase):
         self.panel.update(self.snapshot)
         self.flush()
         self.assertTrue(navigation.expanded)
-        old_confirm.clicked()
+        old_toggle.clicked()
         self.assertEqual(self.actions, [])
 
     def test_new_context_retires_hover_and_old_tree_actions(self):
@@ -430,12 +426,12 @@ class CandidatePresentationTests(unittest.TestCase):
             self.assertGreater(pane.get_vadjustment().get_upper(), pane.get_vadjustment().get_page_size())
         self.assertEqual(self.actions, [])
 
-    def test_destroyed_panel_rejects_retained_candidate_and_confirm_actions(self):
+    def test_destroyed_panel_rejects_retained_candidate_and_toggle_actions(self):
         row = self.panel.navigation.row_buttons[1]
-        confirm = self.panel.navigation.confirm
+        toggle = self.panel.navigation.toggle
         self.panel.destroy()
         row.clicked()
-        confirm.clicked()
+        toggle.clicked()
         self.flush()
         self.assertEqual(self.actions, [])
 

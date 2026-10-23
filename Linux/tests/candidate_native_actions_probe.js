@@ -35,12 +35,12 @@ export function probeNativeActions(Navigation, layoutManager, report) {
             error: error ? `${error.message}\n${error.stack}` : null});
     }
     const cases = [
-        ['queued page action is retired before the next page', () => {
-            queue(navigation._next);
+        ['queued row action is retired before the next page', () => {
+            queue(navigation._rows.get_children()[0]);
             navigation.update(snapshot(9, 2), layout);
         }, () => equal(submitted, [])],
-        ['current page action runs once', () => queue(navigation._next), () => {
-            equal(submitted, [['select', 18, false, 2, 'native-at-probe']]);
+        ['current row action runs once', () => queue(navigation._rows.get_children()[0]), () => {
+            equal(submitted, [['select', 9, false, 2, 'native-at-probe']]);
             submitted.length = 0;
         }],
         ['queued candidate cannot cross a selection update', () => {
@@ -48,7 +48,7 @@ export function probeNativeActions(Navigation, layoutManager, report) {
             navigation.update({...snapshot(9, 2), selection: 10}, layout);
         }, () => equal(submitted, [])],
         ['queued action cannot cross hide and reopen', () => {
-            queue(navigation._next);
+            queue(navigation._rows.get_children()[0]);
             navigation.collapse();
             navigation.expanded = true;
             navigation.update(snapshot(9, 2), layout);
@@ -64,7 +64,7 @@ export function probeNativeActions(Navigation, layoutManager, report) {
     function waitForPaint(callback) {
         const deadline = GLib.get_monotonic_time() + PAINT_DEADLINE_US;
         const poll = () => {
-            const visible = [navigation._next, navigation._rows.get_children()[0]].every(
+            const visible = [navigation._rows.get_children()[0]].every(
                 button => button.get_accessible().ref_state_set().contains_state(Atk.StateType.SHOWING));
             if (visible) {
                 callback();

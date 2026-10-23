@@ -48,14 +48,8 @@ struct CandidateList {
     std::wstring title;
     std::wstring commitText;
     std::wstring readingText;
+    std::wstring positionLabel;
     std::wstring positionText;
-    bool keyboardConfirmsCandidate = false;
-    std::wstring confirmLabel;
-    std::wstring confirmAccessibleName;
-    std::wstring confirmAccessibleDescription;
-    std::optional<int> confirmIndex;
-    std::optional<int> previousIndex;
-    std::optional<int> nextIndex;
     std::vector<ListItem> items;
 };
 

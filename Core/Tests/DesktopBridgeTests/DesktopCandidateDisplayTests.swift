@@ -19,8 +19,7 @@ extension DesktopSegmentEditingTests {
             let selecting = session.key(key(49))
             let list = try #require(selecting.candidateDisplay)
             #expect(list.mode == .list)
-            #expect(list.list?.keyboardConfirmsCandidate == true)
-            #expect(list.list?.confirmIndex == selecting.selection)
+            #expect(list.list?.items.first(where: \.selected)?.index == selecting.selection)
             let position = String(format: Localization.text("candidate.position"),
                                   String((selecting.selection ?? -1) + 1), String(selecting.candidates.count))
             #expect(list.announcement?.hasPrefix(position) == true)

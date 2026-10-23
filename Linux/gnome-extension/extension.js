@@ -36,7 +36,7 @@ export default class AzooKeyTreeExtension extends Extension {
         this._popup = new St.BoxLayout({vertical: true, can_focus: false});
         this._announcements = new CandidateAnnouncements(announcement =>
             this._popup.get_accessible().emit('notification', announcement, Atk.Live.POLITE));
-        this._composition = new CandidateComposition(selection => this._call('Select', selection));
+        this._composition = new CandidateComposition();
         this._popup.add_child(this._composition.actor);
         this._navigation = new CandidateNavigation({
             select: selection => { if (selection) this._call('Select', selection); },
@@ -125,7 +125,6 @@ export default class AzooKeyTreeExtension extends Extension {
         this._presentationMode = null;
         this._navigation.reset();
         this._details.reset();
-        this._composition.retire();
         this._detailsShown = false;
         this._cancelReveal();
         this._clearButtons();
@@ -146,7 +145,6 @@ export default class AzooKeyTreeExtension extends Extension {
         this._hoveredAction = null;
         this._navigation.retire({preserveViewport: true});
         this._details.retire();
-        this._composition.retire();
         this._cancelReveal({preserveFocus: true});
         this._clearButtons();
     }
@@ -217,7 +215,6 @@ export default class AzooKeyTreeExtension extends Extension {
         if (candidateIdentity !== this._candidateIdentity || presentationMode !== this._presentationMode) {
             this._navigation.reset();
             this._details.reset();
-            this._composition.retire();
             this._treeExpanded = presentationMode === 'tree';
             this._presentationMode = presentationMode;
             this._cancelReveal();

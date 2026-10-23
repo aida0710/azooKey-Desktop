@@ -74,19 +74,15 @@ class CandidatePopupPlacementTests(unittest.TestCase):
         self.panel.update(self.snapshot)
         self.assert_visible_beside_caret(area)
         self.assertEqual(self.actions, [])
-        previous_confirm = self.panel.navigation.confirm
+        previous_toggle = self.panel.navigation.toggle
         self.panel.navigation.row_buttons[1].clicked()
         self.assertEqual(self.actions, [("select", 1, False)])
         self.panel.update({**self.snapshot, "selection": 1, "focusedNode": 1, "selectedPath": [1], "generation": 2})
         self.assert_visible_beside_caret(area)
-        previous_confirm.clicked()
+        previous_toggle.clicked()
         self.assertEqual(self.actions, [("select", 1, False)])
-        confirm = self.panel.navigation.confirm
-        confirm.get_accessible().do_action(0)
-        self.paint()
-        confirm.get_accessible().do_action(0)
-        self.paint()
-        self.assertEqual(self.actions, [("select", 1, False), ("select", 1, True)])
+        self.assertTrue(self.panel.navigation.expanded)
+        self.assertFalse(hasattr(self.panel.navigation, "confirm"))
         self.assertIs(self.document.get_focus(), self.entry)
 
     def test_large_text_at_each_corner_remains_readable_without_covering_the_caret(self):
@@ -135,13 +131,13 @@ class CandidatePopupPlacementTests(unittest.TestCase):
                 self.assert_visible_beside_caret(area, cursor=cursor)
         self.assertEqual(self.actions, [])
 
-    def test_short_work_area_keeps_full_text_and_confirmation_reachable_without_focus(self):
+    def test_short_work_area_keeps_full_text_and_position_reachable_without_focus(self):
         for width in (640, 320):
             for size in ("standard", "large"):
                 with self.subTest(width=width, size=size):
-                    self.assert_constrained_confirmation(width=width, size=size)
+                    self.assert_constrained_position(width=width, size=size)
 
-    def assert_constrained_confirmation(self, *, width, size):
+    def assert_constrained_position(self, *, width, size):
         from gi.repository import Atk
 
         area = SimpleNamespace(x=0, y=0, width=width, height=320)
@@ -154,19 +150,18 @@ class CandidatePopupPlacementTests(unittest.TestCase):
                              self.snapshot["candidatePage"]["items"][1]["text"])
             adjustment = self.panel.viewport.get_vadjustment()
             self.assertGreater(adjustment.get_upper(), adjustment.get_page_size())
-            confirm = self.panel.navigation.confirm
+            position = self.panel.navigation.status
             adjustment.set_value(adjustment.get_upper() - adjustment.get_page_size())
             self.paint()
-            rectangle = confirm.get_accessible().get_extents(Atk.CoordType.SCREEN)
+            rectangle = position.get_accessible().get_extents(Atk.CoordType.SCREEN)
             popup_x, popup_y = self.panel.get_position()
             width, height = self.panel.get_size()
             self.assertGreaterEqual(rectangle.y, popup_y)
             self.assertLessEqual(rectangle.y + rectangle.height, popup_y + height)
             self.assertGreaterEqual(rectangle.x, popup_x)
             self.assertLessEqual(rectangle.x + rectangle.width, popup_x + width)
-            self.assertTrue(confirm.get_accessible().do_action(0))
-            self.paint()
-            self.assertEqual(self.actions, [("select", 0, True)])
+            self.assertFalse(hasattr(self.panel.navigation, "confirm"))
+            self.assertEqual(self.actions, [])
             self.assertIs(self.document.get_focus(), self.entry)
             self.actions.clear()
 
@@ -188,11 +183,11 @@ class CandidatePopupPlacementTests(unittest.TestCase):
             self.panel.update(self.snapshot)
             self.assert_visible_beside_caret(area)
             self.assertEqual(adjustment.get_value(), scroll)
-            old_confirm = self.panel.navigation.confirm
+            old_toggle = self.panel.navigation.toggle
             self.panel.update({**self.snapshot, "contextId": "other-document"})
             self.assert_visible_beside_caret(area)
             self.assertEqual(adjustment.get_value(), 0)
-            old_confirm.clicked()
+            old_toggle.clicked()
             self.assertEqual(self.actions, [])
 
     def test_same_candidate_update_and_suspend_keep_scroll_position_and_safe_side(self):

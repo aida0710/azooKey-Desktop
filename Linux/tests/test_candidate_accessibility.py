@@ -57,9 +57,9 @@ class CandidateAccessibilityTests(unittest.TestCase):
         self.flush_events()
         self.assertEqual(self.submitted, [("node", 1, False)])
         self.panel.update({**self.snapshot, "selection": 1, "selectedPath": [1], "focusedNode": 1})
-        self.assertTrue(self.panel.navigation.confirm.get_accessible().do_action(0))
+        self.assertFalse(hasattr(self.panel.navigation, "confirm"))
         self.flush_events()
-        self.assertEqual(self.submitted, [("node", 1, False), ("select", 1, True)])
+        self.assertEqual(self.submitted, [("node", 1, False)])
 
     def test_selection_updates_reuse_accessible_objects_without_submitting(self):
         from gi.repository import Atk

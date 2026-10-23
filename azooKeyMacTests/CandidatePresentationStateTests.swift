@@ -13,8 +13,8 @@ final class CandidatePresentationStateTests: XCTestCase {
         let view = CandidateTreeView()
         let entries = [CandidateTree.Entry(text: "候補", tokens: [], candidateIndex: 0)]
         let removedIdentifiers = ["candidate-confirm", "candidate-tree-toggle", "candidate-details-toggle", "candidate-details"]
-        let removedKeys = ["candidate.composition", "candidate.proposal", "candidate.selectHint", "candidate.nextPage",
-                           "candidate.previousPage", "candidate.openTree", "candidate.openDetails", "candidate.submit"]
+        let removedKeys = ["candidate.composition", "candidate.proposal", "candidate.selectHint",
+                           "candidate.openTree", "candidate.openDetails"]
         for converting in [false, true] {
             view.update(entries: entries, selectionIndex: 0, numbers: [0: "1"], enterConfirmsCandidate: converting)
             let children = descendants(view)
@@ -24,6 +24,7 @@ final class CandidatePresentationStateTests: XCTestCase {
             let buttons = children.compactMap { $0 as? NSButton }
             XCTAssertTrue(buttons.allSatisfy { $0 is TreeButton || $0 is CandidateRowButton })
             XCTAssertFalse(buttons.contains { $0.acceptsFirstResponder })
+            XCTAssertFalse(buttons.contains { ["次へ", "前へ", "確定", "確定 ↵", "この候補を確定"].contains($0.title) })
             XCTAssertEqual(labels.filter { $0.contains("/") }, ["1/1"])
         }
     }

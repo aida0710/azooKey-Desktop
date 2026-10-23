@@ -40,10 +40,6 @@
     "ja": "確定する文章",
     "en": "Text to confirm"
   },
-  "candidate.confirm": {
-    "ja": "押すと候補を確定",
-    "en": "Press to confirm this candidate"
-  },
   "candidate.detail": {
     "ja": "候補の詳細",
     "en": "Candidate details",
@@ -60,11 +56,6 @@
   "candidate.focusedSelect": {
     "ja": "操作対象。押すと候補を選択",
     "en": "Current navigation target. Select this candidate"
-  },
-  "candidate.nextPage": {
-    "ja": "次へ",
-    "en": "Next",
-    "gjs": "nextPage"
   },
   "candidate.openDetails": {
     "ja": "詳細を表示",
@@ -108,11 +99,6 @@
   "candidate.preview.scope": {
     "ja": "確定する読み: {reading}",
     "en": "Reading to commit: {reading}"
-  },
-  "candidate.previousPage": {
-    "ja": "前へ",
-    "en": "Previous",
-    "gjs": "previousPage"
   },
   "candidate.proposal": {
     "ja": "候補のプレビュー",
@@ -159,14 +145,6 @@
     "ja": "選択中",
     "en": "Selected",
     "gjs": "selected"
-  },
-  "candidate.submit": {
-    "ja": "確定",
-    "en": "Confirm"
-  },
-  "candidate.submitCandidate": {
-    "ja": "この候補を確定",
-    "en": "Confirm this candidate"
   },
   "candidate.textSize": {
     "ja": "候補の文字サイズ",

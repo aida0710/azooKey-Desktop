@@ -34,7 +34,7 @@ public:
     CandidateAccessibility& operator=(const CandidateAccessibility&) = delete;
 
     // Replaces the items; announces `announcement` when the selection changed.
-    void Update(std::vector<AccessibleCandidate> items, const std::wstring& announcement);
+    void Update(std::vector<AccessibleCandidate> items, const std::wstring& announcement, const std::wstring& name);
     void Clear();
     // WM_GETOBJECT handling for the panel window.
     LRESULT HandleGetObject(WPARAM wParam, LPARAM lParam);
@@ -52,6 +52,7 @@ private:
     std::vector<ItemProvider*> items_;
     std::vector<AccessibleCandidate> data_;
     int selectedIndex_ = -1;
+    std::wstring name_;
 };
 
 }  // namespace azookey::tsf

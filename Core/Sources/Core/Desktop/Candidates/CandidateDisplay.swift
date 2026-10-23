@@ -38,16 +38,9 @@ public struct CandidateDisplay: Encodable, Equatable, Sendable {
         public let commitText: String
         public let readingText: String?
         public let remainingText: String?
+        /// Compact visual position; positionText remains the spoken list name.
+        public let positionLabel: String
         public let positionText: String
-        /// Enter confirms the selected candidate; otherwise it commits the reading.
-        public let keyboardConfirmsCandidate: Bool
-        public let confirmLabel: String
-        public let confirmAccessibleName: String
-        public let confirmAccessibleDescription: String
-        /// The candidate the confirm action submits; nil disables the action.
-        public let confirmIndex: Int?
-        public let previousIndex: Int?
-        public let nextIndex: Int?
         public let items: [ListItem]
     }
 
@@ -157,22 +150,14 @@ public struct CandidateDisplay: Encodable, Equatable, Sendable {
         let reading = scope?.consumedReading ?? input.reading
         let remaining = scope?.remainingReading ?? ""
         let keyboardConfirms = keyboardConfirmsCandidate(input)
-        let confirmAction = Localization.text(keyboardConfirms ? "candidate.submit" : "candidate.submitCandidate")
         return List(
             title: Localization.text(keyboardConfirms ? "candidate.composition" : "candidate.proposal"),
             commitText: commitText,
             readingText: reading.isEmpty ? nil : String(format: Localization.text("candidate.announceReading"), reading),
             remainingText: remaining.isEmpty ? nil : String(format: Localization.text("candidate.announceRemaining"), remaining),
+            positionLabel: "\(page.position.map(String.init) ?? "—")/\(page.totalCount)",
             positionText: String(format: Localization.text("candidate.position"),
                                  page.position.map(String.init) ?? "—", String(page.totalCount)),
-            keyboardConfirmsCandidate: keyboardConfirms,
-            // The return mark advertises Enter only when Enter confirms this candidate.
-            confirmLabel: keyboardConfirms ? confirmAction + " ↵" : confirmAction,
-            confirmAccessibleName: confirmAction + " " + commitText,
-            confirmAccessibleDescription: Localization.text("candidate.confirm"),
-            confirmIndex: selection,
-            previousIndex: page.previousIndex,
-            nextIndex: page.nextIndex,
             items: page.items.map { item in
                 ListItem(
                     index: item.index,

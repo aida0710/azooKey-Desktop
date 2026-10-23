@@ -67,14 +67,8 @@ CandidateDisplay ParseCandidateDisplay(const json::Value& value) {
         parsed.title = Text(list["title"]);
         parsed.commitText = Text(list["commitText"]);
         parsed.readingText = Text(list["readingText"]);
+        parsed.positionLabel = Text(list["positionLabel"]);
         parsed.positionText = Text(list["positionText"]);
-        parsed.keyboardConfirmsCandidate = list["keyboardConfirmsCandidate"].AsBoolean(false);
-        parsed.confirmLabel = Text(list["confirmLabel"]);
-        parsed.confirmAccessibleName = Text(list["confirmAccessibleName"]);
-        parsed.confirmAccessibleDescription = Text(list["confirmAccessibleDescription"]);
-        parsed.confirmIndex = OptionalInteger(list["confirmIndex"]);
-        parsed.previousIndex = OptionalInteger(list["previousIndex"]);
-        parsed.nextIndex = OptionalInteger(list["nextIndex"]);
         for (const auto& item : list["items"].AsArray()) {
             parsed.items.push_back({static_cast<int>(item["index"].AsInteger(0)), OptionalInteger(item["number"]), Text(item["text"]),
                                     item["selected"].AsBoolean(false), Text(item["accessibleName"]),

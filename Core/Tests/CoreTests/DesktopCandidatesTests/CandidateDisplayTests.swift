@@ -116,7 +116,7 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     #expect(hidden.detailNode == 10)
 }
 
-@Test func listExplainsTheCommitConfirmActionAndPage() throws {
+@Test func listKeepsSpokenPositionAndShowsCompactPositionWithoutButtons() throws {
     let page: [String: Any] = [
         "start": 0, "position": 1, "totalCount": 12, "nextIndex": 9,
         "items": [["index": 0, "text": "日本に行く", "reading": "にほんにいく", "detailDescription": "確定予定: 日本に行く"],
@@ -127,17 +127,20 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     #expect(list.title == text("composition") && list.commitText == "日本に行く")
     #expect(list.readingText == text("announceReading", "にほんにいく") && list.remainingText == nil)
     #expect(list.positionText == text("position", "1", "12"))
-    #expect(list.keyboardConfirmsCandidate && list.confirmLabel == text("submit") + " ↵")
-    #expect(list.confirmAccessibleName == text("submit") + " 日本に行く")
-    #expect(list.confirmAccessibleDescription == text("confirm"))
-    #expect(list.confirmIndex == 0 && list.previousIndex == nil && list.nextIndex == 9)
+    #expect(list.positionLabel == "1/12")
+    let encoded = try JSONEncoder().encode(list)
+    let object = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    for removed in ["confirmLabel", "confirmAccessibleName", "confirmAccessibleDescription", "confirmIndex", "previousIndex", "nextIndex",
+                    "keyboardConfirmsCandidate"] {
+        #expect(object[removed] == nil)
+    }
     #expect(list.items.map(\.number) == [1, 2] && list.items.map(\.selected) == [true, false])
     #expect(list.items[1].accessibleName == text("withReading", "日本に行く", "にっぽんにいく"))
     #expect(list.items[1].accessibleDescription == text("select") + "\n確定予定: 日本に行く")
 
     let proposal = try #require(CandidateDisplay(try input(["inputState": "composing", "candidatePage": page])).list)
-    #expect(proposal.title == text("proposal") && proposal.confirmLabel == text("submitCandidate"))
-    #expect(!proposal.keyboardConfirmsCandidate && proposal.items.allSatisfy { $0.number == nil })
+    #expect(proposal.title == text("proposal"))
+    #expect(proposal.items.allSatisfy { $0.number == nil })
     #expect(try CandidateDisplay(input(["selection": NSNull(), "candidates": [Any]()])).list == nil)
 }
 
@@ -157,4 +160,15 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     let encoded = try JSONEncoder().encode(CandidateScorePresentation(relativeScore: 40))
     let object = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
     #expect(object["role"] as? String == "scoreLow")
+}
+
+@Test func compactPositionKeepsOneBasedPagesAndUnselectedPlaceholder() throws {
+    for (position, label) in [(2, "2/347"), (347, "347/347")] {
+        let display = CandidateDisplay(try input(["candidatePage": ["position": position, "totalCount": 347]]))
+        #expect(display.list?.positionLabel == label)
+        #expect(display.list?.positionText == text("position", String(position), "347"))
+    }
+    let display = CandidateDisplay(try input(["candidatePage": ["totalCount": 347]]))
+    #expect(display.list?.positionLabel == "—/347")
+    #expect(display.list?.positionText == text("position", "—", "347"))
 }

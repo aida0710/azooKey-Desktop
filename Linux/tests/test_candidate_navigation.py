@@ -48,24 +48,25 @@ class CandidateNavigationTests(unittest.TestCase):
             self.selection = index
             self.refresh()
 
-    def test_pointer_reaches_last_candidate_without_expanding_hundreds_of_rows(self):
-        self.assertIn("1 / 500", self.navigation.status.get_text())
-        for _ in range(56):
-            if not self.navigation.next.get_sensitive():
-                break
-            self.navigation.next.clicked()
+    def test_footer_contains_only_right_aligned_position_and_pages_keep_row_selection(self):
+        self.assertEqual(self.navigation.footer.get_children(), [self.navigation.status])
+        self.assertEqual(self.navigation.status.get_xalign(), 1)
+        self.assertEqual(self.navigation.status.get_text(), "1/500")
+        self.assertIn("1 / 500", self.navigation.rows.get_accessible().get_name())
+        self.assertEqual(set(self.navigation.controls), {"toggle"})
+        for name in ("confirm", "previous", "next"):
+            self.assertFalse(hasattr(self.navigation, name))
+        for start in range(0, 500, 9):
+            self.selection = start
+            self.refresh()
             self.assertLessEqual(len(self.navigation.row_buttons), 9)
-        self.assertFalse(self.navigation.next.get_sensitive())
-        self.assertIn("496 / 500", self.navigation.status.get_text())
+            self.assertEqual(self.navigation.status.get_text(), f"{start + 1}/500")
         last = self.navigation.row_buttons[-1]
         self.assertEqual(last.text_label.get_text(), "候補499")
         self.assertEqual(last.number_label.get_text(), "5")
         self.assertFalse(last.get_can_focus())
         last.clicked()
-        self.assertEqual(self.actions[-1], ("select", 499, False))
-        self.navigation.confirm.clicked()
-        self.assertEqual(self.actions[-1], ("select", 499, True))
-        self.assertEqual(sum(submit for _, _, submit in self.actions), 1)
+        self.assertEqual(self.actions, [("select", 499, False)])
 
     def test_removed_row_and_old_press_cannot_confirm_a_new_context(self):
         old = self.navigation.row_buttons[0]
@@ -99,7 +100,7 @@ class CandidateNavigationTests(unittest.TestCase):
         self.assertIn("確定予定", first.get_accessible().get_description())
         self.navigation.toggle.clicked()
         self.assertFalse(self.navigation.scroll.get_visible())
-        self.navigation.next.clicked()
+        self.assertFalse(hasattr(self.navigation, "next"))
         self.assertEqual(self.actions, [])
 
     def test_disabling_number_shortcuts_removes_prefixes_without_changing_pointer_actions(self):

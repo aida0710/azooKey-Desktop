@@ -209,6 +209,23 @@ int wmain(int argc, wchar_t** argv) {
     auto space = connection.Request(azookey::protocol::KeyRequest(context, azookey::keys::Translate(0x20, {}, L" "), {}));
     auto converting = space ? azookey::protocol::ParseSnapshot(*space) : std::nullopt;
     Check(converting && converting->selection.has_value() && !converting->candidates.empty(), "Space opens candidates");
+    if (converting && converting->display.list) {
+        const auto& list = *converting->display.list;
+        const auto& page = converting->candidatePage;
+        std::wstring position = page.position ? std::to_wstring(*page.position) : L"—";
+        Check(list.positionLabel == position + L"/" + std::to_wstring(page.totalCount),
+              "Core supplies the compact footer position");
+        Check(list.positionText.find(L" / ") != std::wstring::npos,
+              "the accessible position keeps its readable wording");
+        auto reply = azookey::json::Parse(*space);
+        const auto& serializedList = (*reply)["candidateDisplay"]["list"];
+        for (const char* removed : {"confirmLabel", "confirmAccessibleName", "confirmAccessibleDescription",
+                                    "confirmIndex", "previousIndex", "nextIndex", "keyboardConfirmsCandidate"}) {
+            Check(serializedList[removed].IsNull(), "the list has no footer button data");
+        }
+    } else {
+        Check(false, "conversion includes a candidate list");
+    }
     bool zenzaiLoaded = converting && converting->zenzaiLoaded;
     if (expectZenzai) {
         Check(zenzaiLoaded, "Zenzai converts with the model next to the host");

@@ -57,8 +57,8 @@ final class CandidateNavigationViewTests: XCTestCase {
         XCTAssertEqual(selected.last, 499)
         XCTAssertTrue(view.movePage(forward: false))
         XCTAssertEqual(selected.last, 486)
-        XCTAssertFalse(buttons(in: view).contains { $0.title == Localization.text("candidate.nextPage") ||
-            $0.title == Localization.text("candidate.previousPage") })
+        XCTAssertFalse(buttons(in: view).contains { $0.title == "次へ" ||
+            $0.title == "前へ" })
     }
 
     func testChangingPagesDisablesOldRowsAndKeepsSelectionWithinAPage() throws {

@@ -197,8 +197,8 @@ class CandidateDetailTests(unittest.TestCase):
         partial_row.clicked()
         self.assertEqual(self.commits, [("select", 0, False)])
         self.panel.update({**snapshot, "selection": 0})
-        self.panel.navigation.confirm.clicked()
-        self.assertEqual(self.commits, [("select", 0, False), ("select", 0, True)])
+        self.assertFalse(hasattr(self.panel.navigation, "confirm"))
+        self.assertEqual(self.commits, [("select", 0, False)])
 
     def test_stationary_hover_stays_on_its_target_after_keyboard_updates_and_leave_restores_selection(self):
         from gi.repository import Gdk

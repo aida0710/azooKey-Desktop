@@ -4,7 +4,7 @@
 
 | 決めること | 置き場所 | ブリッジでの受け取り方 |
 | --- | --- | --- |
-| 木と一覧のどちらを出すか、描く列、一覧の行の番号（1〜9）、読み上げ文、詳細文、確定ボタンの文言と可否、前後ページ、残る読み | `CandidateDisplay` | すべての応答の `candidateDisplay` |
+| 木と一覧のどちらを出すか、描く列、一覧の行の番号（1〜9）、読み上げ文、詳細文、位置表示、残る読み | `CandidateDisplay` | すべての応答の `candidateDisplay` |
 | 相対スコアの色の区分 | `CandidateScoreRole` | `nodes[].scorePresentation.role` |
 | 節点の枠、行の高さ、列の幅、文書の語への整列、ポップアップの幅、配置と向き | `CandidateLayout`、`CandidateTreeLayout`、`CandidatePopupPlacement` | `candidate-layout` 操作 |
 | 文字の大きさ（標準 14、大きい 18、OS の文字倍率が 1 未満なら縮めない） | `CandidateTextMetrics` | `candidate-layout` の `tree.metrics` |
@@ -68,10 +68,7 @@
   ],
   "list": {
     "title": "確定する文章", "commitText": "にほんご",
-    "readingText": "読み にほんご", "positionText": "変換候補 2 / 56",
-    "keyboardConfirmsCandidate": true, "confirmLabel": "確定 ↵",
-    "confirmAccessibleName": "確定 にほんご", "confirmAccessibleDescription": "押すと候補を確定",
-    "confirmIndex": 1, "nextIndex": 9,
+    "readingText": "読み にほんご", "positionLabel": "2/56", "positionText": "変換候補 2 / 56",
     "items": [
       {"index": 0, "number": 1, "text": "日本語", "selected": false,
        "accessibleName": "日本語（にほんご）",
@@ -91,11 +88,13 @@
 | `detailNode` | ポインターが何も指していないときに詳細を出す節点（操作対象の語、無ければ最初の語） |
 | `expandTree` | 同じ候補のまま操作対象の語だけが動いた応答で `true`。木を開いて対象を見せる。同じ応答を描き直すときは1回だけ扱う（GTK・GNOME は `contextId` と `generation` で判断している）。変換中の↑↓は、木が出ているあいだは操作対象の語の兄弟を動き、出ていないあいだは一覧の行を1つずつ動く（macOS の候補画面と同じ）。木が出ているかは `key` の要求の `candidateDisplay.treeShown` で伝える（下記）。伝えないOS（Windows）は、この応答から一覧が閉じるまで木を開いたままにし、Core は↑↓をこの応答までは一覧の行、この応答からは兄弟の移動にする。変換を終えると一覧の行の移動に戻る |
 | `announcement` | 変換中に選択か操作対象が変わったときに読み上げる文。打鍵中は `null`。同じ入力欄で直前と同じ文なら読み上げない |
-| `list` | 全文候補の一覧。候補が無く選択も無いときは `null`。`tree` のときも、一覧を開けるように付く（見出しは「候補のプレビュー」、確定ボタンは「この候補を確定」） |
-| `list.confirmIndex` | 確定ボタンで確定する候補。`select` 操作に `submit: true` で渡す。`null` なら確定ボタンを無効にする |
-| `list.previousIndex`・`nextIndex` | 前後のページへ移るときに `select`（`submit: false`）で選ぶ候補。`null` ならボタンを無効にする |
+| `list` | 全文候補の一覧。候補が無く選択も無いときは `null`。`tree` のときも、一覧を開けるように付く（見出しは「候補のプレビュー」） |
 
-「一覧」「閉じる」「前へ」「次へ」「文節を調整」「詳細を表示」「選択中」など、状態で変わらないボタンの文言は今のところ各OSの文言を使います（文言の共通化は別の作業で行います）。
+「一覧」「閉じる」「文節を調整」「詳細を表示」「選択中」など、状態で変わらないボタンの文言は今のところ各OSの文言を使います（文言の共通化は別の作業で行います）。
+
+一覧の下の帯は、Windows・GTK・GNOME とも `list.positionLabel`（例: `2/347`）だけを小さな文字で右下に表示します。高さは数字1行分です。Core が1始まりの位置と総数を組み立て、未選択なら `—/347` とします。支援技術向けには読みやすい `list.positionText`（「変換候補 2 / 347」）と `announcement` を使います。
+
+矢印キー、数字キー、Enter、Esc、PageUp / PageDown、ページ端を越える移動、Shift+←→による文節の伸縮、行のクリックによる選択は従来どおりです。GTK の確定予定文、残る読み、詳細、一覧と文節調整の開閉も維持します。一覧の最小幅は320のままです。本文と任意の木を表示する幅を保ち、帯の高さと余白を縮めます。
 
 ## `key` の要求の `candidateDisplay`（木が出ているか）
 

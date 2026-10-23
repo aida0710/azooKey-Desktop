@@ -72,7 +72,7 @@ public struct CandidateLayout: Codable, Equatable, Sendable {
 
     // The live tree has no permanent full-sentence list beside it.
     static let minimumTreeOnlyWidth = 185.0
-    // Leaves room for readable sentences and the list's footer.
+    // Keeps full sentences readable alongside the optional word tree.
     static let minimumListWidth = 320.0
     // Wide enough for about this many full-width characters of a sentence.
     static let listLineCharacters = 26.0
