@@ -30,7 +30,8 @@ func select(_ identifier: String) -> Bool {
         printJSON(["error": "Input source not found", "id": identifier])
         return false
     }
-    let enableStatus = TISEnableInputSource(source)
+    let alreadyEnabled = property(source, kTISPropertyInputSourceIsEnabled) as? Bool == true
+    let enableStatus = alreadyEnabled ? noErr : TISEnableInputSource(source)
     let selectStatus = TISSelectInputSource(source)
     let current = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
     printJSON(["enableStatus": enableStatus, "selectStatus": selectStatus, "current": describe(current)])
@@ -54,17 +55,14 @@ enum InputSourceCommand {
                 printJSON(["error": "The app has no bundle identifier"])
                 exit(1)
             }
-            let registered = sources().filter {
-                property($0, kTISPropertyBundleID) as? String == bundleIdentifier
-            }.sorted {
-                let leftIsParent = property($0, kTISPropertyInputSourceID) as? String == bundleIdentifier
-                let rightIsParent = property($1, kTISPropertyInputSourceID) as? String == bundleIdentifier
-                return leftIsParent && !rightIsParent
+            let parents = sources().filter {
+                property($0, kTISPropertyInputSourceID) as? String == bundleIdentifier
             }
-            // Enable the input method itself before its modes. Merely registering it
-            // leaves the parent disabled and its modes can disappear on app activation.
+            // The native consent applies to the parent input method. Its modes
+            // already have their defaults, and requesting all modes would open
+            // overlapping consent sheets instead of enabling the parent.
             var enableRecords: [[String: Any]] = []
-            for source in registered where property(source, kTISPropertyInputSourceIsEnableCapable) as? Bool == true {
+            for source in parents {
                 let enableStatus = TISEnableInputSource(source)
                 enableRecords.append(["source": describe(source), "enableStatus": enableStatus])
             }

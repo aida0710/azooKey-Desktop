@@ -111,16 +111,22 @@ def register_source(evidence, input_source, app):
     deadline = time.monotonic() + STATE_WAIT_SECONDS
     attempt = 0
     while True:
+        evidence.run(f"input-source-consent-{attempt}", [evidence.directory / "helpers/InputSourcePermission", "approve"])
         listing = evidence.run(f"sources-{attempt}", [input_source, "list"])
-        if listing.returncode == 0 and any(source["id"] == JAPANESE_SOURCE for source in json.loads(listing.stdout)):
-            return
+        if listing.returncode == 0:
+            sources = json.loads(listing.stdout)
+            parent_enabled = any(source["id"] == "dev.ensan.inputmethod.azooKeyMac" and source["enabled"] for source in sources)
+            japanese_available = any(source["id"] == JAPANESE_SOURCE for source in sources)
+            if parent_enabled and japanese_available:
+                evidence.screenshot("screen-registration-enabled")
+                return
         if time.monotonic() >= deadline:
-            raise RuntimeError("TIS registration succeeded but the Japanese input source did not appear")
+            raise RuntimeError("The input method is not enabled; inspect input-source-consent and Settings diagnostics")
         time.sleep(POLL_INTERVAL_SECONDS)
         attempt += 1
 
 
-def exercise_input(evidence, input_source, send_keys, outcome):
+def exercise_input(evidence, input_source, send_keys, *, outcome):
     permissions = evidence.run("permissions", [send_keys, "permissions"])
     outcome["permissions"] = json.loads(require_success(permissions, "Read permissions").stdout)
     document_path = evidence.directory / "TextEdit-document.txt"
@@ -205,7 +211,7 @@ def main():
             original_source = json.loads(original.stdout)["id"]
         app = install_release(evidence, arguments)
         register_source(evidence, input_source, app)
-        exercise_input(evidence, input_source, send_keys, outcome)
+        exercise_input(evidence, input_source, send_keys, outcome=outcome)
     except Exception as error:
         outcome["error"] = str(error)
         print(f"Smoke test error: {error}", flush=True)

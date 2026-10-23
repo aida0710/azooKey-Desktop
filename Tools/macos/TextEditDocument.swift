@@ -13,7 +13,7 @@ func documentTextArea(_ application: AXUIElement) -> AXUIElement? {
     if let focused = attribute(application, kAXFocusedUIElementAttribute),
        CFGetTypeID(focused) == AXUIElementGetTypeID(),
        attribute(focused as! AXUIElement, kAXRoleAttribute) as? String == kAXTextAreaRole {
-        return focused as! AXUIElement
+        return (focused as! AXUIElement)
     }
     // Spelling suggestions can temporarily own focus. The main document's
     // text area remains readable through the window's accessibility tree.
