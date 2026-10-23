@@ -90,7 +90,7 @@ def install_release(evidence, arguments):
 def compile_helpers(evidence):
     executables = evidence.directory / "helpers"
     executables.mkdir()
-    for name in ["InputSource", "SendKeys", "TextEditDocument"]:
+    for name in ["InputSource", "SendKeys", "TextEditDocument", "InputSourcePermission"]:
         require_success(evidence.run("compile-" + name, ["xcrun", "swiftc", "-swift-version", "5",
                         str(Path(__file__).parent / (name + ".swift")), "-o", str(executables / name)],
                         timeout=120), "Compile " + name)
@@ -99,6 +99,8 @@ def compile_helpers(evidence):
 
 def register_source(evidence, input_source, app):
     require_success(evidence.run("register", [input_source, "register", app]), "TISRegisterInputSource")
+    evidence.run("input-source-permission", [evidence.directory / "helpers/InputSourcePermission"])
+    evidence.screenshot("screen-registration")
     deadline = time.monotonic() + STATE_WAIT_SECONDS
     attempt = 0
     while True:
@@ -115,8 +117,10 @@ def exercise_input(evidence, input_source, send_keys, outcome):
     permissions = evidence.run("permissions", [send_keys, "permissions"])
     outcome["permissions"] = json.loads(require_success(permissions, "Read permissions").stdout)
     document_path = evidence.directory / "TextEdit-document.txt"
+    control_path = evidence.directory / "TextEdit-control.txt"
     document_path.write_text("")
-    require_success(evidence.run("textedit-open", ["open", "-a", "TextEdit", str(document_path)]), "Open TextEdit")
+    control_path.write_text("")
+    require_success(evidence.run("textedit-open-control", ["open", "-a", "TextEdit", str(control_path)]), "Open TextEdit")
     ready_text = wait_for_text(evidence, "textedit-ready", lambda text: text == "")
     if ready_text is None:
         raise RuntimeError("TextEdit's focused text area is unavailable; see Accessibility diagnostics")
@@ -125,8 +129,9 @@ def exercise_input(evidence, input_source, send_keys, outcome):
     outcome["asciiText"] = wait_for_text(evidence, "ascii-text", lambda text: text == "nihongo")
     outcome["asciiControlPassed"] = posted.returncode == 0 and outcome["asciiText"] == "nihongo"
     evidence.screenshot("screen-ascii")
-    require_success(evidence.run("textedit-clear", [evidence.directory / "helpers/TextEditDocument", "clear"]),
-                    "Clear control text")
+    require_success(evidence.run("textedit-open-test", ["open", "-a", "TextEdit", str(document_path)]), "Open test document")
+    if wait_for_text(evidence, "empty-test-document", lambda text: text == "") != "":
+        raise RuntimeError("The test document is not empty")
     selected = evidence.run("select-japanese", [input_source, "select", JAPANESE_SOURCE])
     outcome["japaneseSourceSelected"] = selected.returncode == 0
     # Even with denied event permissions, selecting an IME can launch it and crash.
