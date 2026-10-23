@@ -211,6 +211,11 @@ def main():
             original_source = json.loads(original.stdout)["id"]
         app = install_release(evidence, arguments)
         register_source(evidence, input_source, app)
+        # A fresh login session may not auto-launch an IME installed mid-session.
+        # Start the released app explicitly; retain this separately from TIS and
+        # debugger launches so a startup crash cannot masquerade as a key failure.
+        launched = evidence.run("launch-ime", ["open", "-a", str(app)])
+        outcome["explicitLaunchRequested"] = launched.returncode == 0
         exercise_input(evidence, input_source, send_keys, outcome=outcome)
     except Exception as error:
         outcome["error"] = str(error)

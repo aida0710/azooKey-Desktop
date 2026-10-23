@@ -36,6 +36,7 @@ class Evidence:
 
     def run(self, name, arguments, *, timeout=COMMAND_TIMEOUT_SECONDS):
         started = time.monotonic()
+        started_at = datetime.datetime.now().astimezone().isoformat()
         with (self.directory / f"{name}.stdout.txt").open("w") as stdout, \
                 (self.directory / f"{name}.stderr.txt").open("w") as stderr:
             process = subprocess.Popen(arguments, stdout=stdout, stderr=stderr, start_new_session=True)
@@ -49,7 +50,7 @@ class Evidence:
                 process.kill()
                 process.wait()
         record = {
-            "name": name, "arguments": [str(argument) for argument in arguments],
+            "name": name, "startedAt": started_at, "arguments": [str(argument) for argument in arguments],
             "returncode": process.returncode, "timedOut": timed_out,
             "elapsedSeconds": round(time.monotonic() - started, 3),
         }
