@@ -21,8 +21,8 @@ class RelativeScoreBridgeTests(unittest.TestCase):
             bridge = Bridge(environment=environment)
             try:
                 settings = bridge.request("settings")["settings"]
-                self.assertTrue(settings["showRelativeScores"])
-                settings.update(tree=True, live=True, learning="nothing")
+                self.assertFalse(settings["showRelativeScores"], "scores are hidden until the user turns them on")
+                settings.update(tree=True, live=True, learning="nothing", showRelativeScores=True)
                 self.assertNotIn("error", bridge.request("configure", settings=settings))
                 for character in "sentaku":
                     bridge.request("key", event=translate(ord(character), 0))
@@ -97,7 +97,7 @@ class RelativeScorePanelTests(unittest.TestCase):
 @unittest.skipUnless(sys.platform == "linux" and os.environ.get("DISPLAY") and os.environ.get("AZOOKEY_BRIDGE"),
                      "requires GTK and the real Swift bridge")
 class RelativeScoreSettingsWindowTests(unittest.TestCase):
-    def test_the_settings_checkbox_saves_hidden_scores_and_reopens_with_the_same_choice(self):
+    def test_the_settings_checkbox_saves_the_score_choice_and_reopens_with_it(self):
         from azookey import settings_client
         from azookey.settings import SettingsWindow
 
@@ -105,16 +105,16 @@ class RelativeScoreSettingsWindowTests(unittest.TestCase):
                 os.environ, {"AZOOKEY_DATA_DIR": directory, "XDG_CONFIG_HOME": directory}):
             window = SettingsWindow()
             try:
-                self.assertTrue(window.widgets["showRelativeScores"].get_active())
-                window.widgets["showRelativeScores"].set_active(False)
+                self.assertFalse(window.widgets["showRelativeScores"].get_active())
+                window.widgets["showRelativeScores"].set_active(True)
                 window.save(None)
-                self.assertFalse(window.bridge.request("settings")["settings"]["showRelativeScores"])
-                self.assertFalse(settings_client.load(window.bridge).values["showRelativeScores"])
+                self.assertTrue(window.bridge.request("settings")["settings"]["showRelativeScores"])
+                self.assertTrue(settings_client.load(window.bridge).values["showRelativeScores"])
             finally:
                 window.destroy()
             reopened = SettingsWindow()
             try:
-                self.assertFalse(reopened.widgets["showRelativeScores"].get_active())
+                self.assertTrue(reopened.widgets["showRelativeScores"].get_active())
             finally:
                 reopened.destroy()
 

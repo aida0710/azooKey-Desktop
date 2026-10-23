@@ -89,7 +89,7 @@ Linux では、エンジンがすべての `key` の要求にこの値を付け�
 
 ## `scorePresentation.role`
 
-相対スコアを出す設定のとき、描く節点の `scorePresentation` に `label`・`role`・`detailDescription` が付きます。`role` は `Shared/CandidatePalettes.json` の役割名（`scoreLow`・`scoreHigh`・`scoreUnknown`）で、バッジの背景色にその役割の色を使います。75 未満が `scoreLow` です。
+相対スコアは既定では出しません（設定の `showRelativeScores`、2026-10-23 から既定は `false`）。スコアは変換エンジンの評価値から計算し、Zenzai の並べ替えは反映しないので、選ばれた候補が下の候補より低く見えることがあるためです。出す設定のとき、描く節点の `scorePresentation` に `label`・`role`・`detailDescription` が付きます。`role` は `Shared/CandidatePalettes.json` の役割名（`scoreLow`・`scoreHigh`・`scoreUnknown`）で、バッジの背景色にその役割の色を使います。75 未満が `scoreLow` です。
 
 ## `candidate-layout` 操作
 
