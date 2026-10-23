@@ -19,14 +19,14 @@ import re
 import sys
 import time
 
-from smoke_evidence import Evidence
-from smoke_package import install_package, require_success
+from smoke_evidence import Evidence, require_success
+from smoke_package import install_package
 
 JAPANESE_SOURCE = "dev.ensan.inputmethod.azooKeyMac.Japanese"
 # Registration and app startup are asynchronous; poll their state up to a deadline.
 STATE_WAIT_SECONDS = 20
 POLL_INTERVAL_SECONDS = 0.5
-# Network transfer and first Swift compilation can be slow on a fresh runner.
+# First Swift compilation can be slow on a fresh runner.
 HELPER_BUILD_TIMEOUT_SECONDS = 120
 # Direct launch is diagnostic only; a healthy IME normally stays in its main loop.
 DIRECT_LAUNCH_OBSERVATION_SECONDS = 10

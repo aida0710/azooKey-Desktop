@@ -4,15 +4,11 @@ import hashlib
 from pathlib import Path
 import plistlib
 
+from smoke_evidence import require_success
+
 REPOSITORY = "aida0710/azooKey-Desktop"
-# Public model downloads can be slow on a fresh runner.
+# Distribution downloads can be slow on a fresh runner.
 RELEASE_DOWNLOAD_TIMEOUT_SECONDS = 120
-
-
-def require_success(completed, description):
-    if completed.returncode:
-        raise RuntimeError(f"{description}: exit {completed.returncode}; see command stdout/stderr")
-    return completed
 
 
 def download_release(evidence, *, tag, backend):

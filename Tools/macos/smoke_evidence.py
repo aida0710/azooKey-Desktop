@@ -19,6 +19,12 @@ PROCESS_QUERY_TIMEOUT_SECONDS = 5
 LOG_SHUTDOWN_TIMEOUT_SECONDS = 5
 
 
+def require_success(completed, description):
+    if completed.returncode:
+        raise RuntimeError(f"{description}: exit {completed.returncode}; see command stdout/stderr")
+    return completed
+
+
 class Evidence:
     def __init__(self, directory):
         self.directory = Path(directory).resolve()
