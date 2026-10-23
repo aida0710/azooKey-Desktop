@@ -28,6 +28,22 @@ func documentTextArea(_ application: AXUIElement) -> AXUIElement? {
     return nil
 }
 
+// An editor already active during an external TIS selection can retain its old
+// input context. Wait for both focus changes instead of delaying key delivery.
+func activateAndWait(_ application: NSRunningApplication) -> Bool {
+    guard application.activate(options: [.activateIgnoringOtherApps]) else { return false }
+    let activationTimeout: TimeInterval = 5
+    let deadline = Date().addingTimeInterval(activationTimeout)
+    let activationPollInterval: TimeInterval = 0.05
+    while Date() < deadline {
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == application.processIdentifier {
+            return true
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(activationPollInterval))
+    }
+    return false
+}
+
 @main
 enum TextEditDocumentCommand {
     static func main() {
@@ -39,6 +55,15 @@ enum TextEditDocumentCommand {
         guard AXIsProcessTrusted() else {
             printJSON(["error": "Accessibility permission is required to inspect TextEdit"])
             exit(3)
+        }
+        if command == "reactivate" {
+            guard let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first,
+                  activateAndWait(finder), activateAndWait(application) else {
+                printJSON(["error": "Could not reactivate TextEdit after input source selection"])
+                exit(1)
+            }
+            printJSON(["frontmost": true])
+            exit(0)
         }
         let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
         guard let focusedElement = documentTextArea(applicationElement) else {
@@ -59,7 +84,7 @@ enum TextEditDocumentCommand {
             printJSON(["text": text, "role": role,
                   "frontmost": NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.TextEdit"])
         default:
-            printJSON(["error": "Usage: TextEditDocument read|clear"])
+            printJSON(["error": "Usage: TextEditDocument read|clear|reactivate"])
             exit(2)
         }
     }

@@ -21,7 +21,6 @@ import time
 
 from smoke_evidence import Evidence, require_success
 from smoke_package import install_package
-from smoke_input_diagnostics import diagnose_input
 
 JAPANESE_SOURCE = "dev.ensan.inputmethod.azooKeyMac.Japanese"
 # Registration and app startup are asynchronous; poll their state up to a deadline.
@@ -108,6 +107,8 @@ def exercise_input(evidence, input_source, send_keys, *, outcome):
         raise RuntimeError("The test document is not empty")
     selected = evidence.run("select-japanese", [input_source, "select", JAPANESE_SOURCE])
     outcome["japaneseSourceSelected"] = selected.returncode == 0
+    require_success(evidence.run("textedit-reactivate", [evidence.directory / "helpers/TextEditDocument", "reactivate"]),
+                    "Reactivate TextEdit after input source selection")
     # Even with denied event permissions, selecting an IME can launch it and crash.
     evidence.run("process-after-select", ["pgrep", "-lx", "azooKeyMac"])
     typed = evidence.run("type-japanese", [send_keys, "nihongo"])
@@ -182,8 +183,6 @@ def main():
         launched = evidence.run("launch-ime", ["open", "-a", str(app)])
         outcome["explicitLaunchRequested"] = launched.returncode == 0
         exercise_input(evidence, input_source, send_keys, outcome=outcome)
-        if not outcome.get("japaneseConversionPassed"):
-            diagnose_input(evidence, input_source, send_keys)
     except Exception as error:
         outcome["error"] = str(error)
         print(f"Smoke test error: {error}", flush=True)
