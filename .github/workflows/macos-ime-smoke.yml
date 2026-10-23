@@ -1,35 +1,90 @@
-name: macOS release IME smoke
-run-name: macOS IME ${{ inputs.tag }} (${{ inputs.backend }}, ${{ inputs.runner }})
+name: macOS package IME smoke
+run-name: macOS IME ${{ inputs.source }} ${{ inputs.source == 'release' && inputs.tag || inputs.version }} (${{ inputs.backend }}, ${{ inputs.runner }})
 on:
-  # Register this workflow before it reaches the default branch. The push run
-  # skips the test; workflow_dispatch runs the requested release explicitly.
+  # Register the workflow before integration; dispatch selects the package to test.
   push:
-    branches: [test/macos-ime-smoke]
+    branches: [fix/macos-package-resources]
     paths: [.github/workflows/macos-ime-smoke.yml]
   workflow_dispatch:
     inputs:
+      source:
+        description: Build this revision or install a published release
+        required: true
+        default: build
+        type: choice
+        options: [build, release]
+      version:
+        description: Version to use when building this revision
+        required: true
+        default: '0.2.1'
+        type: string
       tag:
-        description: Release tag to install (for example tree-v0.2.0)
+        description: Release tag (used only with source=release)
         required: true
         default: tree-v0.2.0
         type: string
       runner:
-        description: macOS version (15 tests the older supported runtime; 26 matches the package builder)
+        description: Fresh macOS runner for installation and input
         required: true
         default: macos-15
         type: choice
         options: [macos-15, macos-26]
       backend:
-        description: CPU works without a GPU; both compares CPU and Metal on separate VMs
+        description: Test CPU, Metal, or both on separate VMs
         required: true
         default: both
         type: choice
         options: [cpu, metal, both]
+  workflow_call:
+    inputs:
+      source:
+        type: string
+        default: artifact
+      artifact:
+        type: string
+        default: macos-arm64
+      version:
+        type: string
+        required: true
+      runner:
+        type: string
+        default: macos-15
+      backend:
+        type: string
+        default: both
 permissions:
   contents: read
 jobs:
+  build:
+    if: github.event_name != 'push' && inputs.source == 'build'
+    name: Build distribution ZIPs
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - run: GIT_LFS_SKIP_SMUDGE=1 git submodule update --init
+      - run: python3 Tools/fetch-models.py
+      - name: Build requested variants
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          INFERENCE_BACKEND: ${{ inputs.backend }}
+        run: |
+          for backend in cpu metal; do
+            if [[ "$INFERENCE_BACKEND" == both || "$INFERENCE_BACKEND" == "$backend" ]]; then
+              bash Tools/tree-build.sh "$RELEASE_VERSION" "$backend"
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: build/dist/*.zip*
+          if-no-files-found: error
+          retention-days: 14
   smoke:
-    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    if: >-
+      always() && !cancelled() && github.event_name != 'push' &&
+      (needs.build.result == 'success' || inputs.source == 'release' || inputs.source == 'artifact')
     name: Input and diagnostics (${{ matrix.backend }})
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 15
@@ -39,21 +94,36 @@ jobs:
         backend: ${{ fromJSON(inputs.backend == 'both' && '["cpu","metal"]' || format('["{0}"]', inputs.backend)) }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install release and exercise the input method
+      # Only the ZIPs cross jobs. No derived data, SwiftPM products or build cache
+      # can satisfy an absolute-path fallback in a generated Bundle.module accessor.
+      - uses: actions/download-artifact@v4
+        if: inputs.source != 'release'
+        with:
+          name: ${{ inputs.artifact || 'macos-arm64' }}
+          path: ${{ runner.temp }}/packages
+      - name: Install package and exercise the input method
         env:
           GH_TOKEN: ${{ github.token }}
+          PACKAGE_SOURCE: ${{ inputs.source }}
           RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_VERSION: ${{ inputs.version }}
           INFERENCE_BACKEND: ${{ matrix.backend }}
-        run: >-
-          python3 Tools/macos/ime-smoke.py
-          --tag "$RELEASE_TAG"
-          --backend "$INFERENCE_BACKEND"
-          --output "$RUNNER_TEMP/ime-smoke"
+        run: |
+          if [[ "$PACKAGE_SOURCE" == release ]]; then
+            package=(--tag "$RELEASE_TAG")
+          else
+            suffix=''
+            if [[ "$INFERENCE_BACKEND" == cpu ]]; then suffix='-cpu'; fi
+            package=(--archive "$RUNNER_TEMP/packages/azookey-tree-$RELEASE_VERSION-arm64$suffix.zip")
+          fi
+          test ! -d build
+          python3 Tools/macos/ime-smoke.py "${package[@]}" \
+            --backend "$INFERENCE_BACKEND" --output "$RUNNER_TEMP/ime-smoke"
       - name: Upload input, process, crash, log and screen evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: macos-ime-${{ inputs.tag }}-${{ matrix.backend }}-${{ github.run_attempt }}
+          name: macos-ime-${{ inputs.source }}-${{ matrix.backend }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ime-smoke/
           if-no-files-found: error
           retention-days: 14

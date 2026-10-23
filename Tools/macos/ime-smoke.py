@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Install a released IME, type physical keys in TextEdit and retain failure evidence.
+"""Install a packaged IME, type physical keys in TextEdit and retain failure evidence.
 
 Example on a disposable Apple Silicon Mac:
   python3 Tools/macos/ime-smoke.py --tag tree-v0.2.0 --backend cpu --output build/ime-smoke
+  python3 Tools/macos/ime-smoke.py --archive build/dist/azookey-tree-0.2.1-arm64.zip --backend metal --output build/ime-smoke
 
 Exit 0 means the ASCII control and Japanese conversion both worked with no crash.
 A blocked permission, registration failure or missing text is a failed test, with
@@ -10,35 +11,26 @@ its narrower diagnosis in result.json. Never run against an existing installatio
 """
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
 import platform
-import plistlib
 import re
 import sys
 import time
 
 from smoke_evidence import Evidence
+from smoke_package import install_package, require_success
 
-REPOSITORY = "aida0710/azooKey-Desktop"
 JAPANESE_SOURCE = "dev.ensan.inputmethod.azooKeyMac.Japanese"
 # Registration and app startup are asynchronous; poll their state up to a deadline.
 STATE_WAIT_SECONDS = 20
 POLL_INTERVAL_SECONDS = 0.5
 # Network transfer and first Swift compilation can be slow on a fresh runner.
-RELEASE_DOWNLOAD_TIMEOUT_SECONDS = 120
 HELPER_BUILD_TIMEOUT_SECONDS = 120
 # Direct launch is diagnostic only; a healthy IME normally stays in its main loop.
 DIRECT_LAUNCH_OBSERVATION_SECONDS = 10
 DEBUGGER_TIMEOUT_SECONDS = 30
-
-
-def require_success(completed, description):
-    if completed.returncode:
-        raise RuntimeError(f"{description}: exit {completed.returncode}; see command stdout/stderr")
-    return completed
 
 
 def read_document(evidence, name):
@@ -55,42 +47,6 @@ def wait_for_text(evidence, name, predicate):
             return text
         time.sleep(POLL_INTERVAL_SECONDS)
         attempt += 1
-
-
-def install_release(evidence, arguments):
-    version = arguments.tag.removeprefix("tree-v")
-    suffix = "-cpu" if arguments.backend == "cpu" else ""
-    asset = f"azookey-tree-{version}-arm64{suffix}.zip"
-    downloads = evidence.directory / "downloads"
-    downloads.mkdir()
-    require_success(evidence.run("release-download", ["gh", "release", "download", arguments.tag,
-                    "--repo", REPOSITORY, "--pattern", asset, "--pattern", asset + ".sha256",
-                    "--dir", str(downloads)], timeout=RELEASE_DOWNLOAD_TIMEOUT_SECONDS), "Release download")
-    # Validate against the published checksum without depending on its relative path.
-    expected = (downloads / (asset + ".sha256")).read_text().split()[0]
-    actual = hashlib.sha256((downloads / asset).read_bytes()).hexdigest()
-    evidence.write_json("release.json", {"tag": arguments.tag, "backend": arguments.backend,
-                                        "asset": asset, "expectedSHA256": expected, "actualSHA256": actual})
-    if expected != actual:
-        raise RuntimeError("Release checksum mismatch")
-    input_methods = Path.home() / "Library/Input Methods"
-    app = input_methods / "azooKeyMac.app"
-    if app.exists():
-        raise RuntimeError(f"Refusing to overwrite an existing installation: {app}")
-    input_methods.mkdir(parents=True, exist_ok=True)
-    require_success(evidence.run("install", ["ditto", "-x", "-k", str(downloads / asset), str(input_methods)]),
-                    "Release extraction")
-    # Do not upload another copy of a public 120 MB release with every test.
-    for path in downloads.iterdir():
-        path.unlink()
-    downloads.rmdir()
-    evidence.run("codesign-verify", ["codesign", "--verify", "--deep", "--strict", str(app)])
-    evidence.run("codesign-details", ["codesign", "-d", "--entitlements", ":-", str(app)])
-    evidence.run("bundle-files", ["find", str(app), "-type", "f"])
-    evidence.run("linked-libraries", ["otool", "-L", str(app / "Contents/MacOS/azooKeyMac")])
-    with (app / "Contents/Info.plist").open("rb") as source:
-        evidence.write_json("Info.plist.json", plistlib.load(source))
-    return app
 
 
 def compile_helpers(evidence):
@@ -187,16 +143,19 @@ def launch_fallback(evidence, app, outcome):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tag", required=True)
+    package = parser.add_mutually_exclusive_group(required=True)
+    package.add_argument("--tag")
+    package.add_argument("--archive", type=Path, help="ZIP with an adjacent .zip.sha256 file")
     parser.add_argument("--backend", choices=["cpu", "metal"], default="cpu")
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
-    if not re.fullmatch(r"tree-v\d+\.\d+\.\d+", arguments.tag):
+    if arguments.tag and not re.fullmatch(r"tree-v\d+\.\d+\.\d+", arguments.tag):
         parser.error("tag must be tree-vMAJOR.MINOR.PATCH")
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         parser.error("this test requires a disposable Apple Silicon Mac")
     evidence = Evidence(arguments.output)
-    outcome = {"tag": arguments.tag, "backend": arguments.backend, "status": "incomplete"}
+    package_label = arguments.tag or arguments.archive.name
+    outcome = {"package": package_label, "tag": arguments.tag, "backend": arguments.backend, "status": "incomplete"}
     app = None
     input_source = None
     original_source = None
@@ -209,7 +168,7 @@ def main():
         original = evidence.run("source-original", [input_source, "current"])
         if original.returncode == 0:
             original_source = json.loads(original.stdout)["id"]
-        app = install_release(evidence, arguments)
+        app = install_package(evidence, archive=arguments.archive, tag=arguments.tag, backend=arguments.backend)
         register_source(evidence, input_source, app)
         # A fresh login session may not auto-launch an IME installed mid-session.
         # Start the released app explicitly; retain this separately from TIS and
@@ -231,6 +190,8 @@ def main():
             if app and running.returncode != 0 and not outcome.get("japaneseConversionPassed"):
                 launch_fallback(evidence, app, outcome)
             reports = evidence.collect()
+            running = evidence.run("process-after-observation", ["pgrep", "-x", "azooKeyMac"])
+            outcome["processAliveAfterObservation"] = running.returncode == 0
             outcome["crashReports"] = [str(path) for path in reports]
             outcome["processObserved"] = evidence.observed_processes
             if outcome.get("error"):
@@ -241,7 +202,7 @@ def main():
                 outcome["status"] = "input-unverified"
             elif not outcome.get("japaneseSourceSelected"):
                 outcome["status"] = "selection-failed"
-            elif not outcome.get("processAliveAfterInput"):
+            elif not outcome.get("processAliveAfterInput") or not outcome["processAliveAfterObservation"]:
                 outcome["status"] = "process-exited"
             elif not outcome.get("japaneseConversionPassed"):
                 outcome["status"] = "conversion-failed"
@@ -256,7 +217,7 @@ def main():
         print(summary)
         if os.environ.get("GITHUB_STEP_SUMMARY"):
             with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as destination:
-                destination.write(f"### {arguments.tag} / {arguments.backend}\n\n```json\n{summary}\n```\n")
+                destination.write(f"### {package_label} / {arguments.backend}\n\n```json\n{summary}\n```\n")
     return 0 if outcome["status"] == "passed" else 1
 
 

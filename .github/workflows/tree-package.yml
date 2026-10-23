@@ -53,3 +53,8 @@ jobs:
           name: macos-arm64
           path: build/dist/*.zip*
           if-no-files-found: error
+  macos-ime:
+    needs: macos
+    uses: ./.github/workflows/macos-ime-smoke.yml
+    with:
+      version: ${{ inputs.version }}
