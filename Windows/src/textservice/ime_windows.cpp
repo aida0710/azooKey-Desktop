@@ -27,18 +27,27 @@ bool EnsureClass(const ImeWindowClass& windowClass) {
     return true;
 }
 
+HWND CreatePopup(const ImeWindowClass& windowClass, void* owner, DWORD extraExtendedStyle) {
+    if (!EnsureClass(windowClass)) return nullptr;
+    DPI_AWARENESS_CONTEXT previous = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    HWND window = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | extraExtendedStyle, windowClass.name,
+                                  L"azooKey Tree", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, ModuleInstance(), owner);
+    if (previous) SetThreadDpiAwarenessContext(previous);
+    return window;
+}
+
 }  // namespace
 
 HWND CreateImePopup(const ImeWindowClass& windowClass, void* owner) {
-    if (!EnsureClass(windowClass)) return nullptr;
-    DPI_AWARENESS_CONTEXT previous = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    HWND window = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, windowClass.name, L"azooKey Tree",
-                                  WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, ModuleInstance(), owner);
-    if (previous) SetThreadDpiAwarenessContext(previous);
+    HWND window = CreatePopup(windowClass, owner, 0);
     if (!window) return nullptr;
     DWM_WINDOW_CORNER_PREFERENCE corners = DWMWCP_ROUNDSMALL;
     DwmSetWindowAttribute(window, DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof(corners));
     return window;
+}
+
+HWND CreateImeLayeredPopup(const ImeWindowClass& windowClass, void* owner) {
+    return CreatePopup(windowClass, owner, WS_EX_LAYERED);
 }
 
 MessageFont::~MessageFont() {

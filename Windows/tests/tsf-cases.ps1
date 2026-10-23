@@ -21,6 +21,8 @@ $cases = @(
     @{ Name = 'Backspace edits the reading'; Keys = 'nihongo{BS}{ENTER}'; Expected = 'にほん' },
     @{ Name = 'number key chooses a candidate'; Keys = 'nihongo{SPACE}2'; Expected = 'ニホンゴ' },
     @{ Name = 'Down moves to the next candidate'; Keys = 'nihongo{SPACE}{DOWN}{SHOT:second-candidate}{ENTER}'; Expected = 'ニホンゴ' },
+    # The panel grows from the tree to the list; its first frame at the new size must already show the list.
+    @{ Name = 'the list replaces the tree in one frame'; Keys = 'nihongo{SPACE}{FIRSTFRAME:tree-to-list}{ENTER}'; Expected = '日本語' },
     @{ Name = 'punctuation in a sentence'; Keys = 'kyouha,iitennkidesune.{ENTER}'; Expected = '今日は、いい天気ですね。' },
     @{ Name = 'long vowel mark'; Keys = 'tesuto-{ENTER}'; Expected = 'てすとー' },
     @{ Name = 'Esc then typing again'; Keys = 'nihongo{ESC}kanji{ENTER}'; Expected = '感じ' },
@@ -69,7 +71,7 @@ foreach ($case in $cases) {
     $output = & $Harness @arguments 2>&1 | Out-String
     $passed = $LASTEXITCODE -eq 0
     if (-not $passed) { $failed++ }
-    $details = ($output -split "`n" | Where-Object { $_ -like 'TEXT=*' -or $_ -like 'UIELEMENT*' -or $_ -like 'FAIL*' }) -join ' | '
+    $details = ($output -split "`n" | Where-Object { $_ -like 'TEXT=*' -or $_ -like 'UIELEMENT*' -or $_ -like 'FIRSTFRAME*' -or $_ -like 'FAIL*' }) -join ' | '
     '{0} {1}: {2}' -f ($(if ($passed) { 'PASS' } else { 'FAIL' })), $case.Name, $details.Trim()
 }
 "$($cases.Count - $failed)/$($cases.Count) cases passed"

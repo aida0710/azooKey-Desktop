@@ -1,8 +1,8 @@
 // The IME's own windows, which live inside the application's process: popups
-// (the candidate panel, notices, the AI review) are topmost, never activated,
-// per-monitor DPI aware whatever the application declares and have small
-// rounded corners; message-only windows carry work back to the UI thread.
-// Window classes are registered on first use.
+// (the candidate panel, notices, the AI review) are topmost, never activated
+// and per-monitor DPI aware whatever the application declares; message-only
+// windows carry work back to the UI thread. Window classes are registered on
+// first use.
 #pragma once
 
 #include <windows.h>
@@ -39,7 +39,12 @@ struct ImeWindowClass {
 };
 
 // `owner` arrives in WM_NCCREATE's CREATESTRUCT::lpCreateParams. nullptr on failure.
+// On Windows 11 the system gives the popup small rounded corners.
 HWND CreateImePopup(const ImeWindowClass& windowClass, void* owner);
+// A layered popup gets its picture, position and size together from
+// UpdateLayeredWindow (LayeredWindowSurface). Its picture has per-pixel alpha,
+// which the system never rounds, so it draws its own corners.
+HWND CreateImeLayeredPopup(const ImeWindowClass& windowClass, void* owner);
 HWND CreateImeMessageWindow(const ImeWindowClass& windowClass, void* owner);
 
 // Must run before the DLL unloads so no window class points into freed code.

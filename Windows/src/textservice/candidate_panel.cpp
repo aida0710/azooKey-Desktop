@@ -19,6 +19,19 @@ constexpr float kRowExtraHeight = 14;  // a row is its text plus 7 above and bel
 constexpr float kRowGap = 2;
 constexpr float kCornerRadius = 8;
 constexpr float kNodeRadius = 4;
+// Windows 11 draws a soft shadow under rounded popups. A per-pixel alpha
+// window is not rounded, so the panel draws its own shadow, close to the one
+// Windows 11 drew under the panel before it was layered: about 3% black beside
+// the panel fading out over 10 DIPs, about 10% below it fading out over 20,
+// none above. It is two stacks of translucent rounded rectangles; where more
+// of them overlap it is darker.
+// The first grows one DIP each on every side and is lowered so none shows above;
+constexpr int kAroundShadowSpread = 10;
+constexpr int kAroundShadowDrop = 10;
+constexpr float kAroundShadowLayerOpacity = 0.003f;
+// the second keeps the panel's width and moves one DIP further down each.
+constexpr int kBelowShadowDepth = 16;
+constexpr float kBelowShadowLayerOpacity = 0.0045f;
 // A kanji reaches as high and low as Japanese candidate text does.
 constexpr wchar_t kLineSample[] = L"漢";
 
@@ -39,6 +52,25 @@ void SafeRelease(T** pointer) {
 
 D2D1_COLOR_F Color(uint32_t rgb) {
     return D2D1::ColorF(((rgb >> 16) & 0xFF) / 255.0f, ((rgb >> 8) & 0xFF) / 255.0f, (rgb & 0xFF) / 255.0f, 1.0f);
+}
+
+// The "Show shadows under windows" setting.
+bool SystemShowsShadows() {
+    BOOL shows = TRUE;
+    SystemParametersInfoW(SPI_GETDROPSHADOW, 0, &shows, 0);
+    return shows != FALSE;
+}
+
+// A transparent target draws grayscale text by default. The panel's text
+// always lies on an opaque fill, so it keeps the system's ClearType like an
+// ordinary window.
+D2D1_TEXT_ANTIALIAS_MODE SystemTextAntialiasMode() {
+    BOOL smoothing = TRUE;
+    SystemParametersInfoW(SPI_GETFONTSMOOTHING, 0, &smoothing, 0);
+    if (!smoothing) return D2D1_TEXT_ANTIALIAS_MODE_ALIASED;
+    UINT type = FE_FONTSMOOTHINGSTANDARD;
+    SystemParametersInfoW(SPI_GETFONTSMOOTHINGTYPE, 0, &type, 0);
+    return type == FE_FONTSMOOTHINGCLEARTYPE ? D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE : D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE;
 }
 
 bool Contains(const D2D1_RECT_F& frame, D2D1_POINT_2F point) {
@@ -68,7 +100,8 @@ CandidatePanel::CandidatePanel(Actions actions) : actions_(std::move(actions)) {
 CandidatePanel::~CandidatePanel() {
     // UIA providers refer to the window, so they go first.
     accessibility_.reset();
-    ReleaseDeviceResources();
+    surface_.reset();
+    SafeRelease(&dashed_);
     for (auto& [size, format] : formats_) format->Release();
     if (window_) DestroyWindow(window_);
 }
@@ -76,8 +109,15 @@ CandidatePanel::~CandidatePanel() {
 bool CandidatePanel::EnsureWindow() {
     if (window_) return true;
     if (!EnsureFactories()) return false;
-    window_ = CreateImePopup({kWindowClassName, WindowProcedure, CS_DBLCLKS}, this);
+    if (!dashed_) {
+        float dashes[] = {2, 3};  // the other paths of the tree are thin dotted lines
+        direct2D->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT,
+                                                                D2D1_LINE_JOIN_MITER, 10.0f, D2D1_DASH_STYLE_CUSTOM, 0.0f),
+                                    dashes, ARRAYSIZE(dashes), &dashed_);
+    }
+    window_ = CreateImeLayeredPopup({kWindowClassName, WindowProcedure, CS_DBLCLKS}, this);
     if (!window_) return false;
+    if (!surface_) surface_ = std::make_unique<LayeredWindowSurface>(direct2D);
     CandidateAccessibility::Actions accessibilityActions;
     accessibilityActions.select = [this](int candidateIndex) {
         if (actions_.selectCandidate) actions_.selectCandidate(candidateIndex);
@@ -87,32 +127,6 @@ bool CandidatePanel::EnsureWindow() {
     };
     accessibility_ = std::make_unique<CandidateAccessibility>(window_, std::move(accessibilityActions));
     return true;
-}
-
-bool CandidatePanel::EnsureDeviceResources() {
-    if (target_) return true;
-    RECT client{};
-    GetClientRect(window_, &client);
-    D2D1_RENDER_TARGET_PROPERTIES properties = D2D1::RenderTargetProperties();
-    properties.dpiX = properties.dpiY = static_cast<float>(dpi_);
-    if (FAILED(direct2D->CreateHwndRenderTarget(
-            properties, D2D1::HwndRenderTargetProperties(window_, D2D1::SizeU(client.right, client.bottom)), &target_))) {
-        return false;
-    }
-    target_->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &brush_);
-    if (!dashed_) {
-        float dashes[] = {2, 3};  // the other paths of the tree are thin dotted lines
-        direct2D->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT,
-                                                                D2D1_LINE_JOIN_MITER, 10.0f, D2D1_DASH_STYLE_CUSTOM, 0.0f),
-                                    dashes, ARRAYSIZE(dashes), &dashed_);
-    }
-    return brush_ != nullptr;
-}
-
-void CandidatePanel::ReleaseDeviceResources() {
-    SafeRelease(&brush_);
-    SafeRelease(&target_);
-    SafeRelease(&dashed_);
 }
 
 IDWriteTextFormat* CandidatePanel::TextFormat(float size) {
@@ -203,20 +217,43 @@ void CandidatePanel::Show(const PanelContent& content, const RECT& frame, UINT d
     if (!EnsureWindow()) return;
     content_ = content;
     dpi_ = dpi;
+    frame_ = frame;
     appearance_ = CurrentCandidateAppearance();
     panelWidth_ = (frame.right - frame.left) * 96.0f / dpi_;
     panelHeight_ = (frame.bottom - frame.top) * 96.0f / dpi_;
     LayoutSections(content_, panelWidth_);
     contentHeight_ = treeTop_ + (content_.tree ? content_.tree->contentHeight : 0);
     KeepFocusVisible();
-    SetWindowPos(window_, HWND_TOPMOST, frame.left, frame.top, frame.right - frame.left, frame.bottom - frame.top,
-                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    if (target_) {
-        target_->SetDpi(static_cast<float>(dpi_), static_cast<float>(dpi_));
-        target_->Resize(D2D1::SizeU(frame.right - frame.left, frame.bottom - frame.top));
+    if (!Present()) {
+        // An old picture at the new place would show candidates that are gone.
+        Hide();
+        return;
     }
-    InvalidateRect(window_, nullptr, FALSE);
+    // Shown only after it has its picture, place and size; this changes neither.
+    SetWindowPos(window_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     UpdateAccessibility();
+}
+
+bool CandidatePanel::Present() {
+    shadowMargins_ = {};
+    if (SystemShowsShadows()) {
+        int side = ScaleForDpi(kAroundShadowSpread, dpi_);
+        int top = ScaleForDpi(std::max(0, kAroundShadowSpread - kAroundShadowDrop), dpi_);
+        int bottom = ScaleForDpi(std::max(kAroundShadowSpread + kAroundShadowDrop, kBelowShadowDepth), dpi_);
+        shadowMargins_ = {side, top, side, bottom};
+    }
+    LayeredWindowPlacement placement;
+    placement.position = {frame_.left - shadowMargins_.left, frame_.top - shadowMargins_.top};
+    placement.size = {frame_.right - frame_.left + shadowMargins_.left + shadowMargins_.right,
+                      frame_.bottom - frame_.top + shadowMargins_.top + shadowMargins_.bottom};
+    placement.dpi = dpi_;
+    return surface_->Present(window_, placement, [this](ID2D1RenderTarget* target) { Paint(target); });
+}
+
+bool CandidatePanel::IsOnPanel(POINT clientPixels) const {
+    int x = clientPixels.x - shadowMargins_.left;
+    int y = clientPixels.y - shadowMargins_.top;
+    return x >= 0 && y >= 0 && x < frame_.right - frame_.left && y < frame_.bottom - frame_.top;
 }
 
 void CandidatePanel::Hide() {
@@ -228,14 +265,13 @@ void CandidatePanel::Hide() {
 
 void CandidatePanel::UpdateAccessibility() {
     if (!accessibility_) return;
-    RECT window{};
-    GetWindowRect(window_, &window);
     float scale = dpi_ / 96.0f;
+    // The panel, not the window around its shadow.
     auto toScreen = [&](const D2D1_RECT_F& frame) {
         float top = frame.top - scrollOffset_;
         float bottom = frame.bottom - scrollOffset_;
-        return RECT{window.left + static_cast<LONG>(frame.left * scale), window.top + static_cast<LONG>(top * scale),
-                    window.left + static_cast<LONG>(frame.right * scale), window.top + static_cast<LONG>(bottom * scale)};
+        return RECT{frame_.left + static_cast<LONG>(frame.left * scale), frame_.top + static_cast<LONG>(top * scale),
+                    frame_.left + static_cast<LONG>(frame.right * scale), frame_.top + static_cast<LONG>(bottom * scale)};
     };
     std::vector<AccessibleCandidate> items;
     if (content_.display.list && !rows_.empty()) {
@@ -403,22 +439,52 @@ void CandidatePanel::PaintTree() {
     }
 }
 
-void CandidatePanel::Paint() {
-    if (!EnsureDeviceResources()) return;
-    target_->BeginDraw();
+void CandidatePanel::PaintShadow(const D2D1_RECT_F& panel) {
+    brush_->SetColor(D2D1::ColorF(0, 0, 0, kAroundShadowLayerOpacity));
+    for (int spread = 1; spread <= kAroundShadowSpread; ++spread) {
+        float grow = static_cast<float>(spread);
+        D2D1_RECT_F layer = D2D1::RectF(panel.left - grow, panel.top + kAroundShadowDrop - grow, panel.right + grow,
+                                        panel.bottom + kAroundShadowDrop + grow);
+        target_->FillRoundedRectangle(D2D1::RoundedRect(layer, kCornerRadius + grow, kCornerRadius + grow), brush_);
+    }
+    brush_->SetColor(D2D1::ColorF(0, 0, 0, kBelowShadowLayerOpacity));
+    for (int depth = 1; depth <= kBelowShadowDepth; ++depth) {
+        D2D1_RECT_F layer = D2D1::RectF(panel.left, panel.top + depth, panel.right, panel.bottom + depth);
+        target_->FillRoundedRectangle(D2D1::RoundedRect(layer, kCornerRadius, kCornerRadius), brush_);
+    }
+}
+
+void CandidatePanel::Paint(ID2D1RenderTarget* target) {
+    target_ = target;
+    if (FAILED(target_->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &brush_))) {
+        target_ = nullptr;
+        return;
+    }
+    target_->SetTextAntialiasMode(SystemTextAntialiasMode());
     const CandidatePalette& palette = PaletteFor(appearance_);
-    target_->Clear(Color(palette.background));
-    target_->SetTransform(D2D1::Matrix3x2F::Translation(0, -scrollOffset_));
+    D2D1_RECT_F panel = D2D1::RectF(0, 0, panelWidth_, panelHeight_);
+    D2D1::Matrix3x2F toPanel =
+        D2D1::Matrix3x2F::Translation(shadowMargins_.left * 96.0f / dpi_, shadowMargins_.top * 96.0f / dpi_);
+    target_->SetTransform(toPanel);
+    if (shadowMargins_.bottom > 0) PaintShadow(panel);
+    FillRounded(panel, kCornerRadius, palette.background);
+    // Content scrolled out of the panel must not draw over the shadow.
+    target_->PushAxisAlignedClip(panel, D2D1_ANTIALIAS_MODE_ALIASED);
+    target_->SetTransform(D2D1::Matrix3x2F::Translation(0, -scrollOffset_) * toPanel);
     if (!rows_.empty() && content_.display.list) PaintList();
     if (content_.tree) PaintTree();
-    target_->SetTransform(D2D1::Matrix3x2F::Identity());
+    target_->SetTransform(toPanel);
+    target_->PopAxisAlignedClip();
     // The outline goes last so scrolled content never covers it.
     StrokeRounded(D2D1::RectF(0.5f, 0.5f, panelWidth_ - 0.5f, panelHeight_ - 0.5f), kCornerRadius, palette.border, 1.0f);
-    if (target_->EndDraw() == D2DERR_RECREATE_TARGET) ReleaseDeviceResources();
+    SafeRelease(&brush_);
+    target_ = nullptr;
 }
 
 CandidatePanel::Hit CandidatePanel::HitTest(POINT clientPixels) const {
-    D2D1_POINT_2F point = D2D1::Point2F(clientPixels.x * 96.0f / dpi_, clientPixels.y * 96.0f / dpi_ + scrollOffset_);
+    if (!IsOnPanel(clientPixels)) return {};
+    D2D1_POINT_2F point = D2D1::Point2F((clientPixels.x - shadowMargins_.left) * 96.0f / dpi_,
+                                        (clientPixels.y - shadowMargins_.top) * 96.0f / dpi_ + scrollOffset_);
     if (content_.display.list && !rows_.empty()) {
         for (const auto& row : rows_) {
             if (Contains(row.frame, point)) return {Hit::Kind::Row, row.candidateIndex};
@@ -477,13 +543,14 @@ LRESULT CALLBACK CandidatePanel::WindowProcedure(HWND window, UINT message, WPAR
             if (LRESULT result = self->accessibility_->HandleGetObject(wParam, lParam)) return result;
         }
         break;
-    case WM_PAINT: {
-        PAINTSTRUCT paint;
-        BeginPaint(window, &paint);
-        if (self) self->Paint();
-        EndPaint(window, &paint);
-        return 0;
-    }
+    case WM_NCHITTEST:
+        // Clicks on the shadow go to the window underneath, as with the system's shadow.
+        if (self) {
+            POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            ScreenToClient(window, &point);
+            if (!self->IsOnPanel(point)) return HTTRANSPARENT;
+        }
+        break;
     case WM_LBUTTONUP:
     case WM_LBUTTONDBLCLK:
         if (self) self->Activate(self->HitTest({GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)}), message == WM_LBUTTONDBLCLK);
@@ -493,22 +560,23 @@ LRESULT CALLBACK CandidatePanel::WindowProcedure(HWND window, UINT message, WPAR
         if (self && self->contentHeight_ > self->panelHeight_) {
             float rowStep = self->content_.fontSize + kRowExtraHeight;
             self->ScrollBy(-static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam)) / WHEEL_DELTA * rowStep);
-            InvalidateRect(window, nullptr, FALSE);
+            self->Present();
             self->UpdateAccessibility();
             return 0;
         }
         break;
     case WM_SETTINGCHANGE:
     case WM_THEMECHANGED:
+        // Also the shadow and text smoothing settings, which Present reads.
         if (self) {
             self->appearance_ = CurrentCandidateAppearance();
-            InvalidateRect(window, nullptr, FALSE);
+            if (self->visible()) self->Present();
         }
         break;
     case WM_NCDESTROY:
         if (self) {
             self->accessibility_.reset();
-            self->ReleaseDeviceResources();
+            if (self->surface_) self->surface_->ReleaseResources();
             self->window_ = nullptr;
         }
         break;
