@@ -131,6 +131,16 @@ class TreeButtonKeyTests(unittest.TestCase):
     def focused_word(snapshot):
         return next(node for node in snapshot["nodes"] if node["id"] == snapshot["focusedNode"])
 
+    @staticmethod
+    def next_sibling(snapshot, node):
+        """The word ↓ moves to in the tree: the next of its parent's children, after the last the first."""
+        if node.get("parent") is None:
+            # Core omits the parent of a first word; first words are in the order of their ids.
+            siblings = [item["id"] for item in snapshot["nodes"] if item.get("parent") is None]
+        else:
+            siblings = next(item for item in snapshot["nodes"] if item["id"] == node["parent"])["children"]
+        return siblings[(siblings.index(node["id"]) + 1) % len(siblings)]
+
     def toggle_tree(self):
         self.panel.disclosure_actions["tree"].clicked()
         self.flush()
@@ -158,12 +168,7 @@ class TreeButtonKeyTests(unittest.TestCase):
 
         self.toggle_tree()
         self.assertTrue(self.panel.tree_expanded)
-        opened = self.key(DOWN)
-        moved = self.focused_word(opened)
-        self.assertNotEqual(opened["selection"], first + 1)
-        self.assertNotEqual(moved["id"], focused["id"])
-        # Core omits the parent of a first word.
-        self.assertEqual((moved.get("parent"), moved["depth"]), (focused.get("parent"), focused["depth"]))
+        self.assertEqual(self.key(DOWN)["focusedNode"], self.next_sibling(shown, focused))
 
 
 if __name__ == "__main__":
