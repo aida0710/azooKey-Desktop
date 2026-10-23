@@ -1,0 +1,47 @@
+name: macOS release IME smoke
+run-name: macOS IME ${{ inputs.tag }} (${{ inputs.backend }})
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to install (for example tree-v0.2.0)
+        required: true
+        default: tree-v0.2.0
+        type: string
+      backend:
+        description: CPU works without a GPU; both compares CPU and Metal on separate VMs
+        required: true
+        default: both
+        type: choice
+        options: [cpu, metal, both]
+permissions:
+  contents: read
+jobs:
+  smoke:
+    name: Input and diagnostics (${{ matrix.backend }})
+    runs-on: macos-26
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ${{ fromJSON(inputs.backend == 'both' && '["cpu","metal"]' || format('["{0}"]', inputs.backend)) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install release and exercise the input method
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          INFERENCE_BACKEND: ${{ matrix.backend }}
+        run: >-
+          python3 Tools/macos/ime-smoke.py
+          --tag "$RELEASE_TAG"
+          --backend "$INFERENCE_BACKEND"
+          --output "$RUNNER_TEMP/ime-smoke"
+      - name: Upload input, process, crash, log and screen evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-ime-${{ inputs.tag }}-${{ matrix.backend }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ime-smoke/
+          if-no-files-found: error
+          retention-days: 14
