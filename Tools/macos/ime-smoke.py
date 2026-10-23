@@ -37,14 +37,9 @@ def require_success(completed, description):
     return completed
 
 
-def apple_script(evidence, name, source):
-    return evidence.run(name, ["osascript", "-e", "with timeout of 10 seconds\n" + source + "\nend timeout"],
-                        timeout=15)
-
-
 def read_document(evidence, name):
-    completed = apple_script(evidence, name, 'tell application "TextEdit" to get text of front document')
-    return completed.stdout.rstrip("\n") if completed.returncode == 0 else None
+    completed = evidence.run(name, [evidence.directory / "helpers/TextEditDocument", "read"])
+    return json.loads(completed.stdout)["text"] if completed.returncode == 0 else None
 
 
 def wait_for_text(evidence, name, predicate):
@@ -52,7 +47,7 @@ def wait_for_text(evidence, name, predicate):
     attempt = 0
     while True:
         text = read_document(evidence, f"{name}-{attempt}")
-        if text is None or predicate(text) or time.monotonic() >= deadline:
+        if (text is not None and predicate(text)) or time.monotonic() >= deadline:
             return text
         time.sleep(POLL_INTERVAL_SECONDS)
         attempt += 1
@@ -97,7 +92,7 @@ def install_release(evidence, arguments):
 def compile_helpers(evidence):
     executables = evidence.directory / "helpers"
     executables.mkdir()
-    for name in ["InputSource", "SendKeys"]:
+    for name in ["InputSource", "SendKeys", "TextEditDocument"]:
         require_success(evidence.run("compile-" + name, ["xcrun", "swiftc", "-swift-version", "5",
                         str(Path(__file__).parent / (name + ".swift")), "-o", str(executables / name)],
                         timeout=120), "Compile " + name)
@@ -121,15 +116,19 @@ def register_source(evidence, input_source, app):
 def exercise_input(evidence, input_source, send_keys, outcome):
     permissions = evidence.run("permissions", [send_keys, "permissions"])
     outcome["permissions"] = json.loads(require_success(permissions, "Read permissions").stdout)
-    require_success(apple_script(evidence, "textedit-new", 'tell application "TextEdit"\n'
-                    'activate\nmake new document\nend tell'), "Create TextEdit document")
+    document_path = evidence.directory / "TextEdit-document.txt"
+    document_path.write_text("")
+    require_success(evidence.run("textedit-open", ["open", "-a", "TextEdit", str(document_path)]), "Open TextEdit")
+    ready_text = wait_for_text(evidence, "textedit-ready", lambda text: text == "")
+    if ready_text is None:
+        raise RuntimeError("TextEdit's focused text area is unavailable; see Accessibility diagnostics")
     require_success(evidence.run("select-ascii", [input_source, "ascii"]), "Select ASCII control")
     posted = evidence.run("type-ascii", [send_keys, "nihongo"])
     outcome["asciiText"] = wait_for_text(evidence, "ascii-text", lambda text: text == "nihongo")
     outcome["asciiControlPassed"] = posted.returncode == 0 and outcome["asciiText"] == "nihongo"
     evidence.screenshot("screen-ascii")
-    require_success(apple_script(evidence, "textedit-clear", 'tell application "TextEdit"\n'
-                    'set text of front document to ""\nactivate\nend tell'), "Clear control text")
+    require_success(evidence.run("textedit-clear", [evidence.directory / "helpers/TextEditDocument", "clear"]),
+                    "Clear control text")
     selected = evidence.run("select-japanese", [input_source, "select", JAPANESE_SOURCE])
     outcome["japaneseSourceSelected"] = selected.returncode == 0
     # Even with denied event permissions, selecting an IME can launch it and crash.
@@ -138,14 +137,23 @@ def exercise_input(evidence, input_source, send_keys, outcome):
     outcome["keyPostingSucceeded"] = typed.returncode == 0
     outcome["preeditText"] = wait_for_text(evidence, "preedit-text", bool)
     evidence.screenshot("screen-preedit")
-    evidence.run("convert", [send_keys, "space"])
+    converted = evidence.run("convert", [send_keys, "space"])
     time.sleep(CONVERSION_WAIT_SECONDS)
     evidence.screenshot("screen-candidates")
-    evidence.run("confirm", [send_keys, "return"])
+    confirmed = evidence.run("confirm", [send_keys, "return"])
+    outcome["conversionKeysPosted"] = converted.returncode == 0 and confirmed.returncode == 0
     outcome["documentText"] = wait_for_text(evidence, "confirmed-text", lambda text: "日本語" in text)
     (evidence.directory / "TextEdit.txt").write_text(outcome["documentText"] or "")
-    evidence.run("source-after-typing", [input_source, "current"])
-    outcome["japaneseConversionPassed"] = outcome["documentText"] is not None and outcome["documentText"].strip() == "日本語"
+    current = evidence.run("source-after-typing", [input_source, "current"])
+    outcome["japaneseSourceRetained"] = current.returncode == 0 and json.loads(current.stdout)["id"] == JAPANESE_SOURCE
+    saved = evidence.run("save-document", [send_keys, "save"])
+    deadline = time.monotonic() + STATE_WAIT_SECONDS
+    while time.monotonic() < deadline and document_path.read_text() != outcome["documentText"]:
+        time.sleep(POLL_INTERVAL_SECONDS)
+    outcome["savedDocumentText"] = document_path.read_text()
+    outcome["documentSaved"] = saved.returncode == 0 and outcome["savedDocumentText"] == outcome["documentText"]
+    outcome["japaneseConversionPassed"] = (outcome["documentText"] is not None and outcome["documentText"].strip() == "日本語"
+        and outcome["conversionKeysPosted"] and outcome["japaneseSourceRetained"] and outcome["documentSaved"])
 
 
 def launch_fallback(evidence, app, outcome):

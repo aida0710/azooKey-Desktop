@@ -26,12 +26,16 @@ guard CGPreflightPostEventAccess() else {
 }
 
 let keyCodes: [CGKeyCode]
+var modifiers: CGEventFlags = []
 switch command {
 case "nihongo": keyCodes = [45, 34, 4, 31, 45, 5, 31]
 case "space": keyCodes = [49]
 case "return": keyCodes = [36]
+case "save":
+    keyCodes = [1]
+    modifiers = .maskCommand
 default:
-    fputs("Usage: SendKeys permissions|nihongo|space|return\n", stderr)
+    fputs("Usage: SendKeys permissions|nihongo|space|return|save\n", stderr)
     exit(2)
 }
 
@@ -46,8 +50,8 @@ for keyCode in keyCodes {
         fputs("Unable to create a keyboard event.\n", stderr)
         exit(1)
     }
-    down.flags = []
-    up.flags = []
+    down.flags = modifiers
+    up.flags = modifiers
     down.post(tap: .cghidEventTap)
     Thread.sleep(forTimeInterval: keyHoldInterval)
     up.post(tap: .cghidEventTap)

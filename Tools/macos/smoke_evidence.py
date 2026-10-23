@@ -2,10 +2,8 @@
 
 import datetime
 import json
-import os
 from pathlib import Path
 import shutil
-import signal
 import subprocess
 import threading
 import time
@@ -43,7 +41,9 @@ class Evidence:
                 process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 timed_out = True
-                os.killpg(process.pid, signal.SIGKILL)
+                # macOS can deny killpg for an AppleEvent process group. Kill
+                # only the command we created and preserve the timeout evidence.
+                process.kill()
                 process.wait()
         record = {
             "name": name, "arguments": [str(argument) for argument in arguments],
