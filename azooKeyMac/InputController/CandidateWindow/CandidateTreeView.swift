@@ -380,6 +380,9 @@ final class CandidateTreeView: NSView {
         scorePresentations = showsScores ? Dictionary(uniqueKeysWithValues: nodeFrames.keys.map {
             ($0, CandidateScorePresentation(relativeScore: scores[$0]))
         }) : [:]
+        // The scores need the frames that rebuild() lays out, so the words' help
+        // text is refreshed again once the scores for this selection are known.
+        refreshControlAppearance()
         canvas.scorePresentations = scorePresentations
         canvas.nodeFrames = nodeFrames
         canvas.selectedPath = Set(displayedColumns.compactMap(\.first))
