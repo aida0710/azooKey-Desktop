@@ -24,8 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-24.04, macos-26]
-    # ARM64専用の試験とmacOS・Windowsは元のランナーを使う。
-    runs-on: ${{ (matrix.runner == 'ubuntu-24.04' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner) && 'r540-linux' || matrix.runner }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4

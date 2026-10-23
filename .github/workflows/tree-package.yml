@@ -10,13 +10,13 @@ permissions:
   contents: read
   actions: read
 jobs:
+  # 入力イベントの検証条件をtree-ciと揃え、GitHub側で配布候補を作る。
   linux:
     strategy:
       fail-fast: false
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
-    # ARM64専用の試験とmacOS・Windowsは元のランナーを使う。
-    runs-on: ${{ (matrix.runner == 'ubuntu-24.04' && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner) && 'r540-linux' || matrix.runner }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
