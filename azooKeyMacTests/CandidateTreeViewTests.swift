@@ -59,9 +59,10 @@ final class CandidateTreeViewTests: XCTestCase {
         defer { preference.value = previous }
         preference.value = true
         let view = CandidateTreeView()
+        // Relative scores compare candidates of the same reading, so the words carry one.
         let entries: [CandidateTree.Entry] = [
-            .init(text: "選択", tokens: [], candidateIndex: 0, score: log(69)),
-            .init(text: "洗濯", tokens: [], candidateIndex: 1, score: log(31))
+            .init(text: "選択", tokens: [.init(text: "選択", reading: "センタク")], candidateIndex: 0, score: log(69)),
+            .init(text: "洗濯", tokens: [.init(text: "洗濯", reading: "センタク")], candidateIndex: 1, score: log(31))
         ]
         var selections: [Int] = []
         view.onSelectionChanged = { selections.append($0) }

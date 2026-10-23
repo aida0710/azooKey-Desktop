@@ -96,8 +96,7 @@ final class CompactCandidateInputTests: XCTestCase {
             try press(124, text: "\u{f703}", modifiers: .shift, controller: controller, client: client)
             XCTAssertEqual(controller.inputState, .selecting)
             XCTAssertTrue(controller.segmentsManager.consumesWholeComposition(try XCTUnwrap(controller.segmentsManager.selectedCandidate)))
-            try press(53, text: "\u{1b}", controller: controller, client: client)
-            XCTAssertEqual(controller.inputState, .previewing)
+            // With live conversion, Esc closes the list and keeps the whole reading.
             try press(53, text: "\u{1b}", controller: controller, client: client)
             XCTAssertEqual(controller.inputState, .composing)
             XCTAssertEqual(controller.segmentsManager.convertTarget, fullReading)
