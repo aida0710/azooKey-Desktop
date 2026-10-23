@@ -67,6 +67,25 @@ jobs:
       - name: Measure the bridge with and without Zenzai
         shell: pwsh
         run: Windows/tools/measure-zenzai.ps1 -Package build/windows-package
+      # The runner image turns window shadows off. Users have them on by default,
+      # and the candidate panel then draws its own shadow, so the TSF steps run with them on.
+      - name: Show shadows under windows
+        shell: pwsh
+        run: |
+          Add-Type -Namespace Azookey -Name SystemSettings -MemberDefinition @'
+          [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
+          public static extern bool GetSystemParameter(uint action, uint parameter, ref bool value, uint flags);
+          [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")]
+          public static extern bool SetSystemParameter(uint action, uint parameter, IntPtr value, uint flags);
+          '@
+          $SPI_GETDROPSHADOW = 0x1024; $SPI_SETDROPSHADOW = 0x1025; $SPIF_SENDCHANGE = 0x2
+          $shows = $false
+          [void][Azookey.SystemSettings]::GetSystemParameter($SPI_GETDROPSHADOW, 0, [ref]$shows, 0)
+          "shadows under windows before this step: $shows"
+          if (-not [Azookey.SystemSettings]::SetSystemParameter($SPI_SETDROPSHADOW, 0, [IntPtr]1, $SPIF_SENDCHANGE)) { throw 'could not turn window shadows on' }
+          [void][Azookey.SystemSettings]::GetSystemParameter($SPI_GETDROPSHADOW, 0, [ref]$shows, 0)
+          "shadows under windows now: $shows"
+          if (-not $shows) { exit 1 }
       - name: Type through TSF with the installed text service
         shell: pwsh
         run: |

@@ -33,9 +33,11 @@ namespace {
 constexpr wchar_t kCandidatePanelClass[] = L"azooKeyTreeCandidatePanel";
 // Long enough for the text service's windows to repaint after a key.
 constexpr DWORD kScreenshotSettleMilliseconds = 300;
-// The edit control is tall enough that the candidate list lies over its plain
-// background, so nothing else changes under the panel between two captures.
+// The edit control is tall enough, and its text far enough from its left edge,
+// that the candidate list and its shadow lie over its plain background, so
+// nothing else changes under the panel between two captures.
 constexpr SIZE kFrameSize{900, 600};
+constexpr int kTextLeftMargin = 40;
 
 struct Options {
     CLSID clsid{};
@@ -324,6 +326,7 @@ int wmain(int argc, wchar_t** argv) {
     HWND edit = CreateWindowExW(0, MSFTEDIT_CLASS, L"", WS_CHILD | WS_VISIBLE | ES_MULTILINE, 0, 0, client.right, client.bottom, frame,
                                 nullptr, nullptr, nullptr);
     if (!frame || !edit) Fail("CreateWindow", HRESULT_FROM_WIN32(GetLastError()));
+    SendMessageW(edit, EM_SETMARGINS, EC_LEFTMARGIN, MAKELPARAM(kTextLeftMargin, 0));
     // RichEdit talks to TSF only when asked to; without this it uses IMM32.
     SendMessageW(edit, EM_SETEDITSTYLE, SES_USECTF | SES_CTFALLOWEMBED | SES_CTFALLOWSMARTTAG | SES_CTFALLOWPROOFING,
                  SES_USECTF | SES_CTFALLOWEMBED | SES_CTFALLOWSMARTTAG | SES_CTFALLOWPROOFING);
