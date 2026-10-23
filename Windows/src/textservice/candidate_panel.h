@@ -30,7 +30,7 @@ struct PanelContent {
     std::optional<display::TreeLayout> tree;  // set when the word tree is drawn
     bool showList = false;                    // the numbered page of full candidates
     bool showScores = false;
-    float fontSize = 18;                      // candidate text, after the text-size setting
+    float fontSize = 14;                      // candidate text, after the text-size setting
 };
 
 class CandidatePanel {

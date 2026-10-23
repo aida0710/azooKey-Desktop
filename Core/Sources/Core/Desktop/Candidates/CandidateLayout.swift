@@ -73,13 +73,13 @@ public struct CandidateLayout: Codable, Equatable, Sendable {
     }
 
     // The live tree has no permanent full-sentence list beside it.
-    static let minimumTreeOnlyWidth = 240.0
-    // Leaves room for readable sentences and a separate confirm action.
-    static let minimumListWidth = 420.0
+    static let minimumTreeOnlyWidth = 185.0
+    // Leaves room for readable sentences and the list's footer.
+    static let minimumListWidth = 320.0
     // Wide enough for about this many full-width characters of a sentence.
     static let listLineCharacters = 26.0
-    static let maximumListLineWidth = 560.0
-    static let maximumCompactWidth = 760.0
+    static let maximumListLineWidth = 430.0
+    static let maximumCompactWidth = 585.0
 
     public let tree: CandidateTreeLayout
     /// Width at which the platform measures the rest of the popup.

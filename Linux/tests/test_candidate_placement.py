@@ -98,7 +98,7 @@ class CandidatePopupPlacementTests(unittest.TestCase):
                     self.panel.location = (x, y, 0, 35)
                     self.panel.update({**self.snapshot, "candidateTextSize": "large"})
                     self.assert_visible_beside_caret(area)
-                    self.assertEqual(self.panel.font_size, 24)
+                    self.assertEqual(self.panel.font_size, 18)
         self.assertEqual(self.actions, [])
 
     def test_real_caret_remains_excluded_when_alignment_expires_and_the_work_area_changes(self):

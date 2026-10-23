@@ -39,7 +39,7 @@ class CandidateDetailTests(unittest.TestCase):
             context.iteration(False)
 
     def test_large_text_preserves_font_size_and_full_details_without_committing(self):
-        for size, minimum in [("standard", 18), ("large", 24)]:
+        for size, minimum in [("standard", 14), ("large", 18)]:
             self.panel.update({**self.snapshot, "candidateTextSize": size, "focusedNode": 1})
             self.flush()
             self.assertGreaterEqual(self.panel.font_size, minimum)
@@ -77,7 +77,7 @@ class CandidateDetailTests(unittest.TestCase):
         previous_dpi = settings.get_property("gtk-xft-dpi")
         self.panel.location = (100, 100, 1, 20)
         try:
-            for size, base_size in [("standard", 18), ("large", 24)]:
+            for size, base_size in [("standard", 14), ("large", 18)]:
                 for scale in [1, 1.5, 2]:
                     settings.set_property("gtk-xft-dpi", round(96 * Pango.SCALE * scale))
                     self.assert_number_geometry(size=size, column_width=base_size * scale + 8)
@@ -103,8 +103,8 @@ class CandidateDetailTests(unittest.TestCase):
         tree = self.panel.layout["tree"]
         for node in tree["nodes"]:
             frame, number_frame = node["frame"], node["numberFrame"]
-            self.assertGreaterEqual(frame["width"], 44)
-            self.assertGreaterEqual(frame["height"], 44)
+            self.assertGreaterEqual(frame["width"], 24)
+            self.assertGreaterEqual(frame["height"], 24)
             number = str(self.panel.candidate_numbers[node["id"]])
             layout = self.panel.fitted_layout(context, number, number_frame["width"], tree["metrics"]["numberFontSize"])
             ink, logical = layout.get_pixel_extents()

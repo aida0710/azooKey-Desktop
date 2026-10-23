@@ -151,12 +151,12 @@ extension DesktopSegmentEditingTests {
 
     @Test func layoutAndDisplayOperationsNeedNoSession() throws {
         let layout = try JSONDecoder().decode(BridgeRequest.self, from: Data("""
-        {"operation":"candidate-layout","layout":{"mode":"list","textSize":"large","textScale":1,"measuredFontSize":24,
+        {"operation":"candidate-layout","layout":{"mode":"list","textSize":"large","textScale":1,"measuredFontSize":18,
          "columns":[{"nodes":[{"id":0,"parent":null}],"textWidth":48}],"showScores":false,"showNumbers":false,
          "cursor":{"x":10,"y":10,"width":0,"height":20},"workArea":{"x":0,"y":0,"width":800,"height":600}}}
         """.utf8))
         let laidOut = try #require(try DesktopCandidateController.response(to: layout)?.candidateLayout)
-        #expect(laidOut.tree.metrics.fontSize == 24 && laidOut.popupWidth == 560)
+        #expect(laidOut.tree.metrics.fontSize == 18 && laidOut.popupWidth == 430)
         #expect(laidOut.placementStatus == .notRequested)
 
         let display = try JSONDecoder().decode(BridgeRequest.self, from: Data("""

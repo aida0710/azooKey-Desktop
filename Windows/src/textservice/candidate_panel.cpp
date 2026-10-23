@@ -15,7 +15,7 @@ constexpr wchar_t kWindowClassName[] = L"azooKeyTreeCandidatePanel";
 // Secondary labels (numbers, page position, buttons); Core's numberFontSize.
 constexpr float kSmallTextSize = 12;
 constexpr float kPadding = 6;
-constexpr float kRowExtraHeight = 14;  // a row is its text plus 7 above and below, like the tree's words
+constexpr float kRowExtraHeight = 12;  // a row is its text plus 6 above and below, like the tree's words (Core's wordVerticalPadding)
 constexpr float kRowGap = 2;
 constexpr float kCornerRadius = 8;
 constexpr float kNodeRadius = 4;

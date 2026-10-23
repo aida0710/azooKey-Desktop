@@ -194,8 +194,8 @@ class CandidatePresentationTests(unittest.TestCase):
         node = self.panel.actions[("node", 10)]
         self.assertIn("候補番号 2", node.get_accessible().get_description())
         frame = next(frame for frame in self.panel.rectangles if frame[:2] == ("node", 10))
-        self.assertGreaterEqual(frame[4], 44)
-        self.assertGreaterEqual(frame[5], 44)
+        self.assertGreaterEqual(frame[4], 24)
+        self.assertGreaterEqual(frame[5], 24)
         self.panel.click(None, types.SimpleNamespace(button=1, x=frame[2] + 6, y=frame[3] + frame[5] - 4))
         self.assertEqual(self.actions, [("node", 10, False)])
         self.assertIs(self.document.get_focus(), self.entry)
@@ -216,7 +216,7 @@ class CandidatePresentationTests(unittest.TestCase):
         from gi.repository import GLib
         from Linux.tests.test_candidate_theme import CandidateThemeTests
 
-        for size, expected_font_size in (("standard", 18), ("large", 24)):
+        for size, expected_font_size in (("standard", 14), ("large", 18)):
             with self.subTest(size=size):
                 self.panel.update({**self.snapshot, "candidateTextSize": size})
                 CandidateThemeTests.wait_for_paint(self.panel, GLib)

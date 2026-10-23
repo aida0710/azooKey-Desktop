@@ -112,10 +112,10 @@ struct LayoutRequest {
 };
 
 struct TreeMetrics {
-    float fontSize = 18;
+    float fontSize = 14;
     float numberFontSize = 12;
     float scoreFontSize = 12;
-    float wordHeight = 32;
+    float wordHeight = 26;
     float numberHeight = 0;
     float scoreHeight = 0;
     // A score badge is its text plus this inset on each side, at least the

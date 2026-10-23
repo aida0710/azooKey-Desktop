@@ -7,7 +7,7 @@
 | 木と一覧のどちらを出すか、描く列、節点の番号（1〜9）、読み上げ文、詳細文、確定ボタンの文言と可否、前後ページ、残る読み | `CandidateDisplay` | すべての応答の `candidateDisplay` |
 | 相対スコアの色の区分 | `CandidateScoreRole` | `nodes[].scorePresentation.role` |
 | 節点の枠、行の高さ、列の幅、文書の語への整列、ポップアップの幅、配置と向き | `CandidateLayout`、`CandidateTreeLayout`、`CandidatePopupPlacement` | `candidate-layout` 操作 |
-| 文字の大きさ（標準 18、大きい 24、OS の文字倍率が 1 未満なら縮めない） | `CandidateTextMetrics` | `candidate-layout` の `tree.metrics` |
+| 文字の大きさ（標準 14、大きい 18、OS の文字倍率が 1 未満なら縮めない） | `CandidateTextMetrics` | `candidate-layout` の `tree.metrics` |
 
 ## 語ごとの別候補と枝の続き
 
@@ -57,7 +57,7 @@
   "mode": "list",
   "columns": [[1, 0, 3], [2]],
   "showsNumbers": true,
-  "baseFontSize": 18,
+  "baseFontSize": 14,
   "detailNode": 1,
   "expandTree": false,
   "announcement": "変換候補 2 / 56。にほん。読み ニホン。語 1 / 2。確定予定 にほんご",
@@ -128,9 +128,9 @@ Linux では、エンジンがすべての `key` の要求にこの値を付け�
 
 ```json
 {"operation": "candidate-layout", "layout": {
-  "mode": "tree", "textSize": "standard", "textScale": 1, "measuredFontSize": 18,
+  "mode": "tree", "textSize": "standard", "textScale": 1, "measuredFontSize": 14,
   "columns": [{"nodes": [{"id": 0, "parent": null}, {"id": 1, "parent": null}, {"id": 3, "parent": null}],
-               "textWidth": 54.0}],
+               "textWidth": 42.0}],
   "lineHeight": null, "documentWordWidths": null, "columnAnchorX": null,
   "showScores": true, "showNumbers": true,
   "cursor": {"x": 300, "y": 200, "width": 0, "height": 24},
@@ -144,7 +144,7 @@ Linux では、エンジンがすべての `key` の要求にこの値を付け�
 | `textSize`・`textScale` | 候補の文字サイズ設定と OS の文字倍率（GTK は `gtk-xft-dpi / 96`、GNOME は `text-scaling-factor`） |
 | `measuredFontSize` | `textWidth` と `lineHeight` を測った文字の大きさ。Core が候補の文字の大きさへ比例で直す |
 | `columns` | `candidateDisplay.columns` の順の節点（`id` と、描く木の上での親 `parent`）と、列の先頭の節点の文字の幅 |
-| `lineHeight` | 任意。`measuredFontSize` で1行を測った高さ（節点の中に枠線を描くならその分も含める）。語の行は「文字 + 14」、番号の行は「番号の文字 + 6」を最小に、この比率より低くしない |
+| `lineHeight` | 任意。`measuredFontSize` で1行を測った高さ（節点の中に枠線を描くならその分も含める）。語の行は「文字 + 12」、番号の行は「番号の文字 + 6」を最小に、この比率より低くしない |
 | `documentWordWidths` | 任意。文書上の語の幅が分かるとき（GTK の推定語幅、Windows の文字矩形）。全列の幅が揃い、どれも読める幅のときだけ整列する |
 | `columnAnchorX` | 任意。整列するときの文頭の x |
 | `showScores`・`showNumbers` | スコアの行・番号の行を確保するか（`showRelativeScores` と `candidateDisplay.showsNumbers`） |
@@ -156,21 +156,21 @@ Linux では、エンジンがすべての `key` の要求にこの値を付け�
 応答（`candidateLayout`、配列は先頭だけ示す）:
 
 ```json
-{"popupWidth": 240, "placementStatus": "placed",
- "placement": {"x": 300, "y": 224, "width": 240, "height": 180, "side": "below"},
+{"popupWidth": 185, "placementStatus": "placed",
+ "placement": {"x": 300, "y": 224, "width": 185, "height": 180, "side": "below"},
  "tree": {
-   "aligned": false, "reason": "unavailable-or-narrow", "textAlignment": "center", "rowHeight": 66,
-   "metrics": {"fontSize": 18, "numberFontSize": 12, "scoreFontSize": 12,
-               "wordHeight": 32, "numberHeight": 18, "scoreHeight": 16,
+   "aligned": false, "reason": "unavailable-or-narrow", "textAlignment": "center", "rowHeight": 60,
+   "metrics": {"fontSize": 14, "numberFontSize": 12, "scoreFontSize": 12,
+               "wordHeight": 26, "numberHeight": 18, "scoreHeight": 16,
                "scoreBadgeMinimumWidth": 22, "scoreBadgeHorizontalInset": 3},
    "nodes": [{"id": 0, "column": 0, "row": 0,
-              "frame": {"x": 12, "y": 6, "width": 66, "height": 66},
-              "textFrame": {"x": 16, "y": 6, "width": 58, "height": 32},
-              "scoreFrame": {"x": 12, "y": 38, "width": 66, "height": 16},
-              "numberFrame": {"x": 18, "y": 54, "width": 54, "height": 18}}],
-   "edges": [{"node": 0, "start": {"x": 4, "y": 39}, "end": {"x": 12, "y": 39}}],
-   "rootAnchor": {"x": 4, "y": 39},
-   "contentSize": {"width": 90, "height": 216}}}
+              "frame": {"x": 10, "y": 5, "width": 51, "height": 60},
+              "textFrame": {"x": 14, "y": 5, "width": 43, "height": 26},
+              "scoreFrame": {"x": 10, "y": 31, "width": 51, "height": 16},
+              "numberFrame": {"x": 16, "y": 47, "width": 39, "height": 18}}],
+   "edges": [{"node": 0, "start": {"x": 4, "y": 35}, "end": {"x": 10, "y": 35}}],
+   "rootAnchor": {"x": 4, "y": 35},
+   "contentSize": {"width": 70, "height": 194}}}
 ```
 
 | 出力 | 意味 |
@@ -182,7 +182,7 @@ Linux では、エンジンがすべての `key` の要求にこの値を付け�
 | `edges` | 親から子へ線を引く。`start` は親の右端の中央、親が描かれていない節点は `rootAnchor` から。線は `node` が選択中の文の語なら太く実線、ほかは細い点線 |
 | `contentSize` | 木を描く面の大きさ。ポップアップより大きいときはスクロールする |
 | `aligned`・`reason` | 文書の語の下に列を揃えたか。`estimated-inline`（揃えた）、`unavailable-or-narrow`（語の幅が無いか狭い）、`outside-workarea`（画面内に収まらない、または横に置いた） |
-| `popupWidth` | ポップアップの幅。木だけなら 240 以上、一覧なら 420 以上かつ文字 26 字分（最大 560）以上、揃えないときは 760 以下、作業領域の幅以下 |
+| `popupWidth` | ポップアップの幅。木だけなら 185 以上、一覧なら 320 以上かつ文字 26 字分（最大 430）以上、揃えないときは 585 以下、作業領域の幅以下 |
 | `placementStatus` | `notRequested`（`popupHeight` が無い）、`placed`、`unavailable`（キャレットが作業領域を覆い、置ける場所が無い。ポップアップを隠す） |
 | `placement` | ポップアップの左上と大きさ、向き（`below`・`above`・`right`・`left`）。下、上、右、左の順に入る向きを選ぶ。どれにも入らないときは上下の広い方へ高さを縮め、上下に余地が無ければ左右の広い方へ幅を縮める |
 
@@ -215,7 +215,7 @@ GTK と GNOME で別々だった判断を1つにしたため、次の点が変�
 - 表示の種類: GTK は `composing` 以外をすべて一覧、GNOME は選択系の3状態以外をすべて木としていた。今は選択系の3状態が一覧、それ以外が木。
 - 一覧のときの木: GTK はすべての列で兄弟を並べていた。今は GNOME と同じく、操作中の列だけ兄弟を並べる。
 - 配置: GNOME は下か上だけで、入らないときは作業領域の端へ寄せていた。今は GTK と同じく、右と左も使い、キャレットを覆わない。
-- 列の幅: GNOME は文字の幅 + 24（最大 280）、行の高さは測った値だった。今は GTK と同じく文字の幅 + 12（最大 240、最小は 44 と文字 + 8 の大きい方）、行の高さは文字 + 14。どちらの OS も測った `lineHeight` を渡し、それより高いフォントでは行を高くする（GTK の番号の行は大きい文字で少し高くなる）。スコアのバッジは GNOME でも節点の中に置く。
-- ポップアップの幅: 一覧のときは、GTK の 420 以上と GNOME の文字 26 字分（最大 560）の両方を満たす幅にした。標準の文字で 468。木だけのときは GTK と同じく 240 以上（GNOME は 320 以上、最大 560 だった）。
+- 列の幅: GNOME は文字の幅 + 24（最大 280）、行の高さは測った値だった。今は文字の幅 + 9（最大 185、最小は 24 と文字 + 8 の大きい方）、行の高さは文字 + 12。どちらの OS も測った `lineHeight` を渡し、それより高いフォントでは行を高くする（GTK の番号の行は大きい文字で少し高くなる）。スコアのバッジは GNOME でも節点の中に置く。
+- ポップアップの幅: 一覧のときは 320 以上かつ文字 26 字分（最大 430）。標準の文字で 364。木だけのときは 185 以上（GTK は 240 以上、GNOME は 320 以上、最大 560 だった）。
 - 木の始点: GTK は (4, 18) に固定していた。今は最初の行の中央。
 - 節点の支援技術向けの名前: GNOME は「語・読み・候補番号」を改行で並べていた。今は GTK と同じく名前を「語（読み）」、候補番号は説明に入れる。

@@ -138,8 +138,8 @@ std::optional<LayoutResult> ParseLayoutResult(const std::string& line) {
         layout.aligned = tree["aligned"].AsBoolean(false);
         layout.leadingText = tree["textAlignment"].AsString() == "leading";
         const json::Value& metrics = tree["metrics"];
-        layout.metrics = {Number(metrics["fontSize"], 18),           Number(metrics["numberFontSize"], 12),
-                          Number(metrics["scoreFontSize"], 12),      Number(metrics["wordHeight"], 32),
+        layout.metrics = {Number(metrics["fontSize"], 14),           Number(metrics["numberFontSize"], 12),
+                          Number(metrics["scoreFontSize"], 12),      Number(metrics["wordHeight"], 26),
                           Number(metrics["numberHeight"]),           Number(metrics["scoreHeight"]),
                           Number(metrics["scoreBadgeMinimumWidth"], 22), Number(metrics["scoreBadgeHorizontalInset"], 3)};
         for (const auto& node : tree["nodes"].AsArray()) {

@@ -2,9 +2,11 @@
 /// AppKit points and Windows DIPs use the same unit; GTK/GNOME logical
 /// pixels too. Platforms convert only device pixels.
 public struct CandidateTextMetrics: Codable, Equatable, Sendable {
-    /// The configured candidate size before the desktop text scale.
+    /// The configured candidate size before the desktop text scale. The
+    /// standard size is close to Microsoft IME's candidate text (about 15px
+    /// at 100%); large is one step bigger for readability.
     public static func baseFontSize(_ textSize: Config.CandidateTextSize.Value) -> Double {
-        textSize == .large ? 24 : 18
+        textSize == .large ? 18 : 14
     }
 
     /// Smaller desktop scales keep the configured size so candidates never
@@ -13,8 +15,8 @@ public struct CandidateTextMetrics: Codable, Equatable, Sendable {
         baseFontSize(textSize) * max(1, textScale)
     }
 
-    // Leaves room above and below a word without growing past the 44px target.
-    static let wordVerticalPadding = 14.0
+    // Six pixels above and below a word; Windows' candidate list rows use the same.
+    static let wordVerticalPadding = 12.0
     // Keeps the number badge readable at the standard size.
     static let minimumNumberFontSize = 12.0
     static let numberFontRatio = 2.0 / 3.0

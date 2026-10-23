@@ -33,18 +33,19 @@ public struct CandidateTreeLayout: Codable, Equatable, Sendable {
         public let end: CandidatePoint
     }
 
-    static let columnStartInset = 12.0
+    static let columnStartInset = 10.0
     // Separates compact columns; aligned columns follow the document instead.
-    static let columnGap = 12.0
-    static let columnTextPadding = 12.0
+    static let columnGap = 9.0
+    static let columnTextPadding = 9.0
     // Long alternatives are ellipsized instead of covering the next column.
-    static let maximumColumnWidth = 240.0
-    static let minimumNodeSize = 44.0
+    static let maximumColumnWidth = 185.0
+    // WCAG 2.2's minimum pointer target is 24 by 24 CSS pixels.
+    static let minimumNodeSize = 24.0
     // Keeps a one-character word readable inside its node.
     static let minimumTextAllowance = 8.0
-    static let rowGap = 4.0
-    static let topInset = 6.0
-    static let bottomInset = 6.0
+    static let rowGap = 3.0
+    static let topInset = 5.0
+    static let bottomInset = 5.0
     static let minimumContentWidth = 60.0
     static let minimumContentHeight = 32.0
     static let rootAnchorX = 4.0
