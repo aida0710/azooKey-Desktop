@@ -11,7 +11,9 @@ final class CompactCandidateInputTests: XCTestCase {
         let oldLive = Config.LiveConversion().value
         let oldTree = Config.TreeCandidates().value
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        Config.LiveConversion().value = false
+        // Live conversion is the default: the first Space opens the candidate list.
+        // Without it the first Space only previews the first candidate.
+        Config.LiveConversion().value = true
         Config.TreeCandidates().value = treeEnabled
         defer {
             Config.LiveConversion().value = oldLive
