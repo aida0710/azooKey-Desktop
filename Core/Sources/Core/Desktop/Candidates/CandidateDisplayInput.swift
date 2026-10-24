@@ -33,18 +33,20 @@ public struct CandidateDisplayInput: Decodable, Sendable {
         public var relativeScore: Int?
         public var preview: Preview?
         public var previewDescription: String?
+        public var parent: Int?
 
-        public init(id: Int, text: String, reading: String, relativeScore: Int?, preview: Preview?, previewDescription: String?) {
+        public init(id: Int, text: String, reading: String, relativeScore: Int?, preview: Preview?, previewDescription: String?, parent: Int? = nil) {
             self.id = id
             self.text = text
             self.reading = reading
             self.relativeScore = relativeScore
             self.preview = preview
             self.previewDescription = previewDescription
+            self.parent = parent
         }
 
         private enum CodingKeys: String, CodingKey {
-            case id, text, reading, relativeScore, preview, previewDescription
+            case id, text, reading, relativeScore, preview, previewDescription, parent
         }
 
         public init(from decoder: any Decoder) throws {
@@ -55,6 +57,7 @@ public struct CandidateDisplayInput: Decodable, Sendable {
             relativeScore = try container.decodeIfPresent(Int.self, forKey: .relativeScore)
             preview = try container.decodeIfPresent(Preview.self, forKey: .preview)
             previewDescription = try container.decodeIfPresent(String.self, forKey: .previewDescription)
+            parent = try container.decodeIfPresent(Int.self, forKey: .parent)
         }
     }
 
@@ -89,20 +92,16 @@ public struct CandidateDisplayInput: Decodable, Sendable {
         public var position: Int?
         public var totalCount: Int
         public var items: [PageItem]
-        public var previousIndex: Int?
-        public var nextIndex: Int?
 
         public init(_ page: CandidatePage) {
             start = page.start
             position = page.position
             totalCount = page.totalCount
             items = page.items.map { .init(index: $0.index, text: $0.text, reading: $0.reading, detailDescription: $0.detailDescription) }
-            previousIndex = page.previousIndex
-            nextIndex = page.nextIndex
         }
 
         private enum CodingKeys: String, CodingKey {
-            case start, position, totalCount, items, previousIndex, nextIndex
+            case start, position, totalCount, items
         }
 
         public init(from decoder: any Decoder) throws {
@@ -111,8 +110,6 @@ public struct CandidateDisplayInput: Decodable, Sendable {
             position = try container.decodeIfPresent(Int.self, forKey: .position)
             items = try container.decodeIfPresent([PageItem].self, forKey: .items) ?? []
             totalCount = try container.decodeIfPresent(Int.self, forKey: .totalCount) ?? items.count
-            previousIndex = try container.decodeIfPresent(Int.self, forKey: .previousIndex)
-            nextIndex = try container.decodeIfPresent(Int.self, forKey: .nextIndex)
         }
     }
 

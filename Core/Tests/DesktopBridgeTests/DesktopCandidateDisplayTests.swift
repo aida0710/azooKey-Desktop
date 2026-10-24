@@ -12,16 +12,14 @@ extension DesktopSegmentEditingTests {
             #expect(display.mode == .tree)
             #expect(display.columns == live.columns)
             #expect(display == CandidateDisplay(live.candidateDisplayInput(previous: nil)))
-            let numbered = display.nodes.compactMap(\.number)
-            #expect(!numbered.isEmpty && numbered.allSatisfy { (1...9).contains($0) })
+            #expect(!display.nodes.isEmpty)
             #expect(display.announcement == nil, "Typing must not announce every live candidate")
 
             _ = session.key(key(49))
             let selecting = session.key(key(49))
             let list = try #require(selecting.candidateDisplay)
             #expect(list.mode == .list)
-            #expect(list.list?.keyboardConfirmsCandidate == true)
-            #expect(list.list?.confirmIndex == selecting.selection)
+            #expect(list.list?.items.first(where: \.selected)?.index == selecting.selection)
             let position = String(format: Localization.text("candidate.position"),
                                   String((selecting.selection ?? -1) + 1), String(selecting.candidates.count))
             #expect(list.announcement?.hasPrefix(position) == true)
@@ -151,12 +149,12 @@ extension DesktopSegmentEditingTests {
 
     @Test func layoutAndDisplayOperationsNeedNoSession() throws {
         let layout = try JSONDecoder().decode(BridgeRequest.self, from: Data("""
-        {"operation":"candidate-layout","layout":{"mode":"list","textSize":"large","textScale":1,"measuredFontSize":24,
-         "columns":[{"nodes":[{"id":0,"parent":null}],"textWidth":48}],"showScores":false,"showNumbers":false,
+        {"operation":"candidate-layout","layout":{"mode":"list","textSize":"large","textScale":1,"measuredFontSize":18,
+         "columns":[{"nodes":[{"id":0,"parent":null}],"textWidth":48}],"showScores":false,
          "cursor":{"x":10,"y":10,"width":0,"height":20},"workArea":{"x":0,"y":0,"width":800,"height":600}}}
         """.utf8))
         let laidOut = try #require(try DesktopCandidateController.response(to: layout)?.candidateLayout)
-        #expect(laidOut.tree.metrics.fontSize == 24 && laidOut.popupWidth == 560)
+        #expect(laidOut.tree.metrics.fontSize == 18 && laidOut.popupWidth == 430)
         #expect(laidOut.placementStatus == .notRequested)
 
         let display = try JSONDecoder().decode(BridgeRequest.self, from: Data("""
@@ -165,7 +163,7 @@ extension DesktopSegmentEditingTests {
          "candidates":[{"index":0,"text":"日本"}]}}
         """.utf8))
         let shown = try #require(try DesktopCandidateController.response(to: display)?.candidateDisplay)
-        #expect(shown.mode == .tree && shown.nodes.map(\.number) == [1])
+        #expect(shown.mode == .tree && shown.nodes.map(\.id) == [0])
         #expect(try DesktopCandidateController.response(to: JSONDecoder().decode(
             BridgeRequest.self, from: Data(#"{"operation":"key"}"#.utf8))) == nil)
     }

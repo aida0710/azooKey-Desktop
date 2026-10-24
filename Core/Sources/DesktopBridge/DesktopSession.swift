@@ -585,7 +585,7 @@ final class DesktopSession: SegmentManagerDelegate {
         let presentations = segments.makeCandidatePresentations(candidates)
         result.candidates = presentations.enumerated().map { index, presentation in
             .init(index: index, text: presentation.candidate.text,
-                  tokens: presentation.candidate.data.map { .init(text: $0.word, reading: $0.ruby) },
+                  tokens: presentation.treeEntry(index: index).tokens.map { .init(text: $0.text, reading: $0.reading) },
                   annotation: presentation.displayContext.annotationText,
                   score: presentation.candidate.value.isFinite ? Double(presentation.candidate.value) : nil,
                   comparisonGroup: presentation.consumedInputCount, commitScope: presentation.commitScope)

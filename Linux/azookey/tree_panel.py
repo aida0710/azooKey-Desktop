@@ -79,7 +79,6 @@ class TreePanel(Gtk.Window):
         self.candidate_identity = None
         self.presentation_mode = None
         self.tree_expanded_for = None
-        self.candidate_numbers = {}
         self.rectangles = []
         self.aligned = False
         self.font_size = 0
@@ -205,7 +204,6 @@ class TreePanel(Gtk.Window):
         self.candidate_identity = None
         self.presentation_mode = None
         self.tree_expanded_for = None
-        self.candidate_numbers = {}
         self.tree_expanded = False
         self.details_expanded = False
         self.focus_key = None
@@ -272,8 +270,6 @@ class TreePanel(Gtk.Window):
             self.tree_expanded_for = expansion
         self.snapshot = snapshot
         self.display = display
-        self.candidate_numbers = {node["id"]: node["number"] for node in display.get("nodes", [])
-                                  if node.get("number") is not None}
         self.retire_layout()
         self.awaiting_layout = True
         # Shown controls belong to the previous snapshot until Core replies.
@@ -315,7 +311,6 @@ class TreePanel(Gtk.Window):
             "documentWordWidths": document_widths or None,
             "columnAnchorX": self.column_anchor_x if document_widths else None,
             "showScores": bool(self.snapshot.get("showRelativeScores")),
-            "showNumbers": bool(self.display.get("showsNumbers")),
             "cursor": rectangle(*caret),
             "workArea": rectangle(area.x, area.y, area.width, area.height),
             "popupHeight": popup_height,
@@ -710,9 +705,6 @@ class TreePanel(Gtk.Window):
         if layout.get("scoreFrame") and source.get("scorePresentation"):
             draw_score_badge(context, source["scorePresentation"], layout["scoreFrame"],
                              metrics=metrics, theme=self.theme)
-        if layout.get("numberFrame") and displayed.get("number") is not None:
-            self.text(context, str(displayed["number"]), layout["numberFrame"], metrics["numberFontSize"],
-                      color, aligned=True)
 
     @staticmethod
     def fitted_layout(context, text, width, size):

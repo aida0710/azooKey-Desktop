@@ -1,7 +1,7 @@
 import Foundation
 
-/// A display projection of real converter candidates, not a new conversion lattice.
-/// Every node retains the indices of the original candidates that pass through it.
+/// A display projection of selectable candidates, including exact-reading word edits.
+/// Every node retains the indices of the complete candidates that pass through it.
 public struct CandidateTree: Sendable, Equatable {
     public struct Token: Sendable, Hashable {
         public var text: String
@@ -104,14 +104,7 @@ public struct CandidateTree: Sendable, Equatable {
                let consumedInputCount = entry.comparisonGroup,
                let segments = readingSegments[ReadingBoundaryKey(reading: Array(reading.unicodeScalars),
                                                                  consumedInputCount: consumedInputCount)] {
-                let scalars = Array(entry.text.unicodeScalars)
-                var offset = 0
-                tokens = segments.map { segment in
-                    let length = segment.reading.unicodeScalars.count
-                    defer { offset += length }
-                    return Token(text: String(String.UnicodeScalarView(scalars[offset..<(offset + length)])),
-                                 reading: segment.reading)
-                }
+                tokens = Self.kanaTokens(text: entry.text, segments: segments) ?? tokens
             }
             for token in tokens {
                 let siblings = parentID.map { self.nodes[$0].children } ?? self.roots
@@ -135,6 +128,21 @@ public struct CandidateTree: Sendable, Equatable {
                 self.nodes[last].terminalCandidateIndices.append(entry.candidateIndex)
             }
             self.paths[entry.candidateIndex] = path
+        }
+    }
+
+    /// Reuses actual converter reading boundaries for a kana-only sentence.
+    static func kanaTokens(text: String, segments: [Token]) -> [Token]? {
+        let reading = katakana(segments.map(\.reading).joined())
+        let scalars = Array(text.unicodeScalars)
+        guard katakana(text).utf8.elementsEqual(reading.utf8), scalars.count == reading.unicodeScalars.count else {
+            return nil
+        }
+        var offset = 0
+        return segments.map { segment in
+            let length = segment.reading.unicodeScalars.count
+            defer { offset += length }
+            return Token(text: String(String.UnicodeScalarView(scalars[offset..<(offset + length)])), reading: segment.reading)
         }
     }
 
@@ -189,12 +197,31 @@ public struct CandidateTree: Sendable, Equatable {
         if let candidateIndex, candidates.contains(candidateIndex) {
             return candidateIndex
         }
+        if let candidateIndex, let selectedPath = paths[candidateIndex],
+           let editedCandidateIndex = candidates.first(where: { index in
+               guard let path = paths[index], path.count == selectedPath.count,
+                     entry(candidateIndex: index)?.comparisonGroup == entry(candidateIndex: candidateIndex)?.comparisonGroup else {
+                   return false
+               }
+               return zip(path, selectedPath).allSatisfy { alternative, selected in
+                   let token = nodes[alternative].token
+                   let original = nodes[selected].token
+                   return alternative == nodeID ? token.reading.utf8.elementsEqual(original.reading.utf8) : token == original
+               }
+           }) {
+            return editedCandidateIndex
+        }
         return candidates.first
     }
 
-    /// Keep the chosen sentence on the top row, with two real alternatives
-    /// beneath each word. Hidden siblings remain reachable through navigation.
-    /// This is a view projection; it never constructs new candidate combinations.
+    // Two siblings leave room for local edits without a tall per-key popup.
+    public static let maximumSiblingsPerWord = 2
+    // Carry the best continuation of the two earlier branches, without recursively
+    // expanding their siblings. Each column therefore has at most five nodes.
+    public static let maximumContinuationsPerColumn = 2
+
+    /// The selected path stays first in every column. Continuations are clipped
+    /// at its last column; selecting a branch exposes that candidate's full path.
     public func compactColumns(candidateIndex: Int?) -> [[Int]] {
         let index = candidateIndex.flatMap { paths[$0] != nil ? $0 : nil } ?? roots.first.flatMap {
             nodes[$0].candidateIndices.first
@@ -202,10 +229,29 @@ public struct CandidateTree: Sendable, Equatable {
         guard let index, let path = paths[index] else {
             return []
         }
-        return path.map { id in
+        var columns: [[Int]] = []
+        for id in path {
             let siblings = nodes[id].parentID.map { nodes[$0].children } ?? roots
-            return [id] + siblings.filter { $0 != id }.prefix(2)
+            let alternatives = siblings.filter { $0 != id }
+            let matchingReading = alternatives.filter { nodes[$0].token.reading.utf8.elementsEqual(nodes[id].token.reading.utf8) }
+            let otherReadings = alternatives.filter { !nodes[$0].token.reading.utf8.elementsEqual(nodes[id].token.reading.utf8) }
+            var column = [id] + (matchingReading + otherReadings).prefix(Self.maximumSiblingsPerWord)
+            let previousColumn = columns.last ?? []
+            let previousParent = previousColumn.first.flatMap { nodes[$0].parentID }
+            let previousAlternatives = Array(previousColumn.dropFirst())
+            let continuing = previousAlternatives.filter { nodes[$0].parentID != previousParent }
+            let branching = previousAlternatives.filter { nodes[$0].parentID == previousParent }
+            var continuationCount = 0
+            for parent in continuing + branching {
+                guard continuationCount < Self.maximumContinuationsPerColumn else { break }
+                guard let candidate = preferredCandidate(at: parent, preserving: index),
+                      let continuation = paths[candidate]?.dropFirst(nodes[parent].depth + 1).first else { continue }
+                column.append(continuation)
+                continuationCount += 1
+            }
+            columns.append(column)
         }
+        return columns
     }
 }
 

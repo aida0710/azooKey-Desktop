@@ -27,7 +27,6 @@ struct Frame {
 
 struct DisplayNode {
     int id = 0;
-    std::optional<int> number;  // 1-9
     bool selected = false;
     bool focused = false;
     std::wstring accessibleName;
@@ -49,14 +48,8 @@ struct CandidateList {
     std::wstring title;
     std::wstring commitText;
     std::wstring readingText;
+    std::wstring positionLabel;
     std::wstring positionText;
-    bool keyboardConfirmsCandidate = false;
-    std::wstring confirmLabel;
-    std::wstring confirmAccessibleName;
-    std::wstring confirmAccessibleDescription;
-    std::optional<int> confirmIndex;
-    std::optional<int> previousIndex;
-    std::optional<int> nextIndex;
     std::vector<ListItem> items;
 };
 
@@ -65,8 +58,7 @@ enum class DisplayMode { Hidden, Tree, List };
 struct CandidateDisplay {
     DisplayMode mode = DisplayMode::Hidden;
     std::vector<std::vector<int>> columns;
-    bool showsNumbers = false;
-    float baseFontSize = 18;
+    float baseFontSize = 14;
     std::optional<int> detailNode;
     bool expandTree = false;
     std::wstring announcement;
@@ -102,7 +94,6 @@ struct LayoutRequest {
     std::optional<std::vector<float>> documentWordWidths;
     std::optional<float> columnAnchorX;
     bool showScores = false;
-    bool showNumbers = false;
     Frame cursor;
     Frame workArea;
     // Whole DIPs: Core truncates positions and sizes, so a fractional height
@@ -112,11 +103,9 @@ struct LayoutRequest {
 };
 
 struct TreeMetrics {
-    float fontSize = 18;
-    float numberFontSize = 12;
+    float fontSize = 14;
     float scoreFontSize = 12;
-    float wordHeight = 32;
-    float numberHeight = 0;
+    float wordHeight = 26;
     float scoreHeight = 0;
     // A score badge is its text plus this inset on each side, at least the
     // minimum width and at most the scoreFrame's width, centred in scoreFrame.
@@ -129,7 +118,6 @@ struct LayoutNode {
     Frame frame;
     Frame textFrame;
     std::optional<Frame> scoreFrame;
-    std::optional<Frame> numberFrame;
 };
 
 struct LayoutEdge {

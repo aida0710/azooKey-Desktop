@@ -129,21 +129,17 @@ print('GNOME tree: stationary hover survives selection, old AT/leave are rejecte
 
 hover(replacementNode, true);
 render(snapshot({selection: 10}));
-equal(extension._buttons.get(nodeIdentity)._numberBadge.text, '2');
 equal(extension._details.label.text.startsWith('日本語\n'), true);
 render(snapshot());
-const numberedNode = extension._buttons.get(nodeIdentity);
-equal(numberedNode._numberBadge.text, '2');
-equal(numberedNode._numberBadge.reactive, false);
-equal(numberedNode._numberBadge.can_focus, false);
-equal(numberedNode.height >= 44, true);
-equal(numberedNode.get_accessible().accessible_description.includes('候補番号 2'), true);
+const wordNode = extension._buttons.get(nodeIdentity);
+// Tree words carry only the word; number keys are shown on the list rows.
+equal(wordNode.get_children().at(-1).get_children().length, 1);
+equal(wordNode.height >= 24, true);
+equal(wordNode.get_accessible().accessible_description.includes('候補番号'), false);
 equal([...extension._buttons.keys()].some(identity => JSON.parse(identity)[0] === 'select'), false);
-numberedNode.get_accessible().do_action();
+wordNode.get_accessible().do_action();
 drainActions();
 equal(submitted.pop(), ['Select', 'node', 0, false, 2, 'synthetic-field']);
-render(snapshot({numbers: false}));
-equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
 render(snapshot());
 hover(extension._buttons.get(nodeIdentity), true);
 render(snapshot({contextId: 'another-synthetic-field'}));
@@ -151,7 +147,7 @@ showsSelectedDetails();
 equal(submitted, []);
 print('GNOME block numbers: real page badges share the 44px node action; paging/settings do not invent numbers or separate targets PASS');
 
-// The same product renderer now gives selection and committing distinct controls.
+// Rows select without committing and the sentence preview follows the selection.
 submitted.length = 0;
 extension._hideCandidates();
 render(snapshot());
@@ -169,14 +165,11 @@ submitted.length = 0;
 render(snapshot({selection: 0}));
 equal(extension._composition._sentence.text, '日本語');
 equal(extension._composition._remaining.text.includes('にゅうりょく'), true);
-const confirm = extension._composition._confirm;
-confirm.get_accessible().do_action();
-confirm.get_accessible().do_action();
-drainActions();
-equal(submitted, [['Select', 'select', 0, true, 2, 'synthetic-field']]);
-confirm.emit('clicked');
-equal(submitted.length, 1);
-print('GNOME sentence card: hover leaves selection untouched, AT row selects, confirm commits once with remaining reading PASS');
+equal(extension._composition._confirm, undefined);
+equal(extension._composition._header.get_children().length, 1);
+equal(extension._composition._header.get_children()[0] === extension._composition._title, true);
+equal(submitted, []);
+print('GNOME sentence card: hover preserves selection, AT row selects without committing, and no confirm button remains PASS');
 
 submitted.length = 0;
 render(snapshot({selection: 10}));
@@ -192,9 +185,7 @@ beforeSuspendRow.emit('notify::allocation');
 navigationScroll.value = 37;
 extension._treeScroll.get_vadjustment().value = 83;
 extension._details._scroll.get_vadjustment().value = 29;
-const queuedConfirm = extension._composition._confirm;
 const queuedRow = extension._navigation._rows.get_children()[0];
-queuedConfirm.get_accessible().do_action();
 queuedRow.get_accessible().do_action();
 hover(queuedRow, true);
 extension._suspendCandidates();
@@ -219,7 +210,6 @@ equal(extension._treeScroll.get_vadjustment().value, 83);
 equal(extension._details._scroll.get_vadjustment().value, 0);
 equal(pendingReveals.size, 0);
 queuedRow.emit('clicked');
-queuedConfirm.emit('clicked');
 equal(submitted, []);
 extension._details._scroll.get_vadjustment().value = 29;
 render(snapshot({selection: 10, generation: 3}));
@@ -267,12 +257,12 @@ equal(extension._navigation._rows.get_children()[1]._candidateLabel.text, longTe
 equal(extension._navigation._rows.get_children()[1]._candidateLabel.wrap, true);
 equal(extension._navigation._rows.get_children()[1]._selectionMark.text, '✓');
 
-const selectedBeforeHover = extension._composition._confirm;
+const selectedBeforeHover = extension._composition._sentence.text;
 hover(extension._navigation._rows.get_children()[0], true);
-equal(extension._composition._confirm === selectedBeforeHover, true);
+equal(extension._composition._sentence.text, selectedBeforeHover);
 equal(extension._composition._sentence.text, longText);
 equal(submitted, []);
-print('GNOME readable sentence/list: complete Unicode text is wrapped, selected row is marked and hover never retargets confirm PASS');
+print('GNOME readable sentence/list: complete Unicode text is wrapped, selected row is marked and hover preserves the selected sentence PASS');
 
 function reverseObjectMembers(value) {
     if (Array.isArray(value)) return value.map(reverseObjectMembers);
@@ -293,7 +283,7 @@ extension._details._scroll.get_vadjustment().value = 29;
 extension._treeScroll.get_vadjustment().value = 83;
 extension._navigation._scroll.get_vadjustment().value = 37;
 submitted.length = 0;
-extension._composition._confirm.get_accessible().do_action();
+extension._buttons.values().next().value.get_accessible().do_action();
 render(reverseObjectMembers(snapshot({generation: 81, selection: 2})));
 drainActions();
 equal(submitted, []);
@@ -303,7 +293,7 @@ equal(extension._treeExpanded, true);
 equal(extension._details._scroll.get_vadjustment().value, 29);
 equal(extension._treeScroll.get_vadjustment().value, 83);
 equal(extension._navigation._scroll.get_vadjustment().value, 37);
-print('GNOME dictionary order: selection preserves details/list/tree preferences and viewport, but retires the old confirm PASS');
+print('GNOME dictionary order: selection preserves details/list/tree preferences and viewport, but retires the old word action PASS');
 
 extension._navigation.expanded = true;
 render(snapshot({generation: 82, selection: 2}));
@@ -357,7 +347,6 @@ const liveBranches = {...branches, inputState: 'composing', showCandidateIndex: 
 render(liveBranches);
 equal(extension._treeScroll.visible, true);
 equal(extension._buttons.has(JSON.stringify(['node', 2])), true);
-equal(extension._buttons.get(JSON.stringify(['node', 2]))._numberBadge, null);
 equal(extension._navigation.actor.visible, false);
 equal(extension._composition.actor.visible, false);
 equal(extension._details.actor.visible, false);
@@ -410,15 +399,13 @@ for (const scale of [1, 2]) {
     const scaledNode = extension._buttons.get(nodeIdentity);
     const caption = scaledNode.get_children().at(-1).get_children()[0];
     const textHeight = caption.get_preferred_height(-1)[1];
-    const badgeHeight = scaledNode._numberBadge.get_preferred_height(-1)[1];
-    equal(caption.style.includes(`font-size: ${24 * scale}px`), true);
-    // Core's lines keep the measured line-height ratio, so neither label is clipped.
+    equal(caption.style.includes(`font-size: ${18 * scale}px`), true);
+    // Core's lines keep the measured line-height ratio, so the word is not clipped.
     equal(caption.height >= textHeight, true);
-    equal(scaledNode._numberBadge.height >= badgeHeight, true);
-    equal(scaledNode.height >= textHeight + badgeHeight + 4, true);
+    equal(scaledNode.height >= textHeight + 4, true);
 }
 extension._interfaceSettings = {get_double: () => 1};
-print('GNOME enlarged block: 24px at 100%/200% reserves measured sentence, number badge and both borders without a fixed-height clip PASS');
+print('GNOME enlarged block: 18px at 100%/200% reserves the measured word and both borders without a fixed-height clip PASS');
 
 submitted.length = 0;
 extension._hideCandidates();
@@ -427,8 +414,7 @@ render(sharedWord);
 const sharedNode = extension._buttons.get(nodeIdentity);
 equal(sharedWord.nodes[0].terminals, [0]);
 equal(sharedWord.nodes[0].preview.candidateIndex, 1);
-equal(sharedNode._numberBadge.text, '2');
-equal(sharedNode.get_accessible().accessible_description.includes('候補番号 2'), true);
+equal(sharedNode.get_accessible().accessible_description.includes('候補番号'), false);
 sharedNode.get_accessible().do_action();
 drainActions();
 equal(submitted, [['Select', 'node', 0, false, 2, 'synthetic-field']]);
@@ -438,30 +424,16 @@ for (const inputState of ['previewing', 'replaceSuggestion']) {
     render({...sharedWord, inputState});
     extension._treeExpanded = true;
     render({...sharedWord, inputState});
-    equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
+    equal(extension._buttons.get(nodeIdentity).get_children().at(-1).get_children().length, 1);
 }
-const outsidePage = snapshot({selection: 10});
-outsidePage.nodes[0].preview.candidateIndex = 0;
-render({...outsidePage, inputState: 'composing', showCandidateIndex: false});
-equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
-// Core types previews; a missing or negative one gives no number.
-for (const preview of [null, {candidateIndex: -1}]) {
-    const unavailable = {...sharedWord, nodes: sharedWord.nodes.map(node => node.id === 0 ? {...node, preview} : node)};
-    render(unavailable);
-    equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
-}
-const unavailableCandidate = {...sharedWord, pageStart: 999,
-    nodes: sharedWord.nodes.map(node => node.id === 0 ? {...node, preview: {candidateIndex: 999}} : node)};
-render(unavailableCandidate);
-equal(extension._buttons.get(nodeIdentity)._numberBadge, null);
-print('GNOME reference numbers: shared partial word shows preferred preview 2; live permits no numeric action, AI/previewing and unavailable previews stay unnumbered PASS');
+print('GNOME shared word: selecting a partial word chooses its preferred preview 2 without a number badge in any state PASS');
 
 submitted.length = 0;
 extension._hideCandidates();
 const composing = {...snapshot({selection: 0, numbers: false}), inputState: 'composing', preedit: 'にほんご', reading: 'にほんご'};
 render(composing);
 equal(extension._composition.actor.visible, false);
-equal(extension._composition._confirm, null);
+equal(extension._composition._confirm, undefined);
 equal(extension._navigation.actor.visible, false);
 equal(extension._details.actor.visible, false);
 equal(extension._treeScroll.visible, true);
@@ -471,20 +443,22 @@ render({...composing, inputState: 'selecting'});
 drainActions();
 equal(submitted, []);
 equal(extension._composition._title.text, '確定する文章');
-equal(extension._composition._confirm.label, '確定 ↵');
-const selectedConfirm = extension._composition._confirm;
-selectedConfirm.get_accessible().do_action();
+equal(extension._composition._header.get_children().length, 1);
+equal(extension._composition._header.get_children()[0] === extension._composition._title, true);
+const selectedRow = extension._navigation._rows.get_children()[0];
+selectedRow.get_accessible().do_action();
 render(composing);
 drainActions();
 equal(submitted, []);
-equal(extension._composition._confirm, null);
+equal(extension._composition._confirm, undefined);
 for (const inputState of ['previewing', 'replaceSuggestion']) {
     render({...composing, inputState});
     equal(extension._composition.actor.visible, true);
     equal(extension._navigation.actor.visible, true);
     equal(extension._treeScroll.visible, false);
     equal(extension._composition._title.text, '確定する文章');
-    equal(extension._composition._confirm.label, '確定 ↵');
+    equal(extension._composition._header.get_children().length, 1);
+    equal(extension._composition._header.get_children()[0] === extension._composition._title, true);
 }
 print('GNOME input modes: live input shows only tree; conversion states show the menu and retire old actions on each transition PASS');
 
@@ -548,4 +522,27 @@ extension._render({contextId: 'synthetic-field', location: [0, 0, 0, 0]});
 equal(extension._popup.visible, false);
 equal(extension._buttons.size, 0);
 print('GNOME empty snapshot: hides the popup without disabling the renderer PASS');
+const branched = {
+    contextId: 'continued-branches', generation: 100, inputState: 'composing', selection: 0,
+    columns: [[0, 1, 2], [3, 4, 5, 6, 7]], selectedPath: [0, 3],
+    nodes: [
+        {id: 0, text: '今日は', parent: null}, {id: 1, text: 'きょうは', parent: null},
+        {id: 2, text: 'キョウハ', parent: null}, {id: 3, text: '学会', parent: 0},
+        {id: 4, text: '学界', parent: 0}, {id: 5, text: 'がっかい', parent: 0},
+        {id: 6, text: '学会', parent: 1}, {id: 7, text: '学会', parent: 2},
+    ].map(node => ({...node, reading: '', children: [], terminals: [], depth: node.parent === null ? 0 : 1,
+        preview: {candidateIndex: node.id}})),
+};
+render(branched);
+const branchButtons = branched.columns.flat().map(id => extension._buttons.get(JSON.stringify(['node', id])));
+equal(branchButtons.every(Boolean), true);
+for (const button of branchButtons) {
+    for (const other of branchButtons.filter(other => other !== button)) {
+        equal(button.x + button.width <= other.x || other.x + other.width <= button.x ||
+              button.y + button.height <= other.y || other.y + other.height <= button.y, true);
+    }
+}
+branchButtons.at(-1).emit('clicked');
+equal(submitted.pop(), ['Select', 'node', 7, false, 100, 'continued-branches']);
+print('GNOME continued branches: five distinct word targets preserve their node selection PASS');
 closeCoreBridge();

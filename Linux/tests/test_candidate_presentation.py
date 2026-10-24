@@ -94,33 +94,25 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertEqual(self.panel.composition_title.get_text(), "候補のプレビュー")
         self.assertEqual(self.panel.composition.get_accessible().get_name(), "候補のプレビュー")
         self.assertEqual(self.panel.composition.displayed_text, self.snapshot["candidates"][0]["text"])
-        self.assertEqual(self.panel.navigation.confirm.get_label(), "この候補を確定")
-        self.assertNotIn("↵", self.panel.navigation.confirm.get_accessible().get_name())
-        self.panel.navigation.confirm.clicked()
-        self.assertEqual(self.actions, [("select", 0, True)])
+        self.assertFalse(hasattr(self.panel.navigation, "confirm"))
+        self.assertEqual(self.actions, [])
         self.assertIs(self.document.get_focus(), self.entry)
 
-    def test_enter_label_matches_selection_state_and_retires_previous_state_confirmation(self):
+    def test_conversion_states_show_position_without_confirm_or_page_buttons(self):
         for state in ("selecting", "previewing", "replaceSuggestion"):
             with self.subTest(state=state):
-                self.panel.update({**self.snapshot, "inputState": "composing"})
-                old_confirm = self.panel.navigation.confirm
                 self.panel.update({**self.snapshot, "inputState": state})
                 self.assertEqual(self.panel.composition_title.get_text(), "確定する文章")
                 self.assertEqual(self.panel.composition.get_accessible().get_name(), "確定する文章")
-                self.assertEqual(self.panel.navigation.confirm.get_label(), "確定 ↵")
-                old_confirm.clicked()
+                self.assertEqual(self.panel.navigation.footer.get_children(), [self.panel.navigation.status])
+                self.assertEqual(set(self.panel.navigation.controls), {"toggle"})
                 self.assertEqual(self.actions, [])
-        self.panel.update({**self.snapshot, "inputState": "composing"})
-        self.assertEqual(self.panel.navigation.confirm.get_label(), "この候補を確定")
-        self.assertEqual(self.actions, [])
 
     def test_live_tree_hides_the_sentence_menu_until_conversion_state_changes(self):
         live = {**self.snapshot, "inputState": "composing", "showCandidateIndex": False}
         self.panel.update(live)
         self.assertTrue(self.panel.scroll.get_visible())
         old_word = self.panel.actions[("node", 1)]
-        self.assertEqual(self.panel.candidate_numbers, {0: 1, 1: 2, 2: 3})
         self.assertTrue(self.panel.scroll.get_visible())
         self.assertFalse(self.panel.navigation.expanded)
         self.assertFalse(self.panel.composition.get_visible())
@@ -156,21 +148,24 @@ class CandidatePresentationTests(unittest.TestCase):
         CandidateThemeTests.wait_for_paint(self.panel, GLib)
         adjustment = self.panel.scroll.get_vadjustment()
         self.assertGreater(adjustment.get_upper(), adjustment.get_page_size())
-        adjustment.set_value(60)
+        # Halfway down the scrollable range, which depends on the shared row sizes.
+        scrolled = int(adjustment.get_upper() - adjustment.get_page_size()) // 2
+        self.assertGreater(scrolled, 0)
+        adjustment.set_value(scrolled)
         self.assertTrue(self.panel.navigation.expanded)
         self.panel.update({**live, "generation": 2})
         CandidateThemeTests.wait_for_paint(self.panel, GLib)
         self.assertTrue(self.panel.navigation.expanded)
-        self.assertEqual(adjustment.get_value(), 60)
+        self.assertEqual(adjustment.get_value(), scrolled)
         self.panel.suspend()
         self.panel.update({**live, "generation": 3})
         CandidateThemeTests.wait_for_paint(self.panel, GLib)
         self.assertTrue(self.panel.navigation.expanded)
         self.assertTrue(self.panel.scroll.get_visible())
-        self.assertEqual(adjustment.get_value(), 60)
+        self.assertEqual(adjustment.get_value(), scrolled)
         self.assertEqual(self.actions, [])
 
-    def test_badge_uses_real_page_numbers_and_the_same_node_action(self):
+    def test_word_on_a_later_page_keeps_its_node_action_without_a_number_badge(self):
         import types
 
         snapshot = copy.deepcopy(self.snapshot)
@@ -190,46 +185,50 @@ class CandidatePresentationTests(unittest.TestCase):
         self.snapshot = snapshot
         self.panel.update(snapshot)
         self.assertFalse(any(kind == "select" for kind, *_ in self.panel.rectangles))
-        self.assertEqual(self.panel.candidate_numbers, {9: 1, 10: 2, 11: 3})
         node = self.panel.actions[("node", 10)]
-        self.assertIn("候補番号 2", node.get_accessible().get_description())
+        self.assertNotIn("候補番号", node.get_accessible().get_description())
         frame = next(frame for frame in self.panel.rectangles if frame[:2] == ("node", 10))
-        self.assertGreaterEqual(frame[4], 44)
-        self.assertGreaterEqual(frame[5], 44)
+        self.assertGreaterEqual(frame[4], 24)
+        self.assertGreaterEqual(frame[5], 24)
         self.panel.click(None, types.SimpleNamespace(button=1, x=frame[2] + 6, y=frame[3] + frame[5] - 4))
         self.assertEqual(self.actions, [("node", 10, False)])
         self.assertIs(self.document.get_focus(), self.entry)
 
-    def test_shared_node_badge_matches_the_preview_not_its_shorter_terminal_and_hides_page_outliers(self):
-        snapshot = copy.deepcopy(self.snapshot)
-        snapshot["inputState"] = "composing"
-        snapshot["nodes"][0]["terminals"] = [2]
-        snapshot["nodes"][0]["preview"] = {"candidateIndex": 1}
-        snapshot["nodes"][1]["preview"] = {"candidateIndex": 11}
-        snapshot["nodes"][2].pop("preview")
-        self.panel.update(snapshot)
-        self.assertEqual(self.panel.candidate_numbers, {0: 2})
-        self.assertIn("候補番号 2", self.panel.actions[("node", 0)].get_accessible().get_description())
-        self.assertNotIn("候補番号", self.panel.actions[("node", 1)].get_accessible().get_description())
+    def test_tree_words_have_no_number_badges_in_any_state(self):
+        for state in ("composing", "selecting"):
+            with self.subTest(state=state):
+                self.panel.update({**self.snapshot, "inputState": state, "showCandidateIndex": True})
+                if not self.panel.tree_expanded:
+                    self.panel.disclosure_actions["tree"].clicked()
+                tree = self.panel.layout["tree"]
+                self.assertTrue(tree["nodes"])
+                self.assertTrue(all("numberFrame" not in node for node in tree["nodes"]))
+                for node_id in (node["id"] for node in tree["nodes"]):
+                    description = self.panel.actions[("node", node_id)].get_accessible().get_description()
+                    self.assertNotIn("候補番号", description)
 
     def test_compact_rows_keep_readable_text_and_a_large_activation_area(self):
         from gi.repository import GLib
         from Linux.tests.test_candidate_theme import CandidateThemeTests
 
-        for size, expected_font_size in (("standard", 18), ("large", 24)):
+        for size, expected_font_size in (("standard", 14), ("large", 18)):
             with self.subTest(size=size):
                 self.panel.update({**self.snapshot, "candidateTextSize": size})
                 CandidateThemeTests.wait_for_paint(self.panel, GLib)
                 self.assertEqual(self.panel.font_size, expected_font_size)
-                for button in (*self.panel.navigation.row_buttons, self.panel.navigation.confirm):
+                for button in self.panel.navigation.row_buttons:
                     self.assertGreaterEqual(button.get_allocation().height, 44)
+                footer = self.panel.navigation.footer.get_allocation()
+                position = self.panel.navigation.status.get_allocation()
+                self.assertEqual(footer.height, position.height)
+                self.assertLess(footer.height, self.panel.navigation.MINIMUM_CANDIDATE_HEIGHT)
                 area = self.panel.get_display().get_monitor(0).get_workarea()
                 width, height = self.panel.get_size()
                 self.assertLessEqual(width, area.width)
                 self.assertLessEqual(height, area.height)
         self.assertEqual(self.actions, [])
 
-    def test_selection_updates_commit_preview_and_remaining_reading_before_confirming_once(self):
+    def test_selection_updates_commit_preview_and_remaining_reading_without_committing(self):
         self.panel.navigation.row_buttons[2].clicked()
         self.assertEqual(self.actions, [("select", 2, False)])
         self.assertEqual(self.panel.composition.displayed_text, "私")
@@ -239,10 +238,8 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertTrue(self.panel.remaining.get_visible())
         self.assertFalse(self.panel.details.get_visible())
         self.assertFalse(self.panel.scroll.get_visible())
-        confirm = self.panel.navigation.confirm
-        confirm.clicked()
-        confirm.clicked()
-        self.assertEqual(self.actions, [("select", 2, False), ("select", 2, True)])
+        self.assertFalse(hasattr(self.panel.navigation, "confirm"))
+        self.assertEqual(self.actions, [("select", 2, False)])
         self.assertIs(self.document.get_focus(), self.entry)
 
     def test_hover_changes_details_without_changing_selection_or_commit_preview(self):
@@ -263,12 +260,12 @@ class CandidatePresentationTests(unittest.TestCase):
         self.assertEqual(adjustment.get_page_size(), adjustment.get_upper())
         self.assertEqual(len(self.panel.navigation.row_buttons), 3)
 
-    def test_pending_at_confirm_does_not_confirm_the_next_selection_or_replaced_text(self):
+    def test_pending_at_toggle_cannot_close_the_next_selection_or_replaced_text(self):
         from gi.repository import GLib
 
         for replace_text in (False, True):
             with self.subTest(replace_text=replace_text):
-                old = self.panel.navigation.confirm
+                old = self.panel.navigation.toggle
                 accessible = old.get_accessible()
                 # Model a request still awaiting delivery, not an already
                 # completed synchronous native do_action on the valid target.
@@ -281,8 +278,9 @@ class CandidatePresentationTests(unittest.TestCase):
                     changed["selection"] = 1
                 self.panel.update(changed)
                 self.flush()
-                self.assertIsNot(old, self.panel.navigation.confirm)
+                self.assertIsNot(old, self.panel.navigation.toggle)
                 self.assertEqual(self.actions, [])
+                self.assertTrue(self.panel.navigation.expanded)
                 self.panel.update(self.snapshot)
                 self.flush()
 
@@ -293,9 +291,9 @@ class CandidatePresentationTests(unittest.TestCase):
         navigation = self.panel.navigation
         old_row = navigation.row_buttons[1]
         old_word = self.panel.actions[("node", 1)]
-        old_confirm = navigation.confirm
+        old_toggle = navigation.toggle
         navigation.preview_current(navigation.listing["items"][1], old_row)
-        for button in (old_row, old_word, old_confirm):
+        for button in (old_row, old_word, old_toggle):
             accessible = button.get_accessible()
             GLib.idle_add(lambda accessible=accessible: accessible.do_action(0) and GLib.SOURCE_REMOVE)
         self.panel.suspend()
@@ -315,7 +313,7 @@ class CandidatePresentationTests(unittest.TestCase):
     def test_closed_list_stays_closed_while_pending_but_dismiss_resets_even_when_hidden(self):
         navigation = self.panel.navigation
         navigation.toggle.clicked()
-        old_confirm = navigation.confirm
+        old_toggle = navigation.toggle
         self.panel.suspend()
         self.panel.update(self.snapshot)
         self.assertFalse(navigation.expanded)
@@ -326,7 +324,7 @@ class CandidatePresentationTests(unittest.TestCase):
         self.panel.update(self.snapshot)
         self.flush()
         self.assertTrue(navigation.expanded)
-        old_confirm.clicked()
+        old_toggle.clicked()
         self.assertEqual(self.actions, [])
 
     def test_new_context_retires_hover_and_old_tree_actions(self):
@@ -428,12 +426,12 @@ class CandidatePresentationTests(unittest.TestCase):
             self.assertGreater(pane.get_vadjustment().get_upper(), pane.get_vadjustment().get_page_size())
         self.assertEqual(self.actions, [])
 
-    def test_destroyed_panel_rejects_retained_candidate_and_confirm_actions(self):
+    def test_destroyed_panel_rejects_retained_candidate_and_toggle_actions(self):
         row = self.panel.navigation.row_buttons[1]
-        confirm = self.panel.navigation.confirm
+        toggle = self.panel.navigation.toggle
         self.panel.destroy()
         row.clicked()
-        confirm.clicked()
+        toggle.clicked()
         self.flush()
         self.assertEqual(self.actions, [])
 

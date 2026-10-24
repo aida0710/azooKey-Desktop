@@ -174,8 +174,8 @@ class CandidateThemeTests(unittest.TestCase):
         panel.actions[("node", 2)].clicked()
         self.assertEqual(submitted, [("node", 2, False)])
         panel.update({**snapshot, "selection": 1, "selectedPath": [0, 2], "focusedNode": 2})
-        panel.navigation.confirm.clicked()
-        self.assertEqual(submitted, [("node", 2, False), ("select", 1, True)])
+        self.assertFalse(hasattr(panel.navigation, "confirm"))
+        self.assertEqual(submitted, [("node", 2, False)])
 
     @staticmethod
     def assert_pixel(surface, x, y, color):

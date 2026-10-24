@@ -86,6 +86,14 @@ enum InputSourceCommand {
             printJSON(["registerStatus": status, "enabledSources": enableRecords])
             let enabled = !enableRecords.isEmpty && enableRecords.allSatisfy { $0["enableStatus"] as? OSStatus == noErr }
             exit(status == noErr && enabled ? 0 : 1)
+        case "enable" where arguments.count == 2:
+            guard let source = sources().first(where: { property($0, kTISPropertyInputSourceID) as? String == arguments[1] }) else {
+                printJSON(["error": "Input source not found", "id": arguments[1]])
+                exit(1)
+            }
+            let status = TISEnableInputSource(source)
+            printJSON(["enableStatus": status, "source": describe(source)])
+            exit(status == noErr ? 0 : 1)
         case "select" where arguments.count == 2:
             exit(select(arguments[1]) ? 0 : 1)
         case "ascii":
@@ -97,7 +105,7 @@ enum InputSourceCommand {
             }
             exit(select(identifier) ? 0 : 1)
         default:
-            fputs("Usage: InputSource list|current|ascii|register APP|select SOURCE_ID\n", stderr)
+            fputs("Usage: InputSource list|current|ascii|register APP|enable SOURCE_ID|select SOURCE_ID\n", stderr)
             exit(2)
         }
     }

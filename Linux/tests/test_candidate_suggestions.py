@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -13,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 class CandidateSuggestionTests(unittest.TestCase):
     def test_ai_pages_hide_number_shortcuts_but_keep_original_reading_and_pointer_selection(self):
         from azookey.bridge import Bridge
+        from azookey.engine import Engine
         from azookey.keymap import translate
         from candidate_core import core_tree_panel
         from gi.repository import Gtk
@@ -46,7 +48,6 @@ class CandidateSuggestionTests(unittest.TestCase):
             snapshot = bridge.request("key", event=translate(ord(" "), 0))
         panel.update(snapshot)
         self.assertTrue(snapshot["showCandidateIndex"])
-        self.assertTrue(panel.candidate_numbers)
         self.assertEqual(panel.navigation.row_buttons[0].number_label.get_text(), "1")
 
         original_reading = snapshot["reading"]
@@ -56,11 +57,15 @@ class CandidateSuggestionTests(unittest.TestCase):
         panel.update(snapshot)
         self.assertEqual(snapshot["inputState"], "replaceSuggestion")
         self.assertFalse(snapshot["showCandidateIndex"])
-        self.assertEqual(panel.candidate_numbers, {})
+        self.assertTrue(all(not button.number_label.get_text() for button in panel.navigation.row_buttons))
         self.assertEqual([button.text_label.get_text() for button in panel.navigation.row_buttons], suggestions[:9])
-        panel.navigation.next.clicked()
+        # IBus paging selects through the engine; it is not a Core key event.
+        Engine.do_page_down(SimpleNamespace(snapshot=snapshot, choose=choose))
         self.assertEqual(panel.snapshot["candidatePage"]["start"], 9)
         self.assertEqual([button.text_label.get_text() for button in panel.navigation.row_buttons], suggestions[9:])
+        Engine.do_page_up(SimpleNamespace(snapshot=panel.snapshot, choose=choose))
+        self.assertEqual(panel.snapshot["candidatePage"]["start"], 0)
+        self.assertEqual([button.text_label.get_text() for button in panel.navigation.row_buttons], suggestions[:9])
         self.assertEqual(commits, [])
         self.assertIs(document.get_focus(), entry)
         self.assertFalse(panel.get_accept_focus())
@@ -75,7 +80,10 @@ class CandidateSuggestionTests(unittest.TestCase):
         panel.update(snapshot)
         panel.navigation.row_buttons[1].clicked()
         self.assertEqual(commits, [])
-        panel.navigation.confirm.clicked()
+        self.assertFalse(hasattr(panel.navigation, "confirm"))
+        snapshot = bridge.request("key", event=translate(0xFF0D, 0))
+        commits.extend(snapshot["commits"])
+        panel.update(snapshot)
         self.assertEqual(commits, [suggestions[1]])
         self.assertEqual(panel.snapshot["reading"], "")
         self.assertIs(document.get_focus(), entry)

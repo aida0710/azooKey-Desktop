@@ -31,7 +31,7 @@ public struct CandidateLayoutRequest: Codable, Sendable {
     /// them to the candidate font size, so platforms can measure before layout.
     public var measuredFontSize: Double
     /// One measured line of candidate text, including any border the platform
-    /// draws inside a node. Word and number lines keep at least this ratio.
+    /// draws inside a node. Word lines keep at least this ratio.
     public var lineHeight: Double?
     public var columns: [Column]
     /// Widths of the document's words under the composition, when known.
@@ -39,7 +39,6 @@ public struct CandidateLayoutRequest: Codable, Sendable {
     /// The x coordinate where the composition starts in the document.
     public var columnAnchorX: Double?
     public var showScores: Bool
-    public var showNumbers: Bool
     /// The real insertion caret, which the popup must never cover.
     public var cursor: CandidateRect
     public var workArea: CandidateRect
@@ -56,7 +55,6 @@ public struct CandidateLayoutRequest: Codable, Sendable {
         self.measuredFontSize = measuredFontSize
         self.columns = columns
         self.showScores = false
-        self.showNumbers = false
         self.cursor = cursor
         self.workArea = workArea
     }
@@ -73,13 +71,13 @@ public struct CandidateLayout: Codable, Equatable, Sendable {
     }
 
     // The live tree has no permanent full-sentence list beside it.
-    static let minimumTreeOnlyWidth = 240.0
-    // Leaves room for readable sentences and a separate confirm action.
-    static let minimumListWidth = 420.0
+    static let minimumTreeOnlyWidth = 185.0
+    // Keeps full sentences readable alongside the optional word tree.
+    static let minimumListWidth = 320.0
     // Wide enough for about this many full-width characters of a sentence.
     static let listLineCharacters = 26.0
-    static let maximumListLineWidth = 560.0
-    static let maximumCompactWidth = 760.0
+    static let maximumListLineWidth = 430.0
+    static let maximumCompactWidth = 585.0
 
     public let tree: CandidateTreeLayout
     /// Width at which the platform measures the rest of the popup.
@@ -119,12 +117,12 @@ public struct CandidateLayout: Codable, Equatable, Sendable {
         )
         var input = CandidateTreeLayout.Input(
             columns: request.columns, columnWidths: nil, metrics: metrics, textWidthScale: measurementScale,
-            showScores: request.showScores, showNumbers: request.showNumbers,
+            showScores: request.showScores,
             parents: parents(request.columns), reason: .unavailableOrNarrow
         )
         guard allowAlignment, request.columnAnchorX != nil,
               let widths = CandidateTreeLayout.alignedColumnWidths(
-                request.documentWordWidths, columnCount: request.columns.count, metrics: metrics) else {
+                request.documentWordWidths, columns: request.columns, textWidthScale: measurementScale, metrics: metrics) else {
             input.reason = allowAlignment ? .unavailableOrNarrow : .outsideWorkArea
             return CandidateTreeLayout(input)
         }

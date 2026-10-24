@@ -113,6 +113,40 @@ void TestReconvertingASelectionWithItsReading(azookey::channel::HostConnection& 
     Ask(connection, azookey::protocol::ResetRequest(context, false));
 }
 
+void TestWordAlternatives(azookey::channel::HostConnection& connection) {
+    azookey::protocol::RequestContext context{"word-alternatives", {}};
+    TypeRomaji(connection, context, L"kyouhagakkainiikoutoomotteimasu", false);
+    auto snapshot = Ask(connection, R"({"operation":"snapshot","context":"word-alternatives"})");
+    Check(snapshot && snapshot->preedit == L"今日は学会に行こうと思っています", "the live tree keeps the selected sentence");
+    if (!snapshot) return;
+    int replacement = -1;
+    for (const auto& column : snapshot->display.columns) {
+        Check(column.size() <= 5, "a live column has at most five word targets");
+        for (int id : column) {
+            const auto* node = snapshot->FindNode(id);
+            if (node && node->text == L"学界") replacement = id;
+        }
+    }
+    Check(replacement >= 0, "the Windows display receives an alternative for a later word");
+    if (replacement < 0) return;
+    const auto& columns = snapshot->display.columns;
+    if (columns.size() >= 2 && columns.front().size() >= 3) {
+        for (size_t row = 1; row <= 2; ++row) {
+            bool continued = false;
+            for (int id : columns[1]) {
+                const auto* node = snapshot->FindNode(id);
+                continued = continued || (node && node->parent == columns.front()[row]);
+            }
+            Check(continued, "both alternative roots have a visible continuation");
+        }
+    } else {
+        Check(false, "the live tree exposes two alternative roots");
+    }
+    auto committed = Ask(connection, azookey::protocol::NodeRequest(context, replacement, snapshot->generation, true));
+    Check(committed && committed->commits == std::vector<std::wstring>{L"今日は学界に行こうと思っています"}
+              && committed->preedit.empty(), "choosing 学界 commits only that word change through the Windows host");
+}
+
 std::wstring TemporaryDirectory(const std::wstring& name) {
     wchar_t base[MAX_PATH];
     GetTempPathW(MAX_PATH, base);
@@ -175,6 +209,23 @@ int wmain(int argc, wchar_t** argv) {
     auto space = connection.Request(azookey::protocol::KeyRequest(context, azookey::keys::Translate(0x20, {}, L" "), {}));
     auto converting = space ? azookey::protocol::ParseSnapshot(*space) : std::nullopt;
     Check(converting && converting->selection.has_value() && !converting->candidates.empty(), "Space opens candidates");
+    if (converting && converting->display.list) {
+        const auto& list = *converting->display.list;
+        const auto& page = converting->candidatePage;
+        std::wstring position = page.position ? std::to_wstring(*page.position) : L"—";
+        Check(list.positionLabel == position + L"/" + std::to_wstring(page.totalCount),
+              "Core supplies the compact footer position");
+        Check(list.positionText.find(L" / ") != std::wstring::npos,
+              "the accessible position keeps its readable wording");
+        auto reply = azookey::json::Parse(*space);
+        const auto& serializedList = (*reply)["candidateDisplay"]["list"];
+        for (const char* removed : {"confirmLabel", "confirmAccessibleName", "confirmAccessibleDescription",
+                                    "confirmIndex", "previousIndex", "nextIndex", "keyboardConfirmsCandidate"}) {
+            Check(serializedList[removed].IsNull(), "the list has no footer button data");
+        }
+    } else {
+        Check(false, "conversion includes a candidate list");
+    }
     bool zenzaiLoaded = converting && converting->zenzaiLoaded;
     if (expectZenzai) {
         Check(zenzaiLoaded, "Zenzai converts with the model next to the host");
@@ -196,6 +247,7 @@ int wmain(int argc, wchar_t** argv) {
     Check(committed && committed->commits.size() == 1 && committed->commits[0] == L"日本語" && committed->preedit.empty(),
           "Enter commits 日本語 and clears the preedit");
 
+    TestWordAlternatives(connection);
     TestUndoingACommit(connection);
     TestReconvertingASelectionWithItsReading(connection);
 

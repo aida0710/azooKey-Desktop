@@ -349,7 +349,7 @@ class azooKeyMacInputController: IMKInputController, NSMenuItemValidation { // s
 
         if event.keyEventCore.modifierFlags.isEmpty,
            [UInt16(0x74), UInt16(0x79)].contains(event.keyEventCore.keyCode),
-           candidatesViewController.scrollTreeDetails(forward: event.keyEventCore.keyCode == 0x79) {
+           candidatesViewController.moveCandidatePage(forward: event.keyEventCore.keyCode == 0x79) {
             return true
         }
 

@@ -76,7 +76,7 @@ public:
         VariantInit(value);
         if (!owner_) return UIA_E_ELEMENTNOTAVAILABLE;
         if (property == UIA_ControlTypePropertyId) *value = IntegerVariant(UIA_ListControlTypeId);
-        else if (property == UIA_NamePropertyId) *value = StringVariant(L"azooKey Tree の変換候補");
+        else if (property == UIA_NamePropertyId) *value = StringVariant(owner_->name_);
         else if (property == UIA_IsKeyboardFocusablePropertyId) *value = BooleanVariant(false);
         return S_OK;
     }
@@ -337,7 +337,9 @@ void CandidateAccessibility::Clear() {
     selectedIndex_ = -1;
 }
 
-void CandidateAccessibility::Update(std::vector<AccessibleCandidate> items, const std::wstring& announcement) {
+void CandidateAccessibility::Update(std::vector<AccessibleCandidate> items, const std::wstring& announcement,
+                                    const std::wstring& name) {
+    name_ = name;
     bool sameItems = items.size() == data_.size();
     for (size_t i = 0; sameItems && i < items.size(); ++i) sameItems = items[i].candidateIndex == data_[i].candidateIndex;
     int previousSelection = selectedIndex_ >= 0 ? data_[selectedIndex_].candidateIndex : -1;

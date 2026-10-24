@@ -27,6 +27,7 @@ class CandidatesViewController: BaseCandidateViewController {
     private var documentGeometry: CandidateDocumentGeometry?
     private var alignmentReason = "client-rectangles-unavailable"
     private var usesTree: Bool { Config.TreeCandidates().value }
+    private var showsCandidateView: Bool { usesTree || enterConfirmsCandidate }
 
     override func loadView() {
         super.loadView()
@@ -58,8 +59,7 @@ class CandidatesViewController: BaseCandidateViewController {
 
     private func refreshTree(selectionIndex: Int?) {
         var numbers: [Int: String] = [:]
-        // Live numbers identify candidates without changing the input state's number-key behavior.
-        if showCandidateIndex || !enterConfirmsCandidate {
+        if showCandidateIndex {
             for index in showedRows where candidates.indices.contains(index) {
                 numbers[index] = String(index - showedRows.lowerBound + 1)
             }
@@ -68,7 +68,7 @@ class CandidatesViewController: BaseCandidateViewController {
             entries: treeEntries, selectionIndex: selectionIndex, numbers: numbers,
             documentWidths: documentGeometry?.widths, enterConfirmsCandidate: enterConfirmsCandidate
         )
-        if usesTree, let cursor = lastCursorLocation { resizeWindowToFitContent(cursorLocation: cursor) }
+        if showsCandidateView, let cursor = lastCursorLocation { resizeWindowToFitContent(cursorLocation: cursor) }
     }
 
     func handleTreeNavigation(_ direction: CandidateTreeSelection.Direction) -> Bool {
@@ -80,12 +80,12 @@ class CandidatesViewController: BaseCandidateViewController {
         return true
     }
 
-    func scrollTreeDetails(forward: Bool) -> Bool {
-        usesTree && !candidates.isEmpty && treeView.scrollDetails(forward: forward)
+    func moveCandidatePage(forward: Bool) -> Bool {
+        showsCandidateView && !candidates.isEmpty && treeView.movePage(forward: forward)
     }
 
     override func resizeWindowToFitContent(cursorLocation: CGPoint) {
-        guard usesTree else {
+        guard showsCandidateView else {
             super.resizeWindowToFitContent(cursorLocation: cursorLocation)
             return
         }
@@ -113,9 +113,9 @@ class CandidatesViewController: BaseCandidateViewController {
         self.enterConfirmsCandidate = enterConfirmsCandidate
         lastCursorLocation = cursorLocation
         self.showedRows = selectionIndex == nil ? 0...8 : self.showedRows
-        treeView.isHidden = !usesTree
-        tableView.enclosingScrollView?.isHidden = usesTree
-        view.subviews.compactMap { $0 as? NSVisualEffectView }.forEach { $0.isHidden = usesTree }
+        treeView.isHidden = !showsCandidateView
+        tableView.enclosingScrollView?.isHidden = showsCandidateView
+        view.subviews.compactMap { $0 as? NSVisualEffectView }.forEach { $0.isHidden = showsCandidateView }
         configureWindowForRoundedCorners()
         treeEntries = candidates.enumerated().map { $0.element.treeEntry(index: $0.offset) }
         treeView.update(
@@ -151,14 +151,17 @@ class CandidatesViewController: BaseCandidateViewController {
 
     override func configureWindowForRoundedCorners() {
         super.configureWindowForRoundedCorners()
-        if usesTree {
-            view.window?.hasShadow = false
+        if showsCandidateView {
+            // The list and the definition card are separate rounded blocks on a
+            // transparent window, so the window keeps square corners and its
+            // shadow follows each block's opaque shape.
+            view.window?.hasShadow = true
             view.window?.contentView?.layer?.cornerRadius = 0
         }
     }
 
     override internal func updateSelectionCallback(_ row: Int, notifySelectionChange: Bool) {
-        if usesTree {
+        if showsCandidateView {
             let start = max(0, row) / CandidatePage.size * CandidatePage.size
             showedRows = start...(start + CandidatePage.size - 1)
         } else if !self.showedRows.contains(row) {

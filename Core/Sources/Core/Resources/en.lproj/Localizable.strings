@@ -74,16 +74,10 @@
 "candidate.closeList" = "Close";
 "candidate.closeTree" = "Hide segments";
 "candidate.composition" = "Text to confirm";
-"candidate.confirm" = "Press to confirm this candidate";
 "candidate.detail" = "Candidate details";
 "candidate.detailKeys" = "Arrow keys show details; PageUp / PageDown scroll the details";
 "candidate.focused" = "Current navigation target";
-"candidate.focusedConfirm" = "Current navigation target. Press to confirm this candidate";
 "candidate.focusedSelect" = "Current navigation target. Select this candidate";
-"candidate.nextPage" = "Next";
-"candidate.numberBadge" = "Candidate number %@";
-"candidate.numberConfirm" = "Confirm candidate %@";
-"candidate.numberSelect" = "Select candidate %@";
 "candidate.openDetails" = "Show details";
 "candidate.openList" = "List";
 "candidate.openTree" = "Adjust segments";
@@ -94,7 +88,6 @@
 "candidate.preview.following" = "Following text: %@";
 "candidate.preview.remaining" = "Reading left to edit: %@";
 "candidate.preview.scope" = "Reading to commit: %@";
-"candidate.previousPage" = "Previous";
 "candidate.proposal" = "Candidate preview";
 "candidate.score.conditional100" = "100 is relative to this branch. A sole child also gets 100; it does not guarantee a correct conversion.";
 "candidate.score.explanation" = "These values compare returned candidates with the same reading and consumed input, conditional on their parent. Hidden candidates count too. They are not probabilities of correctness.";
@@ -106,8 +99,6 @@
 "candidate.select" = "Select this candidate";
 "candidate.selectHint" = "Select a candidate, then press Enter to confirm";
 "candidate.selected" = "Selected";
-"candidate.submit" = "Confirm";
-"candidate.submitCandidate" = "Confirm this candidate";
 "candidate.textSize" = "Candidate text size";
 "candidate.textSize.large" = "Large";
 "candidate.textSize.standard" = "Standard";

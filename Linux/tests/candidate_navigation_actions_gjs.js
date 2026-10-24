@@ -14,7 +14,7 @@ function equal(actual, expected) {
 const imports = {
     St: {Button: Actor, BoxLayout: ScrollableActor, Label: Actor, ScrollView: ScrollViewActor,
         PolicyType: {NEVER: 0, AUTOMATIC: 1}},
-    Clutter: {ActorAlign: {CENTER: 0, START: 1}, EVENT_PROPAGATE: false},
+    Clutter: {ActorAlign: {CENTER: 0, START: 1, END: 2}, EVENT_PROPAGATE: false},
     Pango: {WrapMode: {WORD_CHAR: 0}, EllipsizeMode: {NONE: 0}},
     GLib: {Variant: class { constructor(_signature, values) { this.values = values; } }},
     attachCandidateAction, messages, serializeCandidateIdentity,
@@ -35,14 +35,14 @@ const navigation = new Navigation({select: action => submitted.push(action.value
 const layout = {fontSize: 18, listHeight: 200};
 navigation.expanded = true;
 navigation.update(snapshot(0, 1), layout);
-const previousNext = navigation._next;
-equal(previousNext.get_accessible().do_action(0), true);
+const previousRow = navigation._rows.get_children()[0];
+equal(previousRow.get_accessible().do_action(0), true);
 navigation.update(snapshot(9, 2), layout);
 drainActions();
 equal(submitted, []);
-navigation._next.get_accessible().do_action(0);
+navigation._rows.get_children()[0].get_accessible().do_action(0);
 drainActions();
-equal(submitted, [['select', 18, false, 2, 'synthetic-field']]);
+equal(submitted, [['select', 9, false, 2, 'synthetic-field']]);
 submitted.length = 0;
 
 navigation._rows.get_children()[0].get_accessible().do_action(0);
@@ -54,7 +54,7 @@ drainActions();
 equal(submitted, [['select', 10, false, 2, 'synthetic-field']]);
 submitted.length = 0;
 
-navigation._next.get_accessible().do_action(0);
+navigation._rows.get_children()[0].get_accessible().do_action(0);
 navigation.collapse();
 navigation.expanded = true;
 navigation.update(snapshot(9, 2), layout);
@@ -111,7 +111,7 @@ reopenedRow.emit('notify::hover');
 equal(hoveredNavigation.hoveredItem, null);
 print('GNOME stationary hover: selection preserves the candidate, leave/page/collapse retire the preview PASS');
 
-// Walk the existing page targets, including the short final page, without renumbering candidates.
+// Display each keyboard-provided page without adding buttons or renumbering candidates.
 submitted.length = 0;
 const many = new Navigation({select: action => submitted.push(action.values), changed() {}, preview() {}});
 for (let start = 0; start < 500; start += 9) {
@@ -122,13 +122,14 @@ for (let start = 0; start < 500; start += 9) {
             items: Array.from({length: Math.min(9, 500 - start)}, (_, offset) => ({index: start + offset,
                 text: `候補${start + offset + 1}`, reading: 'ご'}))}});
     many.update(page, layout);
-    equal(many._previous.reactive, start > 0);
-    equal(many._next.reactive, start + 9 < 500);
-    if (start + 9 < 500) {
-        many._next.get_accessible().do_action();
-        drainActions();
-        equal(submitted.pop(), ['select', start + 9, false, 8, 'synthetic-field']);
-    }
+    equal(many._previous, undefined);
+    equal(many._next, undefined);
+    equal(many._status.text, `${start + 1}/500`);
+    equal(many._status.accessible_name, `変換候補 ${start + 1} / 500`);
+    equal(many.actor.get_children().at(-1) === many._status, true);
+    equal(many._status.x_align, imports.Clutter.ActorAlign.END);
+    equal(many._header.get_children().length, 1);
+    equal(many._header.get_children()[0] === many._toggle, true);
 }
 equal(many._rows.get_children().length, 5);
 many._rows.get_children()[4].get_accessible().do_action();

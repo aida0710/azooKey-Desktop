@@ -1,4 +1,4 @@
-"""Full candidate selection, paging and explicit confirmation without taking focus."""
+"""Full candidate selection and position without taking focus."""
 import json
 
 import gi
@@ -12,7 +12,11 @@ from .i18n import text as message
 class CandidateNavigation(Gtk.Box):
     # The nine source number-key candidates scroll instead of extending offscreen.
     MAXIMUM_LIST_HEIGHT = 280
-    MINIMUM_CANDIDATE_HEIGHT = 44  # Keep sentence rows and confirmation easy to activate after compacting padding.
+    MINIMUM_CANDIDATE_HEIGHT = 44  # Keep sentence rows easy to activate after compacting padding.
+
+    # Secondary text stays readable while smaller than candidate text.
+    MINIMUM_POSITION_FONT_SIZE = 12
+    POSITION_FONT_SIZE_REDUCTION = 4
 
     def __init__(self, select, changed, preview):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -31,7 +35,6 @@ class CandidateNavigation(Gtk.Box):
         self.expanded_on_update = None
         self.listing = {}
         self.token = None
-        self.submitted_token = None
         self.controls = {}
         self.row_buttons = []
         self.row_identity = None
@@ -41,12 +44,11 @@ class CandidateNavigation(Gtk.Box):
         self.reveal_index = None
         self.scroll_idle = None
         self.header = Gtk.Box(spacing=4, margin_start=8, margin_end=8)
-        self.status = Gtk.Label(xalign=0)
+        self.status = Gtk.Label(xalign=1)
         self.status.set_no_show_all(True)
         self.status.get_style_context().add_class("candidate-secondary")
         self.status.set_ellipsize(Pango.EllipsizeMode.END)
         self.status.set_width_chars(1)
-        self.header.pack_start(self.status, True, True, 0)
         self.pack_start(self.header, False, False, 0)
         self.rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, margin_start=6, margin_end=6)
         self.scroll = Gtk.ScrolledWindow()
@@ -61,7 +63,8 @@ class CandidateNavigation(Gtk.Box):
         self.hint.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.hint.set_width_chars(1)
         self.hint.get_style_context().add_class("candidate-secondary")
-        self.footer.pack_start(self.hint, True, True, 0)
+        self.header.pack_start(self.hint, True, True, 0)
+        self.footer.pack_start(self.status, True, True, 0)
         self.pack_start(self.footer, False, False, 0)
 
     @staticmethod
@@ -79,7 +82,7 @@ class CandidateNavigation(Gtk.Box):
             f"border: 1px solid {palette['border']}; border-radius: 7px; padding: 4px 7px; }}"
             f".candidate-navigation .candidate-row {{ padding: 6px 7px; border-color: transparent; }}"
             f".candidate-navigation button:disabled {{ opacity: 0.45; }}"
-            f".candidate-navigation button:selected, .candidate-navigation .candidate-submit {{"
+            f".candidate-navigation button:selected {{"
             f"background-color: {palette['selection']}; color: {palette['selectionText']};"
             f"border-color: {palette['selectionText']}; }}"
             f".candidate-navigation label {{ color: inherit; }}"
@@ -94,18 +97,21 @@ class CandidateNavigation(Gtk.Box):
         self.active = True
         self.listing = snapshot["candidateDisplay"].get("list") or {}
         previous_selection = self.token[2] if self.token else None
-        selection = self.listing.get("confirmIndex")
+        selection = snapshot.get("selection")
         token = (snapshot.get("contextId"), snapshot.get("generation"), selection,
-                 json.dumps([self.listing.get(key) for key in ("commitText", "remainingText", "confirmLabel")],
+                 json.dumps([self.listing.get(key) for key in ("commitText", "remainingText")],
                             ensure_ascii=False))
         if token != self.token or not self.controls:
             self.token = token
             self.replace_controls()
-        self.status.set_text(self.listing.get("positionText", ""))
+        self.status.set_text(self.listing.get("positionLabel", ""))
+        self.status.get_accessible().set_name(self.listing.get("positionText", ""))
+        self.rows.get_accessible().set_name(self.listing.get("positionText", ""))
+        attributes = Pango.AttrList()
+        position_font_size = max(self.MINIMUM_POSITION_FONT_SIZE, font_size - self.POSITION_FONT_SIZE_REDUCTION)
+        attributes.insert(Pango.attr_size_new_absolute(round(position_font_size * Pango.SCALE)))
+        self.status.set_attributes(attributes)
         self.toggle.set_label(message("candidate.closeList" if self.expanded else "candidate.openList"))
-        self.confirm.set_sensitive(selection is not None and self.submitted_token != self.token)
-        for button, key in ((self.previous, "previousIndex"), (self.next, "nextIndex")):
-            button.set_sensitive(self.listing.get(key) is not None)
         items = self.listing.get("items", [])
         # Selection changes keep rows, their scroll position and hover state.
         identity = json.dumps([snapshot.get("contextId"), [{key: value for key, value in item.items() if key != "selected"}
@@ -140,48 +146,22 @@ class CandidateNavigation(Gtk.Box):
         self.footer.show_all()
         self.status.set_visible(not compact or self.expanded)
         self.hint.set_visible(not compact or self.expanded)
-        has_pages = self.listing.get("previousIndex") is not None or self.listing.get("nextIndex") is not None
-        self.previous.set_visible(self.expanded and has_pages)
-        self.next.set_visible(self.expanded and has_pages)
         self.scroll.set_visible(self.expanded)
         self.set_visible(bool(self.listing))
         self.schedule_scroll_position()
 
     def replace_controls(self):
-        # An AT client can retain the old button or deliver an action later.
-        # A new selection must never inherit that button's confirm action.
+        # An AT client can retain the old toggle across an input context change.
         self.retire_controls()
-        definitions = (
-            ("toggle", message("candidate.closeList"), self.header),
-            ("previous", message("candidate.previousPage"), self.header),
-            ("next", message("candidate.nextPage"), self.header),
-            ("confirm", self.listing.get("confirmLabel", ""), self.footer),
-        )
-        for name, label, container in definitions:
-            button = self.button(lambda source, name=name: self.activate_control(name, source))
-            button.set_label(label)
-            button.activation_token = self.token
-            self.controls[name] = button
-            setattr(self, name, button)
-            container.pack_start(button, False, False, 0)
-        self.confirm.get_style_context().add_class("candidate-submit")
-        self.confirm.set_size_request(-1, self.MINIMUM_CANDIDATE_HEIGHT)
-        self.confirm.get_accessible().set_name(self.listing.get("confirmAccessibleName", ""))
-        self.confirm.get_accessible().set_description(self.listing.get("confirmAccessibleDescription", ""))
+        self.toggle = self.button(self.activate_toggle)
+        self.toggle.set_label(message("candidate.closeList"))
+        self.toggle.activation_token = self.token
+        self.controls["toggle"] = self.toggle
+        self.header.pack_start(self.toggle, False, False, 0)
 
-    def activate_control(self, name, source):
-        if not self.active or self.controls.get(name) is not source:
-            return
-        if name == "confirm":
-            if self.token[2] is None or self.submitted_token == self.token:
-                return
-            self.submitted_token = self.token
-            source.set_sensitive(False)
-            self.select("select", self.token[2], True)
-        elif name == "toggle":
+    def activate_toggle(self, source):
+        if self.active and self.controls.get("toggle") is source:
             self.toggle_list()
-        else:
-            self.move_page("previousIndex" if name == "previous" else "nextIndex")
 
     def candidate_button(self, item, *, font_size):
         button = self.button(lambda source: self.select_candidate(item, source))
@@ -214,11 +194,6 @@ class CandidateNavigation(Gtk.Box):
         if not self.expanded:
             self.clear_rows()
         self.changed()
-
-    def move_page(self, key):
-        index = self.listing.get(key)
-        if self.active and self.expanded and index is not None:
-            self.select("select", index, False)
 
     def select_candidate(self, item, source):
         if self.active and self.expanded and source in self.row_buttons:
@@ -278,7 +253,6 @@ class CandidateNavigation(Gtk.Box):
         self.row_identity = None
         self.saved_scroll = None
         self.reveal_index = None
-        self.submitted_token = None
 
     def schedule_scroll_position(self):
         if (self.saved_scroll is None and self.reveal_index is None) or self.scroll_idle is not None:

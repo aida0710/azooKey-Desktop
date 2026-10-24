@@ -12,10 +12,10 @@ namespace azookey::tsf {
 namespace {
 
 constexpr wchar_t kWindowClassName[] = L"azooKeyTreeCandidatePanel";
-// Secondary labels (numbers, page position, buttons); Core's numberFontSize.
+// Secondary labels stay smaller than the candidate text.
 constexpr float kSmallTextSize = 12;
 constexpr float kPadding = 6;
-constexpr float kRowExtraHeight = 14;  // a row is its text plus 7 above and below, like the tree's words
+constexpr float kRowExtraHeight = 12;  // a row is its text plus 6 above and below, like the tree's words (Core's wordVerticalPadding)
 constexpr float kRowGap = 2;
 constexpr float kCornerRadius = 8;
 constexpr float kNodeRadius = 4;
@@ -194,14 +194,8 @@ void CandidatePanel::LayoutSections(const PanelContent& content, float width) {
             rows_.push_back(std::move(row));
             y += rowHeight + kRowGap;
         }
-        float footerHeight = kSmallTextSize + kRowExtraHeight;
+        float footerHeight = LineHeight(kSmallTextSize);
         footerFrame_ = D2D1::RectF(kPadding, y, width - kPadding, y + footerHeight);
-        float confirmWidth = MeasureText(list.confirmLabel, kSmallTextSize) + 2 * kPadding;
-        confirmFrame_ = D2D1::RectF(footerFrame_.right - confirmWidth, footerFrame_.top + 2, footerFrame_.right, footerFrame_.bottom - 2);
-        float arrowWidth = MeasureText(L"›", kSmallTextSize) + 2 * kPadding;
-        nextFrame_ = D2D1::RectF(confirmFrame_.left - kPadding - arrowWidth, footerFrame_.top, confirmFrame_.left - kPadding,
-                                 footerFrame_.bottom);
-        previousFrame_ = D2D1::RectF(nextFrame_.left - arrowWidth, footerFrame_.top, nextFrame_.left, footerFrame_.bottom);
         y = footerFrame_.bottom + kPadding;
         listBottom_ = y;
     }
@@ -285,7 +279,8 @@ void CandidatePanel::UpdateAccessibility() {
     std::wstring announcement;
     if (content_.display.announcement != lastAnnouncement_) announcement = content_.display.announcement;
     lastAnnouncement_ = content_.display.announcement;
-    accessibility_->Update(std::move(items), announcement);
+    accessibility_->Update(std::move(items), announcement,
+                           content_.display.list ? content_.display.list->positionText : L"azooKey Tree の変換候補");
 }
 
 std::optional<D2D1_RECT_F> CandidatePanel::FocusFrame() const {
@@ -357,15 +352,7 @@ void CandidatePanel::PaintList() {
                  D2D1::RectF(row.frame.left + numberWidth + kPadding / 2, row.frame.top, row.frame.right - kPadding, row.frame.bottom),
                  row.selected ? palette.selectionText : palette.text, DWRITE_TEXT_ALIGNMENT_LEADING);
     }
-    DrawText(list.positionText, labelFormat, D2D1::RectF(footerFrame_.left, footerFrame_.top, previousFrame_.left - kPadding, footerFrame_.bottom),
-             palette.secondaryText, DWRITE_TEXT_ALIGNMENT_LEADING);
-    DrawText(L"‹", labelFormat, previousFrame_, list.previousIndex ? palette.text : palette.border, DWRITE_TEXT_ALIGNMENT_CENTER);
-    DrawText(L"›", labelFormat, nextFrame_, list.nextIndex ? palette.text : palette.border, DWRITE_TEXT_ALIGNMENT_CENTER);
-    uint32_t confirmFill = list.confirmIndex ? palette.selection : palette.surface;
-    uint32_t confirmText = list.confirmIndex ? palette.selectionText : palette.border;
-    FillRounded(confirmFrame_, kNodeRadius, confirmFill);
-    StrokeRounded(confirmFrame_, kNodeRadius, confirmText, 1.0f);
-    DrawText(list.confirmLabel, labelFormat, confirmFrame_, confirmText, DWRITE_TEXT_ALIGNMENT_CENTER);
+    DrawText(list.positionLabel, labelFormat, footerFrame_, palette.secondaryText, DWRITE_TEXT_ALIGNMENT_TRAILING);
 }
 
 void CandidatePanel::PaintTree() {
@@ -399,7 +386,6 @@ void CandidatePanel::PaintTree() {
 
     float strokeWidth = SelectionStrokeWidth(appearance_);
     IDWriteTextFormat* wordFormat = TextFormat(tree.metrics.fontSize);
-    IDWriteTextFormat* numberFormat = TextFormat(tree.metrics.numberFontSize);
     IDWriteTextFormat* scoreFormat = TextFormat(tree.metrics.scoreFontSize);
     for (const auto& layoutNode : tree.nodes) {
         const display::DisplayNode* node = content_.display.FindNode(layoutNode.id);
@@ -431,10 +417,6 @@ void CandidatePanel::PaintTree() {
             brush_->SetColor(Color(badgeColor));
             target_->FillRectangle(badge, brush_);
             DrawText(word->score->label, scoreFormat, badge, palette.scoreText, DWRITE_TEXT_ALIGNMENT_CENTER);
-        }
-        if (layoutNode.numberFrame && node->number) {
-            DrawText(std::to_wstring(*node->number), numberFormat, TreeRect(*layoutNode.numberFrame), textColor,
-                     DWRITE_TEXT_ALIGNMENT_LEADING);
         }
     }
 }
@@ -489,10 +471,6 @@ CandidatePanel::Hit CandidatePanel::HitTest(POINT clientPixels) const {
         for (const auto& row : rows_) {
             if (Contains(row.frame, point)) return {Hit::Kind::Row, row.candidateIndex};
         }
-        const display::CandidateList& list = *content_.display.list;
-        if (list.confirmIndex && Contains(confirmFrame_, point)) return {Hit::Kind::Confirm, *list.confirmIndex};
-        if (list.previousIndex && Contains(previousFrame_, point)) return {Hit::Kind::PreviousPage, *list.previousIndex};
-        if (list.nextIndex && Contains(nextFrame_, point)) return {Hit::Kind::NextPage, *list.nextIndex};
     }
     if (content_.tree) {
         display::Point treePoint{point.x, point.y - treeTop_};
@@ -506,19 +484,12 @@ CandidatePanel::Hit CandidatePanel::HitTest(POINT clientPixels) const {
 void CandidatePanel::Activate(const Hit& hit, bool doubleClick) {
     switch (hit.kind) {
     case Hit::Kind::Row:
-        // A click selects; confirming is explicit (button, Enter or a double click).
+        // A click selects; confirming is explicit (Enter or a double click).
         if (doubleClick) {
             if (actions_.confirmCandidate) actions_.confirmCandidate(hit.value);
         } else if (actions_.selectCandidate) {
             actions_.selectCandidate(hit.value);
         }
-        break;
-    case Hit::Kind::Confirm:
-        if (actions_.confirmCandidate) actions_.confirmCandidate(hit.value);
-        break;
-    case Hit::Kind::PreviousPage:
-    case Hit::Kind::NextPage:
-        if (actions_.selectCandidate) actions_.selectCandidate(hit.value);
         break;
     case Hit::Kind::Node:
         if (actions_.selectNode) actions_.selectNode(hit.value);

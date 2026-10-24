@@ -4,6 +4,13 @@ import Testing
 
 @MainActor
 extension DesktopSegmentEditingTests {
+    private func expectExistingCandidatesPreserved(original: DesktopSnapshot, expanded: DesktopSnapshot) {
+        let preserved = expanded.candidates.prefix(original.candidates.count)
+        #expect(preserved.map(\.index) == original.candidates.map(\.index))
+        #expect(preserved.map(\.text) == original.candidates.map(\.text))
+        #expect(preserved.map(\.commitScope) == original.candidates.map(\.commitScope))
+    }
+
     @Test(arguments: [false, true])
     func liveRowSelectionStaysVisibleUntilExplicitlyCommitted(selectSameCandidate: Bool) throws {
         try withSession(liveConversion: true, treeCandidates: true) { session in
@@ -17,7 +24,7 @@ extension DesktopSegmentEditingTests {
             #expect(selected.commits.isEmpty)
             #expect(selected.reading == initial.reading)
             #expect(selected.selection == candidate.index)
-            #expect(selected.candidates.map(\.text) == initial.candidates.map(\.text))
+            expectExistingCandidatesPreserved(original: initial, expanded: selected)
             #expect(selected.preedit == candidate.text)
 
             let committed = session.select(candidateIndex: candidate.index, submit: true, expectedGeneration: selected.generation)
@@ -38,7 +45,7 @@ extension DesktopSegmentEditingTests {
             #expect(selected.inputState == "selecting")
             #expect(selected.commits.isEmpty)
             #expect(selected.reading == initial.reading)
-            #expect(selected.candidates.map(\.text) == initial.candidates.map(\.text))
+            expectExistingCandidatesPreserved(original: initial, expanded: selected)
             let candidate = try selectedCandidate(selected)
 
             let committed = session.select(candidateIndex: candidate.index, submit: true, expectedGeneration: selected.generation)
@@ -58,7 +65,7 @@ extension DesktopSegmentEditingTests {
             #expect(selected.commits.isEmpty)
             #expect(selected.selection == candidate.index)
             #expect(selected.preedit == candidate.text + remaining)
-            #expect(selected.candidates.map(\.text) == initial.candidates.map(\.text))
+            expectExistingCandidatesPreserved(original: initial, expanded: selected)
             let committed = session.select(candidateIndex: candidate.index, submit: true, expectedGeneration: selected.generation)
             #expect(committed.commits == [candidate.text])
             #expect(committed.reading == remaining)

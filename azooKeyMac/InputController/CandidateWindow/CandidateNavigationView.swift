@@ -12,9 +12,6 @@ final class CandidateNavigationView: NSView {
     var onSelection: ((Int) -> Void)?
     var onPreview: ((Int, NSButton, Bool) -> Void)?
     private let status = NSTextField(labelWithString: "")
-    private let hint = NSTextField(labelWithString: "")
-    private var previous = CandidatePresentationButton()
-    private var next = CandidatePresentationButton()
     private let scroll = NSScrollView()
     private let document = CandidateListDocument()
     private var rows: [CandidateRowButton] = []
@@ -24,10 +21,8 @@ final class CandidateNavigationView: NSView {
     private var generation: UInt = 0
     private var revealSelection = false
     // The list scrolls instead of hiding long candidates behind ellipses.
-    private let maximumListHeight: CGFloat = 260
-    private let headerHeight: CGFloat = 36
-    private let hintHeight: CGFloat = 22
-    private let inset: CGFloat = 8
+    private let statusHeight: CGFloat = 14
+    private let inset: CGFloat = 2
     var selectedCandidateControls: [NSButton] { rows.filter(\.selected) }
 
     func preferredHeight(width: CGFloat) -> CGFloat {
@@ -36,16 +31,22 @@ final class CandidateNavigationView: NSView {
         }
         let rowWidth = max(1, width - inset * 2)
         let contentHeight = rows.reduce(CGFloat.zero) { $0 + $1.preferredHeight(width: rowWidth) }
-        return headerHeight + hintHeight + min(maximumListHeight, contentHeight)
+        let visibleHeight = rows.prefix(MacCandidateMetrics.visibleRows).reduce(CGFloat.zero) {
+            $0 + $1.preferredHeight(width: rowWidth)
+        }
+        return statusHeight + inset * 2 + min(visibleHeight, contentHeight)
     }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         isHidden = true
-        for view in [status, hint, previous, next, scroll] { addSubview(view) }
-        status.font = .systemFont(ofSize: 13, weight: .medium)
-        hint.font = .systemFont(ofSize: 12)
-        hint.stringValue = Localization.text("candidate.selectHint")
+        for view in [status, scroll] { addSubview(view) }
+        status.font = CandidateNumberFont.make(size: 10, weight: .regular)
+        status.alignment = .right
+        status.setAccessibilityIdentifier("candidate-position")
+        setAccessibilityIdentifier("candidate-list")
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
         scroll.documentView = document
         scroll.hasVerticalScroller = true
         scroll.scrollerStyle = .overlay
@@ -77,9 +78,7 @@ final class CandidateNavigationView: NSView {
             button.state = button.selected ? .on : .off
             button.setAccessibilityValue(button.selected ? Localization.text("candidate.selected") : "")
         }
-        updatePagingButtons()
-        status.stringValue = String(format: Localization.text("candidate.position"),
-                                    page.position.map(String.init) ?? "—", String(page.totalCount))
+        status.stringValue = "\(page.position.map(String.init) ?? "—")/\(page.totalCount)"
         needsLayout = true
     }
 
@@ -104,51 +103,35 @@ final class CandidateNavigationView: NSView {
         }
     }
 
-    private func updatePagingButtons() {
-        // A queued page action keeps its original page, even if indices are reused.
-        for button in [previous, next] {
-            button.activate = nil
-            button.removeFromSuperview()
-        }
-        previous = pageButton(titleKey: "candidate.previousPage", index: page.previousIndex)
-        next = pageButton(titleKey: "candidate.nextPage", index: page.nextIndex)
-        addSubview(previous)
-        addSubview(next)
+    var preferredWidth: CGFloat {
+        min(MacCandidateMetrics.maximumListWidth,
+            max(MacCandidateMetrics.minimumListWidth, (rows.map(\.preferredWidth).max() ?? 0) + inset * 2))
     }
 
-    private func pageButton(titleKey: String, index: Int?) -> CandidatePresentationButton {
-        let button = CandidatePresentationButton()
-        button.title = Localization.text(titleKey)
-        button.isEnabled = index != nil
-        button.activate = { [weak self, weak button] in
-            guard let self, let button, let index, !self.isHidden,
-                  self.previous === button || self.next === button else {
-                return
-            }
-            self.onSelection?(index)
-        }
-        return button
+    var selectedRowTop: CGFloat {
+        let width = preferredWidth - inset * 2
+        let preceding = rows.prefix(while: { !$0.selected }).reduce(CGFloat.zero) { $0 + $1.preferredHeight(width: width) }
+        let rowHeight = rows.first(where: \.selected)?.preferredHeight(width: width) ?? 0
+        let viewportHeight = preferredHeight(width: preferredWidth) - statusHeight - inset * 2
+        // Match scrollToVisible when a keyboard selection moves below the viewport.
+        let scrollOffset = max(scroll.documentVisibleRect.minY, preceding + rowHeight - viewportHeight)
+        return inset + max(0, preceding - scrollOffset)
+    }
+
+    func updateDefinitions(availableIndices: Set<Int>) {
+        rows.forEach { $0.hasDefinition = availableIndices.contains($0.candidateIndex) }
     }
 
     func applyPalette(_ palette: CandidatePalette) {
         status.textColor = palette.secondaryText
-        hint.textColor = palette.secondaryText
-        (rows as [NSButton] + [previous, next]).forEach { $0.needsDisplay = true }
+        rows.forEach { $0.needsDisplay = true }
     }
 
     override func layout() {
         super.layout()
-        let pageWidth: CGFloat = 62
-        let controlsWidth = pageWidth * 2 + 8
-        status.frame = NSRect(x: inset, y: bounds.height - headerHeight + 8,
-                              width: max(1, bounds.width - inset * 2 - controlsWidth), height: 20)
-        previous.frame = NSRect(x: bounds.width - inset - controlsWidth, y: bounds.height - headerHeight + 2,
-                                width: pageWidth, height: 32)
-        next.frame = NSRect(x: bounds.width - inset - pageWidth, y: previous.frame.minY,
-                            width: pageWidth, height: 32)
-        hint.frame = NSRect(x: inset + 4, y: 3, width: max(1, bounds.width - inset * 2), height: 20)
-        scroll.frame = NSRect(x: inset, y: hintHeight, width: max(1, bounds.width - inset * 2),
-                              height: max(0, bounds.height - headerHeight - hintHeight))
+        status.frame = NSRect(x: inset, y: inset, width: max(1, bounds.width - inset * 2), height: statusHeight)
+        scroll.frame = NSRect(x: inset, y: statusHeight + inset, width: max(1, bounds.width - inset * 2),
+                              height: max(0, bounds.height - statusHeight - inset * 2))
         var y: CGFloat = 0
         for button in rows {
             let height = button.preferredHeight(width: scroll.contentSize.width)

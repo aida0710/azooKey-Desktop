@@ -30,7 +30,7 @@ struct PanelContent {
     std::optional<display::TreeLayout> tree;  // set when the word tree is drawn
     bool showList = false;                    // the numbered page of full candidates
     bool showScores = false;
-    float fontSize = 18;                      // candidate text, after the text-size setting
+    float fontSize = 14;                      // candidate text, after the text-size setting
 };
 
 class CandidatePanel {
@@ -70,7 +70,7 @@ private:
     };
 
     struct Hit {
-        enum class Kind { None, Row, Node, PreviousPage, NextPage, Confirm } kind = Kind::None;
+        enum class Kind { None, Row, Node } kind = Kind::None;
         int value = 0;
     };
 
@@ -129,7 +129,7 @@ private:
     float scrollOffset_ = 0;  // DIPs of content above the panel's top edge
     // List section
     std::vector<ListRow> rows_;
-    D2D1_RECT_F previousFrame_{}, nextFrame_{}, confirmFrame_{}, footerFrame_{};
+    D2D1_RECT_F footerFrame_{};
     float listBottom_ = 0;
     // Tree section starts here (DIPs from the panel's top).
     float treeTop_ = 0;

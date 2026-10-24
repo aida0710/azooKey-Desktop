@@ -5,24 +5,17 @@ import XCTest
 
 @MainActor
 final class CandidateNumberRenderingTests: XCTestCase {
-    func testNumberedCandidatesRenderAtEveryConfiguredTextSize() throws {
-        // Leave enough room for the word and its lower-left number at both text sizes.
-        let candidateWidth: CGFloat = 120
+    func testListNumbersRenderAtEveryConfiguredTextSize() throws {
+        let page = CandidatePage(entries: [.init(text: "日本語", tokens: [], candidateIndex: 0)], selectionIndex: 0)
         for textSize in Config.CandidateTextSize.Value.allCases {
-            let fontSize = CGFloat(CandidateTextMetrics.baseFontSize(textSize))
-            let button = TreeButton(frame: NSRect(
-                x: 0, y: 0, width: candidateWidth, height: TreeButton.preferredHeight(fontSize: fontSize, hasNumber: true)
-            ))
-            button.font = .systemFont(ofSize: fontSize)
-            button.title = "日本語"
             for number in ["1", "8", "9"] {
-                button.candidateNumber = number
-                let badge = try XCTUnwrap(button.numberBadgeFrame)
-                XCTAssertGreaterThan(badge.width, 0)
-                XCTAssertTrue(button.bounds.contains(badge))
-                let bitmap = try XCTUnwrap(button.bitmapImageRepForCachingDisplay(in: button.bounds))
-                button.cacheDisplay(in: button.bounds, to: bitmap)
+                let row = CandidateRowButton(item: try XCTUnwrap(page.items.first), number: number,
+                                             fontSize: MacCandidateMetrics.fontSize(textSize))
+                row.frame = NSRect(x: 0, y: 0, width: 160, height: row.preferredHeight(width: 160))
+                let bitmap = try XCTUnwrap(row.bitmapImageRepForCachingDisplay(in: row.bounds))
+                row.cacheDisplay(in: row.bounds, to: bitmap)
                 XCTAssertNotNil(bitmap.representation(using: .png, properties: [:]))
+                XCTAssertEqual(row.title, "\(number). 日本語")
             }
         }
     }

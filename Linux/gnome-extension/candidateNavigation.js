@@ -10,6 +10,9 @@ import {serializeCandidateIdentity} from './candidateIdentity.js';
 const ROW_VERTICAL_INSET = 5;
 const ROW_HORIZONTAL_INSET = 8;
 const MINIMUM_CONTENT_HEIGHT = 32;
+// Secondary text stays readable while smaller than candidate text.
+const MINIMUM_POSITION_FONT_SIZE = 12;
+const POSITION_FONT_SIZE_REDUCTION = 4;
 
 export class CandidateNavigation {
     constructor({select, changed, preview}) {
@@ -21,10 +24,8 @@ export class CandidateNavigation {
         this.expanded = true;
         this.actor = new St.BoxLayout({vertical: true, can_focus: false});
         this._header = new St.BoxLayout();
-        this._status = new St.Label({x_expand: true, y_align: Clutter.ActorAlign.CENTER});
-        this._status.set_width(1);
-        this._header.add_child(this._status);
-        this._replaceHeaderButtons();
+        this._status = new St.Label({x_expand: true, x_align: Clutter.ActorAlign.END, y_align: Clutter.ActorAlign.CENTER});
+        this._replaceToggle();
         this.actor.add_child(this._header);
         this._hint = new St.Label({text: messages.selectHint});
         this.actor.add_child(this._hint);
@@ -33,26 +34,20 @@ export class CandidateNavigation {
         this._rows = new St.BoxLayout({vertical: true});
         this._scroll.set_child(this._rows);
         this.actor.add_child(this._scroll);
+        this.actor.add_child(this._status);
         const adjustment = this._scroll.get_vadjustment();
         for (const property of ['page-size', 'upper'])
             adjustment.connect(`notify::${property}`, () => this._revealSelection());
     }
 
-    _replaceHeaderButtons() {
-        for (const button of [this._toggle, this._previous, this._next])
-            button?.destroy();
+    _replaceToggle() {
+        this._toggle?.destroy();
         this._toggle = this._button(() => {
             this.expanded = !this.expanded;
             if (!this.expanded) this._clearPreview();
             this._changed();
         });
-        this._previous = this._button(button => this._selectPage(button));
-        this._next = this._button(button => this._selectPage(button));
-        for (const button of [this._toggle, this._previous, this._next]) this._header.add_child(button);
-    }
-
-    _selectPage(button) {
-        if (this.expanded) this._select(button._pressedAction ?? button._selection);
+        this._header.add_child(this._toggle);
     }
 
     _button(activate) {
@@ -81,25 +76,19 @@ export class CandidateNavigation {
             return 0;
         }
         const actionIdentity = JSON.stringify([
-            snapshot.contextId, snapshot.generation, listing.confirmIndex, this.expanded,
-            listing.previousIndex, listing.nextIndex,
+            snapshot.contextId, snapshot.generation, snapshot.selection, this.expanded,
         ]);
         if (actionIdentity !== this._actionIdentity) {
             this._actionIdentity = actionIdentity;
-            this._replaceHeaderButtons();
+            this._replaceToggle();
         }
         const action = (index, submit) => new GLib.Variant('(sibis)',
             ['select', index, submit, snapshot.generation, snapshot.contextId]);
-        this._status.text = listing.positionText;
+        this._status.text = listing.positionLabel;
+        this._status.accessible_name = listing.positionText;
+        this._rows.accessible_name = listing.positionText;
+        this._status.set_style(`font-size: ${Math.max(MINIMUM_POSITION_FONT_SIZE, fontSize - POSITION_FONT_SIZE_REDUCTION)}px; padding: 0 ${ROW_HORIZONTAL_INSET}px;`);
         this._toggle.label = this.expanded ? messages.closeList : messages.openList;
-        for (const [button, index, label] of [
-            [this._previous, listing.previousIndex, messages.previousPage],
-            [this._next, listing.nextIndex, messages.nextPage]]) {
-            button.label = label;
-            button.reactive = index !== null && index !== undefined;
-            button._selection = button.reactive ? action(index, false) : null;
-            button.visible = this.expanded;
-        }
         // Selection changes keep rows, their scroll position and hover state.
         const items = listing.items.map(({selected, ...item}) => item);
         const pageIdentity = serializeCandidateIdentity([items, snapshot.contextId, fontSize]);
@@ -158,7 +147,7 @@ export class CandidateNavigation {
             // St exposes no selected state, so the name carries it.
             button.accessible_name = [item.accessibleName, item.selected ? messages.selected : null].filter(Boolean).join('\n');
         }
-        const revealIdentity = JSON.stringify([snapshot.contextId, listing.items[0].index, listing.confirmIndex]);
+        const revealIdentity = JSON.stringify([snapshot.contextId, listing.items[0].index, snapshot.selection]);
         if (revealIdentity !== this._revealIdentity) {
             this._revealIdentity = revealIdentity;
             this._revealPending = true;
@@ -170,6 +159,7 @@ export class CandidateNavigation {
         this._scroll.visible = this.expanded;
         this._revealSelection();
         return this._header.get_preferred_height(width)[1] + this._hint.get_preferred_height(width)[1] +
+            this._status.get_preferred_height(width)[1] +
             (this.expanded ? height : 0);
     }
 
@@ -204,8 +194,8 @@ export class CandidateNavigation {
 
     retire({preserveViewport = false} = {}) {
         this._clearPreview();
-        for (const button of [this._toggle, this._previous, this._next]) button?.destroy();
-        this._toggle = this._previous = this._next = null;
+        this._toggle?.destroy();
+        this._toggle = null;
         this._actionIdentity = null;
         this._identity = null;
         this._pageIdentity = null;
@@ -224,7 +214,7 @@ export class CandidateNavigation {
 
     applyPalette(palette) {
         this.actor.set_style(`background-color: ${palette.background}; color: ${palette.text};`);
-        for (const button of [this._toggle, this._previous, this._next, ...this._rows.get_children()].filter(Boolean)) {
+        for (const button of [this._toggle, ...this._rows.get_children()].filter(Boolean)) {
             const foreground = button.checked ? palette.selectionText : palette.text;
             const background = button.checked ? palette.selection : palette.surface;
             button.set_style(`background-color: ${background}; color: ${foreground};

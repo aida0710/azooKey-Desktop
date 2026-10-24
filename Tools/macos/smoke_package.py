@@ -53,7 +53,11 @@ def install_package(evidence, *, archive, tag, backend):
         archive.parent.rmdir()
     require_success(evidence.run("codesign-verify", ["codesign", "--verify", "--deep", "--strict", str(app)]),
                     "Package signature verification")
-    evidence.run("codesign-details", ["codesign", "-d", "--entitlements", ":-", str(app)])
+    signature = require_success(evidence.run("codesign-details", ["codesign", "-d", "--entitlements", ":-", str(app)]),
+                                "Read package entitlements")
+    entitlements = plistlib.loads(signature.stdout.encode())
+    if entitlements.get("com.apple.security.app-sandbox") is not True:
+        raise RuntimeError("The distribution must keep App Sandbox enabled")
     evidence.run("bundle-files", ["find", str(app), "-type", "f"])
     evidence.run("linked-libraries", ["otool", "-L", str(app / "Contents/MacOS/azooKeyMac")])
     with (app / "Contents/Info.plist").open("rb") as source:

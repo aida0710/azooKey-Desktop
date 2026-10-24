@@ -7,10 +7,13 @@ final class CandidateRowButton: CandidatePresentationButton {
     let candidateIndex: Int
     private let candidateText: String
     private let number: String?
-    private let horizontalInset: CGFloat = 8
-    private let numberWidth: CGFloat = 28
-    private let checkWidth: CGFloat = 24
-    private let verticalInset: CGFloat = 8
+    private let horizontalInset: CGFloat = 4
+    private let numberWidth: CGFloat = 16
+    private let definitionIconWidth: CGFloat = 16
+    private let verticalInset: CGFloat = 2
+    var hasDefinition = false {
+        didSet { needsDisplay = true }
+    }
 
     init(item: CandidatePage.Item, number: String?, fontSize: CGFloat) {
         candidateIndex = item.index
@@ -26,60 +29,61 @@ final class CandidateRowButton: CandidatePresentationButton {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private var textInset: CGFloat { horizontalInset + (number == nil ? 0 : numberWidth + 10) }
+    private var textInset: CGFloat { horizontalInset + (number == nil ? 0 : numberWidth + 4) }
 
     private var textAttributes: [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byCharWrapping
-        paragraph.lineSpacing = 3
+        paragraph.lineSpacing = 0
         return [.font: font ?? NSFont.systemFont(ofSize: 18), .paragraphStyle: paragraph]
     }
 
     func preferredHeight(width: CGFloat) -> CGFloat {
-        let textWidth = max(1, width - textInset - checkWidth - horizontalInset)
+        let textWidth = max(1, width - textInset - definitionIconWidth - horizontalInset)
         let height = (candidateText as NSString).boundingRect(
             with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: textAttributes
         ).height
-        // Keep a 44-point pointer target while reducing the space around each line.
-        return max(44, ceil(height) + verticalInset * 2)
+        return ceil(height) + verticalInset * 2
+    }
+
+    var preferredWidth: CGFloat {
+        ceil((candidateText as NSString).size(withAttributes: textAttributes).width) +
+            textInset + definitionIconWidth + horizontalInset
     }
 
     override func draw(_ dirtyRect: NSRect) {
         let palette = CandidateTheme.palette(for: effectiveAppearance)
         let foreground = selected ? palette.selectionText : palette.text
-        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 2), xRadius: 9, yRadius: 9)
-        (selected ? palette.selection : palette.surface).setFill()
-        shape.fill()
         if selected {
-            palette.border.setStroke()
-            shape.lineWidth = 1
-            shape.stroke()
+            palette.selection.setFill()
+            NSBezierPath(roundedRect: bounds, xRadius: 3, yRadius: 3).fill()
         }
         var attributes = textAttributes
         attributes[.foregroundColor] = foreground
         let textRect = NSRect(x: textInset, y: verticalInset,
-                              width: max(1, bounds.width - textInset - checkWidth - horizontalInset),
+                              width: max(1, bounds.width - textInset - definitionIconWidth - horizontalInset),
                               height: max(1, bounds.height - verticalInset * 2))
         (candidateText as NSString).draw(with: textRect, options: [.usesLineFragmentOrigin, .usesFontLeading],
                                        attributes: attributes)
         if let number {
-            let badge = NSRect(x: horizontalInset, y: bounds.height - verticalInset - numberWidth,
-                               width: numberWidth, height: numberWidth)
-            foreground.setStroke()
-            NSBezierPath(roundedRect: badge.insetBy(dx: 1, dy: 1), xRadius: 5, yRadius: 5).stroke()
             let numberAttributes: [NSAttributedString.Key: Any] = [
-                .font: CandidateNumberFont.make(size: max(14, (font?.pointSize ?? 18) - 4), weight: .medium),
-                .foregroundColor: foreground
+                .font: CandidateNumberFont.make(size: max(10, (font?.pointSize ?? 12) - 2), weight: .regular),
+                .foregroundColor: selected ? foreground : palette.secondaryText
             ]
             let size = (number as NSString).size(withAttributes: numberAttributes)
-            (number as NSString).draw(at: NSPoint(x: badge.midX - size.width / 2, y: badge.midY - size.height / 2),
-                                     withAttributes: numberAttributes)
+            (number as NSString).draw(at: NSPoint(x: horizontalInset + (numberWidth - size.width) / 2,
+                                                y: (bounds.height - size.height) / 2), withAttributes: numberAttributes)
         }
-        if selected {
-            ("✓" as NSString).draw(at: NSPoint(x: bounds.width - checkWidth - horizontalInset, y: bounds.height - 34),
-                                    withAttributes: [.font: NSFont.systemFont(ofSize: 18, weight: .medium),
-                                                     .foregroundColor: foreground])
+        if hasDefinition, let icon = NSImage(systemSymbolName: "book", accessibilityDescription: nil) {
+            let iconSize: CGFloat = 11 // An availability mark stays secondary to the candidate word.
+            let attachment = NSTextAttachment()
+            attachment.image = icon
+            attachment.bounds = NSRect(x: 0, y: 0, width: iconSize, height: iconSize)
+            let iconText = NSMutableAttributedString(attachment: attachment)
+            iconText.addAttribute(.foregroundColor, value: foreground, range: NSRange(location: 0, length: iconText.length))
+            iconText.draw(in: NSRect(x: bounds.width - definitionIconWidth, y: (bounds.height - iconSize) / 2,
+                                    width: iconSize, height: iconSize))
         }
     }
 }

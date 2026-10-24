@@ -72,12 +72,12 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     let list = CandidateDisplay(try input())
     #expect(list.mode == .list)
     #expect(list.columns == [[10, 11], [12]])
-    #expect(CandidateDisplay(try input(["focusedNode": 12])).columns == [[10], [12, 13]])
+    #expect(CandidateDisplay(try input(["focusedNode": 12])).columns == [[10], [12]])
     #expect(CandidateDisplay(try input(["columns": [[Int]](), "inputState": "composing"])).mode == .hidden)
     #expect(CandidateDisplay(try input(["nodes": [Any](), "inputState": "selecting"])).mode == .hidden)
 }
 
-@Test func nodeNumbersComeFromThePreviewCandidateOnTheCurrentPage() throws {
+@Test func treeWordsCarryNoNumberBadgesEvenWhenNumberKeysWork() throws {
     let nodes: [[String: Any]] = [
         ["id": 0, "text": "日本", "reading": "ニホン", "preview": ["candidateIndex": 9, "text": "日本に行く"]],
         ["id": 1, "text": "二本", "reading": "ニホン", "preview": ["candidateIndex": 12, "text": "二本"]],
@@ -86,14 +86,17 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     let page: [String: Any] = ["start": 9, "position": 1, "totalCount": 20, "items": [Any]()]
     let changes: [String: Any] = ["nodes": nodes, "columns": [[0, 1], [2]], "selectedPath": [0, 2],
                                   "focusedNode": 0, "selection": 9, "candidatePage": page]
-    let live = CandidateDisplay(try input(changes.merging(["inputState": "composing"]) { _, new in new }))
-    #expect(live.nodes.map(\.number) == [1, 4, nil])
-    #expect(live.showsNumbers)
-    #expect(live.nodes[0].accessibleDescription.hasSuffix(text("numberBadge", "1")))
-    let unnumbered = CandidateDisplay(try input(changes.merging(["showCandidateIndex": false]) { _, new in new }))
-    #expect(unnumbered.nodes.allSatisfy { $0.number == nil } && !unnumbered.showsNumbers)
-    let numbered = CandidateDisplay(try input(changes.merging(["showCandidateIndex": true]) { _, new in new }))
-    #expect(numbered.nodes.map(\.number) == [1, 4, nil])
+    for state: [String: Any] in [["inputState": "composing"], ["showCandidateIndex": true]] {
+        let display = CandidateDisplay(try input(changes.merging(state) { _, new in new }))
+        let encoded = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(display)) as? [String: Any])
+        let encodedNodes = try #require(encoded["nodes"] as? [[String: Any]])
+        #expect(encodedNodes.count == 3 && encodedNodes.allSatisfy { $0["number"] == nil }, "\(state)")
+        #expect(encoded["showsNumbers"] == nil)
+    }
+    // Number keys do not add a number to the words' spoken descriptions either.
+    let withKeys = CandidateDisplay(try input(changes.merging(["showCandidateIndex": true]) { _, new in new }))
+    let withoutKeys = CandidateDisplay(try input(changes.merging(["showCandidateIndex": false]) { _, new in new }))
+    #expect(withKeys.nodes.map(\.accessibleDescription) == withoutKeys.nodes.map(\.accessibleDescription))
 }
 
 @Test func nodeTextExplainsTheTargetDetailsAndScore() throws {
@@ -113,7 +116,7 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     #expect(hidden.detailNode == 10)
 }
 
-@Test func listExplainsTheCommitConfirmActionAndPage() throws {
+@Test func listKeepsSpokenPositionAndShowsCompactPositionWithoutButtons() throws {
     let page: [String: Any] = [
         "start": 0, "position": 1, "totalCount": 12, "nextIndex": 9,
         "items": [["index": 0, "text": "日本に行く", "reading": "にほんにいく", "detailDescription": "確定予定: 日本に行く"],
@@ -124,17 +127,20 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     #expect(list.title == text("composition") && list.commitText == "日本に行く")
     #expect(list.readingText == text("announceReading", "にほんにいく") && list.remainingText == nil)
     #expect(list.positionText == text("position", "1", "12"))
-    #expect(list.keyboardConfirmsCandidate && list.confirmLabel == text("submit") + " ↵")
-    #expect(list.confirmAccessibleName == text("submit") + " 日本に行く")
-    #expect(list.confirmAccessibleDescription == text("confirm"))
-    #expect(list.confirmIndex == 0 && list.previousIndex == nil && list.nextIndex == 9)
+    #expect(list.positionLabel == "1/12")
+    let encoded = try JSONEncoder().encode(list)
+    let object = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    for removed in ["confirmLabel", "confirmAccessibleName", "confirmAccessibleDescription", "confirmIndex", "previousIndex", "nextIndex",
+                    "keyboardConfirmsCandidate"] {
+        #expect(object[removed] == nil)
+    }
     #expect(list.items.map(\.number) == [1, 2] && list.items.map(\.selected) == [true, false])
     #expect(list.items[1].accessibleName == text("withReading", "日本に行く", "にっぽんにいく"))
     #expect(list.items[1].accessibleDescription == text("select") + "\n確定予定: 日本に行く")
 
     let proposal = try #require(CandidateDisplay(try input(["inputState": "composing", "candidatePage": page])).list)
-    #expect(proposal.title == text("proposal") && proposal.confirmLabel == text("submitCandidate"))
-    #expect(!proposal.keyboardConfirmsCandidate && proposal.items.allSatisfy { $0.number == nil })
+    #expect(proposal.title == text("proposal"))
+    #expect(proposal.items.allSatisfy { $0.number == nil })
     #expect(try CandidateDisplay(input(["selection": NSNull(), "candidates": [Any]()])).list == nil)
 }
 
@@ -154,4 +160,15 @@ private func input(_ changes: [String: Any] = [:]) throws -> CandidateDisplayInp
     let encoded = try JSONEncoder().encode(CandidateScorePresentation(relativeScore: 40))
     let object = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
     #expect(object["role"] as? String == "scoreLow")
+}
+
+@Test func compactPositionKeepsOneBasedPagesAndUnselectedPlaceholder() throws {
+    for (position, label) in [(2, "2/347"), (347, "347/347")] {
+        let display = CandidateDisplay(try input(["candidatePage": ["position": position, "totalCount": 347]]))
+        #expect(display.list?.positionLabel == label)
+        #expect(display.list?.positionText == text("position", String(position), "347"))
+    }
+    let display = CandidateDisplay(try input(["candidatePage": ["totalCount": 347]]))
+    #expect(display.list?.positionLabel == "—/347")
+    #expect(display.list?.positionText == text("position", "—", "347"))
 }
