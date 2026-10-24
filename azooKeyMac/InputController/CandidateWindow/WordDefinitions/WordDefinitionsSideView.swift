@@ -7,14 +7,14 @@ final class WordDefinitionsSideView: NSView {
     private let inset: CGFloat = 6
     // Only a short excerpt belongs beside a candidate; the full dictionary stays in Dictionary.app.
     private let maximumSummaryCharacters = 180
-    private let maximumSummaryLines = 3
+    // Five lines give definitions context without letting the card dominate the candidate list.
+    private let maximumSummaryLines = 5
     private(set) var hasDefinition = false
 
     var preferredHeight: CGFloat {
         let width = MacCandidateMetrics.definitionWidth - inset * 2
         let measured = summary.sizeThatFits(NSSize(width: width, height: .greatestFiniteMagnitude)).height
-        let lineHeight = ceil((summary.font?.ascender ?? 0) - (summary.font?.descender ?? 0))
-        return inset * 2 + heading.intrinsicContentSize.height + min(measured, lineHeight * CGFloat(maximumSummaryLines))
+        return inset * 2 + heading.intrinsicContentSize.height + ceil(measured)
     }
 
     override init(frame: NSRect) {
@@ -26,7 +26,8 @@ final class WordDefinitionsSideView: NSView {
         setAccessibilityRole(.group)
         setAccessibilityIdentifier("candidate-definition")
         summary.maximumNumberOfLines = maximumSummaryLines
-        summary.lineBreakMode = .byTruncatingTail
+        summary.lineBreakMode = .byWordWrapping
+        summary.cell?.truncatesLastVisibleLine = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

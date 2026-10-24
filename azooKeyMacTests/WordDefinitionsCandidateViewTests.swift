@@ -67,4 +67,138 @@ final class WordDefinitionsCandidateViewTests: XCTestCase {
         XCTAssertFalse(card.hasDefinition)
         XCTAssertEqual(card.accessibilityLabel(), "")
     }
+
+    func testEnglishAndJapaneseDefinitionsWrapAndCardFitsTheVisibleLines() throws {
+        for fontSize: CGFloat in [12, 16] {
+            for text in [
+                "A procedure intended to establish the quality of something.",
+                "物事の性質や能力を確かめるために行う試験や検査。"
+            ] {
+                let card = WordDefinitionsSideView(frame: .zero)
+                card.update(word: "test", result: .definition("短文"), fontSize: fontSize)
+                let singleLineHeight = card.preferredHeight
+                card.update(word: "test", result: .definition(text), fontSize: fontSize)
+                let summary = try summaryField(in: card)
+                layout(card)
+
+                XCTAssertEqual(summary.lineBreakMode, .byWordWrapping)
+                XCTAssertGreaterThan(card.preferredHeight, singleLineHeight, text)
+                XCTAssertLessThan(summary.frame.height, height(of: 5, in: summary), text)
+                XCTAssertEqual(summary.frame.height, ceil(summary.sizeThatFits(
+                    NSSize(width: summary.bounds.width, height: .greatestFiniteMagnitude)).height))
+                XCTAssertTrue(card.bounds.contains(summary.frame))
+                let heading = try XCTUnwrap(card.subviews.compactMap { $0 as? NSTextField }.first { $0 !== summary })
+                XCTAssertEqual(summary.frame.maxY, heading.frame.minY)
+                XCTAssertEqual(summary.frame.minY, card.bounds.maxY - heading.frame.maxY)
+                XCTAssertEqual(summary.frame.minX, card.bounds.maxX - summary.frame.maxX)
+            }
+        }
+    }
+
+    func testLongDefinitionsStopAtFiveLinesAndShrinkWhenReplaced() throws {
+        for fontSize: CGFloat in [12, 16] {
+            for text in [String(repeating: "mmmm ", count: 100), String(repeating: "長い説明です。", count: 100)] {
+                let card = WordDefinitionsSideView(frame: .zero)
+                card.update(word: "test", result: .definition(text), fontSize: fontSize)
+                let summary = try summaryField(in: card)
+                layout(card)
+                let cappedHeight = card.preferredHeight
+
+                XCTAssertEqual(summary.maximumNumberOfLines, 5)
+                XCTAssertEqual(summary.cell?.truncatesLastVisibleLine, true)
+                XCTAssertEqual(summary.frame.height, height(of: 5, in: summary))
+                let unlimited = NSTextField(wrappingLabelWithString: summary.stringValue)
+                unlimited.font = summary.font
+                XCTAssertGreaterThan(unlimited.sizeThatFits(NSSize(width: summary.bounds.width,
+                    height: .greatestFiniteMagnitude)).height, summary.frame.height)
+
+                card.update(word: "test", result: .definition("短文"), fontSize: fontSize)
+                layout(card)
+                XCTAssertEqual(summary.frame.height, height(of: 1, in: summary))
+                XCTAssertLessThan(card.preferredHeight, cappedHeight)
+            }
+        }
+    }
+
+    func testLongEnglishDefinitionDrawsFiveLinesAndAnEllipsis() throws {
+        let card = WordDefinitionsSideView(frame: .zero)
+        card.update(word: "test", result: .definition(String(repeating: "mmmm ", count: 100)), fontSize: 16)
+        layout(card)
+        let summary = try summaryField(in: card)
+        let truncated = try drawSummary(summary)
+        var visibleLines = 0
+        var previousRowContainsText = false
+        for row in 0..<truncated.pixelsHigh {
+            let containsText = (0..<truncated.pixelsWide).contains { column in
+                (truncated.colorAt(x: column, y: row)?.alphaComponent ?? 0) > 0.25
+            }
+            if containsText && !previousRowContainsText { visibleLines += 1 }
+            previousRowContainsText = containsText
+        }
+        XCTAssertEqual(visibleLines, 5, "The rendered cell must contain five separate lines of text")
+        summary.cell?.truncatesLastVisibleLine = false
+        let clipped = try drawSummary(summary)
+        XCTAssertNotEqual(truncated.representation(using: .png, properties: [:]),
+                          clipped.representation(using: .png, properties: [:]),
+                          "Overflow must draw an ellipsis rather than only clipping the text")
+    }
+
+    func testDefinitionAtLastRowStaysInsideAHeightConstrainedCandidateView() throws {
+        let availability = WordDefinitionsAvailabilityModel(check: { words, completion in
+            completion(words.map { _ in true })
+        }, cancel: {})
+        let model = WordDefinitionsModel(search: { _, completion in
+            completion(String(repeating: "長い説明です。", count: 100))
+        }, cancelPending: {}, availability: availability)
+        let view = CandidateTreeView(frame: .zero, definitions: model)
+        let entries = (0..<7).map { CandidateTree.Entry(text: "候補\($0)", tokens: [], candidateIndex: $0) }
+        view.update(entries: entries, selectionIndex: 6, enterConfirmsCandidate: true)
+        view.setFrameSize(view.preferredSize)
+        view.layoutSubtreeIfNeeded()
+        let card = try XCTUnwrap(descendants(view).compactMap { $0 as? WordDefinitionsSideView }.first)
+        let list = try XCTUnwrap(descendants(view).compactMap { $0 as? CandidateNavigationView }.first)
+        XCTAssertFalse(card.isHidden)
+        XCTAssertEqual(view.bounds.height - card.frame.maxY, list.selectedRowTop)
+        XCTAssertEqual(card.frame.height, card.preferredHeight)
+        XCTAssertTrue(view.bounds.contains(card.frame))
+
+        for availableHeight in [card.preferredHeight + list.selectedRowTop / 2, card.preferredHeight / 2] {
+            view.setFrameSize(NSSize(width: view.preferredSize.width, height: availableHeight))
+            view.layoutSubtreeIfNeeded()
+            XCTAssertTrue(view.bounds.contains(card.frame))
+            XCTAssertEqual(card.frame.minY, 0)
+            XCTAssertEqual(card.frame.height, min(availableHeight, card.preferredHeight))
+        }
+    }
+
+    private func summaryField(in card: WordDefinitionsSideView) throws -> NSTextField {
+        try XCTUnwrap(card.subviews.compactMap { $0 as? NSTextField }.first { $0.maximumNumberOfLines > 1 })
+    }
+
+    private func layout(_ card: WordDefinitionsSideView) {
+        card.setFrameSize(NSSize(width: MacCandidateMetrics.definitionWidth, height: card.preferredHeight))
+        card.layoutSubtreeIfNeeded()
+    }
+
+    private func height(of lines: Int, in summary: NSTextField) -> CGFloat {
+        let reference = NSTextField(wrappingLabelWithString: Array(repeating: String(summary.stringValue.prefix(1)), count: lines).joined(separator: "\n"))
+        reference.font = summary.font
+        return ceil(reference.sizeThatFits(NSSize(width: summary.bounds.width, height: .greatestFiniteMagnitude)).height)
+    }
+
+    private func drawSummary(_ summary: NSTextField) throws -> NSBitmapImageRep {
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil,
+            pixelsWide: Int(ceil(summary.bounds.width)), pixelsHigh: Int(ceil(summary.bounds.height)),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let context = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: bitmap))
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = context
+        NSColor.clear.setFill()
+        summary.bounds.fill(using: .copy)
+        summary.textColor = .black
+        try XCTUnwrap(summary.cell).draw(withFrame: summary.bounds, in: summary)
+        return bitmap
+    }
 }
